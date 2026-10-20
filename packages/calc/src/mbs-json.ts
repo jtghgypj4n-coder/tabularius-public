@@ -243,6 +243,11 @@ function input(scope: object, text: string): Input {
   if (t === '') throw new MbsError('No JSON was given');
   return { j: parseJson(text) };
 }
+/** Mutations work on a private candidate; output publishes it after all checks pass. */
+function mutableInput(scope: object, text: string): Input {
+  const inp = input(scope, text);
+  return { ...inp, j: clone(inp.j) };
+}
 /** After a change: the reference again, or the changed JSON as text. */
 const output = (scope: object, inp: Input, j: Json): string | number => {
   checkSize(j);
@@ -476,21 +481,21 @@ const texts = (a: Arg[]) => a.map((x) => x.text);
 
 /** Adds name/value pairs to an object (text or reference). */
 const addToObject = (make: (a: Arg, scope: object) => Json): MbsJson => (a, scope) => {
-  const inp = input(scope, a[0]?.text ?? '');
+  const inp = mutableInput(scope, a[0]?.text ?? '');
   const o = needObject(inp.j);
   for (let i = 1; i + 1 < a.length; i += 2) setKey(o, a[i].text, make(a[i + 1], scope));
   return output(scope, inp, o);
 };
 /** Adds names with one fixed value (AddTrueToObject and the like). */
 const addFixedToObject = (v: Json): MbsJson => (a, scope) => {
-  const inp = input(scope, a[0]?.text ?? '');
+  const inp = mutableInput(scope, a[0]?.text ?? '');
   const o = needObject(inp.j);
   for (const n of a.slice(1)) setKey(o, n.text, clone(v));
   return output(scope, inp, o);
 };
 /** Adds values to an array; empty parameters are skipped, as MBS has since 11.3. */
 const addToArray = (make: (a: Arg, scope: object) => Json, skipEmpty = true): MbsJson => (a, scope) => {
-  const inp = input(scope, a[0]?.text ?? '');
+  const inp = mutableInput(scope, a[0]?.text ?? '');
   const arr = needArray(inp.j);
   for (const x of a.slice(1)) if (!skipEmpty || x.text !== '') arr.items.push(make(x, scope));
   return output(scope, inp, arr);
@@ -540,7 +545,7 @@ export const MBS_JSON: Record<string, MbsJson> = {
   },
   // The value is JSON; one that isn't (since 14.3) is taken as text. An empty value changes nothing (since 13.0).
   'json.setpathitem': ([j, path, value], scope) => {
-    const inp = input(scope, j?.text ?? '');
+    const inp = mutableInput(scope, j?.text ?? '');
     const v = value?.text ?? '';
     if (v === '') return output(scope, inp, inp.j);
     let parsed: Json;
@@ -596,7 +601,7 @@ export const MBS_JSON: Record<string, MbsJson> = {
   'json.addvaluetoarray': addToArray(valueOf, false),
   // Arrays have their items added; any other JSON is added as one item.
   'json.addarraytoarray': (a, scope) => {
-    const inp = input(scope, a[0]?.text ?? '');
+    const inp = mutableInput(scope, a[0]?.text ?? '');
     const arr = needArray(inp.j);
     for (const x of a.slice(1)) {
       if (x.text === '') continue;
@@ -608,7 +613,7 @@ export const MBS_JSON: Record<string, MbsJson> = {
   },
 
   'json.deleteitemfromarray': ([j, index], scope) => {
-    const inp = input(scope, j?.text ?? '');
+    const inp = mutableInput(scope, j?.text ?? '');
     const arr = needArray(inp.j);
     const i = int(index?.text, -1);
     if (i < 0 || i >= arr.items.length) throw new MbsError(`Index ${index?.text ?? ''} is out of range`);
@@ -616,21 +621,21 @@ export const MBS_JSON: Record<string, MbsJson> = {
     return output(scope, inp, arr);
   },
   'json.deleteitemfromobject': ([j, name], scope) => {
-    const inp = input(scope, j?.text ?? '');
+    const inp = mutableInput(scope, j?.text ?? '');
     const o = needObject(inp.j);
     o.entries = o.entries.filter(([k]) => k !== (name?.text ?? ''));
     o.index = undefined;
     return output(scope, inp, o);
   },
   'json.replaceiteminobject': ([j, name, v], scope) => {
-    const inp = input(scope, j?.text ?? '');
+    const inp = mutableInput(scope, j?.text ?? '');
     const o = needObject(inp.j);
     if (keyAt(o, name?.text ?? '') < 0) throw new MbsError(`No item named "${name?.text ?? ''}"`);
     setKey(o, name?.text ?? '', item(scope, v?.text ?? ''));
     return output(scope, inp, o);
   },
   'json.replaceiteminarray': ([j, index, v], scope) => {
-    const inp = input(scope, j?.text ?? '');
+    const inp = mutableInput(scope, j?.text ?? '');
     const arr = needArray(inp.j);
     const i = int(index?.text, -1);
     if (i < 0 || i >= arr.items.length) throw new MbsError(`Index ${index?.text ?? ''} is out of range`);

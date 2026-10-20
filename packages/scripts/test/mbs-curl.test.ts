@@ -94,6 +94,38 @@ test('a request inside one calculation replays without allocating a second handl
   assert.equal(r.result, '16000|0|16001');
 });
 
+test('AR-calc-extensions-10 plug-in mutations before a host wait apply once', async () => {
+  seen.length = 0;
+  const formula = `Let ( [ a = MBS("Variable.Add"; "counter"; 1) ; d = MBS("Dictionary.Create") ; q = MBS("QuickList.New"; "one") ; j = MBS("JSON.Parse"; "[]") ; x = MBS("XML.Parse"; "<r/>") ; r = MBS("RegEx.Compile"; "a") ; js = MBS("JS.New"; "state") ; inc = MBS("JS.EvaluateToString"; js; "globalThis.n = (globalThis.n || 0) + 1") ; p = MBS("CURL.Perform"; $h) ] ; p )`;
+  const r = await run([
+    'Set Variable [ $h ; Value: MBS("CURL.New") ]',
+    set('SetOptionURL', `${base}/get`),
+    `Set Variable [ $done ; Value: ${formula} ]`,
+    'Exit Script [ Text Result: MBS("Variable.Get"; "counter") & "|" & MBS("Dictionary.List") & "|" & MBS("QuickList.List") & "|" & MBS("JSON.List") & "|" & MBS("XML.List") & "|" & MBS("RegEx.List") & "|" & MBS("JS.GetGlobalPropertyValue"; "state"; "n") ]',
+  ]);
+  assert.equal(r.error, 0);
+  const parts = (r.result ?? '').split('|');
+  assert.equal(parts[0], '1');
+  for (const handles of parts.slice(1, -1)) assert.equal(handles.split('\r').filter(Boolean).length, 1);
+  assert.equal(parts.at(-1), '1');
+  assert.equal(seen.length, 1);
+});
+
+test('AR-calc-extensions-10 keeps completed calls across two host waits', async () => {
+  seen.length = 0;
+  const r = await run([
+    'Set Variable [ $h ; Value: MBS("CURL.New") ]',
+    set('SetOptionURL', `${base}/first`),
+    'Set Variable [ $h2 ; Value: MBS("CURL.New") ]',
+    `Set Variable [ $r ; Value: MBS("CURL.SetOptionURL"; $h2; "${base}/second") ]`,
+    'Set Variable [ $done ; Value: Let ( [ a = MBS("Variable.Add"; "a"; 1) ; p = MBS("CURL.Perform"; $h) ; b = MBS("Variable.Add"; "b"; 1) ; q = MBS("CURL.Perform"; $h2) ] ; p & q ) ]',
+    'Exit Script [ Text Result: MBS("Variable.Get"; "a") & "|" & MBS("Variable.Get"; "b") ]',
+  ]);
+  assert.equal(r.error, 0);
+  assert.equal(r.result, '1|1');
+  assert.deepEqual(seen.map((request) => request.url), ['/first', '/second']);
+});
+
 test('POST fields and headers, custom method, and basic auth', async () => {
   seen.length = 0;
   const r = await run([

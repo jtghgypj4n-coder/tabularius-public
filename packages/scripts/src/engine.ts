@@ -31,7 +31,7 @@ import {
   CalcError, CalcNestingError, ERR, NameTable, pdfText, asBoolean, asNumber, asText, compile, cosineSimilarity, embeddingFile, embeddingOf, evaluate, fromStored, num, text, toStored, dayNumber,
   type CalcContext, type DeviceLocation, type PluginFiles, type PluginOutbound, type PluginNetwork, type PluginMailer, type PluginResponse, type MbsCurlRequest, type FieldRef as CalcFieldRef, type Value, type ValueType,
   HostWait, markExecutionRefusal, rethrowExecutionRefusal,
-  snapshotMbsCurl, restoreMbsCurl,
+  beginMbsReplay, rewindMbsReplay, endMbsReplay,
 } from '../../calc/src/index.ts';
 import { WEB_VIEWER_ACTIONS, undecodedOptionError, containerMime, externalFieldNames, type DeviceType, scriptText, getParameterName, type LayoutObject, type LayoutPart, type Table, type Field, type FieldRef, type Ref, type Relationship, type Schema, type Script, type ScriptStep, type StepParams, type TriggerMode, type ScriptTrigger, type LayoutView } from '../../fmp12/src/index.ts';
 import { scriptStepName } from '../../fmp12/src/script-steps.ts';
@@ -2654,11 +2654,13 @@ export class ScriptEngine {
 
   private async stepWithEmbeddings(f: Frame, step: ScriptStep, pc: number, b: Blocks): Promise<number | 'exit' | undefined> {
     const keep = this.mayEmbed(f, step);
+    const replay = keep ? beginMbsReplay(this.session) : undefined;
     // The answers to the web requests this step has made, dropped when it is done so the next step asks afresh.
     const made: string[] = [];
     try {
       for (let tries = 0; ; tries++) {
-        const saved = keep ? { locals: copyVariables(f.locals), globals: copyVariables(this.session.variables), curl: snapshotMbsCurl(this) } : undefined;
+        const saved = keep ? { locals: copyVariables(f.locals), globals: copyVariables(this.session.variables) } : undefined;
+        if (replay) rewindMbsReplay(replay);
         try {
           return await this.step(f, step, pc, b);
         } catch (e) {
@@ -2667,7 +2669,6 @@ export class ScriptEngine {
           if (!saved) throw new ScriptError(ERROR.unavailable, cantRunAgain(e));
           restoreVariables(f.locals, saved.locals);
           restoreVariables(this.session.variables, saved.globals);
-          restoreMbsCurl(this, saved.curl);
           this.calcError = 0;
           this.calcMessage = undefined;
           if (e instanceof NeedFetch) {
@@ -2687,6 +2688,7 @@ export class ScriptEngine {
         }
       }
     } finally {
+      if (replay) endMbsReplay(this.session, replay);
       for (const k of made) { this.pluginFetched.delete(k); this.pluginMailed.delete(k); }
     }
   }
