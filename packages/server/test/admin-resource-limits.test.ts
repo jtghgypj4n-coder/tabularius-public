@@ -16,7 +16,7 @@ const nested = (levels: number) => '['.repeat(levels) + '0' + ']'.repeat(levels)
 async function start(t: TestContext) {
   const dir = mkdtempSync(join(tmpdir(), 'tabularius-resource-limits-'));
   setAdminPassword(dir, 'secret');
-  const s = await serve({ dir, port: 0, watch: false, log: () => {}, mcpToken: 'secret' });
+  const s = await serve({ dir, port: 0, watch: false, log: () => {}, mcpToken: 'secret', requestLimit: 256, requestQueue: 256 });
   t.after(async () => {
     s.server.closeAllConnections();
     await new Promise<void>((resolve) => s.server.close(() => resolve()));
