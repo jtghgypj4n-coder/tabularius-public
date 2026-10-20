@@ -50,9 +50,10 @@ options, see [Script step support](../../docs/script-steps-support.md).
 - Transactions work as in FileMaker: Open Transaction, Commit Transaction and
   Revert Transaction (with its condition and a custom error code from 5000 to
   5499 and message) keep or undo every change in every file together. A step
-  that fails on privileges, a record lock or validation reverts the
-  transaction and goes on after Commit Transaction, unless Set Revert
-  Transaction on Error is off. A script that ends or halts inside one keeps
+  that fails on privileges (including error 9), a record lock or validation
+  reverts the transaction and goes on after Commit Transaction, retaining the
+  failure in Get ( LastError ), unless Set Revert Transaction on Error is off.
+  A script that ends or halts inside one keeps
   none of it. Subscripts' Open and Commit Transaction give error 3. While a
   transaction is open, other clients' writes to the files it changed get 301
   (record in use), and they can read its changes before it commits. Unlike
