@@ -1,6 +1,7 @@
 // MBS ( "Dictionary.…" ) and ( "Variable.…" ) against the examples on MBS's own function pages (mbsplugins.eu).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { evaluateText, type CalcContext } from '../src/index.ts';
 import { MBS_DICT } from '../src/mbs-dict.ts';
 import { MbsError } from '../src/mbs-text.ts';
@@ -14,6 +15,28 @@ const session = () => {
     return r.type === 'text' ? r.value : r.type === 'number' ? r.value : r;
   };
 };
+
+test('AR-calc-extensions-08 dictionary bulk capacity failure keeps the original keys', () => {
+  const source = `
+    import { MBS_DICT } from ${JSON.stringify(new URL('../src/mbs-dict.ts', import.meta.url).href)};
+    import { num, text } from ${JSON.stringify(new URL('../src/values.ts', import.meta.url).href)};
+    const scope = {};
+    const call = (name, values) => MBS_DICT[name]({ values, texts: values.map(v => String(v.value)) }, scope);
+    const ref = String(call('dictionary.create', []).value);
+    for (let i = 0; i < 999999; i++) call('dictionary.setvalueforkey', [text(ref), text(String(i)), num(i)]);
+    const before = call('dictionary.count', [text(ref)]).value;
+    try { call('dictionary.setlist', [text(ref), text('last\\t1\\rtoo-many\\t2')]); }
+    catch (error) {
+      process.stdout.write(JSON.stringify({ before, after: call('dictionary.count', [text(ref)]).value,
+        added: call('dictionary.haskey', [text(ref), text('last')]).value, error: String(error) }));
+    }
+  `;
+  const child = spawnSync(process.execPath, ['--max-old-space-size=512', '--input-type=module', '-e', source], { encoding: 'utf8', timeout: 30000 });
+  assert.equal(child.error, undefined, String(child.error));
+  assert.equal(child.status, 0, child.stderr);
+  assert.deepEqual(JSON.parse(child.stdout), { before: 999999, after: 999999, added: 0,
+    error: 'Error: A dictionary holds at most 1000000 keys' });
+});
 
 test('MBS Dictionary: keys, values and their types', () => {
   const x = session();

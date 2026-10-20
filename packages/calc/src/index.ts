@@ -12,6 +12,7 @@ import { asText, coerce, type ValueType, type Value } from './values.ts';
 
 export { Env, compare, type CalcContext, type CustomFunctionDef, type DeviceLocation, type FieldRef, type PluginFiles, type PluginFunction, type InstalledPlugin, type PluginOutbound, type PluginNetwork, type PluginMailer, type PluginMail, type PluginResponse, type MbsCurlRequest } from './evaluate.ts';
 export { snapshotMbsCurl, restoreMbsCurl } from './mbs-curl.ts';
+export { beginMbsReplay, rewindMbsReplay, endMbsReplay } from './mbs-replay.ts';
 export { NameTable, parse, fieldRefs, fieldSpans, type CalcNames, type Node } from './parser.ts';
 export * from './values.ts';
 export { markExecutionRefusal, rethrowExecutionRefusal } from './execution-refusal.ts';
