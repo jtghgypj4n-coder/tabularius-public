@@ -277,6 +277,15 @@ export class WebClient {
       await this.serveStatic(req, res, path.slice('/app/'.length) || 'index.html');
       return true;
     }
+    // The alternative client (packages/web/next): its page lives at /next/, its modules and styles under /app/next/.
+    if (path === '/next') {
+      res.writeHead(301, { location: '/next/' }).end();
+      return true;
+    }
+    if (path === '/next/') {
+      await this.serveStatic(req, res, 'next/index.html');
+      return true;
+    }
     const img = /^\/tabularius\/images\/([^/]+)\/(\d+)$/.exec(path);
     if (img && req.method === 'GET') {
       const [db, id] = [decodeURIComponent(img[1]), Number(img[2])];
@@ -780,7 +789,9 @@ export class WebClient {
         // A portal on the layout's own occurrence lists the window's found set (FileMaker's found-set portal).
         if (p.occurrenceId === info.plan!.occurrenceId) return { ...p, foundSet: true };
         const may = !!occ && privileges.in(occ.store).table(occ.table.name).create && canCreateRelated(store, info.plan!.occurrenceId, p.occurrenceId);
-        return may ? { ...p, create: true } : p;
+        // The table its rows belong to (and the file, when another one holds it), so a row can be opened as a record.
+        const where = occ ? { table: occ.table.name, ...(occ.store !== store ? { file: occ.store.name } : {}) } : {};
+        return { ...p, ...where, ...(may ? { create: true } : {}) };
       }),
       layouts: Object.fromEntries(store.layouts().filter((l) => privileges.layout(l.name).layout !== 'none').map((l) => [store.schema.layouts.find((x) => x.name === l.name)?.id, l.name])),
       ...(store.schema.pageSetup ? { pageSetup: store.schema.pageSetup } : {}),

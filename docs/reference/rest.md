@@ -1963,6 +1963,8 @@ Source: `packages/server/src/webclient.ts`
 | GET, HEAD | [`/fmi/webd/{database}`](#web-client-get-head-fmi-webd-database) | A WebDirect-style link: redirects to the web client on that file, carrying the script to run once the person has signed in. |
 | GET | [`/app`](#web-client-get-app) | Redirects to /app/. |
 | GET | [`/app/{path...}`](#web-client-get-app-path) | Serves the browser app's files (packages/web); /app/ is index.html. |
+| GET | [`/next`](#web-client-get-next) | Redirects to /next/. |
+| GET | [`/next/`](#web-client-get-next) | The alternative client's page (packages/web/next/index.html): tables as collections, built from the data rather than the layouts. Its modules and styles load from /app/next/. |
 | GET | [`/tabularius/images/{database}/{id}`](#web-client-get-tabularius-images-database-id) | A picture from the file's image library, for <img> tags. |
 | GET | [`/tabularius/app/v1/databases/{database}/layouts`](#web-client-get-tabularius-app-v1-databases-database-layouts) | The layout menu: layouts in the file's order and folders, the Scripts menu, and File Options. |
 | GET | [`/tabularius/app/v1/databases/{database}/layouts/{layout}`](#web-client-get-tabularius-app-v1-databases-database-layouts-layout) | A layout's design, theme styles, field types, value lists, signed image URLs and portals, for drawing it. |
@@ -2091,6 +2093,50 @@ Response `200`:
 ```
 
 Only .html, .css, .js, .ts, .svg, .png and .webmanifest files are served, with Cache-Control: no-cache, X-Content-Type-Options: nosniff and Referrer-Policy: no-referrer; anything else, or a path outside the folder, is 404. HTML pages carry X-Frame-Options: DENY and Content-Security-Policy: frame-src 'self' about: data: blob:; frame-ancestors 'none', so no other site can frame them. The method is not checked.
+
+<a id="web-client-get-next"></a>
+
+### `GET /next`
+
+Redirects to /next/.
+
+**Permissions:** None.
+
+**Example:**
+
+```http
+GET /next
+```
+
+Response `301`:
+
+```text
+(empty body; Location: /next/)
+```
+
+The method is not checked.
+
+<a id="web-client-get-next"></a>
+
+### `GET /next/`
+
+The alternative client's page (packages/web/next/index.html): tables as collections, built from the data rather than the layouts. Its modules and styles load from /app/next/.
+
+**Permissions:** None: the client signs in through the Data API, and shares the sign-in with /app/ in the same browser tab.
+
+**Example:**
+
+```http
+GET /next/
+```
+
+Response `200`:
+
+```text
+(the page)
+```
+
+Served as /app/ files are, with the same headers. The method is not checked.
 
 <a id="web-client-get-tabularius-images-database-id"></a>
 
