@@ -20,6 +20,7 @@ import type { Host } from './host.ts';
 import { STORE_EXT } from './host.ts';
 import { SERVER_VERSION } from './version.ts';
 import { freeBytes, type StatFs } from './disk.ts';
+import type { RequestGate } from './request-gate.ts';
 
 const BUCKETS = [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10];
 
@@ -86,9 +87,11 @@ export interface RequestSnapshot {
   totals?: CallTotals;
   requests: [string, number][];
   durations: [string, { buckets: number[]; sum: number; count: number }][];
+  gate?: { active: number; queued: number; shed: number };
 }
 
 export class Metrics {
+  requestGate?: RequestGate;
   private readonly started = Date.now();
   private readonly startedTick = performance.now();
   private readonly requests = new Map<string, number>();
@@ -103,7 +106,8 @@ export class Metrics {
 
   /** This process's request counts and durations, to pass on. */
   snapshot(): RequestSnapshot {
-    return { totals: { ...this.callTotals }, requests: [...this.requests], durations: [...this.durations].map(([k, d]) => [k, { ...d, buckets: [...d.buckets] }]) };
+    return { totals: { ...this.callTotals }, requests: [...this.requests], durations: [...this.durations].map(([k, d]) => [k, { ...d, buckets: [...d.buckets] }]),
+      ...(this.requestGate ? { gate: { active: this.requestGate.running, queued: this.requestGate.queued, shed: this.requestGate.shed } } : {}) };
   }
 
   /** Every call so far, the other workers' of a cluster included. */
@@ -188,6 +192,12 @@ export class Metrics {
     metric('tabularius_up', 'gauge', 'The server is serving.', [[{}, 1]]);
     metric('tabularius_build_info', 'gauge', 'The server build version.', [[{ version: SERVER_VERSION }, 1]]);
     metric('tabularius_start_time_seconds', 'gauge', 'When the server started (Unix time).', [[{}, this.started / 1000]]);
+    if (this.requestGate) {
+      const others = this.elsewhere?.() ?? [];
+      metric('tabularius_request_gate_active', 'gauge', 'Short HTTP requests holding a request slot across workers.', [[{}, this.requestGate.running + others.reduce((n, x) => n + (x.gate?.active ?? 0), 0)]]);
+      metric('tabularius_request_gate_queue_depth', 'gauge', 'Short HTTP requests waiting for a slot across workers.', [[{}, this.requestGate.queued + others.reduce((n, x) => n + (x.gate?.queued ?? 0), 0)]]);
+      metric('tabularius_request_gate_shed_total', 'counter', 'Requests refused because the queue filled or their wait expired across workers.', [[{}, this.requestGate.shed + others.reduce((n, x) => n + (x.gate?.shed ?? 0), 0)]]);
+    }
 
     // Every worker's, with several.
     const requests = new Map(this.requests);

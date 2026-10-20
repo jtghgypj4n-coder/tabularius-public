@@ -57,7 +57,7 @@ function text(status: number, req: IncomingMessage): PageText {
   switch (status) {
     case 404: return { title: 'Page not found', body: `<p>There is no page at <code>${path}</code>. The link may be old, or the file it pointed to is no longer hosted here.</p>`, links: true };
     case 401: return { title: 'Sign in needed', body: `<p><code>${path}</code> is for apps that sign in, such as Claude Desktop or another MCP client, not for a browser. Make a token for one under AI apps in the admin console.</p>`, links: true };
-    case 503: return { title: 'The server is starting', body: '<p>It is getting ready and will answer in a moment. This page tries again by itself.</p>', refresh: 3 };
+    case 503: return { title: 'The server can\'t answer yet', body: '<p>It is starting up or handling a lot of requests. This page tries again by itself.</p>', refresh: 3 };
     default: return { title: 'Something went wrong', body: '<p>The server hit an error while answering. Try again; if it keeps happening, the Event log in the admin console says what failed.</p>', links: true };
   }
 }
