@@ -1023,7 +1023,7 @@ interface DataFile {
 }
 
 /** Errors that revert an open transaction: privileges, record locks, validation, host capacity. */
-const REVERTS_TRANSACTION = (code: number) => (code >= 200 && code < 300) || (code >= 301 && code <= 306) || (code >= 500 && code < 600) || code === 812;
+const REVERTS_TRANSACTION = (code: number) => code === 9 || (code >= 200 && code < 300) || (code >= 301 && code <= 306) || (code >= 500 && code < 600) || code === 812;
 
 const CONTROL = new Set([68, 69, 70, 71, 72, 73, 89, 90, 103, 125]);
 /** Errors that show no dialog with error capture off: a person's cancel, a step this server can't run, a trigger's cancel. */
@@ -1186,8 +1186,7 @@ export class ScriptEngine {
   private lastErrorDetail = '';
   /** An error a step sets while jumping (Open Transaction that can't commit, Revert Transaction's own code). */
   private forced?: { code: number; message?: string; detail?: string; denial?: AccessDenial };
-  /** The open transaction: the script that opened it, its window, and the step after its Commit Transaction. */
-  /** The open transaction; `skipValidation` and `skipAutoEnter` are its Open Transaction options, for every write inside it. */
+  /** The open transaction; `skipValidation` and `skipAutoEnter` apply to every write inside it. */
   private tx?: { state: Transaction; frame: Frame; window: Window; after: number; skipValidation?: boolean; skipAutoEnter?: boolean };
   /** After a transaction reverts: leave subscripts until this frame, then go on at `to`. */
   private unwinding?: { frame: Frame; to: number; error: number; detail: string; denial?: AccessDenial };
@@ -1449,8 +1448,10 @@ export class ScriptEngine {
         account: (this.opts.executionAccount ?? this.initiatingPrivileges?.account ?? this.opts.account ?? '').toLowerCase(),
       };
       // Commits and operator callbacks must not pass script cancellation or capacity to their listeners/timers.
+      const outer = writer.getStore();
       return await outboundContext.exit(() =>
-        writer.run({ ...writer.getStore(), ...(name ? { script: name } : {}), ...(this.opts.beforeFile ? { beforeFile: this.opts.beforeFile } : {}) }, () => this.runChecked(store, script)));
+        writer.run({ ...outer, globals: this.globals, transaction: outer?.transaction ?? {},
+          ...(name ? { script: name } : {}), ...(this.opts.beforeFile ? { beforeFile: this.opts.beforeFile } : {}) }, () => this.runChecked(store, script)));
     } finally {
       this.opts.userStop?.removeEventListener('stop', this.onUserStop);
       // Caller-owned sessions survive script runs; an engine's private session ends with its run.
@@ -3291,10 +3292,12 @@ export class ScriptEngine {
     this.tx = undefined;
     const slot = writer.getStore()?.transaction;
     if (slot?.open === tx.state) slot.open = undefined;
-    tx.window.pending = new Map();
-    tx.window.pendingPrivileges = undefined;
-    tx.window.uncommittedNew = false;
-    this.unlockEdits(tx.window);
+    for (const w of this.windows) {
+      w.pending = new Map();
+      w.pendingPrivileges = undefined;
+      w.uncommittedNew = false;
+      this.unlockEdits(w);
+    }
     endTransaction(tx.state, false);
     this.readCache.clear();
     // Records the transaction created are gone from found sets.
@@ -3504,9 +3507,19 @@ export class ScriptEngine {
           const left = this.deadline - Date.now();
           this.hold();
           const paused = this.profileNow();
-          const answer = await this.opts.debug(this.debugPoint(frame, pc, step));
-          this.pausedMs += this.profileNow() - paused;
-          this.resumeAfter(left);
+          let answer: DebugAnswer;
+          try {
+            const pending = Promise.resolve(this.opts.debug(this.debugPoint(frame, pc, step)));
+            try {
+              answer = this.stopSignal ? await untilCanceled(pending, this.stopSignal) : await pending;
+            } catch (e) {
+              if (this.stopSignal?.aborted) this.canceled(script.name);
+              throw e;
+            }
+          } finally {
+            this.pausedMs += this.profileNow() - paused;
+            this.resumeAfter(left);
+          }
           // Halted before this step ran: it isn't counted among the steps run.
           if (answer === 'halt') {
             this.steps--;
@@ -3890,7 +3903,7 @@ export class ScriptEngine {
         if (slot.open || this.tx) throw new ScriptError(ERROR.unavailable, 'A transaction is already open');
         const after = (b.commit.get(pc) ?? f.script.steps.length - 1) + 1;
         try {
-          this.commit(win);
+          for (const w of this.windows) this.commit(w);
         } catch (e) {
           rethrowExecutionRefusal(e);
           if (!(e instanceof StoreError || e instanceof PrivilegeError)) throw e;
@@ -3906,7 +3919,7 @@ export class ScriptEngine {
         if (!this.tx || this.tx.frame !== f) throw new ScriptError(ERROR.unavailable, 'No transaction is open in this script');
         const tx = this.tx;
         // A commit that fails reverts the whole transaction (the step's error says why).
-        this.commit(tx.window);
+        for (const w of this.windows) this.commit(w, tx.skipValidation);
         this.tx = undefined;
         const slot = writer.getStore()?.transaction;
         if (slot?.open === tx.state) slot.open = undefined;
@@ -9122,11 +9135,7 @@ export function curlRequest(url: string, curl: ReturnType<typeof parseCurl> | un
 
 /** Runs a script by name: the entry point the Data API and MCP server use. */
 export function runScript(store: Store, script: string | Script, opts: RunOptions = {}): Promise<RunResult> {
-  const engine = new ScriptEngine(opts);
-  // Formulas and field writes in the store see this run's global fields.
-  const outer = writer.getStore();
-  // A run started inside another (a trigger) shares its transaction.
-  return writer.run({ ...outer, globals: engine.globals, transaction: outer?.transaction ?? {} }, () => engine.run(store, script));
+  return new ScriptEngine(opts).run(store, script);
 }
 
 /** Field names a formula reads (qualified or not). */
