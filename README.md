@@ -1,6 +1,6 @@
 # Tabularius
 
-An open-source, AI-native platform for FileMaker solutions: open an existing
+An open-source (MIT licence), AI-native platform for FileMaker solutions: open an existing
 `.fmp12` file, host it, and work with it from a modern client, with an MCP
 server built in.
 
