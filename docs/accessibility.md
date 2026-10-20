@@ -48,6 +48,20 @@ but they don't fail the run.
 
 ## Fixed
 
+### Web client announcements
+
+The web client keeps one polite, atomic live region for concise state changes. Its
+announcer collapses a burst inside 180 ms to the latest message, which avoids reading
+every intermediate record while someone holds a navigation key. It announces record
+position, found-count changes, applied sorts, successful and failed saves, Browse, Find,
+Layout and Preview mode, portal row creation and deletion, and offline-sync progress and
+outcome. E2e tests inspect Chromium's accessibility tree for the spoken status after each
+kind of action.
+
+Announcements use counts and generic state only. They never include field values, field
+names, sort criteria or portal contents, including values from hidden fields. Detailed
+errors remain available through the existing error UI.
+
 ### Both pages
 
 - **Focus ring.** The ring was a 3px accent at 35% opacity, about 1.7:1 against the

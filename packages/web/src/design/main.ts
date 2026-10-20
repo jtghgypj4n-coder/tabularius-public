@@ -18,6 +18,7 @@ import { themesTab } from './styles.ts';
 import { proposalPicture } from './layout-editor.ts';
 import { draftsReplaced, scriptTabs } from './script-tabs.ts';
 import { plainMessage } from '../http-problem.ts';
+import { announce } from '../announcer.ts';
 
 export interface Studio {
   client: DesignClient;
@@ -95,6 +96,7 @@ async function start(): Promise<void> {
   // Layout mode from a browse window (#layoutmode=<layout id>): straight into that layout's editor.
   const layoutModeId = Number(/^#layoutmode=(\d+)$/.exec(location.hash)?.[1] ?? NaN);
   const inLayoutMode = Number.isInteger(layoutModeId) && design.layouts.some((l) => l.id === layoutModeId);
+  if (inLayoutMode) announce('Layout mode.');
   // #modernize (the link a file just hosted from the welcome page opens) goes to the Layouts tab with Modernize interfaces open.
   const modernize = location.hash === '#modernize';
   let tab: TabId = inLayoutMode || modernize ? 'layouts' : (/^#(\w+)/.exec(location.hash)?.[1] as TabId) ?? 'tables';

@@ -15,7 +15,7 @@ const compiled = ts.transpileModule(session.getText(parsed) + '\n' + errorText.g
 function display(result: Record<string, unknown>, globals: Record<string, unknown> = {}) {
   const context = { document: { activeElement: null }, HTMLElement: class {}, setTimeout, scriptFailureMessage: () => undefined,
     ApiError, Error, retryableRequest, unreachableRequest,
-    customDialog: async () => ({ button: 1 }), toast: () => undefined, ...globals };
+    customDialog: async () => ({ button: 1 }), toast: () => undefined, announce: () => undefined, ...globals };
   const Session = runInNewContext(compiled + '\nSession', context);
   const s = Object.create(Session.prototype);
   const front = { id: 'A', name: 'A', style: 'document' };
