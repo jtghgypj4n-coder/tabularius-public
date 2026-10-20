@@ -35,15 +35,18 @@ export function decodeScsu(src: Uint8Array): string {
 
 /**
  * Decode until `maxUnits` UTF-16 code units have been produced (or the input
- * ends). Returns the text and how many input bytes were used.
+ * ends). Returns the text and how many input bytes were used. Obfuscation is
+ * removed only as bytes are consumed, so a short token never copies its suffix.
  */
-export function scsu(src: Uint8Array, maxUnits: number): { text: string; end: number } {
+export function scsu(src: Uint8Array, maxUnits: number, xorMask = 0): { text: string; end: number } {
+  xorMask &= 0xff;
   const dyn = DEFAULT_DYNAMIC.slice();
   const units: number[] = [];
   let active = 0;
   let unicodeMode = false;
   let i = 0;
   const n = src.length;
+  const byte = (at: number) => src[at] ^ xorMask;
   const emit = (cp: number) => {
     if (cp > 0xffff) {
       cp -= 0x10000;
@@ -53,7 +56,7 @@ export function scsu(src: Uint8Array, maxUnits: number): { text: string; end: nu
     }
   };
   while (i < n && units.length < maxUnits) {
-    const c = src[i++];
+    const c = byte(i++);
     if (unicodeMode) {
       if (c >= UC0 && c <= UC7) {
         active = c - UC0;
@@ -61,45 +64,45 @@ export function scsu(src: Uint8Array, maxUnits: number): { text: string; end: nu
       } else if (c >= UD0 && c <= UD7) {
         if (i >= n) break;
         active = c - UD0;
-        dyn[active] = windowOffset(src[i++]);
+        dyn[active] = windowOffset(byte(i++));
         unicodeMode = false;
       } else if (c === UDX) {
         if (i + 2 > n) break;
-        active = (src[i] & 0xe0) >> 5;
-        dyn[active] = extendedOffset(src[i], src[i + 1]);
+        active = (byte(i) & 0xe0) >> 5;
+        dyn[active] = extendedOffset(byte(i), byte(i + 1));
         i += 2;
         unicodeMode = false;
       } else if (c === UQU) {
         if (i + 2 > n) break;
-        units.push((src[i] << 8) | src[i + 1]);
+        units.push((byte(i) << 8) | byte(i + 1));
         i += 2;
       } else {
         if (i >= n) break;
-        units.push((c << 8) | src[i++]);
+        units.push((c << 8) | byte(i++));
       }
       continue;
     }
     if (c >= SQ0 && c <= SQ7) {
       if (i >= n) break;
       const w = c - SQ0;
-      const b = src[i++];
+      const b = byte(i++);
       emit(b < 0x80 ? STATIC_WINDOWS[w] + b : dyn[w] + (b - 0x80));
     } else if (c === SCU) {
       unicodeMode = true;
     } else if (c === SQU) {
       if (i + 2 > n) break;
-      units.push((src[i] << 8) | src[i + 1]);
+      units.push((byte(i) << 8) | byte(i + 1));
       i += 2;
     } else if (c >= SC0 && c <= SC7) {
       active = c - SC0;
     } else if (c >= SD0 && c <= SD7) {
       if (i >= n) break;
       active = c - SD0;
-      dyn[active] = windowOffset(src[i++]);
+      dyn[active] = windowOffset(byte(i++));
     } else if (c === SDX) {
       if (i + 2 > n) break;
-      active = (src[i] & 0xe0) >> 5;
-      dyn[active] = extendedOffset(src[i], src[i + 1]);
+      active = (byte(i) & 0xe0) >> 5;
+      dyn[active] = extendedOffset(byte(i), byte(i + 1));
       i += 2;
     } else if (c >= 0x80) {
       emit(dyn[active] + (c - 0x80));
@@ -117,15 +120,11 @@ export function scsu(src: Uint8Array, maxUnits: number): { text: string; end: nu
 
 /** Un-XOR (0x5A) and SCSU-decode a stored fmp12 string. */
 export function decodeText(raw: Uint8Array, xorMask = 0x5a): string {
-  const b = new Uint8Array(raw.length);
-  for (let k = 0; k < raw.length; k++) b[k] = raw[k] ^ xorMask;
-  return decodeScsu(b).replace(/\r\n?/g, '\n');
+  return scsu(raw, Infinity, xorMask).text.replace(/\r\n?/g, '\n');
 }
 
 /** decodeText for a value of known length in characters; also returns the bytes used. */
 export function decodeTextChars(raw: Uint8Array, chars: number, xorMask = 0x5a): { text: string; end: number } {
-  const b = new Uint8Array(raw.length);
-  for (let k = 0; k < raw.length; k++) b[k] = raw[k] ^ xorMask;
-  const r = scsu(b, chars);
+  const r = scsu(raw, chars, xorMask);
   return { text: r.text.replace(/\r\n?/g, '\n'), end: r.end };
 }

@@ -726,7 +726,7 @@ export function privilegeSets(sets: Node | undefined, extended: Node | undefined
       return {
         tableId,
         records: recordBits(t.kv.get(2)?.[0] ?? 0, `table ${tableId}`, undecoded),
-        ...(fields?.length ? { fields } : {}),
+        ...(perField ? { fields } : {}),
       };
     });
     // fmmcp is Tabularius's own keyword (AI access). FileMaker has no such privilege, so a file that carries one

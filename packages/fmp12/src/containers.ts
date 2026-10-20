@@ -19,7 +19,7 @@
 // the name shown. Seen in a private sample file.
 
 import type { FmpFile } from './file.ts';
-import { pathInt, pathValue } from './chunks.ts';
+import { pathInt } from './chunks.ts';
 import { buildTree, Node, segmentOf } from './tree.ts';
 import { decodeText } from './scsu.ts';
 
@@ -152,7 +152,7 @@ export function* containerBlobs(file: FmpFile, tableId: number, after = 0): Gene
   let id: number | undefined;
   let node = new Node();
   for (const { path, chunk } of file.chunks(undefined, [tableId, 31, 5])) {
-    const blob = path.length >= 4 ? pathValue(path[3]) : undefined;
+    const blob = path.length >= 4 ? pathInt(path[3]) : undefined;
     if (blob === undefined || blob <= after) continue;
     if (blob !== id) {
       if (id !== undefined) yield readBlob(id, node);
