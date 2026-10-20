@@ -37,8 +37,11 @@ export class ScriptDebugger {
   /** Settles when the script next pauses or finishes. */
   private waiter?: (state: DebugState) => void;
   private outcome?: DebugState;
+  private readonly completion: Promise<DebugState>;
+  private complete!: (state: DebugState) => void;
 
   constructor(opts: { pauseAtStart?: boolean; pauseOnError?: boolean; breakpoints?: { script: string; index: number }[] } = {}) {
+    this.completion = new Promise((resolve) => { this.complete = resolve; });
     if (opts.pauseAtStart) this.mode = 'start';
     if (opts.pauseOnError) this.pauseOnError = true;
     for (const b of opts.breakpoints ?? []) this.breakpoints.add(key(b.script, b.index));
@@ -75,6 +78,9 @@ export class ScriptDebugger {
   get running(): boolean {
     return !this.outcome;
   }
+
+  /** Settles only after execution has ended, including an executing step cancelled by the host. */
+  whenFinished(): Promise<DebugState> { return this.completion; }
 
   /** Steps or continues; settles when the script next pauses or finishes. */
   resume(command: DebugCommand): Promise<DebugState> {
@@ -131,6 +137,7 @@ export class ScriptDebugger {
     this.point = undefined;
     this.release = undefined;
     this.settle(state);
+    this.complete(state);
   }
 
   private shouldPause(p: DebugPoint): boolean {
