@@ -648,6 +648,34 @@ test('a restore lists accounts that differ from the backup and stops until they 
   assert.equal(peopleIn(folder), 3, 'the backup is what is there');
 });
 
+test('a restore refuses a backup set as unsigned or altered', () => {
+  const folder = tmp('unsigned');
+  const where = 'A restore refuses a backup set as unsigned or altered';
+  const env = { TABULARIUS_BACKUP_KEY: 'the backup passphrase' };
+  makeFile(folder, 'Contacts', 3);
+  assert.equal(cliRaw(['backup', folder], { env }).status, 0);
+  const set = readdirSync(join(folder, 'Backups')).filter((n) => /^\d{4}-/.test(n)).sort().at(-1)!;
+  // A set from before signatures existed: the same set with its signature gone.
+  const manifestPath = join(folder, 'Backups', set, 'backup.json');
+  const info = JSON.parse(readFileSync(manifestPath, 'utf8'));
+  delete info.auth;
+  writeFileSync(manifestPath, JSON.stringify(info));
+  const later = new Store(storePath(folder), 'Contacts');
+  later.create('People', { Name: 'Added after the backup' });
+  later.close();
+  const refused = runStep(where, 'tabularius restore <folder> <backup-set>', { folder, 'backup-set': set }, { env });
+  assert.equal(refused.status, 1);
+  sees(where, 'backup.json has no signature, so nothing says the checksums in it are the ones this backup was made with', refused.stderr);
+  assert.equal(peopleIn(folder), 4, 'nothing was restored');
+  // The page's step: read every copy back and sign the set, after which it restores like any other.
+  const sign = runStep(where, 'tabularius verify-backup <folder> <backup-set> --sign', { folder, 'backup-set': set }, { env });
+  assert.equal(sign.status, 0, sign.stderr + sign.stdout);
+  const restored = runStep(where, 'tabularius restore <folder> <backup-set>', { folder, 'backup-set': set }, { env });
+  assert.equal(restored.status, 0, restored.stderr);
+  assert.match(restored.stdout, /restored Contacts\.openhbam\.sqlite/);
+  assert.equal(peopleIn(folder), 3, 'the backup is what is there');
+});
+
 // --- 11: the disk is full during a backup ----------------------------------------------------------------------
 
 test('the backup could not be made: the disk is full', async () => {
@@ -874,7 +902,7 @@ test('every command and call on the page was run by a scenario, and every scenar
   for (const [line, why] of notRun) assert.ok(lines.includes(line) && why, `${line} is excused but not on the page`);
   // Every section of the page (but the ones that only introduce) has a scenario here.
   const names = [...sections.keys()].filter((n) => !['Find your problem', 'Before it goes wrong'].includes(n));
-  assert.equal(names.length, 15);
+  assert.equal(names.length, 16);
   const source = readFileSync(import.meta.filename, 'utf8');
   for (const n of names) assert.ok(source.includes(`'${n.replace(/'/g, "\\'")}'`) || source.includes(`"${n}"`), `no scenario performs "${n}"`);
   // The index at the top links every section.

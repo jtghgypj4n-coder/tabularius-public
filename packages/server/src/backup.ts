@@ -23,21 +23,23 @@ import { crashPoint } from '../../store/src/crash-point.ts';
 import { isDamageError } from '../../store/src/damage.ts';
 import { refuseNewer, storedFormat } from '../../store/src/store-format.ts';
 import { DatabaseSync, backup } from 'node:sqlite';
-import { accessSync, constants, copyFileSync, existsSync, linkSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { accessSync, chmodSync, constants, copyFileSync, existsSync, linkSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { basename, dirname, join, resolve } from 'node:path';
 import { STORE_EXT } from './host.ts';
 import type { Host } from './host.ts';
 import { decryptFile, encryptFile, ENCRYPTED_EXT } from './encrypt.ts';
-import { copyVerifiedDatabase, integrity, describeCheck, describeRestore, verifySet, recordChecksum, restoreTestDue, testRestore, verifyAfterBackup } from './backup-verify.ts';
+import { checksum, copyVerifiedDatabase, integrity, describeCheck, describeRestore, verifySet, recordChecksum, restoreTestDue, testRestore, verifyAfterBackup } from './backup-verify.ts';
 import type { SetCheck } from './backup-verify.ts';
 import { backupExternal, externalFiles, externalManifest, stageExternal } from './backup-external.ts';
+import type { ExternalManifest } from './backup-external.ts';
 import { freeBytes, sizeText } from './disk.ts';
 import type { StatFs } from './disk.ts';
 import { LogShipper, applyLog, logReader, logRecords, startLog, writeLog } from './logs.ts';
 import type { LogFollower, LogWriter } from './logs.ts';
 import { backupInventory, checkedBackupCopies } from './backup-inventory.ts';
 import { readBackupInfo, updateBackupInfo, writeBackupInfo } from './backup-info.ts';
+import { isEncryptedSet, prepareSigner, readVerified, signManifest } from './backup-auth.ts';
 import { sweepStateTempsSync, writeDurable } from '../../store/src/durable.ts';
 import { commitRestore, recoverRestore } from './restore-files.ts';
 
@@ -96,6 +98,29 @@ const plain = (f: string) => f.endsWith(ENCRYPTED_EXT) ? f.slice(0, -ENCRYPTED_E
 /** The file at `path`, or its encrypted copy, whichever the backup holds. */
 function stored(path: string): string | undefined {
   return existsSync(path) ? path : existsSync(path + ENCRYPTED_EXT) ? path + ENCRYPTED_EXT : undefined;
+}
+
+/**
+ * Refuses a set that cannot be trusted as a whole, before any of it is read into the folder: a signature that does not
+ * match (edited, from another set, or the wrong passphrase), and a set with no signature when it should have one. With a
+ * backup passphrase set, a set is expected to be signed: one without a signature (made before signatures existed, made
+ * before the passphrase was set, or with its signature removed, or planted whole) restores only when asked to
+ * (`acceptUnsigned`), or after `verify-backup --sign` has vouched for it. Without a passphrase, a set made unencrypted is
+ * checked against accident only. Returns the manifest that was checked, which is the one to use from here on.
+ */
+async function trustSet(setDir: string, passphrase: string | undefined, acceptUnsigned = false): Promise<{ signed: boolean; info: Awaited<ReturnType<typeof readVerified>>['info'] }> {
+  const { state, info } = await readVerified(setDir, passphrase);
+  if (state === 'signed') return { signed: true, info };
+  if (acceptUnsigned || (!passphrase && !isEncryptedSet(setDir))) return { signed: false, info };
+  throw new Error(`${join(setDir, 'backup.json')} has no signature, so nothing says the checksums in it are the ones this backup was made with. A set made before signatures existed, or before the backup passphrase was set, has none, and so does one whose signature was removed or that someone put in the folder. If you trust where this set has been, restore it anyway with --accept-unsigned-backup. \`verify-backup <folder> ${basename(setDir)} --sign\` signs it after reading every copy back, but cannot tell whether the copies were swapped before it ran: use it only for a set that has not been out of your hands.`);
+}
+
+/** Gives a staged copy the permissions of the file it replaces (or owner-only for a file with none), not whatever the backup copy carried. */
+function giveLiveMode(staged: string, target: string): void {
+  if (process.platform === 'win32') return;
+  let mode = 0o600;
+  try { mode = statSync(target).mode & 0o666; } catch { /* a file that is not there yet */ }
+  chmodSync(staged, mode);
 }
 
 /** Replaces a backup file with its encrypted copy. */
@@ -229,6 +254,8 @@ async function backupOnce(folder: string, dest: string, keep: number, passphrase
     const verified = await verifySet(partial, passphrase);
     if (!verified.ok) throw new Error(describeCheck(name, verified));
     check();
+    // Signed last, over everything a restore will trust (see backup-auth.ts).
+    if (passphrase) await signManifest(partial, passphrase);
     // A set appears under its final name only once every file in it is good.
     renameSync(partial, join(dest, name));
     crashPoint('backup:after-publish');
@@ -542,24 +569,27 @@ export async function restoreBackup(folder: string, set: string, only?: string, 
   // What was asked for is checked first, so a mistyped set is named as that, not as "the server is running".
   const src = resolve(set);
   if (!existsSync(src)) throw new Error(`no backup set at ${set}`);
-  const files = checkedBackupCopies(src).filter((f) => !only || plain(f).toLowerCase() === (only + STORE_EXT).toLowerCase());
+  const files = checkedBackupCopies(src, only && only + STORE_EXT).filter((f) => !only || plain(f).toLowerCase() === (only + STORE_EXT).toLowerCase());
   if (!files.length) throw new Error(only ? `${only} is not in ${set}` : `no databases in ${set}`);
   const pid = hostingProcess(folder);
   if (pid !== undefined) throw new Error(`stop the server first (process ${pid} is hosting ${folder})`);
   const release = claimFolder(folder, 'restore');
   let external: Awaited<ReturnType<typeof stageExternal>> | undefined;
   try {
+    // A set without backup.json (an older or hand-made one) has no checksums to compare; each file still gets its
+    // integrity check below. A backup.json that is there but unreadable refuses the restore.
+    const { info } = await trustSet(src, passphrase, options.acceptUnsigned);
     // Validate every staged copy and container before replacing any live data.
     for (const f of files) {
       signal?.throwIfAborted();
       const next = join(folder, plain(f) + '.restoring');
       for (const ext of ['', '-wal', '-shm', ENCRYPTED_EXT]) rmSync(next + ext, { force: true });
-      await copyVerifiedDatabase(join(src, f), next, passphrase, () => crashPoint('restore:after-copy'));
+      await copyVerifiedDatabase(join(src, f), next, passphrase, () => crashPoint('restore:after-copy'), info.sha256);
       const result = integrity(next, true);
       if (result !== 'ok') throw new Error(`${f}: ${result}`);
       crashPoint('restore:after-verify');
     }
-    external = await stageExternal(src, folder, files.map((f) => plain(f).slice(0, -STORE_EXT.length)), passphrase, signal);
+    external = await stageExternal(src, folder, files.map((f) => plain(f).slice(0, -STORE_EXT.length)), passphrase, signal, (info.external ?? {}) as ExternalManifest);
     signal?.throwIfAborted();
     crashPoint('restore:after-external');
     // Reconcile every staged database before atomic publication, so a
@@ -569,7 +599,10 @@ export async function restoreBackup(folder: string, set: string, only?: string, 
       signal?.throwIfAborted();
       const target = join(folder, plain(f));
       retainCurrentCredentials(target, target + '.restoring');
+      giveLiveMode(target + '.restoring', target);
       differences.push(...accountDifferences(plain(f), target, target + '.restoring'));
+      const newer = changedSince(target, finishedTimes(src)[plain(f)]);
+      if (newer) options.newerThanBackup?.push({ file: plain(f), ...newer });
     }
     options.differences?.push(...differences);
     if (differences.length && options.refuseAccountChanges) throw new AccountChangesError(differences);
@@ -638,13 +671,26 @@ export async function scheduleProgressive(host: Host, opts: { every: number; des
     try {
       const into = set;
       const file = name + STORE_EXT;
-      await host.get(name)!.backup(join(into, file));
-      recordFinished(into, file, Date.now());
       const key = backupKey();
-      if (key) await seal(join(into, file), key);
-      await recordChecksum(into, file, stored(join(into, file))!);
+      // Made under a name no restore reads, then put in place and listed together: the set is never signed for a file it
+      // does not list, nor lists a file it does not hold, for longer than the rename.
+      const scratch = join(into, file + '.adding');
+      await host.get(name)!.backup(scratch);
+      const finishedAt = Date.now();
+      if (key) await seal(scratch, key);
+      const copy = scratch + (key ? ENCRYPTED_EXT : '');
+      const sum = await checksum(copy);
+      const sign = key ? await prepareSigner(key) : undefined;
+      renameSync(copy, join(into, file) + (key ? ENCRYPTED_EXT : ''));
+      updateBackupInfo<{ finished?: Record<string, string>; sha256?: Record<string, string> }>(into, (info) => {
+        info.finished = { ...info.finished, [file]: new Date(finishedAt).toISOString() };
+        info.sha256 = { ...info.sha256, [file]: sum };
+        sign?.(info);
+      });
       if (into === set) inSet.add(file);
     } catch (e) {
+      rmSync(join(set, name + STORE_EXT + '.adding'), { force: true });
+      rmSync(join(set, name + STORE_EXT + '.adding' + ENCRYPTED_EXT), { force: true });
       log(`point-in-time backup of ${name} failed: ${(e as Error).message}`);
     } finally {
       adding.delete(name);
@@ -676,7 +722,7 @@ export async function scheduleProgressive(host: Host, opts: { every: number; des
           let label = stamp(new Date(at), true);
           if (latest && label <= latest) label = afterStamp(latest);
           while (existsSync(join(dir, `${label}.log${key ? ENCRYPTED_EXT : ''}`))) label = afterStamp(label);
-          cur = { ...startLog(join(dir, `${label}.log${key ? ENCRYPTED_EXT : ''}`), key), started: at };
+          cur = { ...startLog(join(dir, `${label}.log${key ? ENCRYPTED_EXT : ''}`), key, store.name), started: at };
           current.set(store.name, cur);
         }
         writeLog(cur, { at, seq: 0, data });
@@ -733,7 +779,8 @@ export function parseTime(text: string): number {
 /** One saved log: when it was taken and how to read it. */
 export interface SavedLog {
   at: number;
-  read(passphrase: string | undefined): Promise<Buffer>;
+  /** `sealedOnly`: refuse a log that is not encrypted (a signed set has none). */
+  read(passphrase: string | undefined, sealedOnly?: boolean): Promise<Buffer>;
 }
 
 function savedLogs(logDir: string): SavedLog[] {
@@ -744,8 +791,11 @@ function savedLogs(logDir: string): SavedLog[] {
     if (OLD_LOG.test(l)) {
       out.push({
         at: parseStamp(l),
-        read: async (passphrase) => {
-          if (!l.endsWith(ENCRYPTED_EXT)) return readFileSync(path);
+        read: async (passphrase, sealedOnly) => {
+          if (!l.endsWith(ENCRYPTED_EXT)) {
+            if (sealedOnly) throw new Error(`${path} is not encrypted, but the backup it is in is: it was not made by this backup, so it is not restored`);
+            return readFileSync(path);
+          }
           const tmp = path + '.restoring';
           try {
             await unseal(path, tmp, passphrase);
@@ -756,8 +806,8 @@ function savedLogs(logDir: string): SavedLog[] {
         },
       });
     } else if (LOGS.test(l)) {
-      let reader: Promise<(r: { n: number; offset: number; length: number }) => Buffer> | undefined;
-      for (const r of logRecords(path)) out.push({ at: r.at, read: async (passphrase) => (await (reader ??= logReader(path, passphrase)))(r) });
+      let reader: Promise<(r: { at?: number; n: number; offset: number; length: number }) => Buffer> | undefined;
+      for (const r of logRecords(path)) out.push({ at: r.at, read: async (passphrase, sealedOnly) => (await (reader ??= logReader(path, passphrase, basename(logDir), sealedOnly)))(r) });
     }
   }
   return out.sort((a, b) => a.at - b.at);
@@ -782,7 +832,28 @@ export function restorePoint(dest: string, file: string, at: number): { set: str
 export interface AccountDifference { file: string; name: string; change: string }
 
 /** What a restore may be asked: `refuseAccountChanges` stops it, before anything is replaced, when accounts differ; `differences` is filled in either way. */
-export interface RestoreOptions { refuseAccountChanges?: boolean; differences?: AccountDifference[]; signal?: AbortSignal }
+export interface RestoreOptions {
+  refuseAccountChanges?: boolean;
+  differences?: AccountDifference[];
+  signal?: AbortSignal;
+  /** Restore an encrypted set that has no signature (see trustSet). */
+  acceptUnsigned?: boolean;
+  /** Filled in with each file that was changed after the backup was taken: the changes since are not in the restored file. */
+  newerThanBackup?: ChangedSince[];
+}
+
+/** A live file with changes the backup it was restored from does not have. */
+export interface ChangedSince { file: string; changedAt: number; backupAt: number }
+
+/** When the file (or its log) was last written, if that is after the backup's copy was finished; the server is stopped, so this is the last change. */
+function changedSince(target: string, backupAt: number | undefined): { changedAt: number; backupAt: number } | undefined {
+  if (backupAt === undefined || !Number.isFinite(backupAt)) return undefined;
+  let changedAt = 0;
+  for (const ext of ['', '-wal']) {
+    try { changedAt = Math.max(changedAt, statSync(target + ext).mtimeMs); } catch { /* not there */ }
+  }
+  return changedAt > backupAt + 2000 ? { changedAt, backupAt } : undefined;
+}
 
 /** Thrown when a restore found accounts that differ and was asked not to go on until someone has seen them. Nothing was replaced. */
 export class AccountChangesError extends Error {
@@ -985,10 +1056,10 @@ function reconcileCredentials(source: string | undefined, restored: string): voi
 }
 
 /** Writes a restore point's copy, with its logs replayed and checked, to `target` (replacing it). */
-export async function restorePointTo(point: { copy: string; logs: SavedLog[] }, target: string, passphrase = backupKey(), securitySource = target): Promise<void> {
+export async function restorePointTo(point: { copy: string; logs: SavedLog[] }, target: string, passphrase = backupKey(), securitySource = target, acceptUnsigned = false): Promise<void> {
   let external: Awaited<ReturnType<typeof stageExternal>> | undefined;
   try {
-    await stageRestorePoint(point, target, passphrase, securitySource);
+    await stageRestorePoint(point, target, passphrase, securitySource, acceptUnsigned);
     const name = plain(basename(point.copy)).slice(0, -STORE_EXT.length);
     const hasExternal = Object.keys(externalManifest(dirname(point.copy))).some((rel) => rel.split('/')[1] === name);
     if (hasExternal && basename(target) !== name + STORE_EXT) {
@@ -1009,19 +1080,50 @@ function cleanRestorePoint(target: string): void {
   for (const ext of ['', '-wal', '-shm', ENCRYPTED_EXT]) rmSync(target + '.restoring' + ext, { force: true });
 }
 
+function lstatOrNull(path: string): ReturnType<typeof lstatSync> | null {
+  try { return lstatSync(path); } catch { return null; }
+}
+
+/**
+ * A restore point's base copy is held to the same rules as a whole-set restore: its set is signed (or the person accepted
+ * it unsigned), the copy is an ordinary file, and it has a checksum in the manifest. Returns the checksums of the manifest that
+ * was checked, to compare a snapshot of the copy with, rather than a second read of a manifest that can change between two reads.
+ * The saved logs laid over it are each authenticated when the set is encrypted (and, from log format 2, bound to their time
+ * and the database), but the manifest does not list them, so a whole log removed, or a log file cut at a record boundary, is not noticed.
+ */
+async function trustPoint(copy: string, passphrase: string | undefined, acceptUnsigned: boolean, trusted = new Map<string, Awaited<ReturnType<typeof trustSet>>>()): Promise<{ signed: boolean; sums?: Record<string, string> }> {
+  const dir = dirname(copy);
+  let set = trusted.get(dir);
+  if (!set) {
+    set = await trustSet(dir, passphrase, acceptUnsigned);
+    trusted.set(dir, set);
+  }
+  if (!lstatOrNull(copy)) throw new Error(`${plain(basename(copy))}: missing database copy`);
+  const kind = lstatSync(copy);
+  if (!kind.isFile()) throw new Error(`${copy} is not an ordinary file (a ${kind.isSymbolicLink() ? 'symbolic link' : 'directory or special file'}), so it is not restored`);
+  // The manifest that was checked, not a second read of the file.
+  const sums = set.info.sha256;
+  if (!sums) return { signed: set.signed };
+  const name = plain(basename(copy));
+  if (!sums[name]) throw new Error(`missing checksum for ${name} in ${join(dir, 'backup.json')}`);
+  return { signed: set.signed, sums };
+}
+
 /** Stage without touching any live database, so a folder restore can commit once. */
-async function stageRestorePoint(point: { copy: string; logs: SavedLog[] }, target: string, passphrase: string | undefined, securitySource = target): Promise<void> {
+async function stageRestorePoint(point: { copy: string; logs: SavedLog[] }, target: string, passphrase: string | undefined, securitySource = target, acceptUnsigned = false, trusted?: Map<string, Awaited<ReturnType<typeof trustSet>>>): Promise<void> {
+  const { signed, sums } = await trustPoint(point.copy, passphrase, acceptUnsigned, trusted);
   const work = target + '.restoring';
-  const scratch = [work, work + '-wal', work + '-shm'];
+  const scratch = [work, work + '-wal', work + '-shm', work + ENCRYPTED_EXT];
   for (const x of scratch) rmSync(x, { force: true });
   try {
-    await copyVerifiedDatabase(point.copy, work, passphrase, () => crashPoint('restore-copy:after-copy'));
+    // The database is read once into a file of our own, and that file is what is checked and opened.
+    await copyVerifiedDatabase(point.copy, work, passphrase, () => crashPoint('restore-copy:after-copy'), sums);
     const name = plain(basename(point.copy)).slice(0, -STORE_EXT.length);
     if (point.logs.length && Object.keys(externalManifest(dirname(point.copy))).some((rel) => rel.split('/')[1] === name)) {
       throw new Error(`cannot restore external container files for ${name} after the base snapshot: progressive logs do not capture their versions`);
     }
-    // Each log, laid next to the copy, is replayed into it by SQLite.
-    for (const l of point.logs) applyLog(work, await l.read(passphrase));
+    // Each log, laid next to the copy, is replayed into it by SQLite. A signed set has only encrypted logs.
+    for (const l of point.logs) applyLog(work, await l.read(passphrase, signed));
     crashPoint('restore-copy:after-replay');
     const check = new DatabaseSync(work, { readOnly: true });
     try {
@@ -1072,6 +1174,7 @@ export async function restoreAt(folder: string, dest: string, at: number, only?:
   const wanted = [...files].filter((f) => !only || f.toLowerCase() === (only + STORE_EXT).toLowerCase());
   if (!wanted.length) throw new Error(only ? `no backups of ${only} in ${dest}` : `no backups in ${dest}`);
   const out: { file: string; time: number }[] = [];
+  const trusted = new Map<string, Awaited<ReturnType<typeof trustSet>>>();
   const external: Awaited<ReturnType<typeof stageExternal>>[] = [];
   // Held through staging and the batch commit, so no server opens a mixed folder.
   const release = claimFolder(folder, 'restore');
@@ -1082,8 +1185,10 @@ export async function restoreAt(folder: string, dest: string, at: number, only?:
         if (only) throw new Error(`no backup of ${only} from before ${new Date(at).toLocaleString()}`);
         continue;
       }
-      await stageRestorePoint(point, join(folder, f), passphrase);
+      await stageRestorePoint(point, join(folder, f), passphrase, undefined, options.acceptUnsigned, trusted);
       external.push(await stageExternal(point.set, folder, [f.slice(0, -STORE_EXT.length)], passphrase, options.signal));
+      const newer = changedSince(join(folder, f), point.time);
+      if (newer) options.newerThanBackup?.push({ file: f, ...newer });
       crashPoint('restore-at:after-file');
       out.push({ file: f, time: point.time });
     }

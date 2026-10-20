@@ -21,7 +21,7 @@ import { FmpDatabase, fileSource, encryptionInfo, readLayoutDesigns, segmentOf, 
 import { BUILT_IN_EXTENDED_PRIVILEGES, addCensus, styleCensus, styleCensusText, calcFidelity, censusText, exportSql, exportSqlSummary, planImportTables, importTables, importTablesSummary, notionMarkdownSheet, MAX_IMPORT_ROWS, type SheetInput, type ColumnOverrides, type ColumnKind, findStaleCalcs, layoutCensus, type LayoutCensus, createStore, designReport, importFmp12, PASSWORD_POLICY, reconvert, reconvertCheck, verifySecurityAudit, verifyRecordAudit, anchorHead, checkAnchor, Store, syncPlan, openForPlanning, applySync, readSyncLog, releaseHeldTables, type ConflictPolicy, writeBackKit, designText, writeDesignText, diffDesigns, planDesignApply, readDesignFolder, type DesignOp, type ReconvertPreview, csvField } from '../../store/src/index.ts';
 import { xlsxSheetNames } from '../../scripts/src/xlsx.ts';
 import { importFileRowIterator, neverAllowed, parseAllowList, SCREEN_STEPS, SERVER_STEPS, testScripts, type ScriptTestResult } from '../../scripts/src/index.ts';
-import { conversionReport, explainScriptFailure, type ScriptFailure, DEFAULT_MODEL, Host, serve, serveCluster, serveStdio, aiStatus, STORE_EXT, ENCRYPTED_EXT, encryptFileSync, decryptFileSync, setAdminPassword, backupFolder, backupSets, defaultBackupDir, parseInterval, parseTime, restoreAt, restoreBackup, AccountChangesError, type AccountDifference, verifySet, describeCheck, resolveEmbedEndpoint, resolveImageEmbed, localCertificateFiles, Standby, S3, s3FromEnv, mirrorDown, fetchFmsExport, migrateFms, describeMigration, copySize, readSettings, runningServer, dataApiSource, dataApiClient, checkSyncAllowed, describeApply, describePlan, verifySync, describeSyncVerification, parseSyncConfig, CONTAINER_PULL_MAX_BYTES, type FmsExport } from '../../server/src/index.ts';
+import { conversionReport, explainScriptFailure, type ScriptFailure, DEFAULT_MODEL, Host, serve, serveCluster, serveStdio, aiStatus, STORE_EXT, ENCRYPTED_EXT, encryptFileSync, decryptFileSync, setAdminPassword, backupFolder, backupSets, defaultBackupDir, parseInterval, parseTime, restoreAt, restoreBackup, AccountChangesError, type AccountDifference, type ChangedSince, verifySet, describeCheck, resolveEmbedEndpoint, resolveImageEmbed, localCertificateFiles, Standby, S3, s3FromEnv, mirrorDown, fetchFmsExport, migrateFms, describeMigration, copySize, readSettings, runningServer, dataApiSource, dataApiClient, checkSyncAllowed, describeApply, describePlan, verifySync, describeSyncVerification, parseSyncConfig, CONTAINER_PULL_MAX_BYTES, type FmsExport } from '../../server/src/index.ts';
 // optimize's report (kept apart from the busy import line above).
 import { sheetsFromFile, checkSheetNames, sheetNameOf } from '../../server/src/import-sheets.ts';
 import { optimizationReport, openApiDocument, typesFromOpenApi, checkSolution, checkSolutionText, createFeed, importIcs, listFeeds, revokeFeed } from '../../server/src/index.ts';
@@ -258,17 +258,21 @@ Hosting (point it at a folder of .fmp12 files; each is converted once):
   tabularius backup <folder> [--to DIR] [--keep 7]
                                              Back up every hosted file now (safe while serving);
                                              encrypted when TABULARIUS_BACKUP_KEY holds a passphrase
-  tabularius verify-backup <folder> [backup-set] [--from DIR]
+  tabularius verify-backup <folder> [backup-set] [--from DIR] [--sign]
                                              Read backup sets back and check them (all of them
                                              without a set); exits 1 when one is damaged
   tabularius restore <folder> <backup-set> [database] [--accept-account-changes]
                                              Put back files from a backup set (stop the server
                                              first; encrypted sets need TABULARIUS_BACKUP_KEY).
                                              Lists accounts that differ from the file it replaces
-                                             and stops until you add --accept-account-changes
+                                             and stops until you add --accept-account-changes.
+                                             A set without a signature (encrypted before
+                                             signatures, or one removed) needs
+                                             --accept-unsigned-backup, or verify-backup --sign
   tabularius restore <folder> --at "2026-10-11 14:05" [database] [--from DIR | s3://bucket/prefix] [--accept-account-changes]
                                              Put back files as they were at a moment (with
-                                             serve --progressive, to the minute it saves changes)
+                                             serve --progressive, to the minute it saves changes;
+                                             --accept-unsigned-backup as for a set)
   tabularius encrypt <folder>                Encrypt the hosted stores at rest (server stopped;
   tabularius decrypt <folder>                key in TABULARIUS_ENCRYPTION_KEY). serve unlocks them
                                              with the same key and re-encrypts on clean shutdown
@@ -1660,11 +1664,14 @@ function main(argv: string[]): number {
     }
     case 'verify-backup': {
       const dest = flag(args, '--from') ?? defaultBackupDir(path);
+      const sign = bool(args, '--sign');
       const sets = args[0] ? [args[0]] : backupSets(dest);
       if (!sets.length) throw new Error(`verify-backup: no backup sets in ${dest}`);
+      // Signing says "I trust this set as it is": one set, named, never every set at once.
+      if (sign && sets.length !== 1) throw new Error('verify-backup --sign: name the one backup set to sign');
       (async () => {
         for (const set of sets) {
-          const check = await verifySet(existsSync(set) ? set : join(dest, set));
+          const check = await verifySet(existsSync(set) ? set : join(dest, set), undefined, { sign });
           console.log(describeCheck(basename(set), check));
           if (!check.ok) process.exitCode = 1;
         }
@@ -1680,7 +1687,7 @@ function main(argv: string[]): number {
       const endpoint = flag(args, '--s3-endpoint');
       const region = flag(args, '--s3-region');
       const accept = bool(args, '--accept-account-changes');
-      const options = { refuseAccountChanges: !accept, differences: [] as AccountDifference[] };
+      const options = { refuseAccountChanges: !accept, differences: [] as AccountDifference[], acceptUnsigned: bool(args, '--accept-unsigned-backup'), newerThanBackup: [] as ChangedSince[] };
       /** The accounts that are not the same in the backup as in the file it replaces, one per line. */
       const listChanges = (list: AccountDifference[]) => list.map((d) => `  ${d.file.replace(STORE_EXT, '')}: ${d.name} ${d.change}`).join('\n');
       const fail = (e: unknown) => {
@@ -1690,7 +1697,9 @@ function main(argv: string[]): number {
         process.exitCode = 1;
       };
       /** After a restore that went ahead with differences: the same list, so what was accepted is on the screen. */
-      const reportAccepted = () => { if (options.differences.length) console.log(`Accounts that are not as they were before this restore (check them with: tabularius privileges ${path}):\n${listChanges(options.differences)}`); };
+      const reportAccepted = () => {
+        for (const n of options.newerThanBackup) process.stderr.write(`note: ${n.file.replace(STORE_EXT, '')} had changes after this backup was taken (last written ${new Date(n.changedAt).toLocaleString()}, backup from ${new Date(n.backupAt).toLocaleString()}); they are not in the restored file\n`);
+        if (options.differences.length) console.log(`Accounts that are not as they were before this restore (check them with: tabularius privileges ${path}):\n${listChanges(options.differences)}`); };
       // Off-site backups: brought down into the folder's backups first.
       const local = from?.startsWith('s3://') ? defaultBackupDir(path) : from ?? defaultBackupDir(path);
       const fetched = from?.startsWith('s3://')

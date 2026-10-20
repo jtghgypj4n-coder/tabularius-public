@@ -181,14 +181,16 @@ export async function decryptFile(src: string, dest: string, passphrase: string)
 // each sealed on its own, numbered by its place in the file.
 
 /** Encrypts one record: ciphertext then the 16-byte tag. */
-export function sealRecord(key: Buffer, prefix: Buffer, n: number, data: Buffer): Buffer {
+export function sealRecord(key: Buffer, prefix: Buffer, n: number, data: Buffer, aad?: Buffer): Buffer {
   const cipher = createCipheriv('aes-256-gcm', key, nonce(prefix, n));
+  if (aad) cipher.setAAD(aad);
   return Buffer.concat([cipher.update(data), cipher.final(), cipher.getAuthTag()]);
 }
 
 /** Decrypts one record; throws on a wrong key or a damaged record. */
-export function openRecord(key: Buffer, prefix: Buffer, n: number, sealed: Buffer): Buffer {
+export function openRecord(key: Buffer, prefix: Buffer, n: number, sealed: Buffer, aad?: Buffer): Buffer {
   const decipher = createDecipheriv('aes-256-gcm', key, nonce(prefix, n));
+  if (aad) decipher.setAAD(aad);
   decipher.setAuthTag(sealed.subarray(sealed.length - 16));
   return Buffer.concat([decipher.update(sealed.subarray(0, sealed.length - 16)), decipher.final()]);
 }

@@ -21,6 +21,7 @@ The admin calls are shown as `curl` so they can be pasted into a script; each on
 | A `.fmp12` is in the folder but never appears in the list | [A file never finishes converting](#a-file-never-finishes-converting) |
 | `is damaged` and `is not being served`, or `file is not a database` | [A hosted file is damaged](#a-hosted-file-is-damaged) |
 | `backup failed: not enough free disk space for a backup` | [The backup could not be made: the disk is full](#the-backup-could-not-be-made-the-disk-is-full) |
+| `backup.json has no signature` or `does not match its signature` when restoring | [A restore refuses a backup set as unsigned or altered](#a-restore-refuses-a-backup-set-as-unsigned-or-altered) |
 | Browsers warn about the certificate | [The certificate expired, or is for the wrong name](#the-certificate-expired-or-is-for-the-wrong-name) |
 | Sign-ins end early, or a certificate is "not valid yet", or backups are dated in the future | [The computer's clock was wrong](#the-computers-clock-was-wrong) |
 | The folder moved and the service or backups cannot find it | [The folder was moved](#the-folder-was-moved) |
@@ -270,6 +271,26 @@ tabularius verify-backup <folder> --from <other-disk-folder>
 **Check:** `backed up N files to` a new set, and `checked: N file ok` from `verify-backup`.
 
 **Lost:** the backups that were skipped. The files themselves are not touched by a refused backup.
+
+## A restore refuses a backup set as unsigned or altered
+
+**You see:** `restore` stops before anything is put back, with `backup.json has no signature, so nothing says the checksums in it are the ones this backup was made with`, or `backup.json does not match its signature: wrong passphrase (not the one the set was made with), or backup.json was edited, or it is not from this set`. `verify-backup` says the same, or ends with `it has no signature`.
+
+**Why:** an encrypted set (a backup made with `TABULARIUS_BACKUP_KEY`) has its list of checksums signed with the passphrase, so a copy cannot be swapped for another or an older one without the passphrase. A set made before signatures existed has no signature, and neither has one whose signature was removed. A signature that does not match is a different passphrase, an edited `backup.json`, or a manifest from another set; the message cannot tell these apart.
+
+**Do:** first try the passphrase the set was made with. While `TABULARIUS_BACKUP_KEY` is set, a set restores only if it is signed. A set from before signatures existed, or from before the passphrase was set, has no signature. If you made it and it has not been out of your hands, let `verify-backup` read every copy back and sign it, after which it restores like any other:
+
+<!-- docs-example: illustrative -->
+```sh
+tabularius verify-backup <folder> <backup-set> --sign
+tabularius restore <folder> <backup-set>
+```
+
+Signing is refused for a set that fails its check, and for several sets at once. It cannot tell whether the copies were swapped before it ran, so it is not a way to make a set you cannot account for trustworthy. To restore a set without signing it, add `--accept-unsigned-backup` to `restore`; that says you trust where the set has been. If you cannot account for the set, use an earlier one.
+
+**Check:** `restored` lines from `restore`. A restore also prints `note: <file> had changes after this backup was taken` when the live file was written after the backup, since those changes are not in the restored file.
+
+**Lost:** nothing, if the restore was refused. Nothing was replaced.
 
 ## The certificate expired, or is for the wrong name
 

@@ -28,6 +28,7 @@ import { pipeline } from 'node:stream/promises';
 import { STORE_EXT } from './host.ts';
 import { decryptFile, ENCRYPTED_EXT } from './encrypt.ts';
 import { backupKey, backupSets } from './backup.ts';
+import { checkManifest, isEncryptedSet, signManifest } from './backup-auth.ts';
 import { verifyExternal } from './backup-external.ts';
 import { Store, isDamageError } from '../../store/src/index.ts';
 
@@ -39,6 +40,8 @@ export interface SetCheck {
   /** Each file's outcome: "ok", or what is wrong with it. */
   files: Record<string, string>;
   ms: number;
+  /** An encrypted set whose manifest has no signature (made before signatures, or the signature was removed): it restores only on request, or once signed. */
+  unsigned?: boolean;
 }
 
 /** A file's SHA-256, read in pieces so a large copy doesn't fill memory. */
@@ -49,13 +52,13 @@ export async function checksum(path: string): Promise<string> {
 }
 
 /** Hash and decrypt the same private snapshot before any restore can use it. */
-export async function copyVerifiedDatabase(source: string, target: string, passphrase?: string, afterCopy: () => void = () => {}): Promise<void> {
+export async function copyVerifiedDatabase(source: string, target: string, passphrase?: string, afterCopy: () => void = () => {}, checkedSums?: Record<string, string>): Promise<void> {
   const setDir = dirname(source);
   const stored = basename(source);
   const file = stored.endsWith(ENCRYPTED_EXT) ? stored.slice(0, -ENCRYPTED_EXT.length) : stored;
-  if (!checkedBackupCopies(setDir).includes(stored)) throw new Error(`${file}: not listed in the database inventory`);
-  const info = readInfo(setDir, true);
-  const sum = info.sha256?.[file];
+  if (!checkedBackupCopies(setDir, file).includes(stored)) throw new Error(`${file}: not listed in the database inventory`);
+  // A caller that has already checked the manifest (its signature) passes the checksums it checked, not a second read.
+  const sum = checkedSums ? checkedSums[file] : readInfo(setDir, true).sha256?.[file];
   const copy = stored.endsWith(ENCRYPTED_EXT) ? target + ENCRYPTED_EXT : target;
   try {
     copyFileSync(source, copy);
@@ -221,7 +224,7 @@ export function pageCheck(path: string, quick = true): PageCheck {
 }
 
 /** Checks every file's copy in a backup set and records the outcome in it. */
-export async function verifySet(setDir: string, passphrase = backupKey()): Promise<SetCheck> {
+export async function verifySet(setDir: string, passphrase = backupKey(), options: { sign?: boolean } = {}): Promise<SetCheck> {
   const started = Date.now();
   let info: SetInfo;
   try { info = readInfo(setDir); } catch (e) {
@@ -272,8 +275,21 @@ export async function verifySet(setDir: string, passphrase = backupKey()): Promi
   } finally {
     if (scratch) rmSync(scratch, { recursive: true, force: true });
   }
+  // Every copy the manifest lists is there, and its signature (encrypted sets) is the one for these checksums.
+  for (const name of Object.keys(info.sha256 ?? {})) {
+    if (!copies.some((c) => (c.endsWith(ENCRYPTED_EXT) ? c.slice(0, -ENCRYPTED_EXT.length) : c).toLowerCase() === name.toLowerCase())) files[name] = 'listed in backup.json but missing from the set';
+  }
+  let unsigned = false;
+  if (isEncryptedSet(setDir)) {
+    try { unsigned = await checkManifest(setDir, passphrase) === 'unsigned'; } catch (e) { files['backup.json'] = (e as Error).message; }
+  }
   // A set taken while nothing was hosted is complete with nothing in it.
   const check: SetCheck = { at: new Date().toISOString(), ok: Object.values(files).every((v) => v === 'ok'), files, ms: Date.now() - started };
+  if (unsigned) {
+    // Signing says the person looked at the set and trusts it as it is; it is only offered for one that passed every check above.
+    if (options.sign && check.ok && passphrase) { await signManifest(setDir, passphrase); unsigned = false; }
+    if (unsigned) check.unsigned = true;
+  }
   updateInfo(setDir, (i) => {
     i.verified = check;
   });
@@ -283,7 +299,9 @@ export async function verifySet(setDir: string, passphrase = backupKey()): Promi
 /** What a failed check says, in one line. */
 export function describeCheck(set: string, check: SetCheck): string {
   const bad = Object.entries(check.files).filter(([, v]) => v !== 'ok');
-  return bad.length ? `backup ${set} failed its check: ${bad.map(([f, v]) => `${f}: ${v}`).join('; ')}` : `backup ${set} checked: ${Object.keys(check.files).length === 1 ? '1 file' : `${Object.keys(check.files).length} files`} ok`;
+  if (bad.length) return `backup ${set} failed its check: ${bad.map(([f, v]) => `${f}: ${v}`).join('; ')}`;
+  const ok = `backup ${set} checked: ${Object.keys(check.files).length === 1 ? '1 file' : `${Object.keys(check.files).length} files`} ok`;
+  return check.unsigned ? `${ok}; it has no signature, so restoring it needs --accept-unsigned-backup, or sign it with: tabularius verify-backup <folder> ${set} --sign` : ok;
 }
 
 /**
