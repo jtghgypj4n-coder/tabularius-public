@@ -1,0 +1,27 @@
+Table: Contacts
+
+ID
+  Type: number, normal
+  Options: {"autoEnter": {"serial": {"increment": 1}}, "validation": {"notEmpty": true, "unique": true}}
+
+Company ID
+  Type: number, normal
+
+Company Name
+  Type: text, calculation
+  Formula:
+    Companies::Name
+  Options: {"unstored": true}
+
+Name
+  Type: text, normal
+  Options: {"validation": {"notEmpty": true}}
+
+Role
+  Type: text, normal
+
+Email
+  Type: text, normal
+
+Phone
+  Type: text, normal

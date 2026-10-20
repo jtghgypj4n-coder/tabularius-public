@@ -1,0 +1,5 @@
+Value list: Contact status
+
+Lead
+Customer
+Past

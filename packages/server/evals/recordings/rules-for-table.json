@@ -1,0 +1,30 @@
+{
+  "case": "rules-for-table",
+  "source": "hand-written stand-in (no API key where the suite was built); re-record with npm run evals -- --live --record",
+  "ask": "What validation rules should the Grades table have?",
+  "turns": [
+    {
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "toolu_01",
+          "name": "suggest_rules",
+          "input": {
+            "database": "Charts",
+            "table": "Grades"
+          }
+        }
+      ],
+      "stop_reason": "tool_use"
+    },
+    {
+      "content": [
+        {
+          "type": "text",
+          "text": "The data supports one rule worth adding: Name is filled in on all 67 records, so require a value (Not empty). GPA and Study Hours per Week are also always filled in, but nothing else in the data (a value list, unique values) suggests a rule for them. Shall I propose the Name rule?"
+        }
+      ],
+      "stop_reason": "end_turn"
+    }
+  ]
+}

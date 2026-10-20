@@ -1,0 +1,8 @@
+{
+  "name": "@tabularius/store",
+  "version": "0.1.0",
+  "description": "Imports FileMaker .fmp12 files into SQLite and serves records in FileMaker's shapes",
+  "license": "MIT",
+  "type": "module",
+  "exports": { ".": "./src/index.ts" }
+}

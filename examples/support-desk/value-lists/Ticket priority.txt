@@ -1,0 +1,6 @@
+Value list: Ticket priority
+
+Low
+Normal
+High
+Urgent

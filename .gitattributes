@@ -1,0 +1,2 @@
+# Release builds must not depend on the builder's line-ending settings: the packed program holds the files byte for byte.
+* -text

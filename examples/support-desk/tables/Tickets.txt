@@ -1,0 +1,47 @@
+Table: Tickets
+
+ID
+  Type: number, normal
+  Options: {"autoEnter": {"serial": {"increment": 1}}, "validation": {"notEmpty": true, "unique": true}}
+
+Subject
+  Type: text, normal
+  Options: {"validation": {"notEmpty": true}}
+
+Message
+  Type: text, normal
+
+From
+  Type: text, normal
+  Comment: The sender's email address.
+
+Received
+  Type: timestamp, normal
+  Options: {"autoEnter": {"value": "creationTimestamp"}}
+
+Status
+  Type: text, normal
+  Comment: New, Open, Waiting or Closed. The Ticket status list offers these.
+  Options: {"autoEnter": {"data": "New"}}
+
+Priority
+  Type: text, normal
+  Comment: Low, Normal, High or Urgent. Left empty until someone, or an AI app, triages the ticket.
+
+Category
+  Type: text, normal
+  Comment: Billing, Bug, How to or Other. Left empty until the ticket is triaged.
+
+Draft Reply
+  Type: text, normal
+  Comment: A suggested answer. A person reads it, changes it and sends it; nothing here is sent by itself.
+
+Needs Review
+  Type: number, normal
+  Comment: 1 when a person should look at the ticket before anything is sent, else empty.
+
+Days Open
+  Type: number, calculation
+  Formula:
+    If ( Status = "Closed" ; "" ; Get ( CurrentDate ) - GetAsDate ( Received ) )
+  Options: {"unstored": true}

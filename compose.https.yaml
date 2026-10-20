@@ -1,0 +1,41 @@
+# HTTPS with Caddy in front (certificates from Let's Encrypt, renewed by Caddy). Point a DNS name at this machine,
+# put it in Caddyfile (replace filemaker.example.com), then:
+#   docker compose -f compose.https.yaml up -d
+# This file stands alone: it does not use compose.yaml. Ports 80 and 443 are the only ones published.
+services:
+  tabularius:
+    build: .
+    stop_grace_period: 40s
+    init: true
+    restart: unless-stopped
+    expose:
+      - "8080"
+    volumes:
+      - ./Databases:/data
+    environment:
+      TABULARIUS_BACKUP_EVERY: 1d
+      TABULARIUS_BACKUP_KEEP: "7"
+      # The address people use, and the header Caddy sets with each client's address.
+      TABULARIUS_PUBLIC_URL: https://filemaker.example.com
+      TABULARIUS_PROXY_HEADER: X-Forwarded-For
+      # Caddy connects from this private Compose network, not loopback. Trust only proxy-controlled peers.
+      TABULARIUS_TRUSTED_PROXIES: ${TABULARIUS_PROXY_SUBNET:-172.30.0.0/24}
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+    depends_on:
+      - tabularius
+volumes:
+  caddy-data:
+networks:
+  default:
+    ipam:
+      config:
+        # Override TABULARIUS_PROXY_SUBNET if this subnet overlaps an existing network; both settings must agree.
+        - subnet: ${TABULARIUS_PROXY_SUBNET:-172.30.0.0/24}

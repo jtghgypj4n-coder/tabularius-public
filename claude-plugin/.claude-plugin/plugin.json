@@ -1,0 +1,30 @@
+{
+  "name": "tabularius",
+  "version": "0.1.0",
+  "description": "Work with a solution hosted by Tabularius from Claude Code: find and edit records, run scripts, read the schema and change the design, safely and within the account's privileges.",
+  "license": "MIT",
+  "keywords": [
+    "filemaker",
+    "fmp12",
+    "mcp",
+    "database"
+  ],
+  "userConfig": {
+    "server_url": {
+      "type": "string",
+      "title": "Server address",
+      "description": "Where Tabularius runs, for example http://localhost:8080 (no /mcp at the end)",
+      "required": true
+    },
+    "token": {
+      "type": "string",
+      "title": "Access token",
+      "description": "A token from the admin console's Connect an AI app (starts with ohbt_). Make it read-only first.",
+      "sensitive": true,
+      "required": true
+    }
+  },
+  "author": {
+    "name": "Tabularius"
+  }
+}

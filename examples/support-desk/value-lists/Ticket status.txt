@@ -1,0 +1,6 @@
+Value list: Ticket status
+
+New
+Open
+Waiting
+Closed

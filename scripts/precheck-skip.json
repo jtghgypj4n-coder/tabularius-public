@@ -1,0 +1,4 @@
+{
+  "packages/server/test/container-large-files.test.ts": "Fails on macOS runners, including main; covered on Linux CI",
+  "packages/web/test/browser-tab-shortcuts.test.ts": "Needs Chromium; covered by the browser job"
+}

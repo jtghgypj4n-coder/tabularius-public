@@ -1,0 +1,8 @@
+{
+  "name": "@tabularius/scripts",
+  "version": "0.1.0",
+  "description": "Runs FileMaker scripts on the Tabularius server",
+  "license": "MIT",
+  "type": "module",
+  "exports": { ".": "./src/index.ts" }
+}

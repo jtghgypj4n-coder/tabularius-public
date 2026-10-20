@@ -1,0 +1,122 @@
+// Script text that names an option the reader doesn't know must fail with a message, not turn into a step that
+// quietly does something else (a Next that became a calculation spun a loop until the runaway guard; a sort with
+// an unreadable order sorted nothing).
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createStore, parseScriptText, Store } from '../src/index.ts';
+
+const dir = mkdtempSync(join(tmpdir(), 'tabularius-script-text-'));
+createStore(join(dir, 'T.sqlite'));
+const store = new Store(join(dir, 'T.sqlite'));
+test.after(() => rmSync(dir, { recursive: true, force: true }));
+store.applyDesign([{ op: 'createTable', name: 'P', fields: [{ name: 'Name' }, { name: 'X', type: 'number' }] }]);
+
+const parse = (text: string) => parseScriptText(text, store.schema);
+
+test('a step rejects options it cannot carry through script text', () => {
+  for (const line of [
+    'Write to Data File [ Select ]',
+    'Reset Account Password [ With dialog: Off ]',
+    'Set Selection [ $ ]',
+  ]) assert.throws(() => parse(line), /Line 1: .*option|Line 1: .*target/i, line);
+});
+
+test('existing Select spellings on Data API and Sort Records by Field print back', async () => {
+  const { stepLine, scriptStepName } = await import('../../fmp12/src/index.ts');
+  for (const line of [
+    'Execute FileMaker Data API [ Select ; Target: $result ; "{}" ]',
+    'Sort Records by Field [ Select ; P::Name ; Descending ]',
+  ]) {
+    const step = parse(line)[0];
+    const printed = stepLine(scriptStepName(step.stepId!), step.params);
+    assert.match(printed, /\[ Select ;/);
+    assert.deepEqual(parse(printed)[0], step);
+  }
+  assert.match(stepLine('Execute FileMaker Data API', { variable: '$result', calculation: '"{}"' }), /\[ Select ;/);
+});
+
+test('legacy text with no Select keeps replacement semantics; explicit Off survives printing', async () => {
+  const { stepLine, scriptStepName } = await import('../../fmp12/src/index.ts');
+  for (const name of ['Execute FileMaker Data API', 'Insert from URL']) {
+    const legacy = `${name} [ ${name === 'Insert from URL' ? '$result' : 'Target: $result'} ; "{}" ]`;
+    const step = parse(legacy)[0];
+    assert.deepEqual(step.params, { variable: '$result', calculation: '"{}"' }, name);
+    const printed = stepLine(scriptStepName(step.stepId!), step.params);
+    assert.match(printed, /\[ Select ;/, name);
+    assert.deepEqual(parse(printed)[0].params, { ...step.params, selectEntireContents: true }, name);
+    const off = parse(`${name} [ Select: Off ; ${name === 'Insert from URL' ? '$result' : 'Target: $result'} ; "{}" ]`)[0];
+    assert.equal(off.params?.selectEntireContents, false, name);
+    assert.match(stepLine(name, off.params), /Select: Off/);
+    assert.deepEqual(parse(stepLine(name, off.params))[0].params, off.params);
+  }
+});
+
+test('Claris Select steps accept the option and preserve it through printing', async () => {
+  const { stepLine } = await import('../../fmp12/src/index.ts');
+  for (const line of [
+    'Insert from URL [ Select ; $result ; "https://example.com" ]',
+    'Check Selection [ Select ; P::Name ]',
+  ]) {
+    const step = parse(line)[0];
+    assert.equal(step.params?.selectEntireContents, true, line);
+    assert.deepEqual(parse(stepLine(line.slice(0, line.indexOf(' [ ')), step.params))[0].params, step.params);
+  }
+});
+
+test('bare Select is a calculation outside an option position', () => {
+  assert.equal(parse('If [ Select ]')[0].params?.calculation, 'Select');
+  assert.equal(parse('Set Field [ P::Name ; Select ]')[0].params?.calculation, 'Select');
+  assert.deepEqual(parse('Execute FileMaker Data API [ Target: $r ; Select ]')[0].params,
+    { variable: '$r', calculation: 'Select' });
+});
+
+test('"Exit after last" written bare, as FileMaker and the lint messages write it, turns the option on', () => {
+  assert.deepEqual(parse('Go to Record/Request/Page [ Next ; Exit after last ]')[0].params, { location: 'next', exitAfterLast: true });
+  assert.deepEqual(parse('Go to Record/Request/Page [ Next ; Exit after last: On ]')[0].params, { location: 'next', exitAfterLast: true });
+  assert.deepEqual(parse('Go to Record/Request/Page [ Previous ; Exit after last: Off ]')[0].params, { location: 'previous', exitAfterLast: false });
+  assert.deepEqual(parse('Go to Portal Row [ Next ; Exit after last ]')[0].params, { location: 'next', exitAfterLast: true });
+});
+
+test('a misspelt record location is an error, a calculation is still a calculation', () => {
+  assert.throws(() => parse('Go to Record/Request/Page [ Nxt ]'), /Line 1: "Nxt" should be First, Last, Previous, Next/);
+  assert.deepEqual(parse('Go to Record/Request/Page [ $n ]')[0].params, { location: 'calculation', calculation: '$n' });
+  assert.deepEqual(parse('Go to Record/Request/Page [ 3 ; With dialog: Off ]')[0].params, { location: 'calculation', calculation: '3', noDialog: true });
+});
+
+test('Sort Records with an order the reader does not know is an error instead of a sort of nothing', () => {
+  assert.throws(() => parse('Sort Records [ Specified Sort Order: P::Name ; ascending ; With dialog: Off ]'), /Sort Records reads "Restore; Table::Field/);
+  assert.deepEqual(parse('Sort Records [ With dialog: Off ]')[0].params, { noDialog: true });
+  assert.deepEqual(parse('Sort Records')[0].params, undefined);
+  const sorted = parse('Sort Records [ Restore; P::Name; descending; With dialog: Off ]')[0].params;
+  assert.equal(sorted?.restore, true);
+  assert.equal(sorted?.sort?.[0].order, 'descending');
+});
+
+test('Select on Data API and Insert from URL is Select, Select: On or Select: Off at the front, and nowhere else', async () => {
+  const { stepLine, scriptStepName } = await import('../../fmp12/src/index.ts');
+  for (const [line, selected] of [
+    ['Execute FileMaker Data API [ Select: On ; Target: $r ; "{}" ]', true],
+    ['Execute FileMaker Data API [ Select: Off ; Target: $r ; "{}" ]', false],
+    ['Insert from URL [ Select: On ; $r ; "https://example.com" ]', true],
+    ['Insert from URL [ Select: Off ; $r ; "https://example.com" ]', false],
+  ] as const) {
+    const step = parse(line)[0];
+    assert.equal(step.params?.selectEntireContents, selected, line);
+    assert.equal(step.params?.calculation?.includes('Select'), false, `${line}: Select is not part of the calculation`);
+    const printed = stepLine(scriptStepName(step.stepId!), step.params);
+    assert.deepEqual(parse(printed)[0], step, printed);
+  }
+  assert.throws(() => parse('Execute FileMaker Data API [ Target: $r ; Select: Off ]'), /Select must come first/);
+});
+
+test('Check Selection refuses parts it does not read; Insert Calculated Result without Select prints so it reads back', async () => {
+  const { stepLine, scriptStepName } = await import('../../fmp12/src/index.ts');
+  assert.throws(() => parse('Check Selection [ P::Name ; Bogus: 1 ]'), /Check Selection takes only/);
+  const step = parse('Insert Calculated Result [ ; ]')[0];
+  assert.equal(step.params?.selectEntireContents, false);
+  const printed = stepLine(scriptStepName(step.stepId!), step.params);
+  assert.equal(parse(printed)[0].params?.selectEntireContents, false, printed);
+});

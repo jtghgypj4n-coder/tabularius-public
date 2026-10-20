@@ -1,0 +1,4 @@
+# Used by compose.https.yaml. Replace the name with yours.
+filemaker.example.com {
+	reverse_proxy tabularius:8080
+}

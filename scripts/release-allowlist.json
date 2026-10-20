@@ -1,0 +1,284 @@
+{
+  "pack": {
+    "allow": [
+      {
+        "glob": "LICENSE",
+        "why": "the licence"
+      },
+      {
+        "glob": "NOTICE",
+        "why": "credits for code written from other projects"
+      },
+      {
+        "glob": "THIRD-PARTY-NOTICES.md",
+        "why": "the licence texts of the dependencies and of Node.js"
+      },
+      {
+        "glob": "package.json",
+        "why": "the program's package file"
+      },
+      {
+        "glob": "package-lock.json",
+        "why": "the exact dependency versions"
+      },
+      {
+        "glob": "docs/*.md",
+        "why": "the documentation pages the server serves"
+      },
+      {
+        "glob": "docs/reference/*.md",
+        "why": "the generated reference pages"
+      },
+      {
+        "glob": "packages/*/package.json",
+        "why": "each package's package file"
+      },
+      {
+        "glob": "packages/*/README.md",
+        "why": "each package's readme"
+      },
+      {
+        "glob": "packages/*/src/**",
+        "why": "the program"
+      },
+      {
+        "glob": "packages/scripts/fonts/*",
+        "why": "the PDF font subsets, their licences and metrics, read when a PDF is written"
+      },
+      {
+        "glob": "packages/server/admin/index.html",
+        "why": "the admin console page"
+      },
+      {
+        "glob": "packages/server/build-info.json",
+        "why": "the commit the release was built from, written by the build"
+      },
+      {
+        "glob": "packages/web/*.html",
+        "why": "the web client's pages"
+      },
+      {
+        "glob": "packages/web/*.css",
+        "why": "the web client's styles"
+      },
+      {
+        "glob": "packages/web/*.js",
+        "why": "the web client's service worker"
+      },
+      {
+        "glob": "packages/web/*.svg",
+        "why": "the web client's icons"
+      },
+      {
+        "glob": "packages/web/manifest.webmanifest",
+        "why": "the web client's install manifest"
+      }
+    ],
+    "executable": [
+      {
+        "glob": "packages/cli/src/main.ts",
+        "why": "the command's entry point, run directly with Node"
+      },
+      {
+        "glob": "packages/cli/src/launch.cjs",
+        "why": "the launcher that checks the Node version before main.ts runs"
+      },
+      {
+        "glob": "node_modules/which/bin/node-which",
+        "why": "the dependency's own command-line entry (never run by the program)"
+      }
+    ],
+    "maxBytes": 600000,
+    "larger": [
+      {
+        "glob": "docs/reference/rest.md",
+        "maxBytes": 1000000,
+        "why": "the generated REST reference, one page"
+      },
+      {
+        "glob": "packages/server/src/*.ts",
+        "maxBytes": 600000,
+        "why": "the server's larger source files"
+      },
+      {
+        "glob": "THIRD-PARTY-NOTICES.md",
+        "maxBytes": 400000,
+        "why": "every dependency's licence text"
+      }
+    ],
+    "exceptions": [
+      {
+        "glob": "packages/server/src/data-api.openapi.json",
+        "rule": "high-entropy",
+        "why": "example tokens in the OpenAPI examples; none is a credential"
+      }
+    ],
+    "emails": []
+  },
+  "tree": {
+    "allow": [
+      {
+        "glob": ".dockerignore",
+        "why": "keeps the checkout out of the Docker image"
+      },
+      {
+        "glob": ".editorconfig",
+        "why": "editor settings"
+      },
+      {
+        "glob": ".gitattributes",
+        "why": "git settings"
+      },
+      {
+        "glob": ".gitignore",
+        "why": "git settings"
+      },
+      {
+        "glob": ".nvmrc",
+        "why": "the Node version"
+      },
+      {
+        "glob": ".claude-plugin/**",
+        "why": "the Claude Code plug-in marketplace entry"
+      },
+      {
+        "glob": ".github/**",
+        "why": "workflows, issue and pull request templates, code owners"
+      },
+      {
+        "glob": "ADMIN.md",
+        "why": "the administrator's guide"
+      },
+      {
+        "glob": "CODE_OF_CONDUCT.md",
+        "why": "community file"
+      },
+      {
+        "glob": "CONTRIBUTING.md",
+        "why": "community file"
+      },
+      {
+        "glob": "Caddyfile",
+        "why": "the HTTPS front-end example"
+      },
+      {
+        "glob": "Dockerfile",
+        "why": "the container image"
+      },
+      {
+        "glob": "LICENSE",
+        "why": "the licence"
+      },
+      {
+        "glob": "NOTICE",
+        "why": "credits for code written from other projects"
+      },
+      {
+        "glob": "QUICKSTART.md",
+        "why": "the quick start"
+      },
+      {
+        "glob": "README.md",
+        "why": "the readme shown on the repository page"
+      },
+      {
+        "glob": "SECURITY.md",
+        "why": "community file"
+      },
+      {
+        "glob": "claude-plugin/**",
+        "why": "the Claude Code plug-in"
+      },
+      {
+        "glob": "compose*.yaml",
+        "why": "Docker Compose files"
+      },
+      {
+        "glob": "docs/**",
+        "why": "the documentation"
+      },
+      {
+        "glob": "examples/**",
+        "why": "example solutions and scripts"
+      },
+      {
+        "glob": "notes/audits/*.md",
+        "why": "published audit reports"
+      },
+      {
+        "glob": "notes/audits/*.json",
+        "why": "the measurements behind an audit report"
+      },
+      {
+        "glob": "package-lock.json",
+        "why": "the exact dependency versions"
+      },
+      {
+        "glob": "package.json",
+        "why": "the workspace's package file"
+      },
+      {
+        "glob": "packages/**",
+        "why": "the program, its tests and its browser tests"
+      },
+      {
+        "glob": "packaging/**",
+        "why": "packaging notes and the macOS entitlements"
+      },
+      {
+        "glob": "scripts/**",
+        "why": "build, install and check scripts"
+      },
+      {
+        "glob": "tsconfig.json",
+        "why": "the TypeScript settings"
+      },
+      {
+        "glob": "packages/scripts/fonts/*",
+        "why": "the PDF font subsets, their licences and metrics, read when a PDF is written"
+      }
+    ],
+    "executable": [
+      {
+        "glob": "examples/plugins/rust-text-tools/build.sh",
+        "why": "the example plug-in's build script"
+      },
+      {
+        "glob": "packages/cli/src/main.ts",
+        "why": "the command's entry point, run directly with Node"
+      },
+      {
+        "glob": "packages/cli/src/launch.cjs",
+        "why": "the launcher that checks the Node version before main.ts runs"
+      },
+      {
+        "glob": "scripts/git-hooks/pre-push",
+        "why": "the optional pre-push hook"
+      },
+      {
+        "glob": "scripts/install.sh",
+        "why": "the installer, run directly"
+      }
+    ],
+    "maxBytes": 1000000,
+    "larger": [],
+    "exceptions": [
+      {
+        "glob": "scripts/reference/**",
+        "rule": "high-entropy",
+        "why": "the reference pages' example tokens, signatures and data addresses; none is a credential"
+      },
+      {
+        "glob": "packages/server/src/data-api.openapi.json",
+        "rule": "high-entropy",
+        "why": "example tokens in the OpenAPI examples; none is a credential"
+      }
+    ],
+    "emails": [
+      {
+        "address": "git@github.com",
+        "why": "the ssh address of a git clone, in the publishing instructions"
+      }
+    ]
+  }
+}

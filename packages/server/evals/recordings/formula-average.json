@@ -1,0 +1,30 @@
+{
+  "case": "formula-average",
+  "source": "hand-written stand-in (no API key where the suite was built); re-record with npm run evals -- --live --record",
+  "ask": "Write the formula: the average of the three liberal scores (economic, social and foreign), rounded to one decimal place",
+  "turns": [
+    {
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "toolu_01",
+          "name": "offer_draft",
+          "input": {
+            "text": "Round ( Average ( Liberal_Economic ; Liberal_Social ; Liberal_Foreign ) ; 1 )",
+            "summary": "The average of the three liberal scores, to one decimal place"
+          }
+        }
+      ],
+      "stop_reason": "tool_use"
+    },
+    {
+      "content": [
+        {
+          "type": "text",
+          "text": "Here is the formula. Average skips empty scores, so a member with only two scores gets the average of those two."
+        }
+      ],
+      "stop_reason": "end_turn"
+    }
+  ]
+}

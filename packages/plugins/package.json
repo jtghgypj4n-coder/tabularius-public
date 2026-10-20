@@ -1,0 +1,11 @@
+{
+  "name": "@tabularius/plugins",
+  "version": "0.1.0",
+  "description": "Tabularius plug-ins: manifests, and which plug-in functions each hosted file has enabled",
+  "license": "MIT",
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "dependencies": {
+    "zod": "^4.6.5"
+  }
+}

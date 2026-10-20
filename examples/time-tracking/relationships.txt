@@ -1,0 +1,10 @@
+Table occurrences
+
+Entries → Entries
+Projects → Projects
+
+Relationships
+
+Projects ↔ Entries
+  Projects::ID = Entries::Project ID
+  Options: create in Entries, delete in Entries

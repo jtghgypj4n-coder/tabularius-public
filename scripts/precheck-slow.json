@@ -1,0 +1,62 @@
+[
+  {
+    "file": "packages/cli/test/error-strings.test.ts",
+    "reason": "Checks user-facing errors; exceeds ten-second gate budget",
+    "when": [
+      "packages/",
+      "scripts/",
+      "docs/",
+      "README.md"
+    ]
+  },
+  {
+    "file": "packages/cli/test/release-audit.test.ts",
+    "reason": "Complete release allow-list and hygiene audit; exceeds ten-second gate budget",
+    "when": [
+      "*"
+    ]
+  },
+  {
+    "file": "packages/cli/test/no-private-names.test.ts",
+    "reason": "Scans tracked source for banned private names; exceeds ten-second gate budget",
+    "when": [
+      "*"
+    ]
+  },
+  {
+    "file": "packages/cli/test/docs-drift.test.ts",
+    "reason": "Checks documentation against CLI surface; exceeds ten-second gate budget",
+    "when": [
+      "README.md",
+      "docs/",
+      "packages/cli/src/",
+      "scripts/"
+    ]
+  },
+  {
+    "file": "packages/cli/test/docs-run.test.ts",
+    "reason": "Runs tutorial examples; exceeds ten-second gate budget",
+    "when": [
+      "docs/tutorials/",
+      "examples/"
+    ]
+  },
+  {
+    "file": "packages/cli/test/docs-commands.test.ts",
+    "reason": "Runs CLI help for documented commands; exceeds ten-second gate budget",
+    "when": [
+      "README.md",
+      "QUICKSTART.md",
+      "ADMIN.md",
+      "docs/moving-a-solution.md"
+    ]
+  },
+  {
+    "file": "packages/server/test/openapi.test.ts",
+    "reason": "Runs TypeScript compilers for generated API types; exceeds ten-second gate budget",
+    "when": [
+      "packages/server/src/",
+      "docs/reference/"
+    ]
+  }
+]

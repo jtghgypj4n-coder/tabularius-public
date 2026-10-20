@@ -1,0 +1,17 @@
+# Script: Sell stock
+
+# Takes stock out. The parameter is "product id | quantity", for example "1|3". It refuses to take out more than is on hand.
+Set Variable [ $product ; Value: GetValue ( Substitute ( Get ( ScriptParameter ) ; "|" ; ¶ ) ; 1 ) ]
+Set Variable [ $quantity ; Value: GetValue ( Substitute ( Get ( ScriptParameter ) ; "|" ; ¶ ) ; 2 ) ]
+If [ IsEmpty ( $product ) or $quantity ≤ 0 ]
+	Exit Script [ Result: "need a product and a quantity above 0" ]
+End If
+Set Variable [ $onHand ; Value: ExecuteSQL ( "SELECT COALESCE ( SUM ( \"Change\" ) , 0 ) FROM Movements WHERE \"Product ID\" = ?" ; "" ; "" ; $product ) ]
+If [ $quantity > $onHand ]
+	Exit Script [ Result: "only " & $onHand & " on hand" ]
+End If
+Go to Layout [ “Movements” ]
+New Record/Request
+Set Field [ Movements::Product ID ; $product ]
+Set Field [ Movements::Change ; -$quantity ]
+Exit Script [ Result: "sold" ]

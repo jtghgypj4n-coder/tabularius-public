@@ -1,0 +1,3309 @@
+[
+ {
+  "id": "select-15",
+  "area": "SELECT",
+  "construct": "quoted table and field names containing spaces",
+  "source": "https://help.claris.com/en/pro-help/content/executesql.html",
+  "sql": "SELECT \"Last Name\" FROM \"Order Details\"",
+  "rows": [["Smith"]],
+  "expected": "derived"
+ },
+ {
+  "id": "select-16",
+  "area": "SELECT",
+  "construct": "quoted reserved word as a field name",
+  "source": "https://help.claris.com/en/sql-reference/content/reserved-sql-keywords.html",
+  "sql": "SELECT \"SELECT\" FROM \"Order Details\"",
+  "rows": [["yes"]],
+  "expected": "derived"
+ },
+ {
+  "id": "select-17",
+  "area": "SELECT",
+  "construct": "quoted reserved word as a table name",
+  "source": "https://help.claris.com/en/sql-reference/content/reserved-sql-keywords.html",
+  "sql": "SELECT Label FROM \"GROUP\"",
+  "rows": [["quoted table"]],
+  "expected": "derived"
+ },
+ {
+  "id": "param-01",
+  "area": "parameters",
+  "construct": "one question mark binds a text value",
+  "source": "https://help.claris.com/en/pro-help/content/executesql.html",
+  "sql": "SELECT last_name FROM emp WHERE emp_id = ?",
+  "params": ["E1"],
+  "paths": ["executesql", "http"],
+  "rows": [["Smith"]],
+  "expected": "derived"
+ },
+ {
+  "id": "param-02",
+  "area": "parameters",
+  "construct": "multiple question marks bind arguments in order",
+  "source": "https://help.claris.com/en/pro-help/content/executesql.html",
+  "sql": "SELECT last_name FROM emp WHERE dept = ? AND salary > ? ORDER BY last_name",
+  "params": ["D101", 40000],
+  "paths": ["executesql", "http"],
+  "rows": [["Smith"]],
+  "expected": "derived"
+ },
+ {
+  "id": "param-03",
+  "area": "parameters",
+  "construct": "a quoted value is bound as data",
+  "source": "https://help.claris.com/en/pro-help/content/executesql.html",
+  "sql": "SELECT emp_id FROM emp WHERE last_name = ?",
+  "params": ["O'Neil"],
+  "paths": ["executesql", "http"],
+  "rows": [["E7"]],
+  "expected": "derived"
+ },
+ {
+  "id": "select-01",
+  "area": "SELECT",
+  "construct": "column alias with AS",
+  "source": "https://help.claris.com/en/sql-reference/content/select-statement.html",
+  "sql": "SELECT dept AS department FROM emp WHERE emp_id = 'E1'",
+  "rows": [
+   [
+    "D101"
+   ]
+  ],
+  "columns": [
+   "department"
+  ],
+  "expected": "derived"
+ },
+ {
+  "id": "select-02",
+  "area": "SELECT",
+  "construct": "DISTINCT",
+  "source": "https://help.claris.com/en/sql-reference/content/select-statement.html",
+  "sql": "SELECT DISTINCT dept FROM emp ORDER BY dept",
+  "rows": [
+   [
+    "D101"
+   ],
+   [
+    "D102"
+   ],
+   [
+    "D103"
+   ],
+   [
+    "D104"
+   ]
+  ],
+  "expected": "derived"
+ },
+ {
+  "id": "select-03",
+  "area": "SELECT",
+  "construct": "star",
+  "source": "https://help.claris.com/en/sql-reference/content/select-statement.html",
+  "sql": "SELECT * FROM Payroll ORDER BY Salary",
+  "rows": [
+   [
+    "999.5"
+   ],
+   [
+    "1234.56"
+   ],
+   [
+    "2000.4"
+   ]
+  ],
+  "expected": "derived"
+ },
+ {
+  "id": "select-04",
+  "area": "SELECT",
+  "construct": "qualified field name",
+  "source": "https://help.claris.com/en/sql-reference/content/from-clause.html",
+  "sql": "SELECT emp.last_name FROM emp WHERE emp.emp_id = 'E2'",
+  "rows": [
+   [
+    "Jones"
+   ]
+  ],
+  "expected": "derived"
+ },
+ {
+  "id": "select-05",
+  "area": "SELECT",
+  "construct": "table alias, qualified through the alias",
+  "source": "https://help.claris.com/en/sql-reference/content/from-clause.html",
+  "sql": "SELECT e.last_name FROM emp e WHERE e.emp_id = 'E3'",
+  "rows": [
+   [
+    "Marks"
+   ]
+  ],
+  "expected": "derived"
+ },
+ {
+  "id": "select-06",
+  "area": "SELECT",
+  "construct": "table alias with AS",
+  "source": "https://help.claris.com/en/sql-reference/content/from-clause.html",
+  "sql": "SELECT e.last_name FROM emp AS e WHERE e.emp_id = 'E4'",
+  "rows": [
+   [
+    "Allen"
+   ]
+  ],
+  "expected": "derived"
+ },
+ {
+  "id": "select-07",
+  "area": "SELECT",
+  "construct": "quoted field name",
+  "source": "https://help.claris.com/en/sql-reference/content/from-clause.html",
+  "sql": "SELECT \"last_name\" FROM emp WHERE emp_id = 'E5'",
+  "rows": [
+   [
+    "Conrad"
+   ]
+  ],
+  "expected": "derived"
+ },
+ {
+  "id": "select-08",
+  "area": "SELECT",
+  "construct": "expression in the select list",
+  "source": "https://help.claris.com/en/sql-reference/content/select-statement.html",
+  "sql": "SELECT salary * 2 AS double_pay FROM emp WHERE emp_id = 'E1'",
+  "rows": [
+   [
+    "100000"
+   ]
+  ],
+  "columns": [
+   "double_pay"
+  ],
+  "expected": "derived"
+ },
+ {
+  "id": "select-09",
+  "area": "SELECT",
+  "construct": "table with no matching rows",
+  "source": "https://help.claris.com/en/sql-reference/content/select-statement.html",
+  "sql": "SELECT emp_id FROM emp WHERE emp_id = 'none'",
+  "rows": [],
+  "expected": "derived"
+ },
+ {
+  "id": "from-01",
+  "area": "FROM",
+  "construct": "self-join with aliases",
+  "source": "https://help.claris.com/en/sql-reference/content/from-clause.html",
+  "sql": "SELECT E.last_name, F.last_name FROM emp E, emp F WHERE E.manager_id = F.emp_id AND E.emp_id = 'E2'",
+  "rows": [
+   [
+    "Jones",
+    "Smith"
+   ]
+  ],
+  "expected": "result"
+ },
+ {
+  "id": "from-02",
+  "area": "FROM",
+  "construct": "INNER JOIN",
+  "source": "https://help.claris.com/en/sql-reference/content/from-clause.html",
+  "sql": "SELECT Salespeople.Salesperson, Sales_Data.Amount FROM Salespeople INNER JOIN Sales_Data ON Salespeople.Salesperson_ID = Sales_Data.Salesperson_ID ORDER BY Sales_Data.Invoice_ID",
+  "rows": [
+   [
+    "Ann Lee",
+    "4000"
+   ],
+   [
+    "Ann Lee",
+    "2500"
+   ],
+   [
+    "Bo Park",
+    "800"
+   ],
+   [
+    "Bo Park",
+    "3500"
+   ]
+  ],
+  "expected": "derived"
+ },
+ {
+  "id": "from-03",
+  "area": "FROM",
+  "construct": "LEFT OUTER JOIN keeps every row of the left table",
+  "source": "https://help.claris.com/en/sql-reference/content/from-clause.html",
+  "sql": "SELECT Salespeople.Salesperson, Sales_Data.Amount FROM Salespeople LEFT OUTER JOIN Sales_Data ON Salespeople.Salesperson_ID = Sales_Data.Salesperson_ID ORDER BY Salespeople.Salesperson_ID, Sales_Data.Invoice_ID",
+  "rows": [
+   [
+    "Ann Lee",
+    "4000"
+   ],
+   [
+    "Ann Lee",
+    "2500"
+   ],
+   [
+    "Bo Park",
+    "800"
+   ],
+   [
+    "Bo Park",
+    "3500"
+   ],
+   [
+    "Cy Day",
+    ""
+   ]
+  ],
+  "expected": "result"
+ },
+ {
+  "id": "from-04",
+  "area": "FROM",
+  "construct": "LEFT JOIN without OUTER",
+  "source": "https://help.claris.com/en/sql-reference/content/from-clause.html",
+  "sql": "SELECT Salespeople.Salesperson, Sales_Data.Amount FROM Salespeople LEFT JOIN Sales_Data ON Salespeople.Salesperson_ID = Sales_Data.Salesperson_ID WHERE Salespeople.Salesperson_ID = 'SP-3'",
+  "rows": [
+   [
+    "Cy Day",
+    ""
+   ]
+  ],
+  "expected": "derived",
+  "note": "the page spells it LEFT OUTER JOIN; the short form is not listed"
+ },
+ {
+  "id": "from-05",
+  "area": "FROM",
+  "construct": "RIGHT OUTER JOIN is not supported",
+  "source": "https://help.claris.com/en/sql-reference/content/from-clause.html",
+  "sql": "SELECT * FROM Salespeople RIGHT OUTER JOIN Sales_Data ON Salespeople.Salesperson_ID = Sales_Data.Salesperson_ID",
+  "error": true,
+  "expected": "result",
+  "note": "the page says RIGHT OUTER JOIN is not currently supported"
+ },
+ {
+  "id": "from-06",
+  "area": "FROM",
+  "construct": "FULL OUTER JOIN is not supported",
+  "source": "https://help.claris.com/en/sql-reference/content/from-clause.html",
+  "sql": "SELECT * FROM Salespeople FULL OUTER JOIN Sales_Data ON Salespeople.Salesperson_ID = Sales_Data.Salesperson_ID",
+  "error": true,
+  "expected": "result",
+  "note": "the page says FULL OUTER JOIN is not currently supported"
+ },
+ {
+  "id": "from-07",
+  "area": "FROM",
+  "construct": "subquery in FROM",
+  "source": "https://help.claris.com/en/sql-reference/content/from-clause.html",
+  "sql": "SELECT t.n FROM (SELECT COUNT(*) AS n FROM emp) t",
+  "rows": [
+   [
+    "7"
+   ]
+  ],
+  "expected": "derived",
+  "note": "FQL0033 and FQL0034 on the error-codes page show FROM subqueries exist; the FROM page itself does not describe them"
+ },
+ {
+  "id": "from-08",
+  "area": "FROM",
+  "construct": "table that does not exist",
+  "source": "https://help.claris.com/en/sql-reference/content/filemaker-sql-error-codes.html",
+  "sql": "SELECT * FROM no_such_table",
+  "error": true,
+  "expected": "result",
+  "note": "FQL0002: The table named \"<name>\" does not exist."
+ },
+ {
+  "id": "from-09",
+  "area": "FROM",
+  "construct": "column that does not exist",
+  "source": "https://help.claris.com/en/sql-reference/content/filemaker-sql-error-codes.html",
+  "sql": "SELECT no_such_column FROM emp",
+  "error": true,
+  "expected": "result",
+  "note": "FQL0007"
+ },
+ {
+  "id": "where-01",
+  "area": "WHERE",
+  "construct": ">=",
+  "source": "https://help.claris.com/en/sql-reference/content/where-clause.html",
+  "sql": "SELECT last_name FROM emp WHERE salary >= 45000 ORDER BY last_name",
+  "rows": [
+   [
+    "Allen"
+   ],
+   [
+    "Marks"
+   ],
+   [
+    "O'Neil"
+   ],
+   [
+    "Smith"
+   ]
+  ],
+  "expected": "result",
+  "note": "the page shows this form with 20000"
+ },
+ {
+  "id": "where-02",
+  "area": "WHERE",
+  "construct": "IS NULL",
+  "source": "https://help.claris.com/en/sql-reference/content/relational-operators.html",
+  "sql": "SELECT emp_id FROM emp WHERE salary IS NULL",
+  "rows": [
+   [
+    "E6"
+   ]
+  ],
+  "expected": "derived"
+ },
+ {
+  "id": "where-03",
+  "area": "WHERE",
+  "construct": "IS NOT NULL",
+  "source": "https://help.claris.com/en/sql-reference/content/relational-operators.html",
+  "sql": "SELECT COUNT(*) FROM emp WHERE salary IS NOT NULL",
+  "rows": [
+   [
+    "6"
+   ]
+  ],
+  "expected": "derived"
+ },
+ {
+  "id": "where-04",
+  "area": "WHERE",
+  "construct": "NOT expr",
+  "source": "https://help.claris.com/en/sql-reference/content/where-clause.html",
+  "sql": "SELECT emp_id FROM emp WHERE NOT dept = 'D101' AND emp_id < 'E4'",
+  "rows": [
+   [
+    "E3"
+   ]
+  ],
+  "expected": "derived",
+  "note": "WHERE NOT expr2 is a form the page lists"
+ },
+ {
+  "id": "where-05",
+  "area": "WHERE",
+  "construct": "= with a string constant",
+  "source": "https://help.claris.com/en/sql-reference/content/relational-operators.html",
+  "sql": "SELECT emp_id FROM emp WHERE last_name = 'Smith'",
+  "rows": [
+   [
+    "E1"
+   ]
+  ],
+  "expected": "derived"
+ },
+ {
+  "id": "where-06",
+  "area": "WHERE",
+  "construct": "<> ",
+  "source": "https://help.claris.com/en/sql-reference/content/relational-operators.html",
+  "sql": "SELECT COUNT(*) FROM emp WHERE dept <> 'D101'",
+  "rows": [
+   [
+    "5"
+   ]
+  ],
+  "expected": "derived"
+ },
+ {
+  "id": "where-07",
+  "area": "WHERE",
+  "construct": "<",
+  "source": "https://help.claris.com/en/sql-reference/content/relational-operators.html",
+  "sql": "SELECT emp_id FROM emp WHERE salary < 30000",
+  "rows": [
+   [
+    "E5"
+   ]
+  ],
+  "expected": "derived"
+ },
+ {
+  "id": "where-08",
+  "area": "WHERE",
+  "construct": "<=",
+  "source": "https://help.claris.com/en/sql-reference/content/relational-operators.html",
+  "sql": "SELECT emp_id FROM emp WHERE salary <= 30000 ORDER BY emp_id",
+  "rows": [
+   [
+    "E2"
+   ],
+   [
+    "E5"
+   ]
+  ],
+  "expected": "derived"
+ },
+ {
+  "id": "where-09",
+  "area": "WHERE",
+  "construct": ">",
+  "source": "https://help.claris.com/en/sql-reference/content/relational-operators.html",
+  "sql": "SELECT emp_id FROM emp WHERE salary > 50000",
+  "rows": [
+   [
+    "E7"
+   ]
+  ],
+  "expected": "derived"
+ },
+ {
+  "id": "where-10",
+  "area": "WHERE",
+  "construct": "LIKE with %",
+  "source": "https://help.claris.com/en/sql-reference/content/relational-operators.html",
+  "sql": "SELECT Company_Name FROM Sales_Data WHERE Company_Name LIKE '%University' ORDER BY Invoice_ID",
+  "rows": [
+   [
+    "State University"
+   ],
+   [
+    "City University"
+   ]
+  ],
+  "expected": "result"
+ },
+ {
+  "id": "where-11",
+  "area": "WHERE",
+  "construct": "NOT LIKE",
+  "source": "https://help.claris.com/en/sql-reference/content/relational-operators.html",
+  "sql": "SELECT Invoice_ID FROM Sales_Data WHERE Company_Name NOT LIKE '%University' ORDER BY Invoice_ID",
+  "rows": [
+   [
+    "2"
+   ],
+   [
+    "3"
+   ],
+   [
+    "5"
+   ]
+  ],
+  "expected": "derived"
+ },
+ {
+  "id": "where-12",
+  "area": "WHERE",
+  "construct": "LIKE with _ (single character)",
+  "source": "https://help.claris.com/en/sql-reference/content/relational-operators.html",
+  "sql": "SELECT emp_id FROM emp WHERE emp_id LIKE 'E_' AND last_name LIKE 'Sm_th'",
+  "rows": [
+   [
+    "E1"
+   ]
+  ],
+  "expected": "derived",
+  "note": "the page shows only %; whether _ is a wildcard is not stated, so this follows the SQL standard"
+ },
+ {
+  "id": "where-13",
+  "area": "WHERE",
+  "construct": "LIKE is case sensitive or not (not stated)",
+  "source": "https://help.claris.com/en/sql-reference/content/relational-operators.html",
+  "sql": "SELECT emp_id FROM emp WHERE last_name LIKE 'smith'",
+  "expected": "unverified",
+  "paths": [],
+  "note": "not stated on the pages read; recorded as not verified, no expectation"
+ },
+ {
+  "id": "where-14",
+  "area": "WHERE",
+  "construct": "BETWEEN",
+  "source": "https://help.claris.com/en/sql-reference/content/relational-operators.html",
+  "sql": "SELECT Invoice_ID FROM Sales_Data WHERE Invoice_ID BETWEEN 2 AND 3 ORDER BY Invoice_ID",
+  "rows": [
+   [
+    "2"
+   ],
+   [
+    "3"
+   ]
+  ],
+  "expected": "derived"
+ },
+ {
+  "id": "where-15",
+  "area": "WHERE",
+  "construct": "IN with a list",
+  "source": "https://help.claris.com/en/sql-reference/content/relational-operators.html",
+  "sql": "SELECT COUNT(Invoice_ID) AS agg FROM Sales_Data WHERE INVOICE_ID IN (1,3,5)",
+  "rows": [
+   [
+    "3"
+   ]
+  ],
+  "columns": [
+   "agg"
+  ],
+  "expected": "derived"
+ },
+ {
+  "id": "where-16",
+  "area": "WHERE",
+  "construct": "NOT IN with a list",
+  "source": "https://help.claris.com/en/sql-reference/content/relational-operators.html",
+  "sql": "SELECT COUNT(Invoice_ID) AS agg FROM Sales_Data WHERE INVOICE_ID NOT IN (1,3,5)",
+  "rows": [
+   [
+    "2"
+   ]
+  ],
+  "expected": "derived"
+ },
+ {
+  "id": "where-17",
+  "area": "WHERE",
+  "construct": "NOT IN with a subquery",
+  "source": "https://help.claris.com/en/sql-reference/content/relational-operators.html",
+  "sql": "SELECT COUNT(Invoice_ID) AS agg FROM Sales_Data WHERE INVOICE_ID NOT IN (SELECT Invoice_ID FROM Sales_Data WHERE Salesperson_ID = 'SP-2')",
+  "rows": [
+   [
+    "3"
+   ]
+  ],
+  "expected": "derived"
+ },
+ {
+  "id": "where-18",
+  "area": "WHERE",
+  "construct": "EXISTS",
+  "source": "https://help.claris.com/en/sql-reference/content/relational-operators.html",
+  "sql": "SELECT COUNT(*) FROM Sales_Data WHERE EXISTS (SELECT Amount FROM Sales_Data WHERE Salesperson_ID IS NOT NULL)",
+  "rows": [
+   [
+    "5"
+   ]
+  ],
+  "expected": "derived"
+ },
+ {
+  "id": "where-19",
+  "area": "WHERE",
+  "construct": "= ANY (a subquery)",
+  "source": "https://help.claris.com/en/sql-reference/content/relational-operators.html",
+  "sql": "SELECT Invoice_ID FROM Sales_Data WHERE Amount = ANY (SELECT Amount FROM Sales_Data WHERE Salesperson_ID = 'SP-2') ORDER BY Invoice_ID",
+  "rows": [
+   [
+    "3"
+   ],
+   [
+    "4"
+   ]
+  ],
+  "expected": "derived"
+ },
+ {
+  "id": "where-20",
+  "area": "WHERE",
+  "construct": "> ALL (a subquery)",
+  "source": "https://help.claris.com/en/sql-reference/content/relational-operators.html",
+  "sql": "SELECT Invoice_ID FROM Sales_Data WHERE Amount > ALL (SELECT Amount FROM Sales_Data WHERE Salesperson_ID = 'SP-2') ORDER BY Invoice_ID",
+  "rows": [
+   [
+    "1"
+   ]
+  ],
+  "expected": "derived",
+  "note": "4000 is the only amount above 800 and 3500. SQLite has no ANY or ALL, so the translation is NOT EXISTS over the subquery with its column renamed."
+ },
+ {
+  "id": "where-20b",
+  "area": "WHERE",
+  "construct": "< ANY (a subquery)",
+  "source": "https://help.claris.com/en/sql-reference/content/relational-operators.html",
+  "sql": "SELECT Invoice_ID FROM Sales_Data WHERE Amount < ANY (SELECT Amount FROM Sales_Data WHERE Salesperson_ID = 'SP-2') ORDER BY Invoice_ID",
+  "expected": "derived",
+  "rows": [
+   [
+    "2"
+   ],
+   [
+    "3"
+   ]
+  ],
+  "note": "below 3500, the larger of 800 and 3500: 2500 and 800 (3500 is not below itself; invoice 5 has no amount)"
+ },
+ {
+  "id": "where-20c",
+  "area": "WHERE",
+  "construct": ">= SOME (a subquery)",
+  "source": "https://help.claris.com/en/sql-reference/content/relational-operators.html",
+  "sql": "SELECT Invoice_ID FROM Sales_Data WHERE Amount >= SOME (SELECT Amount FROM Sales_Data WHERE Salesperson_ID = 'SP-2') ORDER BY Invoice_ID",
+  "expected": "derived",
+  "rows": [
+   [
+    "1"
+   ],
+   [
+    "2"
+   ],
+   [
+    "3"
+   ],
+   [
+    "4"
+   ]
+  ],
+  "note": "at least 800, the smallest"
+ },
+ {
+  "id": "where-20d",
+  "area": "WHERE",
+  "construct": "= ALL (a subquery)",
+  "source": "https://help.claris.com/en/sql-reference/content/relational-operators.html",
+  "sql": "SELECT Invoice_ID FROM Sales_Data WHERE Amount = ALL (SELECT Amount FROM Sales_Data WHERE Invoice_ID = 3) ORDER BY Invoice_ID",
+  "expected": "derived",
+  "rows": [
+   [
+    "3"
+   ]
+  ],
+  "note": "a single value: every amount in the set is 800"
+ },
+ {
+  "id": "where-20e",
+  "area": "WHERE",
+  "construct": "<> ANY (a subquery)",
+  "source": "https://help.claris.com/en/sql-reference/content/relational-operators.html",
+  "sql": "SELECT Invoice_ID FROM Sales_Data WHERE Amount <> ANY (SELECT Amount FROM Sales_Data WHERE Invoice_ID = 3) ORDER BY Invoice_ID",
+  "expected": "derived",
+  "rows": [
+   [
+    "1"
+   ],
+   [
+    "2"
+   ],
+   [
+    "4"
+   ]
+  ],
+  "note": "differs from 800; invoice 5 has no amount (NULL), which compares as unknown"
+ },
+ {
+  "id": "where-20f",
+  "area": "WHERE",
+  "construct": "> ALL over an empty subquery",
+  "source": "https://help.claris.com/en/sql-reference/content/relational-operators.html",
+  "sql": "SELECT COUNT(*) FROM Sales_Data WHERE Amount > ALL (SELECT Amount FROM Sales_Data WHERE Invoice_ID = 99)",
+  "expected": "derived",
+  "rows": [
+   [
+    "5"
+   ]
+  ],
+  "note": "ALL over no rows is true for every row, including the one with no amount (SQL standard; the Claris page does not give an example)"
+ },
+ {
+  "id": "where-20g",
+  "area": "WHERE",
+  "construct": "< ANY over an empty subquery",
+  "source": "https://help.claris.com/en/sql-reference/content/relational-operators.html",
+  "sql": "SELECT COUNT(*) FROM Sales_Data WHERE Amount < ANY (SELECT Amount FROM Sales_Data WHERE Invoice_ID = 99)",
+  "expected": "derived",
+  "rows": [
+   [
+    "0"
+   ]
+  ],
+  "note": "ANY over no rows is false"
+ },
+ {
+  "id": "where-20h",
+  "area": "WHERE",
+  "construct": "> ALL with a NULL among the values",
+  "source": "https://help.claris.com/en/sql-reference/content/relational-operators.html",
+  "sql": "SELECT Invoice_ID FROM Sales_Data WHERE Amount > ALL (SELECT Amount FROM Sales_Data WHERE Invoice_ID IN (3, 5)) ORDER BY Invoice_ID",
+  "expected": "derived",
+  "rows": [],
+  "note": "the NULL keeps ALL from being true (SQL standard)"
+ },
+ {
+  "id": "where-20i",
+  "area": "WHERE",
+  "construct": "> ALL correlated with the outer row",
+  "source": "https://help.claris.com/en/sql-reference/content/relational-operators.html",
+  "sql": "SELECT s.Invoice_ID FROM Sales_Data s WHERE s.Amount > ALL (SELECT t.Amount FROM Sales_Data t WHERE t.Salesperson_ID = s.Salesperson_ID AND t.Invoice_ID <> s.Invoice_ID) ORDER BY s.Invoice_ID",
+  "expected": "derived",
+  "rows": [
+   [
+    "1"
+   ],
+   [
+    "4"
+   ],
+   [
+    "5"
+   ]
+  ],
+  "note": "the largest amount of each salesperson; SP-4 has one invoice (no others to beat) and is in too. Invoice 5 has no amount, and ALL over an empty set is true"
+ },
+ {
+  "id": "where-20j",
+  "area": "WHERE",
+  "construct": "> ALL with a two-column subquery",
+  "source": "https://help.claris.com/en/sql-reference/content/relational-operators.html",
+  "sql": "SELECT Invoice_ID FROM Sales_Data WHERE Amount > ALL (SELECT Amount, Invoice_ID FROM Sales_Data)",
+  "expected": "derived",
+  "error": true,
+  "note": "a subquery has one column"
+ },
+ {
+  "id": "where-21",
+  "area": "WHERE",
+  "construct": "AND / OR / parentheses",
+  "source": "https://help.claris.com/en/sql-reference/content/logical-operators.html",
+  "sql": "SELECT emp_id FROM emp WHERE (dept = 'D101' OR dept = 'D102') AND salary > 40000 ORDER BY emp_id",
+  "rows": [
+   [
+    "E1"
+   ],
+   [
+    "E3"
+   ],
+   [
+    "E4"
+   ]
+  ],
+  "expected": "derived"
+ },
+ {
+  "id": "where-22",
+  "area": "WHERE",
+  "construct": "precedence: AND before OR (stated result)",
+  "source": "https://help.claris.com/en/sql-reference/content/operator-precedence.html",
+  "sql": "SELECT emp_id FROM emp WHERE salary > 55000 OR hire_date > DATE '2022-01-01' AND dept = 'D102' ORDER BY emp_id",
+  "rows": [
+   [
+    "E4"
+   ],
+   [
+    "E7"
+   ]
+  ],
+  "expected": "result",
+  "note": "AND is evaluated first (E4 hired 2022-11-30 in D102; E7 earns over 55000)"
+ },
+ {
+  "id": "where-23",
+  "area": "WHERE",
+  "construct": "parentheses change it",
+  "source": "https://help.claris.com/en/sql-reference/content/operator-precedence.html",
+  "sql": "SELECT emp_id FROM emp WHERE (salary > 55000 OR hire_date > DATE '2022-01-01') AND dept = 'D102' ORDER BY emp_id",
+  "rows": [
+   [
+    "E4"
+   ]
+  ],
+  "expected": "result"
+ },
+ {
+  "id": "where-24",
+  "area": "WHERE",
+  "construct": "a comparison with NULL is not true",
+  "source": "https://help.claris.com/en/sql-reference/content/relational-operators.html",
+  "sql": "SELECT COUNT(*) FROM emp WHERE salary = salary",
+  "rows": [
+   [
+    "6"
+   ]
+  ],
+  "expected": "derived",
+  "note": "NULL = NULL is not true; the pages read do not state NULL handling, this follows the SQL standard"
+ },
+ {
+  "id": "where-25",
+  "area": "WHERE",
+  "construct": "an aggregate in WHERE is an error",
+  "source": "https://help.claris.com/en/sql-reference/content/filemaker-sql-error-codes.html",
+  "sql": "SELECT emp_id FROM emp WHERE SUM(salary) > 1",
+  "error": true,
+  "expected": "result",
+  "note": "FQL0049"
+ },
+ {
+  "id": "group-01",
+  "area": "GROUP BY",
+  "construct": "one row per group (stated)",
+  "source": "https://help.claris.com/en/sql-reference/content/group-by-clause.html",
+  "sql": "SELECT dept, SUM(salary) FROM emp GROUP BY dept ORDER BY dept",
+  "rows": [
+   [
+    "D101",
+    "80000"
+   ],
+   [
+    "D102",
+    "90000"
+   ],
+   [
+    "D103",
+    "20000"
+   ],
+   [
+    "D104",
+    "62000"
+   ]
+  ],
+  "expected": "result"
+ },
+ {
+  "id": "group-02",
+  "area": "GROUP BY",
+  "construct": "two columns",
+  "source": "https://help.claris.com/en/sql-reference/content/group-by-clause.html",
+  "sql": "SELECT dept, exempt, COUNT(*) FROM emp GROUP BY dept, exempt ORDER BY dept, exempt",
+  "rows": [
+   [
+    "D101",
+    "0",
+    "1"
+   ],
+   [
+    "D101",
+    "1",
+    "1"
+   ],
+   [
+    "D102",
+    "0",
+    "1"
+   ],
+   [
+    "D102",
+    "1",
+    "1"
+   ],
+   [
+    "D103",
+    "0",
+    "1"
+   ],
+   [
+    "D103",
+    "1",
+    "1"
+   ],
+   [
+    "D104",
+    "1",
+    "1"
+   ]
+  ],
+  "expected": "derived"
+ },
+ {
+  "id": "group-03",
+  "area": "GROUP BY",
+  "construct": "a non-grouped column in the select list is an error",
+  "source": "https://help.claris.com/en/sql-reference/content/filemaker-sql-error-codes.html",
+  "sql": "SELECT dept, last_name, SUM(salary) FROM emp GROUP BY dept",
+  "error": true,
+  "expected": "result",
+  "note": "FQL0025: all non-aggregated column references in the SELECT list and HAVING clause must be in the GROUP BY clause. Standard SQL; refused here when the column is certainly a field of the file outside every aggregate."
+ },
+ {
+  "id": "group-04",
+  "area": "GROUP BY",
+  "construct": "a grouped expression repeated in the select list is grouped",
+  "source": "https://help.claris.com/en/sql-reference/content/group-by-clause.html",
+  "sql": "SELECT UPPER(dept), COUNT(*) FROM emp GROUP BY UPPER(dept) ORDER BY UPPER(dept)",
+  "rows": [
+   [
+    "D101",
+    "2"
+   ],
+   [
+    "D102",
+    "2"
+   ],
+   [
+    "D103",
+    "2"
+   ],
+   [
+    "D104",
+    "1"
+   ]
+  ],
+  "expected": "derived"
+ },
+ {
+  "id": "group-05",
+  "area": "GROUP BY",
+  "construct": "a column beside an aggregate in an expression is not grouped",
+  "source": "https://help.claris.com/en/sql-reference/content/filemaker-sql-error-codes.html",
+  "sql": "SELECT dept, SUM(salary) + salary FROM emp GROUP BY dept",
+  "error": true,
+  "expected": "derived",
+  "note": "FQL0025 again: the column outside the aggregate is the one that is not grouped"
+ },
+ {
+  "id": "having-01",
+  "area": "HAVING",
+  "construct": "a condition on a group sum",
+  "source": "https://help.claris.com/en/sql-reference/content/having-clause.html",
+  "sql": "SELECT dept, SUM(salary) FROM emp GROUP BY dept HAVING SUM(salary) > 85000",
+  "rows": [
+   [
+    "D102",
+    "90000"
+   ]
+  ],
+  "expected": "result"
+ },
+ {
+  "id": "having-02",
+  "area": "HAVING",
+  "construct": "an expression that is not in the select list",
+  "source": "https://help.claris.com/en/sql-reference/content/having-clause.html",
+  "sql": "SELECT dept FROM emp GROUP BY dept HAVING COUNT(*) > 1 ORDER BY dept",
+  "rows": [
+   [
+    "D101"
+   ],
+   [
+    "D102"
+   ],
+   [
+    "D103"
+   ]
+  ],
+  "expected": "derived"
+ },
+ {
+  "id": "having-03",
+  "area": "HAVING",
+  "construct": "a non-grouped column in HAVING is an error",
+  "source": "https://help.claris.com/en/sql-reference/content/filemaker-sql-error-codes.html",
+  "sql": "SELECT dept FROM emp GROUP BY dept HAVING salary > 40000",
+  "error": true,
+  "expected": "derived",
+  "note": "FQL0025 names the HAVING clause as well as the select list"
+ },
+ {
+  "id": "agg-01",
+  "area": "aggregate",
+  "construct": "SUM",
+  "source": "https://help.claris.com/en/sql-reference/content/aggregate-functions.html",
+  "sql": "SELECT SUM(salary) AS agg FROM emp",
+  "rows": [
+   [
+    "252000"
+   ]
+  ],
+  "columns": [
+   "agg"
+  ],
+  "expected": "derived"
+ },
+ {
+  "id": "agg-02",
+  "area": "aggregate",
+  "construct": "AVG ignores NULL",
+  "source": "https://help.claris.com/en/sql-reference/content/aggregate-functions.html",
+  "sql": "SELECT AVG(salary) AS agg FROM emp",
+  "rows": [
+   [
+    "42000"
+   ]
+  ],
+  "expected": "derived"
+ },
+ {
+  "id": "agg-03",
+  "area": "aggregate",
+  "construct": "COUNT of a field counts non-null values (stated)",
+  "source": "https://help.claris.com/en/sql-reference/content/aggregate-functions.html",
+  "sql": "SELECT COUNT(salary) AS agg FROM emp",
+  "rows": [
+   [
+    "6"
+   ]
+  ],
+  "expected": "result"
+ },
+ {
+  "id": "agg-04",
+  "area": "aggregate",
+  "construct": "COUNT(*) counts every row (stated)",
+  "source": "https://help.claris.com/en/sql-reference/content/aggregate-functions.html",
+  "sql": "SELECT COUNT(*) AS agg FROM emp",
+  "rows": [
+   [
+    "7"
+   ]
+  ],
+  "expected": "result"
+ },
+ {
+  "id": "agg-05",
+  "area": "aggregate",
+  "construct": "MAX",
+  "source": "https://help.claris.com/en/sql-reference/content/aggregate-functions.html",
+  "sql": "SELECT MAX(Amount) AS agg FROM Sales_Data WHERE Amount < 3000",
+  "rows": [
+   [
+    "2500"
+   ]
+  ],
+  "expected": "derived"
+ },
+ {
+  "id": "agg-06",
+  "area": "aggregate",
+  "construct": "MIN",
+  "source": "https://help.claris.com/en/sql-reference/content/aggregate-functions.html",
+  "sql": "SELECT MIN(Amount) AS agg FROM Sales_Data WHERE Amount > 3000",
+  "rows": [
+   [
+    "3500"
+   ]
+  ],
+  "expected": "derived"
+ },
+ {
+  "id": "agg-07",
+  "area": "aggregate",
+  "construct": "COUNT(DISTINCT x) (stated)",
+  "source": "https://help.claris.com/en/sql-reference/content/aggregate-functions.html",
+  "sql": "SELECT COUNT(DISTINCT first_name) FROM emp",
+  "rows": [
+   [
+    "6"
+   ]
+  ],
+  "expected": "result",
+  "note": "first_name Alea appears twice"
+ },
+ {
+  "id": "agg-08",
+  "area": "aggregate",
+  "construct": "an aggregate of an expression",
+  "source": "https://help.claris.com/en/sql-reference/content/aggregate-functions.html",
+  "sql": "SELECT SUM(salary * 2) FROM emp",
+  "rows": [
+   [
+    "504000"
+   ]
+  ],
+  "expected": "derived"
+ },
+ {
+  "id": "agg-09",
+  "area": "aggregate",
+  "construct": "an aggregate inside another function is an error (stated)",
+  "source": "https://help.claris.com/en/sql-reference/content/aggregate-functions.html",
+  "sql": "SELECT ROUND(SUM(Salary), 0) FROM Payroll",
+  "error": true,
+  "expected": "result",
+  "note": "the page says this returns error 8309, \"Expressions involving aggregations are not supported\" (FQL0005 on the error-codes page)",
+  "known": "An aggregate inside another function (ROUND(SUM(x))) is an error in FileMaker and works here. Left lenient on purpose: it is a superset, and a query FileMaker accepts gives the same result."
+ },
+ {
+  "id": "agg-10",
+  "area": "aggregate",
+  "construct": "a function inside an aggregate is valid (stated)",
+  "source": "https://help.claris.com/en/sql-reference/content/aggregate-functions.html",
+  "sql": "SELECT SUM(ROUND(Salary, 0)) FROM Payroll",
+  "rows": [
+   [
+    "4235"
+   ]
+  ],
+  "expected": "result",
+  "note": "ROUND(1234.56,0)=1235, ROUND(2000.4,0)=2000, ROUND(999.5,0)=1000"
+ },
+ {
+  "id": "agg-11",
+  "area": "aggregate",
+  "construct": "an aggregate over no rows",
+  "source": "https://help.claris.com/en/sql-reference/content/aggregate-functions.html",
+  "sql": "SELECT SUM(salary), COUNT(*) FROM emp WHERE emp_id = 'none'",
+  "rows": [
+   [
+    "",
+    "0"
+   ]
+  ],
+  "expected": "derived",
+  "note": "SUM over no rows is NULL (the pages read do not state it)"
+ },
+ {
+  "id": "union-01",
+  "area": "UNION",
+  "construct": "UNION removes duplicates (stated)",
+  "source": "https://help.claris.com/en/sql-reference/content/union-operator.html",
+  "sql": "SELECT dept FROM emp WHERE emp_id < 'E3' UNION SELECT dept FROM emp WHERE emp_id = 'E2'",
+  "rows": [
+   [
+    "D101"
+   ]
+  ],
+  "expected": "result",
+  "unordered": true
+ },
+ {
+  "id": "union-02",
+  "area": "UNION",
+  "construct": "UNION ALL keeps them (stated)",
+  "source": "https://help.claris.com/en/sql-reference/content/union-operator.html",
+  "sql": "SELECT dept FROM emp WHERE emp_id < 'E3' UNION ALL SELECT dept FROM emp WHERE emp_id = 'E2'",
+  "rows": [
+   [
+    "D101"
+   ],
+   [
+    "D101"
+   ],
+   [
+    "D101"
+   ]
+  ],
+  "expected": "result",
+  "unordered": true
+ },
+ {
+  "id": "union-03",
+  "area": "UNION",
+  "construct": "different column counts is an error",
+  "source": "https://help.claris.com/en/sql-reference/content/filemaker-sql-error-codes.html",
+  "sql": "SELECT dept FROM emp UNION SELECT dept, salary FROM emp",
+  "error": true,
+  "expected": "result",
+  "note": "FQL0026"
+ },
+ {
+  "id": "union-04",
+  "area": "UNION",
+  "construct": "corresponding columns of different types is an error (stated)",
+  "source": "https://help.claris.com/en/sql-reference/content/union-operator.html",
+  "sql": "SELECT last_name, salary FROM emp UNION SELECT salary, last_name FROM emp",
+  "error": true,
+  "expected": "result",
+  "note": "the page: not valid; FQL0027. Refused here when both columns are plain fields of known, different types."
+ },
+ {
+  "id": "union-06",
+  "area": "UNION",
+  "construct": "corresponding columns of the same type are valid",
+  "source": "https://help.claris.com/en/sql-reference/content/union-operator.html",
+  "sql": "SELECT last_name FROM emp WHERE emp_id = 'E1' UNION SELECT first_name FROM emp WHERE emp_id = 'E2'",
+  "rows": [
+   [
+    "Smith"
+   ],
+   [
+    "Alea"
+   ]
+  ],
+  "expected": "derived",
+  "unordered": true
+ },
+ {
+  "id": "union-07",
+  "area": "UNION",
+  "construct": "a text column against a date column is an error",
+  "source": "https://help.claris.com/en/sql-reference/content/union-operator.html",
+  "sql": "SELECT last_name FROM emp UNION SELECT hire_date FROM emp",
+  "error": true,
+  "expected": "derived",
+  "note": "FQL0027 by the same rule as the page's example"
+ },
+ {
+  "id": "union-05",
+  "area": "UNION",
+  "construct": "ORDER BY on a union",
+  "source": "https://help.claris.com/en/sql-reference/content/union-operator.html",
+  "sql": "SELECT emp_id FROM emp WHERE dept = 'D104' UNION SELECT emp_id FROM emp WHERE dept = 'D103' ORDER BY emp_id",
+  "rows": [
+   [
+    "E5"
+   ],
+   [
+    "E6"
+   ],
+   [
+    "E7"
+   ]
+  ],
+  "expected": "derived",
+  "note": "the page does not mention ORDER BY with UNION"
+ },
+ {
+  "id": "order-01",
+  "area": "ORDER BY",
+  "construct": "two keys (stated form)",
+  "source": "https://help.claris.com/en/sql-reference/content/order-by-clause.html",
+  "sql": "SELECT emp_id, last_name, first_name FROM emp ORDER BY first_name, last_name",
+  "rows": [
+   [
+    "E2",
+    "Jones",
+    "Alea"
+   ],
+   [
+    "E3",
+    "Marks",
+    "Alea"
+   ],
+   [
+    "E4",
+    "Allen",
+    "Ann"
+   ],
+   [
+    "E5",
+    "Conrad",
+    "Bob"
+   ],
+   [
+    "E6",
+    "Mattson",
+    "Cy"
+   ],
+   [
+    "E7",
+    "O'Neil",
+    "Dee"
+   ],
+   [
+    "E1",
+    "Smith",
+    "John"
+   ]
+  ],
+  "expected": "result"
+ },
+ {
+  "id": "order-02",
+  "area": "ORDER BY",
+  "construct": "positional numbers give the same order (stated)",
+  "source": "https://help.claris.com/en/sql-reference/content/order-by-clause.html",
+  "sql": "SELECT emp_id, last_name, first_name FROM emp ORDER BY 3,2",
+  "rows": [
+   [
+    "E2",
+    "Jones",
+    "Alea"
+   ],
+   [
+    "E3",
+    "Marks",
+    "Alea"
+   ],
+   [
+    "E4",
+    "Allen",
+    "Ann"
+   ],
+   [
+    "E5",
+    "Conrad",
+    "Bob"
+   ],
+   [
+    "E6",
+    "Mattson",
+    "Cy"
+   ],
+   [
+    "E7",
+    "O'Neil",
+    "Dee"
+   ],
+   [
+    "E1",
+    "Smith",
+    "John"
+   ]
+  ],
+  "expected": "result"
+ },
+ {
+  "id": "order-03",
+  "area": "ORDER BY",
+  "construct": "DESC",
+  "source": "https://help.claris.com/en/sql-reference/content/order-by-clause.html",
+  "sql": "SELECT emp_id FROM emp ORDER BY emp_id DESC",
+  "rows": [
+   [
+    "E7"
+   ],
+   [
+    "E6"
+   ],
+   [
+    "E5"
+   ],
+   [
+    "E4"
+   ],
+   [
+    "E3"
+   ],
+   [
+    "E2"
+   ],
+   [
+    "E1"
+   ]
+  ],
+  "expected": "derived"
+ },
+ {
+  "id": "order-04",
+  "area": "ORDER BY",
+  "construct": "ASC is the default",
+  "source": "https://help.claris.com/en/sql-reference/content/order-by-clause.html",
+  "sql": "SELECT emp_id FROM emp ORDER BY emp_id ASC",
+  "rows": [
+   [
+    "E1"
+   ],
+   [
+    "E2"
+   ],
+   [
+    "E3"
+   ],
+   [
+    "E4"
+   ],
+   [
+    "E5"
+   ],
+   [
+    "E6"
+   ],
+   [
+    "E7"
+   ]
+  ],
+  "expected": "derived"
+ },
+ {
+  "id": "order-05",
+  "area": "ORDER BY",
+  "construct": "an invalid ordinal is an error",
+  "source": "https://help.claris.com/en/sql-reference/content/filemaker-sql-error-codes.html",
+  "sql": "SELECT emp_id FROM emp ORDER BY 9",
+  "error": true,
+  "expected": "result",
+  "note": "FQL0012"
+ },
+ {
+  "id": "order-06",
+  "area": "ORDER BY",
+  "construct": "binary (Unicode code point) order, uppercase before lowercase (stated)",
+  "source": "https://help.claris.com/en/sql-reference/content/order-by-clause.html",
+  "sql": "SELECT x FROM (SELECT 'b' AS x UNION ALL SELECT 'B' UNION ALL SELECT 'a') t ORDER BY x",
+  "rows": [
+   [
+    "B"
+   ],
+   [
+    "a"
+   ],
+   [
+    "b"
+   ]
+  ],
+  "expected": "result",
+  "note": "the page: FileMaker Server uses a Unicode binary sort order"
+ },
+ {
+  "id": "offset-01",
+  "area": "OFFSET",
+  "construct": "skip rows (stated)",
+  "source": "https://help.claris.com/en/sql-reference/content/offset-and-fetch-first-clauses.html",
+  "sql": "SELECT emp_id FROM emp ORDER BY emp_id OFFSET 5 ROWS",
+  "rows": [
+   [
+    "E6"
+   ],
+   [
+    "E7"
+   ]
+  ],
+  "expected": "result"
+ },
+ {
+  "id": "offset-02",
+  "area": "OFFSET",
+  "construct": "ROW and ROWS are interchangeable (stated)",
+  "source": "https://help.claris.com/en/sql-reference/content/offset-and-fetch-first-clauses.html",
+  "sql": "SELECT emp_id FROM emp ORDER BY emp_id OFFSET 5 ROW",
+  "rows": [
+   [
+    "E6"
+   ],
+   [
+    "E7"
+   ]
+  ],
+  "expected": "result"
+ },
+ {
+  "id": "offset-03",
+  "area": "OFFSET",
+  "construct": "past the end returns nothing, no error (stated)",
+  "source": "https://help.claris.com/en/sql-reference/content/offset-and-fetch-first-clauses.html",
+  "sql": "SELECT emp_id FROM emp ORDER BY emp_id OFFSET 50 ROWS",
+  "rows": [],
+  "expected": "result"
+ },
+ {
+  "id": "fetch-01",
+  "area": "FETCH FIRST",
+  "construct": "n ROWS ONLY (stated)",
+  "source": "https://help.claris.com/en/sql-reference/content/offset-and-fetch-first-clauses.html",
+  "sql": "SELECT emp_id FROM emp ORDER BY emp_id FETCH FIRST 3 ROWS ONLY",
+  "rows": [
+   [
+    "E1"
+   ],
+   [
+    "E2"
+   ],
+   [
+    "E3"
+   ]
+  ],
+  "expected": "result"
+ },
+ {
+  "id": "fetch-02",
+  "area": "FETCH FIRST",
+  "construct": "OFFSET then FETCH (stated)",
+  "source": "https://help.claris.com/en/sql-reference/content/offset-and-fetch-first-clauses.html",
+  "sql": "SELECT emp_id FROM emp ORDER BY emp_id OFFSET 2 ROWS FETCH FIRST 2 ROWS ONLY",
+  "rows": [
+   [
+    "E3"
+   ],
+   [
+    "E4"
+   ]
+  ],
+  "expected": "result"
+ },
+ {
+  "id": "fetch-03",
+  "area": "FETCH FIRST",
+  "construct": "FETCH FIRST with the count omitted is 1 (stated)",
+  "source": "https://help.claris.com/en/sql-reference/content/offset-and-fetch-first-clauses.html",
+  "sql": "SELECT emp_id FROM emp ORDER BY emp_id FETCH FIRST ROW ONLY",
+  "rows": [
+   [
+    "E1"
+   ]
+  ],
+  "expected": "result"
+ },
+ {
+  "id": "fetch-04",
+  "area": "FETCH FIRST",
+  "construct": "ROW and ROWS (stated)",
+  "source": "https://help.claris.com/en/sql-reference/content/offset-and-fetch-first-clauses.html",
+  "sql": "SELECT emp_id FROM emp ORDER BY emp_id FETCH FIRST 1 ROW ONLY",
+  "rows": [
+   [
+    "E1"
+   ]
+  ],
+  "expected": "result"
+ },
+ {
+  "id": "fetch-05",
+  "area": "FETCH FIRST",
+  "construct": "WITH TIES returns the peers too (stated)",
+  "source": "https://help.claris.com/en/sql-reference/content/offset-and-fetch-first-clauses.html",
+  "sql": "SELECT emp_id, salary FROM emp WHERE salary IS NOT NULL ORDER BY salary DESC FETCH FIRST 3 ROWS WITH TIES",
+  "rows": [
+   [
+    "E7",
+    "62000"
+   ],
+   [
+    "E1",
+    "50000"
+   ],
+   [
+    "E3",
+    "45000"
+   ],
+   [
+    "E4",
+    "45000"
+   ]
+  ],
+  "expected": "result",
+  "unordered": true,
+  "note": "E3 and E4 tie for third place"
+ },
+ {
+  "id": "fetch-05b",
+  "area": "FETCH FIRST",
+  "construct": "WITH TIES with no tie at the boundary adds nothing",
+  "source": "https://help.claris.com/en/sql-reference/content/offset-and-fetch-first-clauses.html",
+  "sql": "SELECT emp_id, salary FROM emp WHERE salary IS NOT NULL ORDER BY salary DESC FETCH FIRST 2 ROWS WITH TIES",
+  "expected": "derived",
+  "rows": [
+   [
+    "E7",
+    "62000"
+   ],
+   [
+    "E1",
+    "50000"
+   ]
+  ]
+ },
+ {
+  "id": "fetch-05c",
+  "area": "FETCH FIRST",
+  "construct": "WITH TIES after an OFFSET counts from the first row kept",
+  "source": "https://help.claris.com/en/sql-reference/content/offset-and-fetch-first-clauses.html",
+  "sql": "SELECT emp_id FROM emp WHERE salary IS NOT NULL ORDER BY salary DESC OFFSET 1 ROWS FETCH FIRST 2 ROWS WITH TIES",
+  "expected": "derived",
+  "rows": [
+   [
+    "E1"
+   ],
+   [
+    "E3"
+   ],
+   [
+    "E4"
+   ]
+  ],
+  "unordered": true,
+  "note": "skips E7; the second row kept is E3 or E4 (45000 both), so both come"
+ },
+ {
+  "id": "fetch-05d",
+  "area": "FETCH FIRST",
+  "construct": "WITH TIES with ORDER BY a position",
+  "source": "https://help.claris.com/en/sql-reference/content/offset-and-fetch-first-clauses.html",
+  "sql": "SELECT emp_id, salary FROM emp WHERE salary IS NOT NULL ORDER BY 2 DESC FETCH FIRST 3 ROWS WITH TIES",
+  "expected": "derived",
+  "rows": [
+   [
+    "E7",
+    "62000"
+   ],
+   [
+    "E1",
+    "50000"
+   ],
+   [
+    "E3",
+    "45000"
+   ],
+   [
+    "E4",
+    "45000"
+   ]
+  ]
+ },
+ {
+  "id": "fetch-05e",
+  "area": "FETCH FIRST",
+  "construct": "WITH TIES with ORDER BY an alias",
+  "source": "https://help.claris.com/en/sql-reference/content/offset-and-fetch-first-clauses.html",
+  "sql": "SELECT emp_id, salary AS pay FROM emp WHERE salary IS NOT NULL ORDER BY pay DESC FETCH FIRST 3 ROWS WITH TIES",
+  "expected": "derived",
+  "rows": [
+   [
+    "E7",
+    "62000"
+   ],
+   [
+    "E1",
+    "50000"
+   ],
+   [
+    "E3",
+    "45000"
+   ],
+   [
+    "E4",
+    "45000"
+   ]
+  ]
+ },
+ {
+  "id": "fetch-05f",
+  "area": "FETCH FIRST",
+  "construct": "WITH TIES over groups",
+  "source": "https://help.claris.com/en/sql-reference/content/offset-and-fetch-first-clauses.html",
+  "sql": "SELECT dept FROM emp GROUP BY dept ORDER BY COUNT(*) DESC FETCH FIRST 1 ROWS WITH TIES",
+  "expected": "derived",
+  "rows": [
+   [
+    "D101"
+   ],
+   [
+    "D102"
+   ],
+   [
+    "D103"
+   ]
+  ],
+  "unordered": true,
+  "note": "three departments have two employees; D104 has one"
+ },
+ {
+  "id": "fetch-05g",
+  "area": "FETCH FIRST",
+  "construct": "WITH TIES with fewer rows than the count",
+  "source": "https://help.claris.com/en/sql-reference/content/offset-and-fetch-first-clauses.html",
+  "sql": "SELECT emp_id FROM emp WHERE salary > 55000 ORDER BY salary FETCH FIRST 5 ROWS WITH TIES",
+  "expected": "derived",
+  "rows": [
+   [
+    "E7"
+   ]
+  ]
+ },
+ {
+  "id": "fetch-05h",
+  "area": "FETCH FIRST",
+  "construct": "WITH TIES with DISTINCT is refused",
+  "source": "https://help.claris.com/en/sql-reference/content/offset-and-fetch-first-clauses.html",
+  "sql": "SELECT DISTINCT dept FROM emp ORDER BY dept FETCH FIRST 1 ROWS WITH TIES",
+  "expected": "derived",
+  "error": true,
+  "note": "the page does not say; refused here rather than guessed"
+ },
+ {
+  "id": "fetch-06",
+  "area": "FETCH FIRST",
+  "construct": "WITH TIES without ORDER BY is an error (stated)",
+  "source": "https://help.claris.com/en/sql-reference/content/offset-and-fetch-first-clauses.html",
+  "sql": "SELECT emp_id FROM emp FETCH FIRST 2 ROWS WITH TIES",
+  "error": true,
+  "expected": "result",
+  "note": "FQL0051"
+ },
+ {
+  "id": "fetch-07",
+  "area": "FETCH FIRST",
+  "construct": "PERCENT (stated)",
+  "source": "https://help.claris.com/en/sql-reference/content/offset-and-fetch-first-clauses.html",
+  "sql": "SELECT emp_id FROM emp ORDER BY emp_id FETCH FIRST 50 PERCENT ROWS ONLY",
+  "rows": [
+   [
+    "E1"
+   ],
+   [
+    "E2"
+   ],
+   [
+    "E3"
+   ],
+   [
+    "E4"
+   ]
+  ],
+  "expected": "result",
+  "note": "the page allows PERCENT; how a fraction of rows rounds (50 percent of 7 rows) is not stated, so 4 here is an assumption of rounding up",
+  "known": "PERCENT is valid FileMaker SQL and is refused here with a plain \"not supported\" error; the page does not say how a fraction of a row rounds, so there is nothing to match yet."
+ },
+ {
+  "id": "fetch-08",
+  "area": "FETCH FIRST",
+  "construct": "a count of 0 is an error (stated: at least 1)",
+  "source": "https://help.claris.com/en/sql-reference/content/offset-and-fetch-first-clauses.html",
+  "sql": "SELECT emp_id FROM emp ORDER BY emp_id FETCH FIRST 0 ROWS ONLY",
+  "error": true,
+  "expected": "result",
+  "note": "FQL0052"
+ },
+ {
+  "id": "fetch-09",
+  "area": "FETCH FIRST",
+  "construct": "not supported in a subquery (stated)",
+  "source": "https://help.claris.com/en/sql-reference/content/offset-and-fetch-first-clauses.html",
+  "sql": "SELECT emp_id FROM emp WHERE emp_id IN (SELECT emp_id FROM emp ORDER BY emp_id FETCH FIRST 2 ROWS ONLY)",
+  "error": true,
+  "expected": "result"
+ },
+ {
+  "id": "where-26",
+  "area": "WHERE",
+  "construct": "<> ALL (a subquery) is NOT IN",
+  "source": "https://help.claris.com/en/sql-reference/content/relational-operators.html",
+  "sql": "SELECT COUNT(Invoice_ID) AS agg FROM Sales_Data WHERE Invoice_ID <> ALL (SELECT Invoice_ID FROM Sales_Data WHERE Salesperson_ID = 'SP-2')",
+  "rows": [
+   [
+    "3"
+   ]
+  ],
+  "expected": "derived"
+ },
+ {
+  "id": "where-27",
+  "area": "WHERE",
+  "construct": "a keyword inside a string constant is just text",
+  "source": "https://help.claris.com/en/sql-reference/content/relational-operators.html",
+  "sql": "SELECT emp_id FROM emp WHERE last_name = 'RIGHT OUTER JOIN OFFSET 3 ROWS FETCH FIRST 2 ROWS ONLY'",
+  "rows": [],
+  "expected": "derived",
+  "note": "regression: the OFFSET and FETCH rewrite used to read inside strings"
+ },
+ {
+  "id": "offset-04",
+  "area": "OFFSET",
+  "construct": "ORDER BY, OFFSET and FETCH on a UNION apply to the whole result",
+  "source": "https://help.claris.com/en/sql-reference/content/offset-and-fetch-first-clauses.html",
+  "sql": "SELECT emp_id FROM emp WHERE dept = 'D101' UNION ALL SELECT emp_id FROM emp WHERE dept = 'D104' ORDER BY emp_id OFFSET 1 ROW FETCH FIRST 2 ROWS ONLY",
+  "rows": [
+   [
+    "E2"
+   ],
+   [
+    "E7"
+   ]
+  ],
+  "expected": "derived",
+  "note": "the page does not mention UNION with FETCH; applied to the whole result as in standard SQL"
+ },
+ {
+  "id": "offset-05",
+  "area": "OFFSET",
+  "construct": "a trailing semicolon",
+  "source": "https://help.claris.com/en/sql-reference/content/offset-and-fetch-first-clauses.html",
+  "sql": "SELECT emp_id FROM emp ORDER BY emp_id FETCH FIRST 2 ROWS ONLY;",
+  "rows": [
+   [
+    "E1"
+   ],
+   [
+    "E2"
+   ]
+  ],
+  "expected": "derived"
+ },
+ {
+  "id": "fetch-10",
+  "area": "FETCH FIRST",
+  "construct": "NEXT is the same as FIRST",
+  "source": "https://help.claris.com/en/sql-reference/content/offset-and-fetch-first-clauses.html",
+  "sql": "SELECT emp_id FROM emp ORDER BY emp_id OFFSET 1 ROWS FETCH NEXT 2 ROWS ONLY",
+  "rows": [
+   [
+    "E2"
+   ],
+   [
+    "E3"
+   ]
+  ],
+  "expected": "derived",
+  "note": "the page lists FIRST and NEXT as the same"
+ },
+ {
+  "id": "fetch-11",
+  "area": "FETCH FIRST",
+  "construct": "OFFSET inside a subquery is an error (stated)",
+  "source": "https://help.claris.com/en/sql-reference/content/offset-and-fetch-first-clauses.html",
+  "sql": "SELECT emp_id FROM emp WHERE emp_id IN (SELECT emp_id FROM emp ORDER BY emp_id OFFSET 1 ROWS)",
+  "error": true,
+  "expected": "result"
+ },
+ {
+  "id": "select-10",
+  "area": "SELECT",
+  "construct": "star with a table alias",
+  "source": "https://help.claris.com/en/sql-reference/content/from-clause.html",
+  "sql": "SELECT e.* FROM emp e WHERE e.emp_id = 'E5'",
+  "rows": [
+   [
+    "E5",
+    "Conrad",
+    "Bob",
+    "D103",
+    "E1",
+    "20000",
+    "2018-05-05",
+    "1"
+   ]
+  ],
+  "expected": "derived"
+ },
+ {
+  "id": "select-11",
+  "area": "SELECT",
+  "construct": "star over a join lists the fields of both tables",
+  "source": "https://help.claris.com/en/sql-reference/content/from-clause.html",
+  "sql": "SELECT * FROM Salespeople INNER JOIN Sales_Data ON Salespeople.Salesperson_ID = Sales_Data.Salesperson_ID WHERE Invoice_ID = 3",
+  "rows": [
+   [
+    "SP-2",
+    "Bo Park",
+    "SP-1",
+    "3",
+    "SP-2",
+    "Home Furniture Suppliers",
+    "800",
+    "2028-03-01",
+    "08:15:00"
+   ]
+  ],
+  "expected": "derived"
+ },
+ {
+  "id": "select-12",
+  "area": "SELECT",
+  "construct": "DISTINCT star",
+  "source": "https://help.claris.com/en/sql-reference/content/select-statement.html",
+  "sql": "SELECT DISTINCT * FROM Payroll WHERE Salary > 1500",
+  "rows": [
+   [
+    "2000.4"
+   ]
+  ],
+  "expected": "derived"
+ },
+ {
+  "id": "select-13",
+  "area": "SELECT",
+  "construct": "star over a subquery in FROM",
+  "source": "https://help.claris.com/en/sql-reference/content/from-clause.html",
+  "sql": "SELECT * FROM (SELECT * FROM Payroll WHERE Salary < 1000) t",
+  "rows": [
+   [
+    "999.5"
+   ]
+  ],
+  "expected": "derived"
+ },
+ {
+  "id": "select-14",
+  "area": "SELECT",
+  "construct": "COUNT(*) is not a star item",
+  "source": "https://help.claris.com/en/sql-reference/content/aggregate-functions.html",
+  "sql": "SELECT COUNT(*) FROM Payroll",
+  "rows": [
+   [
+    "3"
+   ]
+  ],
+  "expected": "derived"
+ },
+ {
+  "id": "expr-01",
+  "area": "constants",
+  "construct": "a string with a doubled quote (stated)",
+  "source": "https://help.claris.com/en/sql-reference/content/constants.html",
+  "sql": "SELECT emp_id FROM emp WHERE last_name = 'O''Neil'",
+  "rows": [
+   [
+    "E7"
+   ]
+  ],
+  "expected": "result"
+ },
+ {
+  "id": "expr-02",
+  "area": "constants",
+  "construct": "a numeric constant",
+  "source": "https://help.claris.com/en/sql-reference/content/constants.html",
+  "sql": "SELECT salary * 1.05 FROM emp WHERE emp_id = 'E5'",
+  "rows": [
+   [
+    "21000"
+   ]
+  ],
+  "expected": "derived"
+ },
+ {
+  "id": "expr-03",
+  "area": "constants",
+  "construct": "scientific notation (stated form)",
+  "source": "https://help.claris.com/en/sql-reference/content/exponential-scientific-notation.html",
+  "sql": "SELECT salary / 2E+1 FROM emp WHERE emp_id = 'E5'",
+  "rows": [
+   [
+    "1000"
+   ]
+  ],
+  "expected": "result",
+  "note": "the page shows 3.4E+7 and 3.4E-6"
+ },
+ {
+  "id": "expr-04",
+  "area": "constants",
+  "construct": "DATE 'YYYY-MM-DD' (stated)",
+  "source": "https://help.claris.com/en/sql-reference/content/constants.html",
+  "sql": "SELECT emp_id FROM emp WHERE hire_date = DATE '2020-03-15'",
+  "rows": [
+   [
+    "E1"
+   ]
+  ],
+  "expected": "result"
+ },
+ {
+  "id": "expr-05",
+  "area": "constants",
+  "construct": "{D '...'} escape (stated, not for ExecuteSQL)",
+  "source": "https://help.claris.com/en/sql-reference/content/constants.html",
+  "sql": "SELECT emp_id FROM emp WHERE hire_date = {D '2020-03-15'}",
+  "rows": [
+   [
+    "E1"
+   ]
+  ],
+  "expected": "result",
+  "paths": [
+   "wire"
+  ],
+  "note": "the page: ExecuteSQL accepts only the SQL-92 form without braces; the ODBC/JDBC driver accepts the braces"
+ },
+ {
+  "id": "expr-06",
+  "area": "constants",
+  "construct": "braces refused by ExecuteSQL (stated)",
+  "source": "https://help.claris.com/en/sql-reference/content/using-executesql-function.html",
+  "sql": "SELECT emp_id FROM emp WHERE hire_date = {D '2020-03-15'}",
+  "error": true,
+  "expected": "result",
+  "paths": [
+   "executesql"
+  ],
+  "note": "the page: ExecuteSQL does not accept ODBC/JDBC date, time and timestamp constants in braces",
+  "known": "ExecuteSQL here also accepts the ODBC braces ({D '...'}); the Claris page says ExecuteSQL refuses them. Left lenient: the same translation serves the SQL connection, which does accept them, and a query written for ExecuteSQL gives the same result."
+ },
+ {
+  "id": "expr-07",
+  "area": "constants",
+  "construct": "TIME 'hh:mm:ss' (stated)",
+  "source": "https://help.claris.com/en/sql-reference/content/constants.html",
+  "sql": "SELECT Invoice_ID FROM Sales_Data WHERE Time_Sold = TIME '09:00:00'",
+  "rows": [
+   [
+    "1"
+   ]
+  ],
+  "expected": "result"
+ },
+ {
+  "id": "expr-08",
+  "area": "constants",
+  "construct": "TIMESTAMP '...' (stated form)",
+  "source": "https://help.claris.com/en/sql-reference/content/constants.html",
+  "sql": "SELECT TIMESTAMP '2028-06-05 14:35:10' = TIMESTAMP '2028-06-05 14:35:10' AS same",
+  "rows": [
+   [
+    "1"
+   ]
+  ],
+  "expected": "derived",
+  "note": "whether a comparison shows as 1, true or True is not stated; FileMaker shows booleans via STRVAL as False/True"
+ },
+ {
+  "id": "expr-09",
+  "area": "constants",
+  "construct": "an invalid date literal is an error",
+  "source": "https://help.claris.com/en/sql-reference/content/filemaker-sql-error-codes.html",
+  "sql": "SELECT DATE '2020-13-45' FROM emp",
+  "error": true,
+  "expected": "result",
+  "note": "FQL0010"
+ },
+ {
+  "id": "expr-10",
+  "area": "operators",
+  "construct": "+ - * and unary minus",
+  "source": "https://help.claris.com/en/sql-reference/content/numeric-operators.html",
+  "sql": "SELECT 7 + 3, 7 - 3, 7 * 3, -7 FROM emp WHERE emp_id = 'E1'",
+  "rows": [
+   [
+    "10",
+    "4",
+    "21",
+    "-7"
+   ]
+  ],
+  "expected": "derived"
+ },
+ {
+  "id": "expr-10b",
+  "area": "operators",
+  "construct": "division of two integers (not stated)",
+  "source": "https://help.claris.com/en/sql-reference/content/numeric-operators.html",
+  "sql": "SELECT 6 / 4 FROM emp WHERE emp_id = 'E1'",
+  "expected": "unverified",
+  "paths": [],
+  "note": "whether 6 / 4 is 1 (integer division) or 1.5 is not stated on the pages read; SQLite divides integers as integers, FileMaker calculations do not. Recorded as not verified."
+ },
+ {
+  "id": "expr-11",
+  "area": "operators",
+  "construct": "exponentiation ^ and ** (stated)",
+  "source": "https://help.claris.com/en/sql-reference/content/numeric-operators.html",
+  "sql": "SELECT 2 ^ 3, 2 ** 3 FROM emp WHERE emp_id = 'E1'",
+  "rows": [
+   [
+    "8",
+    "8"
+   ]
+  ],
+  "expected": "result"
+ },
+ {
+  "id": "expr-12",
+  "area": "operators",
+  "construct": "* binds tighter than + (stated)",
+  "source": "https://help.claris.com/en/sql-reference/content/operator-precedence.html",
+  "sql": "SELECT 2 + 3 * 4 FROM emp WHERE emp_id = 'E1'",
+  "rows": [
+   [
+    "14"
+   ]
+  ],
+  "expected": "result"
+ },
+ {
+  "id": "expr-13",
+  "area": "operators",
+  "construct": "unary minus binds tighter than ^ (stated)",
+  "source": "https://help.claris.com/en/sql-reference/content/operator-precedence.html",
+  "sql": "SELECT -2 ^ 2 FROM emp WHERE emp_id = 'E1'",
+  "rows": [
+   [
+    "4"
+   ]
+  ],
+  "expected": "result",
+  "note": "unary minus is above ^ in the list, so (-2)^2"
+ },
+ {
+  "id": "expr-14",
+  "area": "operators",
+  "construct": "+ keeps trailing blanks (stated)",
+  "source": "https://help.claris.com/en/sql-reference/content/character-operators.html",
+  "sql": "SELECT 'ROBERT ' + 'JONES ' FROM emp WHERE emp_id = 'E1'",
+  "rows": [
+   [
+    "ROBERT JONES "
+   ]
+  ],
+  "expected": "result"
+ },
+ {
+  "id": "expr-15",
+  "area": "operators",
+  "construct": "- moves trailing blanks to the end (stated)",
+  "source": "https://help.claris.com/en/sql-reference/content/character-operators.html",
+  "sql": "SELECT 'ROBERT ' - 'JONES ' FROM emp WHERE emp_id = 'E1'",
+  "rows": [
+   [
+    "ROBERTJONES  "
+   ]
+  ],
+  "expected": "result",
+  "note": "the page shows the result with its trailing blank"
+ },
+ {
+  "id": "expr-16",
+  "area": "operators",
+  "construct": "date + days (stated)",
+  "source": "https://help.claris.com/en/sql-reference/content/date-operators.html",
+  "sql": "SELECT hire_date + 5 FROM emp WHERE emp_id = 'E1'",
+  "rows": [
+   [
+    "2020-03-20"
+   ]
+  ],
+  "expected": "result"
+ },
+ {
+  "id": "expr-17",
+  "area": "operators",
+  "construct": "date - days (stated)",
+  "source": "https://help.claris.com/en/sql-reference/content/date-operators.html",
+  "sql": "SELECT hire_date - 10 FROM emp WHERE emp_id = 'E1'",
+  "rows": [
+   [
+    "2020-03-05"
+   ]
+  ],
+  "expected": "result"
+ },
+ {
+  "id": "expr-18",
+  "area": "operators",
+  "construct": "date - date is a number of days (stated)",
+  "source": "https://help.claris.com/en/sql-reference/content/date-operators.html",
+  "sql": "SELECT hire_date - DATE '2020-03-01' FROM emp WHERE emp_id = 'E1'",
+  "rows": [
+   [
+    "14"
+   ]
+  ],
+  "expected": "result"
+ },
+ {
+  "id": "expr-19",
+  "area": "operators",
+  "construct": "+ on a text field and constants (the usual full-name form)",
+  "source": "https://help.claris.com/en/sql-reference/content/character-operators.html",
+  "sql": "SELECT first_name + ' ' + last_name FROM emp WHERE emp_id = 'E7'",
+  "rows": [
+   [
+    "Dee O'Neil"
+   ]
+  ],
+  "expected": "derived"
+ },
+ {
+  "id": "expr-20",
+  "area": "operators",
+  "construct": "+ on two text fields",
+  "source": "https://help.claris.com/en/sql-reference/content/character-operators.html",
+  "sql": "SELECT first_name + last_name FROM emp WHERE emp_id = 'E7'",
+  "rows": [
+   [
+    "DeeO'Neil"
+   ]
+  ],
+  "expected": "derived"
+ },
+ {
+  "id": "expr-21",
+  "area": "operators",
+  "construct": "a date field plus days in a comparison",
+  "source": "https://help.claris.com/en/sql-reference/content/date-operators.html",
+  "sql": "SELECT emp_id FROM emp WHERE hire_date + 30 > DATE '2023-03-01' ORDER BY emp_id",
+  "rows": [
+   [
+    "E6"
+   ]
+  ],
+  "expected": "derived",
+  "note": "E6 was hired 2023-02-28, +30 days is 2023-03-30"
+ },
+ {
+  "id": "expr-22",
+  "area": "operators",
+  "construct": "CURRENT_DATE minus days",
+  "source": "https://help.claris.com/en/sql-reference/content/date-operators.html",
+  "sql": "SELECT CURRENT_DATE - 1 < CURRENT_DATE FROM emp WHERE emp_id = 'E1'",
+  "rows": [
+   [
+    "1"
+   ]
+  ],
+  "expected": "derived"
+ },
+ {
+  "id": "expr-23",
+  "area": "operators",
+  "construct": "a number minus a number is plain arithmetic",
+  "source": "https://help.claris.com/en/sql-reference/content/numeric-operators.html",
+  "sql": "SELECT salary - 1000 FROM emp WHERE emp_id = 'E1'",
+  "rows": [
+   [
+    "49000"
+   ]
+  ],
+  "expected": "derived"
+ },
+ {
+  "id": "expr-24",
+  "area": "operators",
+  "construct": "exponent on a field",
+  "source": "https://help.claris.com/en/sql-reference/content/numeric-operators.html",
+  "sql": "SELECT exempt ^ 2 + 1 FROM emp WHERE emp_id = 'E7'",
+  "rows": [
+   [
+    "2"
+   ]
+  ],
+  "expected": "derived",
+  "note": "exempt is 1 for E7"
+ },
+ {
+  "id": "expr-25",
+  "area": "constants",
+  "construct": "an invalid timestamp constant is an error",
+  "source": "https://help.claris.com/en/sql-reference/content/filemaker-sql-error-codes.html",
+  "sql": "SELECT TIMESTAMP '2020-13-45 10:00:00' FROM emp",
+  "error": true,
+  "expected": "result",
+  "note": "FQL0010"
+ },
+ {
+  "id": "func-num-27",
+  "area": "numeric function",
+  "construct": "ROUND of a value that binary floating point holds just under the half",
+  "source": "https://help.claris.com/en/sql-reference/content/functions-that-return-numbers.html",
+  "sql": "SELECT ROUND(1.005, 2) FROM emp WHERE emp_id = 'E1'",
+  "rows": [
+   [
+    "1.01"
+   ]
+  ],
+  "expected": "derived",
+  "note": "the rounding is decimal, as a person writing 1.005 expects; the page does not discuss binary floating point"
+ },
+ {
+  "id": "func-str-01",
+  "area": "string function",
+  "construct": "CHR",
+  "source": "https://help.claris.com/en/sql-reference/content/functions-that-return-character-strings.html",
+  "sql": "SELECT CHR(67) FROM emp WHERE emp_id = 'E1'",
+  "rows": [
+   [
+    "C"
+   ]
+  ],
+  "expected": "result"
+ },
+ {
+  "id": "func-str-02",
+  "area": "string function",
+  "construct": "RTRIM",
+  "source": "https://help.claris.com/en/sql-reference/content/functions-that-return-character-strings.html",
+  "sql": "SELECT RTRIM('  ABC ') FROM emp WHERE emp_id = 'E1'",
+  "rows": [
+   [
+    "  ABC"
+   ]
+  ],
+  "expected": "result"
+ },
+ {
+  "id": "func-str-03",
+  "area": "string function",
+  "construct": "TRIM",
+  "source": "https://help.claris.com/en/sql-reference/content/functions-that-return-character-strings.html",
+  "sql": "SELECT TRIM(' ABC ') FROM emp WHERE emp_id = 'E1'",
+  "rows": [
+   [
+    "ABC"
+   ]
+  ],
+  "expected": "result"
+ },
+ {
+  "id": "func-str-04",
+  "area": "string function",
+  "construct": "LTRIM",
+  "source": "https://help.claris.com/en/sql-reference/content/functions-that-return-character-strings.html",
+  "sql": "SELECT LTRIM(' ABC') FROM emp WHERE emp_id = 'E1'",
+  "rows": [
+   [
+    "ABC"
+   ]
+  ],
+  "expected": "result"
+ },
+ {
+  "id": "func-str-05",
+  "area": "string function",
+  "construct": "UPPER",
+  "source": "https://help.claris.com/en/sql-reference/content/functions-that-return-character-strings.html",
+  "sql": "SELECT UPPER('Allen') FROM emp WHERE emp_id = 'E1'",
+  "rows": [
+   [
+    "ALLEN"
+   ]
+  ],
+  "expected": "result"
+ },
+ {
+  "id": "func-str-06",
+  "area": "string function",
+  "construct": "LOWER",
+  "source": "https://help.claris.com/en/sql-reference/content/functions-that-return-character-strings.html",
+  "sql": "SELECT LOWER('Allen') FROM emp WHERE emp_id = 'E1'",
+  "rows": [
+   [
+    "allen"
+   ]
+  ],
+  "expected": "result"
+ },
+ {
+  "id": "func-str-07",
+  "area": "string function",
+  "construct": "LEFT",
+  "source": "https://help.claris.com/en/sql-reference/content/functions-that-return-character-strings.html",
+  "sql": "SELECT LEFT('Mattson',3) FROM emp WHERE emp_id = 'E1'",
+  "rows": [
+   [
+    "Mat"
+   ]
+  ],
+  "expected": "result"
+ },
+ {
+  "id": "func-str-08",
+  "area": "string function",
+  "construct": "RIGHT",
+  "source": "https://help.claris.com/en/sql-reference/content/functions-that-return-character-strings.html",
+  "sql": "SELECT RIGHT('Mattson',4) FROM emp WHERE emp_id = 'E1'",
+  "rows": [
+   [
+    "tson"
+   ]
+  ],
+  "expected": "result"
+ },
+ {
+  "id": "func-str-09",
+  "area": "string function",
+  "construct": "SUBSTR",
+  "source": "https://help.claris.com/en/sql-reference/content/functions-that-return-character-strings.html",
+  "sql": "SELECT SUBSTR('Conrad',2,3) FROM emp WHERE emp_id = 'E1'",
+  "rows": [
+   [
+    "onr"
+   ]
+  ],
+  "expected": "result"
+ },
+ {
+  "id": "func-str-10",
+  "area": "string function",
+  "construct": "SUBSTR",
+  "source": "https://help.claris.com/en/sql-reference/content/functions-that-return-character-strings.html",
+  "sql": "SELECT SUBSTR('Conrad',2) FROM emp WHERE emp_id = 'E1'",
+  "rows": [
+   [
+    "onrad"
+   ]
+  ],
+  "expected": "result"
+ },
+ {
+  "id": "func-str-11",
+  "area": "string function",
+  "construct": "SUBSTRING",
+  "source": "https://help.claris.com/en/sql-reference/content/functions-that-return-character-strings.html",
+  "sql": "SELECT SUBSTRING('Conrad',2,3) FROM emp WHERE emp_id = 'E1'",
+  "rows": [
+   [
+    "onr"
+   ]
+  ],
+  "expected": "derived"
+ },
+ {
+  "id": "func-str-12",
+  "area": "string function",
+  "construct": "SPACE",
+  "source": "https://help.claris.com/en/sql-reference/content/functions-that-return-character-strings.html",
+  "sql": "SELECT SPACE(5) FROM emp WHERE emp_id = 'E1'",
+  "rows": [
+   [
+    "     "
+   ]
+  ],
+  "expected": "result"
+ },
+ {
+  "id": "func-str-13",
+  "area": "string function",
+  "construct": "STRVAL",
+  "source": "https://help.claris.com/en/sql-reference/content/functions-that-return-character-strings.html",
+  "sql": "SELECT STRVAL('Woltman') FROM emp WHERE emp_id = 'E1'",
+  "rows": [
+   [
+    "Woltman"
+   ]
+  ],
+  "expected": "result"
+ },
+ {
+  "id": "func-str-14",
+  "area": "string function",
+  "construct": "STRVAL",
+  "source": "https://help.claris.com/en/sql-reference/content/functions-that-return-character-strings.html",
+  "sql": "SELECT STRVAL(5 * 3) FROM emp WHERE emp_id = 'E1'",
+  "rows": [
+   [
+    "15"
+   ]
+  ],
+  "expected": "result"
+ },
+ {
+  "id": "func-str-15",
+  "area": "string function",
+  "construct": "STRVAL",
+  "source": "https://help.claris.com/en/sql-reference/content/functions-that-return-character-strings.html",
+  "sql": "SELECT STRVAL(4 = 5) FROM emp WHERE emp_id = 'E1'",
+  "rows": [
+   [
+    "False"
+   ]
+  ],
+  "expected": "result"
+ },
+ {
+  "id": "func-str-24",
+  "area": "string function",
+  "construct": "STRVAL of a true comparison and of a compound condition",
+  "source": "https://help.claris.com/en/sql-reference/content/functions-that-return-character-strings.html",
+  "sql": "SELECT STRVAL(4 = 4), STRVAL(4 < 5 AND 5 < 4), STRVAL(emp_id) FROM emp WHERE emp_id = 'E1'",
+  "rows": [
+   [
+    "True",
+    "False",
+    "E1"
+   ]
+  ],
+  "expected": "derived",
+  "note": "the page's example is STRVAL(4 = 5) giving False; True and the compound form follow from it"
+ },
+ {
+  "id": "func-str-16",
+  "area": "string function",
+  "construct": "STRVAL",
+  "source": "https://help.claris.com/en/sql-reference/content/functions-that-return-character-strings.html",
+  "sql": "SELECT STRVAL(DATE '2028-12-25') FROM emp WHERE emp_id = 'E1'",
+  "rows": [
+   [
+    "2028-12-25"
+   ]
+  ],
+  "expected": "result"
+ },
+ {
+  "id": "func-str-17",
+  "area": "string function",
+  "construct": "LENGTH",
+  "source": "https://help.claris.com/en/sql-reference/content/functions-that-return-numbers.html",
+  "sql": "SELECT LENGTH('ABC') FROM emp WHERE emp_id = 'E1'",
+  "rows": [
+   [
+    "3"
+   ]
+  ],
+  "expected": "result"
+ },
+ {
+  "id": "func-str-20",
+  "area": "string function",
+  "construct": "CHR(67) + SPACE(1) + CHR(70)",
+  "source": "https://help.claris.com/en/sql-reference/content/functions-that-return-character-strings.html",
+  "sql": "SELECT CHR(67) + SPACE(1) + CHR(70) FROM emp WHERE emp_id = 'E1'",
+  "rows": [
+   [
+    "C F"
+   ]
+  ],
+  "expected": "derived"
+ },
+ {
+  "id": "func-str-21",
+  "area": "string function",
+  "construct": "RTRIM then +",
+  "source": "https://help.claris.com/en/sql-reference/content/functions-that-return-character-strings.html",
+  "sql": "SELECT RTRIM(' ' + emp_id) AS agg FROM emp WHERE emp_id = 'E1'",
+  "rows": [
+   [
+    " E1"
+   ]
+  ],
+  "expected": "derived"
+ },
+ {
+  "id": "func-str-22",
+  "area": "string function",
+  "construct": "NUMVAL (stated)",
+  "source": "https://help.claris.com/en/sql-reference/content/functions-that-return-numbers.html",
+  "sql": "SELECT NUMVAL('123') FROM emp WHERE emp_id = 'E1'",
+  "rows": [
+   [
+    "123"
+   ]
+  ],
+  "expected": "result"
+ },
+ {
+  "id": "func-str-23",
+  "area": "string function",
+  "construct": "NUMVAL of a non-number fails (stated)",
+  "source": "https://help.claris.com/en/sql-reference/content/functions-that-return-numbers.html",
+  "sql": "SELECT NUMVAL('abc') FROM emp WHERE emp_id = 'E1'",
+  "error": true,
+  "expected": "result",
+  "note": "the page: the function fails if the string is not a valid number"
+ },
+ {
+  "id": "func-num-01",
+  "area": "numeric function",
+  "construct": "ABS",
+  "source": "https://help.claris.com/en/sql-reference/content/functions-that-return-numbers.html",
+  "sql": "SELECT ABS(-4.5) FROM emp WHERE emp_id = 'E1'",
+  "rows": [
+   [
+    "4.5"
+   ]
+  ],
+  "expected": "derived"
+ },
+ {
+  "id": "func-num-02",
+  "area": "numeric function",
+  "construct": "CEIL",
+  "source": "https://help.claris.com/en/sql-reference/content/functions-that-return-numbers.html",
+  "sql": "SELECT CEIL(4.1) FROM emp WHERE emp_id = 'E1'",
+  "rows": [
+   [
+    "5"
+   ]
+  ],
+  "expected": "derived"
+ },
+ {
+  "id": "func-num-03",
+  "area": "numeric function",
+  "construct": "CEILING",
+  "source": "https://help.claris.com/en/sql-reference/content/functions-that-return-numbers.html",
+  "sql": "SELECT CEILING(4.1) FROM emp WHERE emp_id = 'E1'",
+  "rows": [
+   [
+    "5"
+   ]
+  ],
+  "expected": "derived"
+ },
+ {
+  "id": "func-num-04",
+  "area": "numeric function",
+  "construct": "FLOOR",
+  "source": "https://help.claris.com/en/sql-reference/content/functions-that-return-numbers.html",
+  "sql": "SELECT FLOOR(4.9) FROM emp WHERE emp_id = 'E1'",
+  "rows": [
+   [
+    "4"
+   ]
+  ],
+  "expected": "derived"
+ },
+ {
+  "id": "func-num-05",
+  "area": "numeric function",
+  "construct": "COS",
+  "source": "https://help.claris.com/en/sql-reference/content/functions-that-return-numbers.html",
+  "sql": "SELECT COS(RADIANS(180)) FROM emp WHERE emp_id = 'E1'",
+  "rows": [
+   [
+    "-1"
+   ]
+  ],
+  "expected": "result"
+ },
+ {
+  "id": "func-num-06",
+  "area": "numeric function",
+  "construct": "MOD",
+  "source": "https://help.claris.com/en/sql-reference/content/functions-that-return-numbers.html",
+  "sql": "SELECT MOD(10,3) FROM emp WHERE emp_id = 'E1'",
+  "rows": [
+   [
+    "1"
+   ]
+  ],
+  "expected": "result"
+ },
+ {
+  "id": "func-num-07",
+  "area": "numeric function",
+  "construct": "INT",
+  "source": "https://help.claris.com/en/sql-reference/content/functions-that-return-numbers.html",
+  "sql": "SELECT INT(6.4321) FROM emp WHERE emp_id = 'E1'",
+  "rows": [
+   [
+    "6"
+   ]
+  ],
+  "expected": "result"
+ },
+ {
+  "id": "func-num-08",
+  "area": "numeric function",
+  "construct": "MAX",
+  "source": "https://help.claris.com/en/sql-reference/content/functions-that-return-numbers.html",
+  "sql": "SELECT MAX(66,89) FROM emp WHERE emp_id = 'E1'",
+  "rows": [
+   [
+    "89"
+   ]
+  ],
+  "expected": "result"
+ },
+ {
+  "id": "func-num-09",
+  "area": "numeric function",
+  "construct": "MIN",
+  "source": "https://help.claris.com/en/sql-reference/content/functions-that-return-numbers.html",
+  "sql": "SELECT MIN(66,89) FROM emp WHERE emp_id = 'E1'",
+  "rows": [
+   [
+    "66"
+   ]
+  ],
+  "expected": "result"
+ },
+ {
+  "id": "func-num-10",
+  "area": "numeric function",
+  "construct": "ROUND",
+  "source": "https://help.claris.com/en/sql-reference/content/functions-that-return-numbers.html",
+  "sql": "SELECT ROUND(123.456,0) FROM emp WHERE emp_id = 'E1'",
+  "rows": [
+   [
+    "123"
+   ]
+  ],
+  "expected": "result"
+ },
+ {
+  "id": "func-num-11",
+  "area": "numeric function",
+  "construct": "ROUND",
+  "source": "https://help.claris.com/en/sql-reference/content/functions-that-return-numbers.html",
+  "sql": "SELECT ROUND(123.456,2) FROM emp WHERE emp_id = 'E1'",
+  "rows": [
+   [
+    "123.46"
+   ]
+  ],
+  "expected": "result"
+ },
+ {
+  "id": "func-num-12",
+  "area": "numeric function",
+  "construct": "ROUND",
+  "source": "https://help.claris.com/en/sql-reference/content/functions-that-return-numbers.html",
+  "sql": "SELECT ROUND(123.456,-2) FROM emp WHERE emp_id = 'E1'",
+  "rows": [
+   [
+    "100"
+   ]
+  ],
+  "expected": "result"
+ },
+ {
+  "id": "func-num-13",
+  "area": "numeric function",
+  "construct": "SIGN",
+  "source": "https://help.claris.com/en/sql-reference/content/functions-that-return-numbers.html",
+  "sql": "SELECT SIGN(-8) FROM emp WHERE emp_id = 'E1'",
+  "rows": [
+   [
+    "-1"
+   ]
+  ],
+  "expected": "derived"
+ },
+ {
+  "id": "func-num-14",
+  "area": "numeric function",
+  "construct": "SQRT",
+  "source": "https://help.claris.com/en/sql-reference/content/functions-that-return-numbers.html",
+  "sql": "SELECT SQRT(16) FROM emp WHERE emp_id = 'E1'",
+  "rows": [
+   [
+    "4"
+   ]
+  ],
+  "expected": "derived"
+ },
+ {
+  "id": "func-num-15",
+  "area": "numeric function",
+  "construct": "EXP",
+  "source": "https://help.claris.com/en/sql-reference/content/functions-that-return-numbers.html",
+  "sql": "SELECT EXP(0) FROM emp WHERE emp_id = 'E1'",
+  "rows": [
+   [
+    "1"
+   ]
+  ],
+  "expected": "derived"
+ },
+ {
+  "id": "func-num-16",
+  "area": "numeric function",
+  "construct": "LN",
+  "source": "https://help.claris.com/en/sql-reference/content/functions-that-return-numbers.html",
+  "sql": "SELECT LN(1) FROM emp WHERE emp_id = 'E1'",
+  "rows": [
+   [
+    "0"
+   ]
+  ],
+  "expected": "derived"
+ },
+ {
+  "id": "func-num-17",
+  "area": "numeric function",
+  "construct": "PI",
+  "source": "https://help.claris.com/en/sql-reference/content/functions-that-return-numbers.html",
+  "sql": "SELECT PI() FROM emp WHERE emp_id = 'E1'",
+  "rows": [
+   [
+    "3.14159265358979"
+   ]
+  ],
+  "expected": "derived"
+ },
+ {
+  "id": "func-num-18",
+  "area": "numeric function",
+  "construct": "DEGREES",
+  "source": "https://help.claris.com/en/sql-reference/content/functions-that-return-numbers.html",
+  "sql": "SELECT DEGREES(PI()) FROM emp WHERE emp_id = 'E1'",
+  "rows": [
+   [
+    "180"
+   ]
+  ],
+  "expected": "derived"
+ },
+ {
+  "id": "func-num-19",
+  "area": "numeric function",
+  "construct": "DAY",
+  "source": "https://help.claris.com/en/sql-reference/content/functions-that-return-numbers.html",
+  "sql": "SELECT DAY(DATE '2028-01-30') FROM emp WHERE emp_id = 'E1'",
+  "rows": [
+   [
+    "30"
+   ]
+  ],
+  "expected": "result"
+ },
+ {
+  "id": "func-num-20",
+  "area": "numeric function",
+  "construct": "MONTH",
+  "source": "https://help.claris.com/en/sql-reference/content/functions-that-return-numbers.html",
+  "sql": "SELECT MONTH(DATE '2028-01-30') FROM emp WHERE emp_id = 'E1'",
+  "rows": [
+   [
+    "1"
+   ]
+  ],
+  "expected": "result"
+ },
+ {
+  "id": "func-num-21",
+  "area": "numeric function",
+  "construct": "YEAR",
+  "source": "https://help.claris.com/en/sql-reference/content/functions-that-return-numbers.html",
+  "sql": "SELECT YEAR(DATE '2028-01-30') FROM emp WHERE emp_id = 'E1'",
+  "rows": [
+   [
+    "2028"
+   ]
+  ],
+  "expected": "result"
+ },
+ {
+  "id": "func-num-22",
+  "area": "numeric function",
+  "construct": "DAYOFWEEK",
+  "source": "https://help.claris.com/en/sql-reference/content/functions-that-return-numbers.html",
+  "sql": "SELECT DAYOFWEEK(DATE '2004-05-01') FROM emp WHERE emp_id = 'E1'",
+  "rows": [
+   [
+    "7"
+   ]
+  ],
+  "expected": "result"
+ },
+ {
+  "id": "func-num-23",
+  "area": "numeric function",
+  "construct": "HOUR",
+  "source": "https://help.claris.com/en/sql-reference/content/functions-that-return-numbers.html",
+  "sql": "SELECT HOUR(TIME '14:35:10') FROM emp WHERE emp_id = 'E1'",
+  "rows": [
+   [
+    "14"
+   ]
+  ],
+  "expected": "derived"
+ },
+ {
+  "id": "func-num-24",
+  "area": "numeric function",
+  "construct": "MINUTE",
+  "source": "https://help.claris.com/en/sql-reference/content/functions-that-return-numbers.html",
+  "sql": "SELECT MINUTE(TIME '14:35:10') FROM emp WHERE emp_id = 'E1'",
+  "rows": [
+   [
+    "35"
+   ]
+  ],
+  "expected": "derived"
+ },
+ {
+  "id": "func-num-25",
+  "area": "numeric function",
+  "construct": "SECOND",
+  "source": "https://help.claris.com/en/sql-reference/content/functions-that-return-numbers.html",
+  "sql": "SELECT SECOND(TIME '14:35:10') FROM emp WHERE emp_id = 'E1'",
+  "rows": [
+   [
+    "10"
+   ]
+  ],
+  "expected": "derived"
+ },
+ {
+  "id": "func-date-01",
+  "area": "date function",
+  "construct": "DATEVAL (stated)",
+  "source": "https://help.claris.com/en/sql-reference/content/functions-that-return-dates.html",
+  "sql": "SELECT DATEVAL('2028-01-30') FROM emp WHERE emp_id = 'E1'",
+  "rows": [
+   [
+    "2028-01-30"
+   ]
+  ],
+  "expected": "result"
+ },
+ {
+  "id": "func-date-02",
+  "area": "date function",
+  "construct": "INTERVAL YEAR (stated)",
+  "source": "https://help.claris.com/en/sql-reference/content/functions-that-return-dates.html",
+  "sql": "SELECT DATEVAL('2028-01-30') - INTERVAL 2 YEAR FROM emp WHERE emp_id = 'E1'",
+  "rows": [
+   [
+    "2026-01-30"
+   ]
+  ],
+  "expected": "result"
+ },
+ {
+  "id": "func-date-03",
+  "area": "date function",
+  "construct": "INTERVAL MONTH (stated)",
+  "source": "https://help.claris.com/en/sql-reference/content/functions-that-return-dates.html",
+  "sql": "SELECT DATEVAL('2028-01-30') + INTERVAL 3 MONTH FROM emp WHERE emp_id = 'E1'",
+  "rows": [
+   [
+    "2028-04-30"
+   ]
+  ],
+  "expected": "result"
+ },
+ {
+  "id": "func-date-04",
+  "area": "date function",
+  "construct": "INTERVAL DAY",
+  "source": "https://help.claris.com/en/sql-reference/content/functions-that-return-dates.html",
+  "sql": "SELECT DATEVAL('2028-01-30') + INTERVAL 3 DAY FROM emp WHERE emp_id = 'E1'",
+  "rows": [
+   [
+    "2028-02-02"
+   ]
+  ],
+  "expected": "derived"
+ },
+ {
+  "id": "func-date-05",
+  "area": "date function",
+  "construct": "TIMESTAMPVAL (stated form)",
+  "source": "https://help.claris.com/en/sql-reference/content/functions-that-return-dates.html",
+  "sql": "SELECT TIMESTAMPVAL('2028-01-30 14:00:00') = TIMESTAMP '2028-01-30 14:00:00' FROM emp WHERE emp_id = 'E1'",
+  "rows": [
+   [
+    "1"
+   ]
+  ],
+  "expected": "derived",
+  "note": "the page does not show the format the value is returned in, so it is compared with the literal"
+ },
+ {
+  "id": "func-date-06",
+  "area": "date function",
+  "construct": "CURRENT_DATE is today",
+  "source": "https://help.claris.com/en/sql-reference/content/functions-that-return-dates.html",
+  "sql": "SELECT CURRENT_DATE = CURDATE() FROM emp WHERE emp_id = 'E1'",
+  "rows": [
+   [
+    "1"
+   ]
+  ],
+  "expected": "derived"
+ },
+ {
+  "id": "func-date-07",
+  "area": "date function",
+  "construct": "CURRENT_DATE returns the same date the clock shows",
+  "source": "https://help.claris.com/en/sql-reference/content/functions-that-return-dates.html",
+  "sql": "SELECT CURRENT_DATE - DATEVAL('2000-01-01') > 9000 FROM emp WHERE emp_id = 'E1'",
+  "rows": [
+   [
+    "1"
+   ]
+  ],
+  "expected": "derived"
+ },
+ {
+  "id": "func-date-08",
+  "area": "date function",
+  "construct": "DAYNAME",
+  "source": "https://help.claris.com/en/sql-reference/content/functions-that-return-character-strings.html",
+  "sql": "SELECT DAYNAME(DATE '2004-05-01') FROM emp WHERE emp_id = 'E1'",
+  "rows": [
+   [
+    "Saturday"
+   ]
+  ],
+  "expected": "derived",
+  "note": "the page names the function and gives no example; 2004-05-01 was a Saturday (DAYOFWEEK 7)"
+ },
+ {
+  "id": "func-date-09",
+  "area": "date function",
+  "construct": "MONTHNAME",
+  "source": "https://help.claris.com/en/sql-reference/content/functions-that-return-character-strings.html",
+  "sql": "SELECT MONTHNAME(DATE '2028-01-30') FROM emp WHERE emp_id = 'E1'",
+  "rows": [
+   [
+    "January"
+   ]
+  ],
+  "expected": "derived"
+ },
+ {
+  "id": "cond-01",
+  "area": "CASE",
+  "construct": "simple CASE",
+  "source": "https://help.claris.com/en/sql-reference/content/conditional-functions.html",
+  "sql": "SELECT CASE dept WHEN 'D101' THEN 'one' WHEN 'D102' THEN 'two' ELSE 'other' END FROM emp ORDER BY emp_id",
+  "rows": [
+   [
+    "one"
+   ],
+   [
+    "one"
+   ],
+   [
+    "two"
+   ],
+   [
+    "two"
+   ],
+   [
+    "other"
+   ],
+   [
+    "other"
+   ],
+   [
+    "other"
+   ]
+  ],
+  "expected": "derived"
+ },
+ {
+  "id": "cond-02",
+  "area": "CASE",
+  "construct": "searched CASE",
+  "source": "https://help.claris.com/en/sql-reference/content/conditional-functions.html",
+  "sql": "SELECT CASE WHEN salary > 55000 THEN 'high' WHEN salary < 25000 THEN 'low' ELSE 'mid' END FROM emp WHERE emp_id IN ('E5','E7','E2') ORDER BY emp_id",
+  "rows": [
+   [
+    "mid"
+   ],
+   [
+    "low"
+   ],
+   [
+    "high"
+   ]
+  ],
+  "expected": "derived"
+ },
+ {
+  "id": "cond-03",
+  "area": "CASE",
+  "construct": "CASE without ELSE is NULL",
+  "source": "https://help.claris.com/en/sql-reference/content/conditional-functions.html",
+  "sql": "SELECT CASE dept WHEN 'D999' THEN 1 END FROM emp WHERE emp_id = 'E1'",
+  "rows": [
+   [
+    ""
+   ]
+  ],
+  "expected": "derived"
+ },
+ {
+  "id": "cond-04",
+  "area": "COALESCE",
+  "construct": "first non-NULL",
+  "source": "https://help.claris.com/en/sql-reference/content/conditional-functions.html",
+  "sql": "SELECT COALESCE(manager_id, 'none') FROM emp WHERE emp_id = 'E1'",
+  "rows": [
+   [
+    "none"
+   ]
+  ],
+  "expected": "derived",
+  "note": "manager_id of E1 is empty"
+ },
+ {
+  "id": "cond-05",
+  "area": "NULLIF",
+  "construct": "NULL when equal",
+  "source": "https://help.claris.com/en/sql-reference/content/conditional-functions.html",
+  "sql": "SELECT NULLIF(salary, 20000) FROM emp WHERE emp_id = 'E5'",
+  "rows": [
+   [
+    ""
+   ]
+  ],
+  "expected": "derived"
+ },
+ {
+  "id": "cond-06",
+  "area": "NULLIF",
+  "construct": "first value when different",
+  "source": "https://help.claris.com/en/sql-reference/content/conditional-functions.html",
+  "sql": "SELECT NULLIF(salary, -1) FROM emp WHERE emp_id = 'E5'",
+  "rows": [
+   [
+    "20000"
+   ]
+  ],
+  "expected": "derived"
+ },
+ {
+  "id": "cond-07",
+  "area": "CAST",
+  "construct": "CAST of a number to VARCHAR is not specified by the container example",
+  "source": "https://help.claris.com/en/sql-reference/content/for-update-clause.html",
+  "sql": "SELECT CAST(salary AS VARCHAR) FROM emp WHERE emp_id = 'E5'",
+  "expected": "unverified",
+  "paths": [],
+  "note": "the page gives CAST(container AS VARCHAR), but does not state what CAST(number AS VARCHAR) returns; unverified"
+ },
+ {
+  "id": "cast-02",
+  "area": "CAST",
+  "construct": "CAST of an embedded container as VARCHAR returns its filename",
+  "source": "https://help.claris.com/en/sql-reference/content/for-update-clause.html",
+  "sql": "SELECT CAST(Pic AS VARCHAR) FROM ContainerDocs",
+  "rows": [["sample.txt"]],
+  "expected": "derived"
+ },
+ {
+  "id": "getas-01",
+  "area": "container function",
+  "construct": "GetAs returns a container stream",
+  "source": "https://help.claris.com/en/sql-reference/content/for-update-clause.html",
+  "sql": "SELECT GetAs(Pic, 'FILE') FROM ContainerDocs",
+  "expected": "unverified",
+  "paths": [],
+  "note": "the page says GetAs returns binary data, but does not specify how the ExecuteSQL text result or these SQL connections represent those bytes; unverified"
+ },
+ {
+  "id": "for-update-01",
+  "area": "FOR UPDATE",
+  "construct": "FOR UPDATE OF is a cursor locking clause",
+  "source": "https://help.claris.com/en/sql-reference/content/for-update-clause.html",
+  "sql": "SELECT emp_id FROM emp WHERE salary > 20000 FOR UPDATE OF salary",
+  "expected": "unverified",
+  "paths": [],
+  "note": "the page specifies ODBC/JDBC cursor locking but does not say whether ExecuteSQL accepts this clause; the HTTP and PostgreSQL connections here are read-only and have no positioned update cursor; unverified"
+ },
+ {
+  "id": "sys-01",
+  "area": "system table",
+  "construct": "FileMaker_Tables lists the table occurrences (stated)",
+  "source": "https://help.claris.com/en/sql-reference/content/filemaker-system-tables.html",
+  "sql": "SELECT TableName FROM FileMaker_Tables WHERE TableName LIKE 'Sales%'",
+  "rows": [
+   [
+    "Sales_Data"
+   ],
+   [
+    "Salespeople"
+   ]
+  ],
+  "expected": "result",
+  "unordered": true
+ },
+ {
+  "id": "sys-02",
+  "area": "system table",
+  "construct": "FileMaker_Fields (stated column FieldName)",
+  "source": "https://help.claris.com/en/sql-reference/content/filemaker-system-tables.html",
+  "sql": "SELECT FieldName FROM FileMaker_Fields WHERE TableName = 'Payroll'",
+  "rows": [
+   [
+    "Salary"
+   ]
+  ],
+  "expected": "result"
+ },
+ {
+  "id": "sys-02b",
+  "area": "system table",
+  "construct": "FileMaker_Fields FieldType names (not stated)",
+  "source": "https://help.claris.com/en/sql-reference/content/filemaker-system-tables.html",
+  "sql": "SELECT FieldType FROM FileMaker_Fields WHERE TableName = 'Payroll'",
+  "expected": "unverified",
+  "paths": [],
+  "note": "FieldType is the SQL data type of the field; the pages read do not list the names, so they are not checked"
+ },
+ {
+  "id": "sys-03",
+  "area": "system table",
+  "construct": "FileMaker_BaseTables",
+  "source": "https://help.claris.com/en/sql-reference/content/filemaker-system-tables.html",
+  "sql": "SELECT BaseTableName FROM FileMaker_BaseTables WHERE BaseTableName = 'Payroll'",
+  "rows": [
+   [
+    "Payroll"
+   ]
+  ],
+  "expected": "derived"
+ },
+ {
+  "id": "sys-04",
+  "area": "system column",
+  "construct": "ROWID is the record id (stated)",
+  "source": "https://help.claris.com/en/sql-reference/content/filemaker-system-columns.html",
+  "sql": "SELECT ROWID FROM Payroll ORDER BY ROWID",
+  "rows": [
+   [
+    "1"
+   ],
+   [
+    "2"
+   ],
+   [
+    "3"
+   ]
+  ],
+  "expected": "derived",
+  "note": "ROWID equals Get(RecordID); the first three records of a new table have ids 1 to 3 here"
+ },
+ {
+  "id": "sys-05",
+  "area": "system column",
+  "construct": "ROWMODID is the modification count (stated)",
+  "source": "https://help.claris.com/en/sql-reference/content/filemaker-system-columns.html",
+  "sql": "SELECT ROWMODID FROM Payroll WHERE ROWID = 1",
+  "rows": [
+   [
+    "0"
+   ]
+  ],
+  "expected": "derived",
+  "note": "the page: the number of times changes to the record have been committed; a record created and never changed is assumed to be 0 (the page does not say whether creation counts)"
+ },
+ {
+  "id": "write-01",
+  "area": "statement",
+  "construct": "INSERT is refused; the connection is read-only",
+  "source": "https://help.claris.com/en/sql-reference/content/using-executesql-function.html",
+  "sql": "INSERT INTO emp (emp_id, last_name) VALUES ('E9','Nine')",
+  "error": true,
+  "expected": "result",
+  "note": "The ODBC and JDBC drivers support INSERT; ExecuteSQL supports only SELECT (stated). The SQL connection here is read-only by design, so this is refused with a read-only error."
+ },
+ {
+  "id": "write-02",
+  "area": "statement",
+  "construct": "UPDATE is refused; the connection is read-only",
+  "source": "https://help.claris.com/en/sql-reference/content/using-executesql-function.html",
+  "sql": "UPDATE emp SET salary = 1 WHERE emp_id = 'E1'",
+  "error": true,
+  "expected": "result",
+  "note": "The ODBC and JDBC drivers support UPDATE; ExecuteSQL supports only SELECT (stated). The SQL connection here is read-only by design, so this is refused with a read-only error."
+ },
+ {
+  "id": "write-03",
+  "area": "statement",
+  "construct": "DELETE is refused; the connection is read-only",
+  "source": "https://help.claris.com/en/sql-reference/content/using-executesql-function.html",
+  "sql": "DELETE FROM emp WHERE emp_id = 'E1'",
+  "error": true,
+  "expected": "result",
+  "note": "The ODBC and JDBC drivers support DELETE; ExecuteSQL supports only SELECT (stated). The SQL connection here is read-only by design, so this is refused with a read-only error."
+ },
+ {
+  "id": "write-04",
+  "area": "statement",
+  "construct": "CREATE TABLE is refused; the connection is read-only",
+  "source": "https://help.claris.com/en/sql-reference/content/using-executesql-function.html",
+  "sql": "CREATE TABLE t1 (c1 VARCHAR(20), c2 INT)",
+  "error": true,
+  "expected": "result",
+  "note": "The ODBC and JDBC drivers support CREATE TABLE; ExecuteSQL supports only SELECT (stated). The SQL connection here is read-only by design, so this is refused with a read-only error."
+ },
+ {
+  "id": "write-05",
+  "area": "statement",
+  "construct": "ALTER TABLE is refused; the connection is read-only",
+  "source": "https://help.claris.com/en/sql-reference/content/using-executesql-function.html",
+  "sql": "ALTER TABLE emp ADD c9 VARCHAR",
+  "error": true,
+  "expected": "result",
+  "note": "The ODBC and JDBC drivers support ALTER TABLE; ExecuteSQL supports only SELECT (stated). The SQL connection here is read-only by design, so this is refused with a read-only error."
+ },
+ {
+  "id": "write-06",
+  "area": "statement",
+  "construct": "DROP INDEX is refused; the connection is read-only",
+  "source": "https://help.claris.com/en/sql-reference/content/using-executesql-function.html",
+  "sql": "DROP INDEX ON emp.emp_id",
+  "error": true,
+  "expected": "result",
+  "note": "The ODBC and JDBC drivers support DROP INDEX; ExecuteSQL supports only SELECT (stated). The SQL connection here is read-only by design, so this is refused with a read-only error."
+ },
+ {
+  "id": "write-07",
+  "area": "statement",
+  "construct": "CREATE INDEX is refused; the connection is read-only",
+  "source": "https://help.claris.com/en/sql-reference/content/using-executesql-function.html",
+  "sql": "CREATE INDEX ON emp.emp_id",
+  "error": true,
+  "expected": "result",
+  "note": "The ODBC and JDBC drivers support CREATE INDEX; ExecuteSQL supports only SELECT (stated). The SQL connection here is read-only by design, so this is refused with a read-only error."
+ },
+ {
+  "id": "write-08",
+  "area": "statement",
+  "construct": "TRUNCATE TABLE is refused; the connection is read-only",
+  "source": "https://help.claris.com/en/sql-reference/content/using-executesql-function.html",
+  "sql": "TRUNCATE TABLE emp",
+  "error": true,
+  "expected": "result",
+  "note": "The ODBC and JDBC drivers support TRUNCATE TABLE; ExecuteSQL supports only SELECT (stated). The SQL connection here is read-only by design, so this is refused with a read-only error."
+ }
+]

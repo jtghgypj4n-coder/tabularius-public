@@ -1,0 +1,32 @@
+{
+  "case": "impact-rename-field",
+  "source": "hand-written stand-in (no API key where the suite was built); re-record with npm run evals -- --live --record",
+  "ask": "What would break if I renamed the Party field in Congress?",
+  "turns": [
+    {
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "toolu_01",
+          "name": "check_change_impact",
+          "input": {
+            "database": "Charts",
+            "kind": "field",
+            "name": "Congress::Party",
+            "change": "rename"
+          }
+        }
+      ],
+      "stop_reason": "tool_use"
+    },
+    {
+      "content": [
+        {
+          "type": "text",
+          "text": "Two things break if you rename Congress::Party:\n\n- The privilege set \"Party Desk\" lists the field by name, both its view-only field entry and its record limit (Party = \"D\"). After a rename the entry stops applying and the limit allows no records.\n- The script \"Count Democrats\" names Party inside ExecuteSQL text, which a rename does not change.\n\nThe summary field \"party count\" and the Congress layout refer to it by id and follow the rename. Update the privilege set and the SQL text in the same change if you go ahead."
+        }
+      ],
+      "stop_reason": "end_turn"
+    }
+  ]
+}

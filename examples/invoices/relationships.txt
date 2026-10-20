@@ -1,0 +1,18 @@
+Table occurrences
+
+Customers → Customers
+Invoices → Invoices
+Lines → Lines
+Products → Products
+
+Relationships
+
+Customers ↔ Invoices
+  Customers::ID = Invoices::Customer ID
+
+Invoices ↔ Lines
+  Invoices::ID = Lines::Invoice ID
+  Options: create in Lines, delete in Lines
+
+Lines ↔ Products
+  Lines::Product ID = Products::ID

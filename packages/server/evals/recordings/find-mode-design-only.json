@@ -1,0 +1,56 @@
+{
+  "case": "find-mode-design-only",
+  "source": "hand-written stand-in (no API key where the suite was built); re-record with npm run evals -- --live --record",
+  "ask": "Senate Democrats from Ohio or Michigan",
+  "turns": [
+    {
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "toolu_01",
+          "name": "describe_layout",
+          "input": {
+            "database": "Charts",
+            "layout": "Congress"
+          }
+        }
+      ],
+      "stop_reason": "tool_use"
+    },
+    {
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "toolu_02",
+          "name": "show_records",
+          "input": {
+            "layout": "Congress",
+            "query": [
+              {
+                "Party": "D",
+                "Chamber": "Senate",
+                "State": "Ohio"
+              },
+              {
+                "Party": "D",
+                "Chamber": "Senate",
+                "State": "Michigan"
+              }
+            ],
+            "summary": "Democratic senators from Ohio or Michigan"
+          }
+        }
+      ],
+      "stop_reason": "tool_use"
+    },
+    {
+      "content": [
+        {
+          "type": "text",
+          "text": "I filled in two find requests on Congress: Party D, Chamber Senate, State Ohio; and the same for Michigan. Perform the find to see them."
+        }
+      ],
+      "stop_reason": "end_turn"
+    }
+  ]
+}

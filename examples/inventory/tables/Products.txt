@@ -1,0 +1,33 @@
+Table: Products
+
+ID
+  Type: number, normal
+  Options: {"autoEnter": {"serial": {"increment": 1}}, "validation": {"notEmpty": true, "unique": true}}
+
+SKU
+  Type: text, normal
+  Options: {"validation": {"notEmpty": true, "unique": true}}
+
+Name
+  Type: text, normal
+  Options: {"validation": {"notEmpty": true}}
+
+Supplier Email
+  Type: text, normal
+  Comment: Where the reorder mail goes. Leave it empty and that product is skipped.
+
+Reorder Level
+  Type: number, normal
+  Comment: Reorder when the stock on hand is this or lower.
+
+On Hand
+  Type: number, calculation
+  Formula:
+    Sum ( Movements::Change )
+  Options: {"unstored": true}
+
+Status
+  Type: text, calculation
+  Formula:
+    If ( On Hand ≤ Reorder Level ; "Reorder" ; "OK" )
+  Options: {"unstored": true}

@@ -1,0 +1,14 @@
+{
+  "name": "@tabularius/server",
+  "version": "0.1.0",
+  "description": "Hosts imported FileMaker solutions: Data API-compatible REST and MCP",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "zod": "^4.6.5"
+  }
+}

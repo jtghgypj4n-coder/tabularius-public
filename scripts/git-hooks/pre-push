@@ -1,0 +1,18 @@
+#!/bin/sh
+# An opt-in git hook: before a push, say whether the generated pages are out of date, which is the usual reason the
+# automatic check goes red. Turn it on once with `npm run hooks:install`; skip it for one push with `git push --no-verify`.
+cd "$(git rev-parse --show-toplevel)" || exit 0
+status=0
+if ! npm run --silent docs:reference -- --check; then
+  echo "pre-push: the reference pages are out of date. Run \`npm run docs:reference\`, commit the result, and push again." >&2
+  status=1
+fi
+if ! npm run --silent docs:plugins -- --check; then
+  echo "pre-push: the plug-in compatibility page is out of date. Run \`npm run docs:plugins\`, commit the result, and push again." >&2
+  status=1
+fi
+if ! npm run --silent precheck -- --quick; then
+  echo "pre-push: precheck failed. Fix the reported failures, then push again." >&2
+  status=1
+fi
+exit $status

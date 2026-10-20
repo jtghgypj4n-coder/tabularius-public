@@ -1,0 +1,45 @@
+Table: Deals
+
+ID
+  Type: number, normal
+  Options: {"autoEnter": {"serial": {"increment": 1}}, "validation": {"notEmpty": true, "unique": true}}
+
+Company ID
+  Type: number, normal
+  Options: {"validation": {"notEmpty": true}}
+
+Company Name
+  Type: text, calculation
+  Formula:
+    Companies::Name
+  Options: {"unstored": true}
+
+Title
+  Type: text, normal
+  Options: {"validation": {"notEmpty": true}}
+
+Amount
+  Type: number, normal
+
+Stage
+  Type: text, normal
+  Comment: Lead, Proposal, Won or Lost. The Deal stage list offers these. Close deal sets Won or Lost.
+  Options: {"autoEnter": {"data": "Lead"}}
+
+Opened
+  Type: date, normal
+  Options: {"autoEnter": {"value": "creationDate"}}
+
+Closed
+  Type: date, normal
+  Comment: Filled in by Close deal.
+
+Open Amount
+  Type: number, calculation
+  Formula:
+    Case ( Stage = "Won" or Stage = "Lost" ; 0 ; Amount )
+
+Won Amount
+  Type: number, calculation
+  Formula:
+    Case ( Stage = "Won" ; Amount ; 0 )

@@ -1,0 +1,3 @@
+Initials ( name )
+
+Left ( name ; 1 ) & Middle ( name ; Position ( name ; " " ; 1 ; 1 ) + 1 ; 1 )

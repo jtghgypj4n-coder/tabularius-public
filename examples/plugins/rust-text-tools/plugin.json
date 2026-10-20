@@ -1,0 +1,14 @@
+{
+  "id": "org.tabularius.example.rust-text-tools",
+  "name": "Rust text tools (example)",
+  "version": "1.0.0",
+  "api": "^1.0",
+  "publisher": "Tabularius examples",
+  "runtime": "wasm",
+  "main": "main.wasm",
+  "functions": [
+    { "name": "Ex_Slug", "min": 1, "max": 1, "pure": true },
+    { "name": "Ex_WordCount", "min": 1, "max": 1, "pure": true },
+    { "name": "Ex_Add", "min": 2, "max": 2, "pure": true }
+  ]
+}

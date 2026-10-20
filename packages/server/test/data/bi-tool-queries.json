@@ -1,0 +1,1389 @@
+{
+ "queries": [
+  {
+   "id": "psql-01",
+   "tool": "psql",
+   "provenance": "captured",
+   "command": "\\l",
+   "sql": "SELECT\n  d.datname as \"Name\",\n  pg_catalog.pg_get_userbyid(d.datdba) as \"Owner\",\n  pg_catalog.pg_encoding_to_char(d.encoding) as \"Encoding\",\n  'libc' AS \"Locale Provider\",\n  d.datcollate as \"Collate\",\n  d.datctype as \"Ctype\",\n  NULL as \"ICU Locale\",\n  NULL as \"ICU Rules\",\n  pg_catalog.array_to_string(d.datacl, E'\\n') AS \"Access privileges\"\nFROM pg_catalog.pg_database d\nORDER BY 1",
+   "mode": "simple"
+  },
+  {
+   "id": "psql-02",
+   "tool": "psql",
+   "provenance": "captured",
+   "command": "\\l+",
+   "sql": "SELECT\n  d.datname as \"Name\",\n  pg_catalog.pg_get_userbyid(d.datdba) as \"Owner\",\n  pg_catalog.pg_encoding_to_char(d.encoding) as \"Encoding\",\n  'libc' AS \"Locale Provider\",\n  d.datcollate as \"Collate\",\n  d.datctype as \"Ctype\",\n  NULL as \"ICU Locale\",\n  NULL as \"ICU Rules\",\n  pg_catalog.array_to_string(d.datacl, E'\\n') AS \"Access privileges\",\n  CASE WHEN pg_catalog.has_database_privilege(d.datname, 'CONNECT')\n       OR pg_catalog.pg_has_role('pg_read_all_stats', 'USAGE')\n       THEN pg_catalog.pg_size_pretty(pg_catalog.pg_database_size(d.datname))\n       ELSE 'No Access'\n  END as \"Size\",\n  t.spcname as \"Tablespace\",\n  pg_catalog.shobj_description(d.oid, 'pg_database') as \"Description\"\nFROM pg_catalog.pg_database d\n  JOIN pg_catalog.pg_tablespace t on d.dattablespace = t.oid\nORDER BY 1",
+   "mode": "simple"
+  },
+  {
+   "id": "psql-03",
+   "tool": "psql",
+   "provenance": "captured",
+   "command": "\\dn",
+   "sql": "SELECT n.nspname AS \"Name\",\n  pg_catalog.pg_get_userbyid(n.nspowner) AS \"Owner\"\nFROM pg_catalog.pg_namespace n\nWHERE n.nspname !~ '^pg_' AND n.nspname <> 'information_schema'\nORDER BY 1",
+   "mode": "simple"
+  },
+  {
+   "id": "psql-04",
+   "tool": "psql",
+   "provenance": "captured",
+   "command": "\\dn+",
+   "sql": "SELECT n.nspname AS \"Name\",\n  pg_catalog.pg_get_userbyid(n.nspowner) AS \"Owner\",\n  pg_catalog.array_to_string(n.nspacl, E'\\n') AS \"Access privileges\",\n  pg_catalog.obj_description(n.oid, 'pg_namespace') AS \"Description\"\nFROM pg_catalog.pg_namespace n\nWHERE n.nspname !~ '^pg_' AND n.nspname <> 'information_schema'\nORDER BY 1",
+   "mode": "simple"
+  },
+  {
+   "id": "psql-05",
+   "tool": "psql",
+   "provenance": "captured",
+   "command": "\\dt",
+   "sql": "SELECT n.nspname as \"Schema\",\n  c.relname as \"Name\",\n  CASE c.relkind WHEN 'r' THEN 'table' WHEN 'v' THEN 'view' WHEN 'm' THEN 'materialized view' WHEN 'i' THEN 'index' WHEN 'S' THEN 'sequence' WHEN 't' THEN 'TOAST table' WHEN 'f' THEN 'foreign table' WHEN 'p' THEN 'partitioned table' WHEN 'I' THEN 'partitioned index' END as \"Type\",\n  pg_catalog.pg_get_userbyid(c.relowner) as \"Owner\"\nFROM pg_catalog.pg_class c\n     LEFT JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace\n     LEFT JOIN pg_catalog.pg_am am ON am.oid = c.relam\nWHERE c.relkind IN ('r','p','')\n      AND n.nspname <> 'pg_catalog'\n      AND n.nspname !~ '^pg_toast'\n      AND n.nspname <> 'information_schema'\n  AND pg_catalog.pg_table_is_visible(c.oid)\nORDER BY 1,2",
+   "mode": "simple"
+  },
+  {
+   "id": "psql-06",
+   "tool": "psql",
+   "provenance": "captured",
+   "command": "\\dt+",
+   "sql": "SELECT n.nspname as \"Schema\",\n  c.relname as \"Name\",\n  CASE c.relkind WHEN 'r' THEN 'table' WHEN 'v' THEN 'view' WHEN 'm' THEN 'materialized view' WHEN 'i' THEN 'index' WHEN 'S' THEN 'sequence' WHEN 't' THEN 'TOAST table' WHEN 'f' THEN 'foreign table' WHEN 'p' THEN 'partitioned table' WHEN 'I' THEN 'partitioned index' END as \"Type\",\n  pg_catalog.pg_get_userbyid(c.relowner) as \"Owner\",\n  CASE c.relpersistence WHEN 'p' THEN 'permanent' WHEN 't' THEN 'temporary' WHEN 'u' THEN 'unlogged' END as \"Persistence\",\n  am.amname as \"Access method\",\n  pg_catalog.pg_size_pretty(pg_catalog.pg_table_size(c.oid)) as \"Size\",\n  pg_catalog.obj_description(c.oid, 'pg_class') as \"Description\"\nFROM pg_catalog.pg_class c\n     LEFT JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace\n     LEFT JOIN pg_catalog.pg_am am ON am.oid = c.relam\nWHERE c.relkind IN ('r','p','')\n      AND n.nspname <> 'pg_catalog'\n      AND n.nspname !~ '^pg_toast'\n      AND n.nspname <> 'information_schema'\n  AND pg_catalog.pg_table_is_visible(c.oid)\nORDER BY 1,2",
+   "mode": "simple"
+  },
+  {
+   "id": "psql-07",
+   "tool": "psql",
+   "provenance": "captured",
+   "command": "\\dtS",
+   "sql": "SELECT n.nspname as \"Schema\",\n  c.relname as \"Name\",\n  CASE c.relkind WHEN 'r' THEN 'table' WHEN 'v' THEN 'view' WHEN 'm' THEN 'materialized view' WHEN 'i' THEN 'index' WHEN 'S' THEN 'sequence' WHEN 't' THEN 'TOAST table' WHEN 'f' THEN 'foreign table' WHEN 'p' THEN 'partitioned table' WHEN 'I' THEN 'partitioned index' END as \"Type\",\n  pg_catalog.pg_get_userbyid(c.relowner) as \"Owner\"\nFROM pg_catalog.pg_class c\n     LEFT JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace\n     LEFT JOIN pg_catalog.pg_am am ON am.oid = c.relam\nWHERE c.relkind IN ('r','p','t','s','')\n  AND pg_catalog.pg_table_is_visible(c.oid)\nORDER BY 1,2",
+   "mode": "simple"
+  },
+  {
+   "id": "psql-08",
+   "tool": "psql",
+   "provenance": "captured",
+   "command": "\\d",
+   "sql": "SELECT n.nspname as \"Schema\",\n  c.relname as \"Name\",\n  CASE c.relkind WHEN 'r' THEN 'table' WHEN 'v' THEN 'view' WHEN 'm' THEN 'materialized view' WHEN 'i' THEN 'index' WHEN 'S' THEN 'sequence' WHEN 't' THEN 'TOAST table' WHEN 'f' THEN 'foreign table' WHEN 'p' THEN 'partitioned table' WHEN 'I' THEN 'partitioned index' END as \"Type\",\n  pg_catalog.pg_get_userbyid(c.relowner) as \"Owner\"\nFROM pg_catalog.pg_class c\n     LEFT JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace\n     LEFT JOIN pg_catalog.pg_am am ON am.oid = c.relam\nWHERE c.relkind IN ('r','p','v','m','S','f','')\n      AND n.nspname <> 'pg_catalog'\n      AND n.nspname !~ '^pg_toast'\n      AND n.nspname <> 'information_schema'\n  AND pg_catalog.pg_table_is_visible(c.oid)\nORDER BY 1,2",
+   "mode": "simple"
+  },
+  {
+   "id": "psql-09",
+   "tool": "psql",
+   "provenance": "captured",
+   "command": "\\d Invoices",
+   "sql": "SELECT c.oid,\n  n.nspname,\n  c.relname\nFROM pg_catalog.pg_class c\n     LEFT JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace\nWHERE c.relname OPERATOR(pg_catalog.~) '^(invoices)$' COLLATE pg_catalog.default\n  AND pg_catalog.pg_table_is_visible(c.oid)\nORDER BY 2, 3",
+   "mode": "simple"
+  },
+  {
+   "id": "psql-10",
+   "tool": "psql",
+   "provenance": "captured",
+   "command": "\\d Invoices",
+   "sql": "SELECT c.relchecks, c.relkind, c.relhasindex, c.relhasrules, c.relhastriggers, c.relrowsecurity, c.relforcerowsecurity, false AS relhasoids, c.relispartition, '', c.reltablespace, CASE WHEN c.reloftype = 0 THEN '' ELSE c.reloftype::pg_catalog.regtype::pg_catalog.text END, c.relpersistence, c.relreplident, am.amname\nFROM pg_catalog.pg_class c\n LEFT JOIN pg_catalog.pg_class tc ON (c.reltoastrelid = tc.oid)\nLEFT JOIN pg_catalog.pg_am am ON (c.relam = am.oid)\nWHERE c.oid = '{{oid:Invoices}}'",
+   "mode": "simple"
+  },
+  {
+   "id": "psql-11",
+   "tool": "psql",
+   "provenance": "captured",
+   "command": "\\d Invoices",
+   "sql": "SELECT a.attname,\n  pg_catalog.format_type(a.atttypid, a.atttypmod),\n  (SELECT pg_catalog.pg_get_expr(d.adbin, d.adrelid, true)\n   FROM pg_catalog.pg_attrdef d\n   WHERE d.adrelid = a.attrelid AND d.adnum = a.attnum AND a.atthasdef),\n  a.attnotnull,\n  (SELECT c.collname FROM pg_catalog.pg_collation c, pg_catalog.pg_type t\n   WHERE c.oid = a.attcollation AND t.oid = a.atttypid AND a.attcollation <> t.typcollation) AS attcollation,\n  a.attidentity,\n  a.attgenerated\nFROM pg_catalog.pg_attribute a\nWHERE a.attrelid = '{{oid:Invoices}}' AND a.attnum > 0 AND NOT a.attisdropped\nORDER BY a.attnum",
+   "mode": "simple"
+  },
+  {
+   "id": "psql-12",
+   "tool": "psql",
+   "provenance": "captured",
+   "command": "\\d Invoices",
+   "sql": "SELECT pol.polname, pol.polpermissive,\n  CASE WHEN pol.polroles = '{0}' THEN NULL ELSE pg_catalog.array_to_string(array(select rolname from pg_catalog.pg_roles where oid = any (pol.polroles) order by 1),',') END,\n  pg_catalog.pg_get_expr(pol.polqual, pol.polrelid),\n  pg_catalog.pg_get_expr(pol.polwithcheck, pol.polrelid),\n  CASE pol.polcmd\n    WHEN 'r' THEN 'SELECT'\n    WHEN 'a' THEN 'INSERT'\n    WHEN 'w' THEN 'UPDATE'\n    WHEN 'd' THEN 'DELETE'\n    END AS cmd\nFROM pg_catalog.pg_policy pol\nWHERE pol.polrelid = '{{oid:Invoices}}' ORDER BY 1",
+   "mode": "simple"
+  },
+  {
+   "id": "psql-13",
+   "tool": "psql",
+   "provenance": "captured",
+   "command": "\\d Invoices",
+   "sql": "SELECT oid, stxrelid::pg_catalog.regclass, stxnamespace::pg_catalog.regnamespace::pg_catalog.text AS nsp, stxname,\npg_catalog.pg_get_statisticsobjdef_columns(oid) AS columns,\n  'd' = any(stxkind) AS ndist_enabled,\n  'f' = any(stxkind) AS deps_enabled,\n  'm' = any(stxkind) AS mcv_enabled,\nstxstattarget\nFROM pg_catalog.pg_statistic_ext\nWHERE stxrelid = '{{oid:Invoices}}'\nORDER BY nsp, stxname",
+   "mode": "simple"
+  },
+  {
+   "id": "psql-14",
+   "tool": "psql",
+   "provenance": "captured",
+   "command": "\\d Invoices",
+   "sql": "SELECT pubname\n     , NULL\n     , NULL\nFROM pg_catalog.pg_publication p\nJOIN pg_catalog.pg_publication_rel pr ON p.oid = pr.prpubid\nWHERE pr.prrelid = '{{oid:Invoices}}'\nUNION ALL\nSELECT pubname\n     , NULL\n     , NULL\nFROM pg_catalog.pg_publication p\nWHERE p.puballtables AND pg_catalog.pg_relation_is_publishable('{{oid:Invoices}}')\nORDER BY 1",
+   "mode": "simple"
+  },
+  {
+   "id": "psql-15",
+   "tool": "psql",
+   "provenance": "captured",
+   "command": "\\d Invoices",
+   "sql": "SELECT c.oid::pg_catalog.regclass\nFROM pg_catalog.pg_class c, pg_catalog.pg_inherits i\nWHERE c.oid = i.inhparent AND i.inhrelid = '{{oid:Invoices}}'\n  AND c.relkind != 'p' AND c.relkind != 'I'\nORDER BY inhseqno",
+   "mode": "simple"
+  },
+  {
+   "id": "psql-16",
+   "tool": "psql",
+   "provenance": "captured",
+   "command": "\\d Invoices",
+   "sql": "SELECT c.oid::pg_catalog.regclass, c.relkind, inhdetachpending, pg_catalog.pg_get_expr(c.relpartbound, c.oid)\nFROM pg_catalog.pg_class c, pg_catalog.pg_inherits i\nWHERE c.oid = i.inhrelid AND i.inhparent = '{{oid:Invoices}}'\nORDER BY pg_catalog.pg_get_expr(c.relpartbound, c.oid) = 'DEFAULT', c.oid::pg_catalog.regclass::pg_catalog.text",
+   "mode": "simple"
+  },
+  {
+   "id": "psql-17",
+   "tool": "psql",
+   "provenance": "captured",
+   "command": "\\d+ Invoices",
+   "sql": "SELECT c.relchecks, c.relkind, c.relhasindex, c.relhasrules, c.relhastriggers, c.relrowsecurity, c.relforcerowsecurity, false AS relhasoids, c.relispartition, pg_catalog.array_to_string(c.reloptions || array(select 'toast.' || x from pg_catalog.unnest(tc.reloptions) x), ', ')\n, c.reltablespace, CASE WHEN c.reloftype = 0 THEN '' ELSE c.reloftype::pg_catalog.regtype::pg_catalog.text END, c.relpersistence, c.relreplident, am.amname\nFROM pg_catalog.pg_class c\n LEFT JOIN pg_catalog.pg_class tc ON (c.reltoastrelid = tc.oid)\nLEFT JOIN pg_catalog.pg_am am ON (c.relam = am.oid)\nWHERE c.oid = '{{oid:Invoices}}'",
+   "mode": "simple"
+  },
+  {
+   "id": "psql-18",
+   "tool": "psql",
+   "provenance": "captured",
+   "command": "\\d+ Invoices",
+   "sql": "SELECT a.attname,\n  pg_catalog.format_type(a.atttypid, a.atttypmod),\n  (SELECT pg_catalog.pg_get_expr(d.adbin, d.adrelid, true)\n   FROM pg_catalog.pg_attrdef d\n   WHERE d.adrelid = a.attrelid AND d.adnum = a.attnum AND a.atthasdef),\n  a.attnotnull,\n  (SELECT c.collname FROM pg_catalog.pg_collation c, pg_catalog.pg_type t\n   WHERE c.oid = a.attcollation AND t.oid = a.atttypid AND a.attcollation <> t.typcollation) AS attcollation,\n  a.attidentity,\n  a.attgenerated,\n  a.attstorage,\n  a.attcompression AS attcompression,\n  CASE WHEN a.attstattarget=-1 THEN NULL ELSE a.attstattarget END AS attstattarget,\n  pg_catalog.col_description(a.attrelid, a.attnum)\nFROM pg_catalog.pg_attribute a\nWHERE a.attrelid = '{{oid:Invoices}}' AND a.attnum > 0 AND NOT a.attisdropped\nORDER BY a.attnum",
+   "mode": "simple"
+  },
+  {
+   "id": "psql-19",
+   "tool": "psql",
+   "provenance": "captured",
+   "command": "\\d Lines",
+   "sql": "SELECT c.oid,\n  n.nspname,\n  c.relname\nFROM pg_catalog.pg_class c\n     LEFT JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace\nWHERE c.relname OPERATOR(pg_catalog.~) '^(lines)$' COLLATE pg_catalog.default\n  AND pg_catalog.pg_table_is_visible(c.oid)\nORDER BY 2, 3",
+   "mode": "simple"
+  },
+  {
+   "id": "psql-20",
+   "tool": "psql",
+   "provenance": "captured",
+   "command": "\\d Lines",
+   "sql": "SELECT c.relchecks, c.relkind, c.relhasindex, c.relhasrules, c.relhastriggers, c.relrowsecurity, c.relforcerowsecurity, false AS relhasoids, c.relispartition, '', c.reltablespace, CASE WHEN c.reloftype = 0 THEN '' ELSE c.reloftype::pg_catalog.regtype::pg_catalog.text END, c.relpersistence, c.relreplident, am.amname\nFROM pg_catalog.pg_class c\n LEFT JOIN pg_catalog.pg_class tc ON (c.reltoastrelid = tc.oid)\nLEFT JOIN pg_catalog.pg_am am ON (c.relam = am.oid)\nWHERE c.oid = '{{oid:Lines}}'",
+   "mode": "simple"
+  },
+  {
+   "id": "psql-21",
+   "tool": "psql",
+   "provenance": "captured",
+   "command": "\\d Lines",
+   "sql": "SELECT a.attname,\n  pg_catalog.format_type(a.atttypid, a.atttypmod),\n  (SELECT pg_catalog.pg_get_expr(d.adbin, d.adrelid, true)\n   FROM pg_catalog.pg_attrdef d\n   WHERE d.adrelid = a.attrelid AND d.adnum = a.attnum AND a.atthasdef),\n  a.attnotnull,\n  (SELECT c.collname FROM pg_catalog.pg_collation c, pg_catalog.pg_type t\n   WHERE c.oid = a.attcollation AND t.oid = a.atttypid AND a.attcollation <> t.typcollation) AS attcollation,\n  a.attidentity,\n  a.attgenerated\nFROM pg_catalog.pg_attribute a\nWHERE a.attrelid = '{{oid:Lines}}' AND a.attnum > 0 AND NOT a.attisdropped\nORDER BY a.attnum",
+   "mode": "simple"
+  },
+  {
+   "id": "psql-22",
+   "tool": "psql",
+   "provenance": "captured",
+   "command": "\\d Lines",
+   "sql": "SELECT pol.polname, pol.polpermissive,\n  CASE WHEN pol.polroles = '{0}' THEN NULL ELSE pg_catalog.array_to_string(array(select rolname from pg_catalog.pg_roles where oid = any (pol.polroles) order by 1),',') END,\n  pg_catalog.pg_get_expr(pol.polqual, pol.polrelid),\n  pg_catalog.pg_get_expr(pol.polwithcheck, pol.polrelid),\n  CASE pol.polcmd\n    WHEN 'r' THEN 'SELECT'\n    WHEN 'a' THEN 'INSERT'\n    WHEN 'w' THEN 'UPDATE'\n    WHEN 'd' THEN 'DELETE'\n    END AS cmd\nFROM pg_catalog.pg_policy pol\nWHERE pol.polrelid = '{{oid:Lines}}' ORDER BY 1",
+   "mode": "simple"
+  },
+  {
+   "id": "psql-23",
+   "tool": "psql",
+   "provenance": "captured",
+   "command": "\\d Lines",
+   "sql": "SELECT oid, stxrelid::pg_catalog.regclass, stxnamespace::pg_catalog.regnamespace::pg_catalog.text AS nsp, stxname,\npg_catalog.pg_get_statisticsobjdef_columns(oid) AS columns,\n  'd' = any(stxkind) AS ndist_enabled,\n  'f' = any(stxkind) AS deps_enabled,\n  'm' = any(stxkind) AS mcv_enabled,\nstxstattarget\nFROM pg_catalog.pg_statistic_ext\nWHERE stxrelid = '{{oid:Lines}}'\nORDER BY nsp, stxname",
+   "mode": "simple"
+  },
+  {
+   "id": "psql-24",
+   "tool": "psql",
+   "provenance": "captured",
+   "command": "\\d Lines",
+   "sql": "SELECT pubname\n     , NULL\n     , NULL\nFROM pg_catalog.pg_publication p\nJOIN pg_catalog.pg_publication_rel pr ON p.oid = pr.prpubid\nWHERE pr.prrelid = '{{oid:Lines}}'\nUNION ALL\nSELECT pubname\n     , NULL\n     , NULL\nFROM pg_catalog.pg_publication p\nWHERE p.puballtables AND pg_catalog.pg_relation_is_publishable('{{oid:Lines}}')\nORDER BY 1",
+   "mode": "simple"
+  },
+  {
+   "id": "psql-25",
+   "tool": "psql",
+   "provenance": "captured",
+   "command": "\\d Lines",
+   "sql": "SELECT c.oid::pg_catalog.regclass\nFROM pg_catalog.pg_class c, pg_catalog.pg_inherits i\nWHERE c.oid = i.inhparent AND i.inhrelid = '{{oid:Lines}}'\n  AND c.relkind != 'p' AND c.relkind != 'I'\nORDER BY inhseqno",
+   "mode": "simple"
+  },
+  {
+   "id": "psql-26",
+   "tool": "psql",
+   "provenance": "captured",
+   "command": "\\d Lines",
+   "sql": "SELECT c.oid::pg_catalog.regclass, c.relkind, inhdetachpending, pg_catalog.pg_get_expr(c.relpartbound, c.oid)\nFROM pg_catalog.pg_class c, pg_catalog.pg_inherits i\nWHERE c.oid = i.inhrelid AND i.inhparent = '{{oid:Lines}}'\nORDER BY pg_catalog.pg_get_expr(c.relpartbound, c.oid) = 'DEFAULT', c.oid::pg_catalog.regclass::pg_catalog.text",
+   "mode": "simple"
+  },
+  {
+   "id": "psql-27",
+   "tool": "psql",
+   "provenance": "captured",
+   "command": "\\dv",
+   "sql": "SELECT n.nspname as \"Schema\",\n  c.relname as \"Name\",\n  CASE c.relkind WHEN 'r' THEN 'table' WHEN 'v' THEN 'view' WHEN 'm' THEN 'materialized view' WHEN 'i' THEN 'index' WHEN 'S' THEN 'sequence' WHEN 't' THEN 'TOAST table' WHEN 'f' THEN 'foreign table' WHEN 'p' THEN 'partitioned table' WHEN 'I' THEN 'partitioned index' END as \"Type\",\n  pg_catalog.pg_get_userbyid(c.relowner) as \"Owner\"\nFROM pg_catalog.pg_class c\n     LEFT JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace\nWHERE c.relkind IN ('v','')\n      AND n.nspname <> 'pg_catalog'\n      AND n.nspname !~ '^pg_toast'\n      AND n.nspname <> 'information_schema'\n  AND pg_catalog.pg_table_is_visible(c.oid)\nORDER BY 1,2",
+   "mode": "simple"
+  },
+  {
+   "id": "psql-28",
+   "tool": "psql",
+   "provenance": "captured",
+   "command": "\\di",
+   "sql": "SELECT n.nspname as \"Schema\",\n  c.relname as \"Name\",\n  CASE c.relkind WHEN 'r' THEN 'table' WHEN 'v' THEN 'view' WHEN 'm' THEN 'materialized view' WHEN 'i' THEN 'index' WHEN 'S' THEN 'sequence' WHEN 't' THEN 'TOAST table' WHEN 'f' THEN 'foreign table' WHEN 'p' THEN 'partitioned table' WHEN 'I' THEN 'partitioned index' END as \"Type\",\n  pg_catalog.pg_get_userbyid(c.relowner) as \"Owner\",\n  c2.relname as \"Table\"\nFROM pg_catalog.pg_class c\n     LEFT JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace\n     LEFT JOIN pg_catalog.pg_am am ON am.oid = c.relam\n     LEFT JOIN pg_catalog.pg_index i ON i.indexrelid = c.oid\n     LEFT JOIN pg_catalog.pg_class c2 ON i.indrelid = c2.oid\nWHERE c.relkind IN ('i','I','')\n      AND n.nspname <> 'pg_catalog'\n      AND n.nspname !~ '^pg_toast'\n      AND n.nspname <> 'information_schema'\n  AND pg_catalog.pg_table_is_visible(c.oid)\nORDER BY 1,2",
+   "mode": "simple"
+  },
+  {
+   "id": "psql-29",
+   "tool": "psql",
+   "provenance": "captured",
+   "command": "\\ds",
+   "sql": "SELECT n.nspname as \"Schema\",\n  c.relname as \"Name\",\n  CASE c.relkind WHEN 'r' THEN 'table' WHEN 'v' THEN 'view' WHEN 'm' THEN 'materialized view' WHEN 'i' THEN 'index' WHEN 'S' THEN 'sequence' WHEN 't' THEN 'TOAST table' WHEN 'f' THEN 'foreign table' WHEN 'p' THEN 'partitioned table' WHEN 'I' THEN 'partitioned index' END as \"Type\",\n  pg_catalog.pg_get_userbyid(c.relowner) as \"Owner\"\nFROM pg_catalog.pg_class c\n     LEFT JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace\nWHERE c.relkind IN ('S','')\n      AND n.nspname <> 'pg_catalog'\n      AND n.nspname !~ '^pg_toast'\n      AND n.nspname <> 'information_schema'\n  AND pg_catalog.pg_table_is_visible(c.oid)\nORDER BY 1,2",
+   "mode": "simple"
+  },
+  {
+   "id": "psql-30",
+   "tool": "psql",
+   "provenance": "captured",
+   "command": "\\df",
+   "sql": "SELECT n.nspname as \"Schema\",\n  p.proname as \"Name\",\n  pg_catalog.pg_get_function_result(p.oid) as \"Result data type\",\n  pg_catalog.pg_get_function_arguments(p.oid) as \"Argument data types\",\n CASE p.prokind\n  WHEN 'a' THEN 'agg'\n  WHEN 'w' THEN 'window'\n  WHEN 'p' THEN 'proc'\n  ELSE 'func'\n END as \"Type\"\nFROM pg_catalog.pg_proc p\n     LEFT JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace\nWHERE pg_catalog.pg_function_is_visible(p.oid)\n      AND n.nspname <> 'pg_catalog'\n      AND n.nspname <> 'information_schema'\nORDER BY 1, 2, 4",
+   "mode": "simple"
+  },
+  {
+   "id": "psql-31",
+   "tool": "psql",
+   "provenance": "captured",
+   "command": "\\du",
+   "sql": "SELECT r.rolname, r.rolsuper, r.rolinherit,\n  r.rolcreaterole, r.rolcreatedb, r.rolcanlogin,\n  r.rolconnlimit, r.rolvaliduntil\n, r.rolreplication\n, r.rolbypassrls\nFROM pg_catalog.pg_roles r\nWHERE r.rolname !~ '^pg_'\nORDER BY 1",
+   "mode": "simple"
+  },
+  {
+   "id": "psql-32",
+   "tool": "psql",
+   "provenance": "captured",
+   "command": "\\dT",
+   "sql": "SELECT n.nspname as \"Schema\",\n  pg_catalog.format_type(t.oid, NULL) AS \"Name\",\n  pg_catalog.obj_description(t.oid, 'pg_type') as \"Description\"\nFROM pg_catalog.pg_type t\n     LEFT JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace\nWHERE (t.typrelid = 0 OR (SELECT c.relkind = 'c' FROM pg_catalog.pg_class c WHERE c.oid = t.typrelid))\n  AND NOT EXISTS(SELECT 1 FROM pg_catalog.pg_type el WHERE el.oid = t.typelem AND el.typarray = t.oid)\n      AND n.nspname <> 'pg_catalog'\n      AND n.nspname <> 'information_schema'\n  AND pg_catalog.pg_type_is_visible(t.oid)\nORDER BY 1, 2",
+   "mode": "simple"
+  },
+  {
+   "id": "psql-33",
+   "tool": "psql",
+   "provenance": "captured",
+   "command": "\\dx",
+   "sql": "SELECT e.extname AS \"Name\", e.extversion AS \"Version\", n.nspname AS \"Schema\", c.description AS \"Description\"\nFROM pg_catalog.pg_extension e LEFT JOIN pg_catalog.pg_namespace n ON n.oid = e.extnamespace LEFT JOIN pg_catalog.pg_description c ON c.objoid = e.oid AND c.classoid = 'pg_catalog.pg_extension'::pg_catalog.regclass\nORDER BY 1",
+   "mode": "simple"
+  },
+  {
+   "id": "psql-34",
+   "tool": "psql",
+   "provenance": "captured",
+   "command": "\\dp",
+   "sql": "SELECT n.nspname as \"Schema\",\n  c.relname as \"Name\",\n  CASE c.relkind WHEN 'r' THEN 'table' WHEN 'v' THEN 'view' WHEN 'm' THEN 'materialized view' WHEN 'S' THEN 'sequence' WHEN 'f' THEN 'foreign table' WHEN 'p' THEN 'partitioned table' END as \"Type\",\n  pg_catalog.array_to_string(c.relacl, E'\\n') AS \"Access privileges\",\n  pg_catalog.array_to_string(ARRAY(\n    SELECT attname || E':\\n  ' || pg_catalog.array_to_string(attacl, E'\\n  ')\n    FROM pg_catalog.pg_attribute a\n    WHERE attrelid = c.oid AND NOT attisdropped AND attacl IS NOT NULL\n  ), E'\\n') AS \"Column privileges\",\n  pg_catalog.array_to_string(ARRAY(\n    SELECT polname\n    || CASE WHEN NOT polpermissive THEN\n       E' (RESTRICTIVE)'\n       ELSE '' END\n    || CASE WHEN polcmd != '*' THEN\n           E' (' || polcmd::pg_catalog.text || E'):'\n       ELSE E':'\n       END\n    || CASE WHEN polqual IS NOT NULL THEN\n           E'\\n  (u): ' || pg_catalog.pg_get_expr(polqual, polrelid)\n       ELSE E''\n       END\n    || CASE WHEN polwithcheck IS NOT NULL THEN\n           E'\\n  (c): ' || pg_catalog.pg_get_expr(polwithcheck, polrelid)\n       ELSE E''\n       END    || CASE WHEN polroles <> '{0}' THEN\n           E'\\n  to: ' || pg_catalog.array_to_string(\n               ARRAY(\n                   SELECT rolname\n                   FROM pg_catalog.pg_roles\n                   WHERE oid = ANY (polroles)\n                   ORDER BY 1\n               ), E', ')\n       ELSE E''\n       END\n    FROM pg_catalog.pg_policy pol\n    WHERE polrelid = c.oid), E'\\n')\n    AS \"Policies\"\nFROM pg_catalog.pg_class c\n     LEFT JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace\nWHERE c.relkind IN ('r','v','m','S','f','p')\n      AND n.nspname <> 'pg_catalog'\n      AND n.nspname <> 'information_schema'\n  AND pg_catalog.pg_table_is_visible(c.oid)\nORDER BY 1, 2",
+   "mode": "simple"
+  },
+  {
+   "id": "psql-35",
+   "tool": "psql",
+   "provenance": "captured",
+   "command": "\\dD",
+   "sql": "SELECT n.nspname as \"Schema\",\n       t.typname as \"Name\",\n       pg_catalog.format_type(t.typbasetype, t.typtypmod) as \"Type\",\n       (SELECT c.collname FROM pg_catalog.pg_collation c, pg_catalog.pg_type bt\n        WHERE c.oid = t.typcollation AND bt.oid = t.typbasetype AND t.typcollation <> bt.typcollation) as \"Collation\",\n       CASE WHEN t.typnotnull THEN 'not null' END as \"Nullable\",\n       t.typdefault as \"Default\",\n       pg_catalog.array_to_string(ARRAY(\n         SELECT pg_catalog.pg_get_constraintdef(r.oid, true) FROM pg_catalog.pg_constraint r WHERE t.oid = r.contypid\n       ), ' ') as \"Check\"\nFROM pg_catalog.pg_type t\n     LEFT JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace\nWHERE t.typtype = 'd'\n      AND n.nspname <> 'pg_catalog'\n      AND n.nspname <> 'information_schema'\n  AND pg_catalog.pg_type_is_visible(t.oid)\nORDER BY 1, 2",
+   "mode": "simple"
+  },
+  {
+   "id": "psql-36",
+   "tool": "psql",
+   "provenance": "captured",
+   "command": "\\dC",
+   "sql": "SELECT pg_catalog.format_type(castsource, NULL) AS \"Source type\",\n       pg_catalog.format_type(casttarget, NULL) AS \"Target type\",\n       CASE WHEN c.castmethod = 'b' THEN '(binary coercible)'\n            WHEN c.castmethod = 'i' THEN '(with inout)'\n            ELSE p.proname\n       END AS \"Function\",\n       CASE WHEN c.castcontext = 'e' THEN 'no'\n            WHEN c.castcontext = 'a' THEN 'in assignment'\n            ELSE 'yes'\n       END AS \"Implicit?\"\nFROM pg_catalog.pg_cast c LEFT JOIN pg_catalog.pg_proc p\n     ON c.castfunc = p.oid\n     LEFT JOIN pg_catalog.pg_type ts\n     ON c.castsource = ts.oid\n     LEFT JOIN pg_catalog.pg_namespace ns\n     ON ns.oid = ts.typnamespace\n     LEFT JOIN pg_catalog.pg_type tt\n     ON c.casttarget = tt.oid\n     LEFT JOIN pg_catalog.pg_namespace nt\n     ON nt.oid = tt.typnamespace\nWHERE ( (true  AND pg_catalog.pg_type_is_visible(ts.oid)\n) OR (true  AND pg_catalog.pg_type_is_visible(tt.oid)\n) )\nORDER BY 1, 2",
+   "mode": "simple"
+  },
+  {
+   "id": "psql-37",
+   "tool": "psql",
+   "provenance": "captured",
+   "command": "\\dE",
+   "sql": "SELECT n.nspname as \"Schema\",\n  c.relname as \"Name\",\n  CASE c.relkind WHEN 'r' THEN 'table' WHEN 'v' THEN 'view' WHEN 'm' THEN 'materialized view' WHEN 'i' THEN 'index' WHEN 'S' THEN 'sequence' WHEN 't' THEN 'TOAST table' WHEN 'f' THEN 'foreign table' WHEN 'p' THEN 'partitioned table' WHEN 'I' THEN 'partitioned index' END as \"Type\",\n  pg_catalog.pg_get_userbyid(c.relowner) as \"Owner\"\nFROM pg_catalog.pg_class c\n     LEFT JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace\nWHERE c.relkind IN ('f','')\n      AND n.nspname <> 'pg_catalog'\n      AND n.nspname !~ '^pg_toast'\n      AND n.nspname <> 'information_schema'\n  AND pg_catalog.pg_table_is_visible(c.oid)\nORDER BY 1,2",
+   "mode": "simple"
+  },
+  {
+   "id": "psql-38",
+   "tool": "psql",
+   "provenance": "captured",
+   "command": "\\dm",
+   "sql": "SELECT n.nspname as \"Schema\",\n  c.relname as \"Name\",\n  CASE c.relkind WHEN 'r' THEN 'table' WHEN 'v' THEN 'view' WHEN 'm' THEN 'materialized view' WHEN 'i' THEN 'index' WHEN 'S' THEN 'sequence' WHEN 't' THEN 'TOAST table' WHEN 'f' THEN 'foreign table' WHEN 'p' THEN 'partitioned table' WHEN 'I' THEN 'partitioned index' END as \"Type\",\n  pg_catalog.pg_get_userbyid(c.relowner) as \"Owner\"\nFROM pg_catalog.pg_class c\n     LEFT JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace\n     LEFT JOIN pg_catalog.pg_am am ON am.oid = c.relam\nWHERE c.relkind IN ('m','')\n      AND n.nspname <> 'pg_catalog'\n      AND n.nspname !~ '^pg_toast'\n      AND n.nspname <> 'information_schema'\n  AND pg_catalog.pg_table_is_visible(c.oid)\nORDER BY 1,2",
+   "mode": "simple"
+  },
+  {
+   "id": "psql-39",
+   "tool": "psql",
+   "provenance": "captured",
+   "command": "\\dF",
+   "sql": "SELECT\n   n.nspname as \"Schema\",\n   c.cfgname as \"Name\",\n   pg_catalog.obj_description(c.oid, 'pg_ts_config') as \"Description\"\nFROM pg_catalog.pg_ts_config c\nLEFT JOIN pg_catalog.pg_namespace n ON n.oid = c.cfgnamespace\nWHERE pg_catalog.pg_ts_config_is_visible(c.oid)\nORDER BY 1, 2",
+   "mode": "simple"
+  },
+  {
+   "id": "psql-40",
+   "tool": "psql",
+   "provenance": "captured",
+   "command": "\\dO",
+   "sql": "SELECT\n  n.nspname AS \"Schema\",\n  c.collname AS \"Name\",\n  CASE c.collprovider WHEN 'd' THEN 'default' WHEN 'c' THEN 'libc' WHEN 'i' THEN 'icu' END AS \"Provider\",\n  c.collcollate AS \"Collate\",\n  c.collctype AS \"Ctype\",\n  c.collcollate AS \"ICU Locale\",\n  NULL AS \"ICU Rules\",\n  CASE WHEN c.collisdeterministic THEN 'yes' ELSE 'no' END AS \"Deterministic?\"\nFROM pg_catalog.pg_collation c, pg_catalog.pg_namespace n\nWHERE n.oid = c.collnamespace\n      AND n.nspname <> 'pg_catalog'\n      AND n.nspname <> 'information_schema'\n      AND c.collencoding IN (-1, pg_catalog.pg_char_to_encoding(pg_catalog.getdatabaseencoding()))\n  AND pg_catalog.pg_collation_is_visible(c.oid)\nORDER BY 1, 2",
+   "mode": "simple"
+  },
+  {
+   "id": "psql-41",
+   "tool": "psql",
+   "provenance": "captured",
+   "command": "\\db",
+   "sql": "SELECT spcname AS \"Name\",\n  pg_catalog.pg_get_userbyid(spcowner) AS \"Owner\",\n  pg_catalog.pg_tablespace_location(oid) AS \"Location\"\nFROM pg_catalog.pg_tablespace\nORDER BY 1",
+   "mode": "simple"
+  },
+  {
+   "id": "psql-42",
+   "tool": "psql",
+   "provenance": "captured",
+   "command": "\\dy",
+   "sql": "SELECT evtname as \"Name\", evtevent as \"Event\", pg_catalog.pg_get_userbyid(e.evtowner) as \"Owner\",\n case evtenabled when 'O' then 'enabled'  when 'R' then 'replica'  when 'A' then 'always'  when 'D' then 'disabled' end as \"Enabled\",\n e.evtfoid::pg_catalog.regproc as \"Function\", pg_catalog.array_to_string(array(select x from pg_catalog.unnest(evttags) as t(x)), ', ') as \"Tags\"\nFROM pg_catalog.pg_event_trigger e ORDER BY 1",
+   "mode": "simple"
+  },
+  {
+   "id": "psql-43",
+   "tool": "psql",
+   "provenance": "captured",
+   "command": "\\dd",
+   "sql": "SELECT DISTINCT tt.nspname AS \"Schema\", tt.name AS \"Name\", tt.object AS \"Object\", d.description AS \"Description\"\nFROM (\n  SELECT pgc.oid as oid, pgc.tableoid AS tableoid,\n  n.nspname as nspname,\n  CAST(pgc.conname AS pg_catalog.text) as name,  CAST('table constraint' AS pg_catalog.text) as object\n  FROM pg_catalog.pg_constraint pgc\n    JOIN pg_catalog.pg_class c ON c.oid = pgc.conrelid\n    LEFT JOIN pg_catalog.pg_namespace n     ON n.oid = c.relnamespace\nWHERE n.nspname <> 'pg_catalog'\n      AND n.nspname <> 'information_schema'\n  AND pg_catalog.pg_table_is_visible(c.oid)\nUNION ALL\n  SELECT pgc.oid as oid, pgc.tableoid AS tableoid,\n  n.nspname as nspname,\n  CAST(pgc.conname AS pg_catalog.text) as name,  CAST('domain constraint' AS pg_catalog.text) as object\n  FROM pg_catalog.pg_constraint pgc\n    JOIN pg_catalog.pg_type t ON t.oid = pgc.contypid\n    LEFT JOIN pg_catalog.pg_namespace n     ON n.oid = t.typnamespace\nWHERE n.nspname <> 'pg_catalog'\n      AND n.nspname <> 'information_schema'\n  AND pg_catalog.pg_type_is_visible(t.oid)\nUNION ALL\n  SELECT o.oid as oid, o.tableoid as tableoid,\n  n.nspname as nspname,\n  CAST(o.opcname AS pg_catalog.text) as name,\n  CAST('operator class' AS pg_catalog.text) as object\n  FROM pg_catalog.pg_opclass o\n    JOIN pg_catalog.pg_am am ON o.opcmethod = am.oid\n    JOIN pg_catalog.pg_namespace n ON n.oid = o.opcnamespace\n      AND n.nspname <> 'pg_catalog'\n      AND n.nspname <> 'information_schema'\n  AND pg_catalog.pg_opclass_is_visible(o.oid)\nUNION ALL\n  SELECT opf.oid as oid, opf.tableoid as tableoid,\n  n.nspname as nspname,\n  CAST(opf.opfname AS pg_catalog.text) AS name,\n  CAST('operator family' AS pg_catalog.text) as object\n  FROM pg_catalog.pg_opfamily opf\n    JOIN pg_catalog.pg_am am ON opf.opfmethod = am.oid\n    JOIN pg_catalog.pg_namespace n ON opf.opfnamespace = n.oid\n      AND n.nspname <> 'pg_catalog'\n      AND n.nspname <> 'information_schema'\n  AND pg_catalog.pg_opfamily_is_visible(opf.oid)\nUNION ALL\n  SELECT r.oid as oid, r.tableoid as tableoid,\n  n.nspname as nspname,\n  CAST(r.rulename AS pg_catalog.text) as name,  CAST('rule' AS pg_catalog.text) as object\n  FROM pg_catalog.pg_rewrite r\n       JOIN pg_catalog.pg_class c ON c.oid = r.ev_class\n       LEFT JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace\n  WHERE r.rulename != '_RETURN'\n      AND n.nspname <> 'pg_catalog'\n      AND n.nspname <> 'information_schema'\n  AND pg_catalog.pg_table_is_visible(c.oid)\nUNION ALL\n  SELECT t.oid as oid, t.tableoid as tableoid,\n  n.nspname as nspname,\n  CAST(t.tgname AS pg_catalog.text) as name,  CAST('trigger' AS pg_catalog.text) as object\n  FROM pg_catalog.pg_trigger t\n       JOIN pg_catalog.pg_class c ON c.oid = t.tgrelid\n       LEFT JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace\nWHERE n.nspname <> 'pg_catalog'\n      AND n.nspname <> 'information_schema'\n  AND pg_catalog.pg_table_is_visible(c.oid)\n) AS tt\n  JOIN pg_catalog.pg_description d ON (tt.oid = d.objoid AND tt.tableoid = d.classoid AND d.objsubid = 0)\nORDER BY 1, 2, 3",
+   "mode": "simple"
+  },
+  {
+   "id": "psql-44",
+   "tool": "psql",
+   "provenance": "captured",
+   "command": "\\dRp",
+   "sql": "SELECT pubname AS \"Name\",\n  pg_catalog.pg_get_userbyid(pubowner) AS \"Owner\",\n  puballtables AS \"All tables\",\n  pubinsert AS \"Inserts\",\n  pubupdate AS \"Updates\",\n  pubdelete AS \"Deletes\",\n  pubtruncate AS \"Truncates\",\n  pubviaroot AS \"Via root\"\nFROM pg_catalog.pg_publication\nORDER BY 1",
+   "mode": "simple"
+  },
+  {
+   "id": "psql-45",
+   "tool": "psql",
+   "provenance": "captured",
+   "command": "\\dRs",
+   "sql": "SELECT subname AS \"Name\"\n,  pg_catalog.pg_get_userbyid(subowner) AS \"Owner\"\n,  subenabled AS \"Enabled\"\n,  subpublications AS \"Publication\"\nFROM pg_catalog.pg_subscription\nWHERE subdbid = (SELECT oid\n                 FROM pg_catalog.pg_database\n                 WHERE datname = pg_catalog.current_database())ORDER BY 1",
+   "mode": "simple"
+  },
+  {
+   "id": "psql-46",
+   "tool": "psql",
+   "provenance": "captured",
+   "command": "\\dL",
+   "sql": "SELECT l.lanname AS \"Name\",\n       pg_catalog.pg_get_userbyid(l.lanowner) as \"Owner\",\n       l.lanpltrusted AS \"Trusted\",\n       d.description AS \"Description\"\nFROM pg_catalog.pg_language l\nLEFT JOIN pg_catalog.pg_description d\n  ON d.classoid = l.tableoid AND d.objoid = l.oid\n  AND d.objsubid = 0\nWHERE l.lanplcallfoid != 0\nORDER BY 1",
+   "mode": "simple"
+  },
+  {
+   "id": "psql-47",
+   "tool": "psql",
+   "provenance": "captured",
+   "command": "\\dA",
+   "sql": "SELECT amname AS \"Name\",\n  CASE amtype WHEN 'i' THEN 'Index' WHEN 't' THEN 'Table' END AS \"Type\"\nFROM pg_catalog.pg_am\nORDER BY 1",
+   "mode": "simple"
+  },
+  {
+   "id": "psql-48",
+   "tool": "psql",
+   "provenance": "captured",
+   "command": "\\dc",
+   "sql": "SELECT n.nspname AS \"Schema\",\n       c.conname AS \"Name\",\n       pg_catalog.pg_encoding_to_char(c.conforencoding) AS \"Source\",\n       pg_catalog.pg_encoding_to_char(c.contoencoding) AS \"Destination\",\n       CASE WHEN c.condefault THEN 'yes'\n       ELSE 'no' END AS \"Default?\"\nFROM pg_catalog.pg_conversion c\n     JOIN pg_catalog.pg_namespace n ON n.oid = c.connamespace\nWHERE true\n  AND n.nspname <> 'pg_catalog'\n  AND n.nspname <> 'information_schema'\n  AND pg_catalog.pg_conversion_is_visible(c.oid)\nORDER BY 1, 2",
+   "mode": "simple"
+  },
+  {
+   "id": "psql-49",
+   "tool": "psql",
+   "provenance": "captured",
+   "command": "\\d Inv*",
+   "sql": "SELECT c.oid,\n  n.nspname,\n  c.relname\nFROM pg_catalog.pg_class c\n     LEFT JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace\nWHERE c.relname OPERATOR(pg_catalog.~) '^(inv.*)$' COLLATE pg_catalog.default\n  AND pg_catalog.pg_table_is_visible(c.oid)\nORDER BY 2, 3",
+   "mode": "simple"
+  },
+  {
+   "id": "psql-50",
+   "tool": "psql",
+   "provenance": "captured",
+   "command": "\\dt *.*",
+   "sql": "SELECT n.nspname as \"Schema\",\n  c.relname as \"Name\",\n  CASE c.relkind WHEN 'r' THEN 'table' WHEN 'v' THEN 'view' WHEN 'm' THEN 'materialized view' WHEN 'i' THEN 'index' WHEN 'S' THEN 'sequence' WHEN 't' THEN 'TOAST table' WHEN 'f' THEN 'foreign table' WHEN 'p' THEN 'partitioned table' WHEN 'I' THEN 'partitioned index' END as \"Type\",\n  pg_catalog.pg_get_userbyid(c.relowner) as \"Owner\"\nFROM pg_catalog.pg_class c\n     LEFT JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace\n     LEFT JOIN pg_catalog.pg_am am ON am.oid = c.relam\nWHERE c.relkind IN ('r','p','t','s','')\nORDER BY 1,2",
+   "mode": "simple"
+  },
+  {
+   "id": "psql-51",
+   "tool": "psql",
+   "provenance": "captured",
+   "command": "\\sv x",
+   "sql": "SELECT 'x'::pg_catalog.regclass::pg_catalog.oid",
+   "mode": "simple"
+  },
+  {
+   "id": "psql-52",
+   "tool": "psql",
+   "provenance": "captured",
+   "command": "\\sv x",
+   "sql": "SELECT nspname, relname, relkind, pg_catalog.pg_get_viewdef(c.oid, true), pg_catalog.array_remove(pg_catalog.array_remove(c.reloptions,'check_option=local'),'check_option=cascaded') AS reloptions, CASE WHEN 'check_option=local' = ANY (c.reloptions) THEN 'LOCAL'::text WHEN 'check_option=cascaded' = ANY (c.reloptions) THEN 'CASCADED'::text ELSE NULL END AS checkoption FROM pg_catalog.pg_class c LEFT JOIN pg_catalog.pg_namespace n ON c.relnamespace = n.oid WHERE c.oid = 0",
+   "mode": "simple"
+  },
+  {
+   "id": "psql-53",
+   "tool": "psql",
+   "provenance": "captured",
+   "command": "\\sf x",
+   "sql": "SELECT 'x'::pg_catalog.regproc::pg_catalog.oid",
+   "mode": "simple"
+  },
+  {
+   "id": "psql-54",
+   "tool": "psql",
+   "provenance": "captured",
+   "command": "\\sf x",
+   "sql": "SELECT pg_catalog.pg_get_functiondef(0)",
+   "mode": "simple"
+  },
+  {
+   "id": "jdbc-01",
+   "tool": "JDBC (pgjdbc)",
+   "provenance": "transcribed",
+   "source": "https://github.com/pgjdbc/pgjdbc/blob/master/pgjdbc/src/main/java/org/postgresql/jdbc/QueryExecutorImpl.java",
+   "method": "connection setup",
+   "sql": "SET extra_float_digits = 3",
+   "mode": "simple",
+   "note": "pgjdbc sends extra_float_digits and application_name in the startup/after-connect statements; exact statement text not read from the source here"
+  },
+  {
+   "id": "jdbc-02",
+   "tool": "JDBC (pgjdbc)",
+   "provenance": "transcribed",
+   "source": "https://github.com/pgjdbc/pgjdbc/blob/master/pgjdbc/src/main/java/org/postgresql/jdbc/PgDatabaseMetaData.java",
+   "method": "getSchemas()",
+   "sql": "SELECT nspname AS \"TABLE_SCHEM\", current_database() AS \"TABLE_CATALOG\" FROM pg_catalog.pg_namespace  WHERE nspname <> 'pg_toast' AND (nspname !~ '^pg_temp_'  OR nspname = (pg_catalog.current_schemas(true))[1]) AND (nspname !~ '^pg_toast_temp_'  OR nspname = replace((pg_catalog.current_schemas(true))[1], 'pg_temp_', 'pg_toast_temp_'))  ORDER BY \"TABLE_SCHEM\"",
+   "mode": "simple",
+   "columns": [
+    "TABLE_SCHEM",
+    "TABLE_CATALOG"
+   ]
+  },
+  {
+   "id": "jdbc-03",
+   "tool": "JDBC (pgjdbc)",
+   "provenance": "transcribed",
+   "source": "https://github.com/pgjdbc/pgjdbc/blob/master/pgjdbc/src/main/java/org/postgresql/jdbc/PgDatabaseMetaData.java",
+   "method": "getCatalogs()",
+   "sql": "SELECT datname AS \"TABLE_CAT\" FROM pg_catalog.pg_database WHERE datallowconn = true ORDER BY datname",
+   "mode": "simple",
+   "columns": [
+    "TABLE_CAT"
+   ]
+  },
+  {
+   "id": "jdbc-04",
+   "tool": "JDBC (pgjdbc)",
+   "provenance": "transcribed",
+   "source": "https://github.com/pgjdbc/pgjdbc/blob/master/pgjdbc/src/main/java/org/postgresql/jdbc/PgDatabaseMetaData.java",
+   "method": "getTables(null, \"public\", \"%\", {\"TABLE\",\"VIEW\"})",
+   "sql": "SELECT current_database() AS \"TABLE_CAT\", n.nspname AS \"TABLE_SCHEM\", c.relname AS \"TABLE_NAME\",  CASE n.nspname ~ '^pg_' OR n.nspname = 'information_schema'  WHEN true THEN CASE  WHEN n.nspname = 'pg_catalog' OR n.nspname = 'information_schema' THEN CASE c.relkind   WHEN 'r' THEN 'SYSTEM TABLE'   WHEN 'v' THEN 'SYSTEM VIEW'   WHEN 'i' THEN 'SYSTEM INDEX'   ELSE NULL   END  WHEN n.nspname = 'pg_toast' THEN CASE c.relkind   WHEN 'r' THEN 'SYSTEM TOAST TABLE'   WHEN 'i' THEN 'SYSTEM TOAST INDEX'   ELSE NULL   END  ELSE CASE c.relkind   WHEN 'r' THEN 'TEMPORARY TABLE'   WHEN 'p' THEN 'TEMPORARY TABLE'   WHEN 'i' THEN 'TEMPORARY INDEX'   WHEN 'S' THEN 'TEMPORARY SEQUENCE'   WHEN 'v' THEN 'TEMPORARY VIEW'   ELSE NULL   END  END  WHEN false THEN CASE c.relkind  WHEN 'r' THEN 'TABLE'  WHEN 'p' THEN 'PARTITIONED TABLE'  WHEN 'i' THEN 'INDEX'  WHEN 'P' then 'PARTITIONED INDEX'  WHEN 'S' THEN 'SEQUENCE'  WHEN 'v' THEN 'VIEW'  WHEN 'c' THEN 'TYPE'  WHEN 'f' THEN 'FOREIGN TABLE'  WHEN 'm' THEN 'MATERIALIZED VIEW'  ELSE NULL  END  ELSE NULL  END  AS \"TABLE_TYPE\", d.description AS \"REMARKS\",  '' as \"TYPE_CAT\", '' as \"TYPE_SCHEM\", '' as \"TYPE_NAME\", '' AS \"SELF_REFERENCING_COL_NAME\", '' AS \"REF_GENERATION\"  FROM pg_catalog.pg_namespace n, pg_catalog.pg_class c  LEFT JOIN pg_catalog.pg_description d ON (c.oid = d.objoid AND d.objsubid = 0  and d.classoid = 'pg_class'::regclass)  WHERE c.relnamespace = n.oid  AND n.nspname LIKE $1 AND c.relname LIKE $2 AND (false  OR ( c.relkind = 'r' AND n.nspname !~ '^pg_' AND n.nspname <> 'information_schema' )  OR ( c.relkind = 'v' AND n.nspname <> 'pg_catalog' AND n.nspname <> 'information_schema' ) )  ORDER BY \"TABLE_TYPE\",\"TABLE_SCHEM\",\"TABLE_NAME\"",
+   "mode": "extended",
+   "params": [
+    {
+     "oid": 1043,
+     "value": "public"
+    },
+    {
+     "oid": 1043,
+     "value": "%"
+    }
+   ],
+   "columns": [
+    "TABLE_CAT",
+    "TABLE_SCHEM",
+    "TABLE_NAME",
+    "TABLE_TYPE",
+    "REMARKS",
+    "TYPE_CAT",
+    "TYPE_SCHEM",
+    "TYPE_NAME",
+    "SELF_REFERENCING_COL_NAME",
+    "REF_GENERATION"
+   ],
+   "note": "the table-type clauses are those of tableTypeClauses for TABLE and VIEW with schemas"
+  },
+  {
+   "id": "jdbc-05",
+   "tool": "JDBC (pgjdbc)",
+   "provenance": "transcribed",
+   "source": "https://github.com/pgjdbc/pgjdbc/blob/master/pgjdbc/src/main/java/org/postgresql/jdbc/PgDatabaseMetaData.java",
+   "method": "getColumns(null, \"public\", \"%\", \"%\")",
+   "sql": "SELECT * FROM (SELECT current_database() AS current_database, n.nspname,c.relname,a.attname,a.atttypid,a.attnotnull  OR (t.typtype = 'd' AND t.typnotnull) AS attnotnull,a.atttypmod,a.attlen,t.typtypmod,row_number() OVER (PARTITION BY a.attrelid ORDER BY a.attnum) AS attnum, nullif(a.attidentity, '') as attidentity,nullif(a.attgenerated, '') as attgenerated,pg_catalog.pg_get_expr(def.adbin, def.adrelid) AS adsrc,dsc.description,t.typbasetype,t.typtype  FROM pg_catalog.pg_namespace n  JOIN pg_catalog.pg_class c ON (c.relnamespace = n.oid)  JOIN pg_catalog.pg_attribute a ON (a.attrelid=c.oid)  JOIN pg_catalog.pg_type t ON (a.atttypid = t.oid)  LEFT JOIN pg_catalog.pg_attrdef def ON (a.attrelid=def.adrelid AND a.attnum = def.adnum)  LEFT JOIN pg_catalog.pg_description dsc ON (c.oid=dsc.objoid AND a.attnum = dsc.objsubid)  LEFT JOIN pg_catalog.pg_class dc ON (dc.oid=dsc.classoid AND dc.relname='pg_class')  LEFT JOIN pg_catalog.pg_namespace dn ON (dc.relnamespace=dn.oid AND dn.nspname='pg_catalog')  WHERE c.relkind in ('r','p','v','f','m') and a.attnum > 0 AND NOT a.attisdropped  AND n.nspname LIKE $1 AND c.relname LIKE $2) c WHERE true  AND attname LIKE $3 ORDER BY nspname,c.relname,attnum",
+   "mode": "extended",
+   "params": [
+    {
+     "oid": 1043,
+     "value": "public"
+    },
+    {
+     "oid": 1043,
+     "value": "%"
+    },
+    {
+     "oid": 1043,
+     "value": "%"
+    }
+   ],
+   "columns": [
+    "current_database",
+    "nspname",
+    "relname",
+    "attname",
+    "atttypid",
+    "attnotnull",
+    "atttypmod",
+    "attlen",
+    "typtypmod",
+    "attnum",
+    "attidentity",
+    "attgenerated",
+    "adsrc",
+    "description",
+    "typbasetype",
+    "typtype"
+   ],
+   "note": "server version 10 or later, so attidentity and attgenerated are read from pg_attribute; the driver then also reads rs.getLong(\"atttypid\") and friends by name"
+  },
+  {
+   "id": "jdbc-06",
+   "tool": "JDBC (pgjdbc)",
+   "provenance": "transcribed",
+   "source": "https://github.com/pgjdbc/pgjdbc/blob/master/pgjdbc/src/main/java/org/postgresql/jdbc/PgDatabaseMetaData.java",
+   "method": "getPrimaryKeys(null, \"public\", \"Invoices\")",
+   "sql": "SELECT       result.TABLE_CAT AS \"TABLE_CAT\",        result.TABLE_SCHEM AS \"TABLE_SCHEM\",        result.TABLE_NAME AS \"TABLE_NAME\",        result.COLUMN_NAME AS \"COLUMN_NAME\",        result.KEY_SEQ AS \"KEY_SEQ\",        result.PK_NAME AS \"PK_NAME\"FROM      (SELECT current_database() AS TABLE_CAT, n.nspname AS TABLE_SCHEM,   ct.relname AS TABLE_NAME, a.attname AS COLUMN_NAME,   (information_schema._pg_expandarray(con.conkey)).n AS KEY_SEQ, con.conname AS PK_NAME,   information_schema._pg_expandarray(con.conkey) AS KEYS, a.attnum AS A_ATTNUM FROM pg_catalog.pg_constraint con   JOIN pg_catalog.pg_class ct ON (con.conrelid = ct.oid)   JOIN pg_catalog.pg_namespace n ON (ct.relnamespace = n.oid)   JOIN pg_catalog.pg_attribute a ON (a.attrelid = ct.oid) WHERE con.contype = 'p'  AND n.nspname = $1 AND ct.relname = $2 ) result where  result.A_ATTNUM = (result.KEYS).x  ORDER BY result.table_name, result.pk_name, result.key_seq",
+   "mode": "extended",
+   "params": [
+    {
+     "oid": 1043,
+     "value": "public"
+    },
+    {
+     "oid": 1043,
+     "value": "Invoices"
+    }
+   ],
+   "columns": [
+    "TABLE_CAT",
+    "TABLE_SCHEM",
+    "TABLE_NAME",
+    "COLUMN_NAME",
+    "KEY_SEQ",
+    "PK_NAME"
+   ]
+  },
+  {
+   "id": "jdbc-07",
+   "tool": "JDBC (pgjdbc)",
+   "provenance": "transcribed",
+   "source": "https://github.com/pgjdbc/pgjdbc/blob/master/pgjdbc/src/main/java/org/postgresql/jdbc/PgDatabaseMetaData.java",
+   "method": "getImportedKeys(null, \"public\", \"Invoices\")",
+   "sql": "SELECT current_database() AS \"PKTABLE_CAT\", pkn.nspname AS \"PKTABLE_SCHEM\", pkc.relname AS \"PKTABLE_NAME\", pka.attname AS \"PKCOLUMN_NAME\", current_database() AS \"FKTABLE_CAT\", fkn.nspname AS \"FKTABLE_SCHEM\", fkc.relname AS \"FKTABLE_NAME\", fka.attname AS \"FKCOLUMN_NAME\", pos.n AS \"KEY_SEQ\", CASE con.confupdtype  WHEN 'c' THEN 0 WHEN 'n' THEN 2 WHEN 'd' THEN 4 WHEN 'r' THEN 1 WHEN 'p' THEN 1 WHEN 'a' THEN 3 ELSE NULL END AS \"UPDATE_RULE\", CASE con.confdeltype  WHEN 'c' THEN 0 WHEN 'n' THEN 2 WHEN 'd' THEN 4 WHEN 'r' THEN 1 WHEN 'p' THEN 1 WHEN 'a' THEN 3 ELSE NULL END AS \"DELETE_RULE\", con.conname AS \"FK_NAME\", pkic.relname AS \"PK_NAME\", CASE  WHEN con.condeferrable AND con.condeferred THEN 5 WHEN con.condeferrable THEN 6 ELSE 7 END AS \"DEFERRABILITY\"  FROM  pg_catalog.pg_namespace pkn, pg_catalog.pg_class pkc, pg_catalog.pg_attribute pka,  pg_catalog.pg_namespace fkn, pg_catalog.pg_class fkc, pg_catalog.pg_attribute fka,  pg_catalog.pg_constraint con,  pg_catalog.generate_series(1, 32) pos(n),  pg_catalog.pg_class pkic WHERE pkn.oid = pkc.relnamespace AND pkc.oid = pka.attrelid AND pka.attnum = con.confkey[pos.n] AND con.confrelid = pkc.oid  AND fkn.oid = fkc.relnamespace AND fkc.oid = fka.attrelid AND fka.attnum = con.conkey[pos.n] AND con.conrelid = fkc.oid  AND con.contype = 'f' AND (pkic.relkind = 'i' OR pkic.relkind = 'I') AND pkic.oid = con.conindid  AND fkn.nspname = $1 AND fkc.relname = $2 ORDER BY pkn.nspname,pkc.relname, con.conname,pos.n",
+   "mode": "extended",
+   "params": [
+    {
+     "oid": 1043,
+     "value": "public"
+    },
+    {
+     "oid": 1043,
+     "value": "Invoices"
+    }
+   ],
+   "columns": [
+    "PKTABLE_CAT",
+    "PKTABLE_SCHEM",
+    "PKTABLE_NAME",
+    "PKCOLUMN_NAME",
+    "FKTABLE_CAT",
+    "FKTABLE_SCHEM",
+    "FKTABLE_NAME",
+    "FKCOLUMN_NAME",
+    "KEY_SEQ",
+    "UPDATE_RULE",
+    "DELETE_RULE",
+    "FK_NAME",
+    "PK_NAME",
+    "DEFERRABILITY"
+   ],
+   "note": "the DatabaseMetaData constants (importedKeyCascade and the others) are written as their numbers"
+  },
+  {
+   "id": "jdbc-08",
+   "tool": "JDBC (pgjdbc)",
+   "provenance": "transcribed",
+   "source": "https://github.com/pgjdbc/pgjdbc/blob/master/pgjdbc/src/main/java/org/postgresql/jdbc/PgDatabaseMetaData.java",
+   "method": "getIndexInfo(null, \"public\", \"Invoices\", false, true)",
+   "sql": "SELECT     tmp.TABLE_CAT AS \"TABLE_CAT\",     tmp.TABLE_SCHEM AS \"TABLE_SCHEM\",     tmp.TABLE_NAME AS \"TABLE_NAME\",     tmp.NON_UNIQUE AS \"NON_UNIQUE\",     tmp.INDEX_QUALIFIER AS \"INDEX_QUALIFIER\",     tmp.INDEX_NAME AS \"INDEX_NAME\",     tmp.TYPE AS \"TYPE\",     tmp.ORDINAL_POSITION AS \"ORDINAL_POSITION\",     trim(both '\"' from pg_catalog.pg_get_indexdef(tmp.CI_OID, tmp.ORDINAL_POSITION, false)) AS \"COLUMN_NAME\",   CASE tmp.AM_NAME     WHEN 'btree' THEN CASE tmp.I_INDOPTION[tmp.ORDINAL_POSITION - 1] & 1::smallint       WHEN 1 THEN 'D'       ELSE 'A'     END     ELSE NULL   END AS \"ASC_OR_DESC\",     tmp.CARDINALITY AS \"CARDINALITY\",     tmp.PAGES AS \"PAGES\",     tmp.FILTER_CONDITION AS \"FILTER_CONDITION\",     tmp.REMARKS AS \"REMARKS\"FROM (SELECT current_database() AS TABLE_CAT,  n.nspname AS TABLE_SCHEM,   ct.relname AS TABLE_NAME, NOT i.indisunique AS NON_UNIQUE,   NULL AS INDEX_QUALIFIER, ci.relname AS INDEX_NAME,   CASE i.indisclustered     WHEN true THEN 1    ELSE CASE am.amname       WHEN 'hash' THEN 2      ELSE 3    END   END AS TYPE,   (information_schema._pg_expandarray(i.indkey)).n AS ORDINAL_POSITION,   ci.reltuples AS CARDINALITY,   ci.relpages AS PAGES,   pg_catalog.pg_get_expr(i.indpred, i.indrelid) AS FILTER_CONDITION,   ci.oid AS CI_OID,   i.indoption AS I_INDOPTION,   am.amname AS AM_NAME,   d.description AS REMARKS FROM pg_catalog.pg_class ct   JOIN pg_catalog.pg_namespace n ON (ct.relnamespace = n.oid)   JOIN pg_catalog.pg_index i ON (ct.oid = i.indrelid)   JOIN pg_catalog.pg_class ci ON (ci.oid = i.indexrelid)   JOIN pg_catalog.pg_am am ON (ci.relam = am.oid)   LEFT JOIN pg_catalog.pg_description d ON (ci.oid = d.objoid) WHERE true  AND n.nspname = $1 AND ct.relname = $2) AS tmp ORDER BY NON_UNIQUE, TYPE, INDEX_NAME, ORDINAL_POSITION",
+   "mode": "extended",
+   "params": [
+    {
+     "oid": 1043,
+     "value": "public"
+    },
+    {
+     "oid": 1043,
+     "value": "Invoices"
+    }
+   ],
+   "columns": [
+    "TABLE_CAT",
+    "TABLE_SCHEM",
+    "TABLE_NAME",
+    "NON_UNIQUE",
+    "INDEX_QUALIFIER",
+    "INDEX_NAME",
+    "TYPE",
+    "ORDINAL_POSITION",
+    "COLUMN_NAME",
+    "ASC_OR_DESC",
+    "CARDINALITY",
+    "PAGES",
+    "FILTER_CONDITION",
+    "REMARKS"
+   ],
+   "note": "the ORDER BY at the end is the driver's, which this transcription writes from the part of the method after the lines read; verify against the source before relying on it"
+  },
+  {
+   "id": "jdbc-09",
+   "tool": "JDBC (pgjdbc)",
+   "provenance": "transcribed",
+   "source": "https://github.com/pgjdbc/pgjdbc/blob/master/pgjdbc/src/main/java/org/postgresql/jdbc/TypeInfoCache.java",
+   "method": "TypeInfoCache.getSQLType (by oid)",
+   "sql": "SELECT typinput='pg_catalog.array_in'::regproc as is_array, typtype, typname, pg_type.oid   FROM pg_catalog.pg_type   LEFT JOIN (select ns.oid as nspoid, ns.nspname, r.r           from pg_namespace as ns           join ( select s.r, (current_schemas(false))[s.r] as nspname                    from generate_series(1, array_upper(current_schemas(false), 1)) as s(r) ) as r          using ( nspname )        ) as sp     ON sp.nspoid = typnamespace  WHERE pg_type.oid = $1  ORDER BY sp.r, pg_type.oid DESC;",
+   "mode": "extended",
+   "params": [
+    {
+     "oid": 26,
+     "value": "23"
+    }
+   ],
+   "columns": [
+    "is_array",
+    "typtype",
+    "typname",
+    "oid"
+   ]
+  },
+  {
+   "id": "jdbc-10",
+   "tool": "JDBC (pgjdbc)",
+   "provenance": "transcribed",
+   "source": "https://github.com/pgjdbc/pgjdbc/blob/master/pgjdbc/src/main/java/org/postgresql/jdbc/TypeInfoCache.java",
+   "method": "TypeInfoCache.getPGType (by name)",
+   "sql": "SELECT pg_type.oid, typname   FROM pg_catalog.pg_type   LEFT   JOIN (select ns.oid as nspoid, ns.nspname, r.r           from pg_namespace as ns           join ( select s.r, (current_schemas(false))[s.r] as nspname                    from generate_series(1, array_upper(current_schemas(false), 1)) as s(r) ) as r          using ( nspname )        ) as sp     ON sp.nspoid = typnamespace  WHERE typname = $1  ORDER BY sp.r, pg_type.oid DESC LIMIT 1;",
+   "mode": "extended",
+   "params": [
+    {
+     "oid": 1043,
+     "value": "int4"
+    }
+   ],
+   "columns": [
+    "oid",
+    "typname"
+   ]
+  },
+  {
+   "id": "jdbc-11",
+   "tool": "JDBC (pgjdbc)",
+   "provenance": "transcribed",
+   "source": "https://github.com/pgjdbc/pgjdbc/blob/master/pgjdbc/src/main/java/org/postgresql/jdbc/TypeInfoCache.java",
+   "method": "TypeInfoCache.getPGType (schema-qualified)",
+   "sql": "SELECT t.oid, t.typname   FROM pg_catalog.pg_type t  JOIN pg_catalog.pg_namespace n ON t.typnamespace = n.oid  WHERE t.typname = $1 AND (n.nspname = $2 OR $3 AND n.nspname = ANY (current_schemas(true))) ORDER BY t.oid DESC LIMIT 1",
+   "mode": "extended",
+   "params": [
+    {
+     "oid": 1043,
+     "value": "text"
+    },
+    {
+     "oid": 1043,
+     "value": "public"
+    },
+    {
+     "oid": 16,
+     "value": "t"
+    }
+   ],
+   "columns": [
+    "oid",
+    "typname"
+   ]
+  },
+  {
+   "id": "jdbc-12",
+   "tool": "JDBC (pgjdbc)",
+   "provenance": "transcribed",
+   "source": "https://github.com/pgjdbc/pgjdbc/blob/master/pgjdbc/src/main/java/org/postgresql/jdbc/TypeInfoCache.java",
+   "method": "TypeInfoCache.getPGType (by oid, name)",
+   "sql": "SELECT n.nspname = ANY(current_schemas(true)), n.nspname, t.typname FROM pg_catalog.pg_type t JOIN pg_catalog.pg_namespace n ON t.typnamespace = n.oid WHERE t.oid = $1",
+   "mode": "extended",
+   "params": [
+    {
+     "oid": 26,
+     "value": "25"
+    }
+   ]
+  },
+  {
+   "id": "jdbc-13",
+   "tool": "JDBC (pgjdbc)",
+   "provenance": "transcribed",
+   "source": "https://github.com/pgjdbc/pgjdbc/blob/master/pgjdbc/src/main/java/org/postgresql/jdbc/TypeInfoCache.java",
+   "method": "TypeInfoCache.getArrayDelimiter",
+   "sql": "SELECT e.typdelim FROM pg_catalog.pg_type t, pg_catalog.pg_type e WHERE t.oid = $1 and t.typelem = e.oid",
+   "mode": "extended",
+   "params": [
+    {
+     "oid": 26,
+     "value": "1007"
+    }
+   ],
+   "columns": [
+    "typdelim"
+   ]
+  },
+  {
+   "id": "jdbc-14",
+   "tool": "JDBC (pgjdbc)",
+   "provenance": "transcribed",
+   "source": "https://github.com/pgjdbc/pgjdbc/blob/master/pgjdbc/src/main/java/org/postgresql/jdbc/TypeInfoCache.java",
+   "method": "TypeInfoCache.getPGArrayElement",
+   "sql": "SELECT e.oid, n.nspname = ANY(current_schemas(true)), n.nspname, e.typname FROM pg_catalog.pg_type t JOIN pg_catalog.pg_type e ON t.typelem = e.oid JOIN pg_catalog.pg_namespace n ON t.typnamespace = n.oid WHERE t.oid = $1",
+   "mode": "extended",
+   "params": [
+    {
+     "oid": 26,
+     "value": "1007"
+    }
+   ]
+  },
+  {
+   "id": "npgsql-01",
+   "tool": "Npgsql (Power BI)",
+   "provenance": "transcribed",
+   "source": "https://github.com/npgsql/npgsql/blob/main/src/Npgsql/PostgresDatabaseInfo.cs",
+   "method": "LoadBackendTypes, the whole batch",
+   "mode": "simple",
+   "sql": "SELECT version();\nSELECT ns.nspname, t.oid, t.typname, t.typtype, t.typnotnull, t.elemtypoid\nFROM (\n    -- Arrays have typtype=b - this subquery identifies them by their typreceive and converts their typtype to a\n    -- We first do this for the type (innerest-most subquery), and then for its element type\n    -- This also returns the array element, range subtype and domain base type as elemtypoid\n    SELECT\n        typ.oid, typ.typnamespace, typ.typname, typ.typtype, typ.typrelid, typ.typnotnull, typ.relkind,\n        elemtyp.oid AS elemtypoid, elemtyp.typname AS elemtypname, elemcls.relkind AS elemrelkind,\n        CASE WHEN elemproc.proname='array_recv' THEN 'a' ELSE elemtyp.typtype END AS elemtyptype\n        , typ.typcategory\n    FROM (\n        SELECT typ.oid, typnamespace, typname, typrelid, typnotnull, relkind, typelem AS elemoid,\n            CASE WHEN proc.proname='array_recv' THEN 'a' ELSE typ.typtype END AS typtype,\n            CASE\n                WHEN proc.proname='array_recv' THEN typ.typelem\n                WHEN typ.typtype='r' THEN rngsubtype\n                WHEN typ.typtype='m' THEN (SELECT rngtypid FROM pg_range WHERE rngmultitypid = typ.oid)\n                WHEN typ.typtype='d' THEN typ.typbasetype\n            END AS elemtypoid\n            , typ.typcategory\n        FROM pg_type AS typ\n        LEFT JOIN pg_class AS cls ON (cls.oid = typ.typrelid)\n        LEFT JOIN pg_proc AS proc ON proc.oid = typ.typreceive\n        LEFT JOIN pg_range ON (pg_range.rngtypid = typ.oid)\n    ) AS typ\n    LEFT JOIN pg_type AS elemtyp ON elemtyp.oid = elemtypoid\n    LEFT JOIN pg_class AS elemcls ON (elemcls.oid = elemtyp.typrelid)\n    LEFT JOIN pg_proc AS elemproc ON elemproc.oid = elemtyp.typreceive\n) AS t\nJOIN pg_namespace AS ns ON (ns.oid = typnamespace)\nWHERE\n    (typtype IN ('b', 'r', 'm', 'e', 'd') OR -- Base, range, multirange, enum, domain\n    (typtype = 'c' AND relkind='c') OR -- User-defined free-standing composites (not table composites) by default\n    (typtype = 'p' AND typname IN ('record', 'void', 'unknown')) OR -- Some special supported pseudo-types\n    (typtype = 'a' AND (  -- Array of...\n        elemtyptype IN ('b', 'r', 'm', 'e', 'd') OR -- Array of base, range, multirange, enum, domain\n        (elemtyptype = 'p' AND elemtypname IN ('record', 'void')) OR -- Arrays of special supported pseudo-types\n        (elemtyptype = 'c' AND elemrelkind='c') -- Array of user-defined free-standing composites (not table composites) by default\n    )))\nORDER BY CASE\n       WHEN typtype IN ('b', 'e', 'p') THEN 0           -- First base types, enums, pseudo-types\n       WHEN typtype = 'c' THEN 1                        -- Composites after (fields loaded later in 2nd pass)\n       WHEN typtype = 'r' THEN 2                        -- Ranges after\n       WHEN typtype = 'm' THEN 3                        -- Multiranges after\n       WHEN typtype = 'd' AND elemtyptype <> 'a' THEN 4 -- Domains over non-arrays after\n       WHEN typtype = 'a' THEN 5                        -- Arrays after\n       WHEN typtype = 'd' AND elemtyptype = 'a' THEN 6  -- Domains over arrays last\nEND;\n-- Load field definitions for (free-standing) composite types\nSELECT typ.oid, att.attname, att.atttypid\nFROM pg_type AS typ\nJOIN pg_namespace AS ns ON (ns.oid = typ.typnamespace)\nJOIN pg_class AS cls ON (cls.oid = typ.typrelid)\nJOIN pg_attribute AS att ON (att.attrelid = typ.typrelid)\nWHERE\n  (typ.typtype = 'c' AND cls.relkind='c') AND\n  attnum > 0 AND     -- Don't load system attributes\n  NOT attisdropped\nORDER BY typ.oid, att.attnum;\n-- Load enum fields\nSELECT typ.oid, enumlabel\nFROM pg_enum\nJOIN pg_type AS typ ON typ.oid = enumtypid\nJOIN pg_namespace AS ns ON ns.oid = typ.typnamespace\n\nORDER BY oid, enumsortorder;",
+   "note": "Npgsql sends these four statements as one simple query on connect; written for a server it takes to be PostgreSQL 14 with range and multirange types, enum sort order and pg_type.typcategory, and no type-loading schema list"
+  },
+  {
+   "id": "npgsql-02",
+   "tool": "Npgsql (Power BI)",
+   "provenance": "transcribed",
+   "source": "https://github.com/npgsql/npgsql/blob/main/src/Npgsql/PostgresDatabaseInfo.cs",
+   "method": "LoadBackendTypes, the version query alone",
+   "mode": "simple",
+   "sql": "SELECT version();"
+  },
+  {
+   "id": "sqlalchemy-01",
+   "tool": "SQLAlchemy (Apache Superset)",
+   "provenance": "transcribed",
+   "source": "https://github.com/sqlalchemy/sqlalchemy/blob/main/lib/sqlalchemy/dialects/postgresql/base.py",
+   "method": "_get_server_version_info",
+   "sql": "select pg_catalog.version()",
+   "mode": "simple"
+  },
+  {
+   "id": "sqlalchemy-02",
+   "tool": "SQLAlchemy (Apache Superset)",
+   "provenance": "transcribed",
+   "source": "https://github.com/sqlalchemy/sqlalchemy/blob/main/lib/sqlalchemy/dialects/postgresql/base.py",
+   "method": "_get_default_schema_name",
+   "sql": "select current_schema()",
+   "mode": "simple"
+  },
+  {
+   "id": "sqlalchemy-03",
+   "tool": "SQLAlchemy (Apache Superset)",
+   "provenance": "transcribed",
+   "source": "https://github.com/sqlalchemy/sqlalchemy/blob/main/lib/sqlalchemy/dialects/postgresql/base.py",
+   "method": "_check_unicode_returns / initialize",
+   "sql": "show standard_conforming_strings",
+   "mode": "simple"
+  },
+  {
+   "id": "sqlalchemy-04",
+   "tool": "SQLAlchemy (Apache Superset)",
+   "provenance": "transcribed",
+   "source": "https://github.com/sqlalchemy/sqlalchemy/blob/main/lib/sqlalchemy/dialects/postgresql/base.py",
+   "method": "get_isolation_level",
+   "sql": "show transaction isolation level",
+   "mode": "simple"
+  },
+  {
+   "id": "metabase-01",
+   "tool": "Metabase",
+   "provenance": "transcribed",
+   "source": "https://github.com/metabase/metabase/blob/master/src/metabase/driver/postgres.clj",
+   "method": "enum-types",
+   "mode": "simple",
+   "sql": "SELECT nspname, typname FROM pg_type t JOIN pg_namespace n ON n.oid = t.typnamespace WHERE t.oid IN (SELECT DISTINCT enumtypid FROM pg_enum e)",
+   "columns": [
+    "nspname",
+    "typname"
+   ]
+  },
+  {
+   "id": "metabase-02",
+   "tool": "Metabase",
+   "provenance": "rendered",
+   "source": "https://github.com/metabase/metabase/blob/master/src/metabase/driver/postgres.clj",
+   "method": "get-tables-sql",
+   "mode": "simple",
+   "sql": "SELECT n.nspname AS schema, c.relname AS name, CASE c.relkind WHEN 'r' THEN 'TABLE' WHEN 'p' THEN 'PARTITIONED TABLE' WHEN 'v' THEN 'VIEW' WHEN 'f' THEN 'FOREIGN TABLE' WHEN 'm' THEN 'MATERIALIZED VIEW' ELSE NULL END AS type, d.description AS description, NULLIF(stat.n_live_tup, 0) AS estimated_row_count FROM pg_catalog.pg_class AS c INNER JOIN pg_catalog.pg_namespace AS n ON c.relnamespace = n.oid LEFT JOIN pg_catalog.pg_description AS d ON c.oid = d.objoid AND d.objsubid = 0 AND d.classoid = 'pg_class'::regclass LEFT JOIN pg_stat_user_tables AS stat ON n.nspname = stat.schemaname AND c.relname = stat.relname WHERE c.relnamespace = n.oid AND n.nspname !~ '^pg_' AND n.nspname <> 'information_schema' AND c.relkind in ('r', 'p', 'v', 'f', 'm') ORDER BY type ASC, schema ASC, name ASC",
+   "columns": [
+    "schema",
+    "name",
+    "type",
+    "description",
+    "estimated_row_count"
+   ],
+   "note": "the HoneySQL map is rendered by hand, so the spacing and aliasing are ours; the clauses are the source's"
+  },
+  {
+   "id": "metabase-03",
+   "tool": "Metabase",
+   "provenance": "transcribed",
+   "source": "https://github.com/metabase/metabase/blob/master/src/metabase/driver/postgres.clj",
+   "method": "table privileges (the CTE query)",
+   "mode": "simple",
+   "sql": "with table_privileges as ( select   NULL as role,   t.schemaname as schema,   t.objectname as table,   pg_catalog.has_any_column_privilege(current_user, '\"' || replace(t.schemaname, '\"', '\"\"') || '\"' || '.' || '\"' || replace(t.objectname, '\"', '\"\"') || '\"',  'update') as update,   pg_catalog.has_any_column_privilege(current_user, '\"' || replace(t.schemaname, '\"', '\"\"') || '\"' || '.' || '\"' || replace(t.objectname, '\"', '\"\"') || '\"',  'select') as select,   pg_catalog.has_any_column_privilege(current_user, '\"' || replace(t.schemaname, '\"', '\"\"') || '\"' || '.' || '\"' || replace(t.objectname, '\"', '\"\"') || '\"',  'insert') as insert,   pg_catalog.has_table_privilege(     current_user, '\"' || replace(t.schemaname, '\"', '\"\"') || '\"' || '.' || '\"' || replace(t.objectname, '\"', '\"\"') || '\"',  'delete') as delete from (   select schemaname, tablename as objectname from pg_catalog.pg_tables   union   select schemaname, viewname as objectname from pg_catalog.pg_views   union   select schemaname, matviewname as objectname from pg_catalog.pg_matviews ) t where t.schemaname !~ '^pg_'   and t.schemaname <> 'information_schema'   and pg_catalog.has_schema_privilege(current_user, t.schemaname, 'usage'))select t.*from table_privileges t",
+   "columns": [
+    "role",
+    "schema",
+    "table",
+    "update",
+    "select",
+    "insert",
+    "delete"
+   ],
+   "note": "the source joins its lines with newlines (spaces here); its aliases are the bare words role, schema, table, update, select, insert, delete, which PostgreSQL accepts after AS and SQLite does not"
+  },
+  {
+   "id": "metabase-04",
+   "tool": "Metabase",
+   "provenance": "transcribed",
+   "source": "https://github.com/metabase/metabase/blob/master/src/metabase/driver/postgres.clj",
+   "method": "fetch-table-indexes",
+   "mode": "extended",
+   "sql": "SELECT i.relname                              AS index_name,\n                 am.amname                              AS access_method,\n                 ix.indisunique                         AS is_unique,\n                 ix.indisprimary                        AS is_primary,\n                 ix.indisvalid                          AS is_valid,\n                 pg_get_expr(ix.indpred, ix.indrelid)   AS partial_predicate,\n                 pg_get_indexdef(ix.indexrelid)         AS definition,\n                 ARRAY(SELECT COALESCE(a.attname, pg_get_indexdef(ix.indexrelid, k.ord::int, true))\n                       FROM unnest(ix.indkey[0:ix.indnkeyatts - 1]) WITH ORDINALITY AS k(attnum, ord)\n                       LEFT JOIN pg_attribute a ON a.attrelid = ix.indrelid AND a.attnum = k.attnum\n                       ORDER BY k.ord)                  AS key_columns,\n                 ARRAY(SELECT a.attname\n                       FROM unnest(ix.indkey[ix.indnkeyatts : ix.indnatts - 1]) WITH ORDINALITY AS k(attnum, ord)\n                       LEFT JOIN pg_attribute a ON a.attrelid = ix.indrelid AND a.attnum = k.attnum\n                       ORDER BY k.ord)                  AS include_columns\n          FROM pg_index ix\n          JOIN pg_class     c  ON c.oid  = ix.indrelid\n          JOIN pg_class     i  ON i.oid  = ix.indexrelid\n          JOIN pg_namespace n  ON n.oid  = c.relnamespace\n          JOIN pg_am        am ON am.oid = i.relam\n          WHERE n.nspname = COALESCE($1, current_schema()) AND c.relname = $2\n          ORDER BY i.relname",
+   "params": [
+    {
+     "oid": 1043,
+     "value": "public"
+    },
+    {
+     "oid": 1043,
+     "value": "Invoices"
+    }
+   ],
+   "columns": [
+    "index_name",
+    "access_method",
+    "is_unique",
+    "is_primary",
+    "is_valid",
+    "partial_predicate",
+    "definition",
+    "key_columns",
+    "include_columns"
+   ]
+  },
+  {
+   "id": "dbeaver-01",
+   "tool": "DBeaver",
+   "provenance": "transcribed",
+   "source": "https://github.com/dbeaver/dbeaver/blob/devel/plugins/org.jkiss.dbeaver.ext.postgresql/src/org/jkiss/dbeaver/ext/postgresql/model/PostgreDataSource.java",
+   "method": "bootstrap",
+   "sql": "SELECT current_database()",
+   "mode": "simple"
+  },
+  {
+   "id": "dbeaver-02",
+   "tool": "DBeaver",
+   "provenance": "transcribed",
+   "source": "https://github.com/dbeaver/dbeaver/blob/devel/plugins/org.jkiss.dbeaver.ext.postgresql/src/org/jkiss/dbeaver/ext/postgresql/model/PostgreDataSource.java",
+   "method": "server version",
+   "sql": "SELECT version()",
+   "mode": "simple"
+  },
+  {
+   "id": "dbeaver-03",
+   "tool": "DBeaver",
+   "provenance": "transcribed",
+   "source": "https://github.com/dbeaver/dbeaver/blob/devel/plugins/org.jkiss.dbeaver.ext.postgresql/src/org/jkiss/dbeaver/ext/postgresql/model/PostgreDataSource.java",
+   "method": "database list",
+   "sql": "SELECT db.oid,db.* FROM pg_catalog.pg_database db WHERE 1 = 1 AND datallowconn AND NOT datistemplate ",
+   "mode": "simple"
+  },
+  {
+   "id": "dbeaver-04",
+   "tool": "DBeaver",
+   "provenance": "transcribed",
+   "source": "https://github.com/dbeaver/dbeaver/blob/devel/plugins/org.jkiss.dbeaver.ext.postgresql/src/org/jkiss/dbeaver/ext/postgresql/model/PostgreDataSource.java",
+   "method": "template databases",
+   "sql": "SELECT db.datname FROM pg_catalog.pg_database db WHERE datistemplate",
+   "mode": "simple"
+  },
+  {
+   "id": "dbeaver-05",
+   "tool": "DBeaver",
+   "provenance": "transcribed",
+   "source": "https://github.com/dbeaver/dbeaver/blob/devel/plugins/org.jkiss.dbeaver.ext.postgresql/src/org/jkiss/dbeaver/ext/postgresql/model/PostgreDataSource.java",
+   "method": "settings",
+   "sql": "select * from pg_catalog.pg_settings",
+   "mode": "simple"
+  },
+  {
+   "id": "dbeaver-06",
+   "tool": "DBeaver",
+   "provenance": "transcribed",
+   "source": "https://github.com/dbeaver/dbeaver/blob/devel/plugins/org.jkiss.dbeaver.ext.postgresql/src/org/jkiss/dbeaver/ext/postgresql/model/PostgreDataSource.java",
+   "method": "one setting",
+   "sql": "select * from pg_catalog.pg_settings where name=$1",
+   "mode": "extended",
+   "params": [
+    {
+     "oid": 1043,
+     "value": "server_version"
+    }
+   ]
+  },
+  {
+   "id": "dbeaver-07",
+   "tool": "DBeaver",
+   "provenance": "transcribed",
+   "source": "https://github.com/dbeaver/dbeaver/blob/devel/plugins/org.jkiss.dbeaver.ext.postgresql/src/org/jkiss/dbeaver/ext/postgresql/model/PostgreDatabase.java",
+   "method": "schemas",
+   "sql": "SELECT n.oid,n.*,d.description FROM pg_catalog.pg_namespace n\nLEFT OUTER JOIN pg_catalog.pg_description d ON d.objoid=n.oid AND d.objsubid=0 AND d.classoid='pg_namespace'::regclass\nORDER BY nspname",
+   "mode": "simple",
+   "note": "the source adds filters and an ORDER BY to the part it builds; the ORDER BY is ours"
+  },
+  {
+   "id": "dbeaver-08",
+   "tool": "DBeaver",
+   "provenance": "transcribed",
+   "source": "https://github.com/dbeaver/dbeaver/blob/devel/plugins/org.jkiss.dbeaver.ext.postgresql/src/org/jkiss/dbeaver/ext/postgresql/model/PostgreSchema.java",
+   "method": "tables",
+   "sql": "SELECT c.oid,c.*,d.description\nFROM pg_catalog.pg_class c\nLEFT OUTER JOIN pg_catalog.pg_description d ON d.objoid=c.oid AND d.objsubid=0 AND d.classoid='pg_class'::regclass\nWHERE c.relnamespace=$1 AND c.relkind not in ('i','I','c')",
+   "mode": "extended",
+   "params": [
+    {
+     "oid": 20,
+     "value": "2200"
+    }
+   ],
+   "note": "the source also adds partition columns for server 10 and later"
+  },
+  {
+   "id": "dbeaver-09",
+   "tool": "DBeaver",
+   "provenance": "transcribed",
+   "source": "https://github.com/dbeaver/dbeaver/blob/devel/plugins/org.jkiss.dbeaver.ext.postgresql/src/org/jkiss/dbeaver/ext/postgresql/model/PostgreSchema.java",
+   "method": "columns",
+   "sql": "SELECT c.relname,a.*,pg_catalog.pg_get_expr(ad.adbin, ad.adrelid, true) as def_value,dsc.description\nFROM pg_catalog.pg_attribute a\nINNER JOIN pg_catalog.pg_class c ON (a.attrelid=c.oid)\nLEFT OUTER JOIN pg_catalog.pg_attrdef ad ON (a.attrelid=ad.adrelid AND a.attnum = ad.adnum)\nLEFT OUTER JOIN pg_catalog.pg_description dsc ON (c.oid=dsc.objoid AND a.attnum = dsc.objsubid)\nWHERE NOT a.attisdropped AND c.relkind not in ('i','I','c') AND c.relnamespace=$1\nORDER BY a.attnum",
+   "mode": "extended",
+   "params": [
+    {
+     "oid": 20,
+     "value": "2200"
+    }
+   ],
+   "note": "the source adds extra columns and a join on pg_depend for sequences, left out here"
+  },
+  {
+   "id": "dbeaver-10",
+   "tool": "DBeaver",
+   "provenance": "transcribed",
+   "source": "https://github.com/dbeaver/dbeaver/blob/devel/plugins/org.jkiss.dbeaver.ext.postgresql/src/org/jkiss/dbeaver/ext/postgresql/model/PostgreSchema.java",
+   "method": "constraints",
+   "sql": "SELECT c.oid,c.*,t.relname as tabrelname,rt.relnamespace as refnamespace,d.description, case when c.contype='c' then \"substring\"(pg_get_constraintdef(c.oid), 7) else null end consrc_copy\nFROM pg_catalog.pg_constraint c\nINNER JOIN pg_catalog.pg_class t ON t.oid=c.conrelid\nLEFT OUTER JOIN pg_catalog.pg_class rt ON rt.oid=c.confrelid\nLEFT OUTER JOIN pg_catalog.pg_description d ON d.objoid=c.oid AND d.objsubid=0 AND d.classoid='pg_constraint'::regclass\nWHERE t.relnamespace=$1\nORDER BY c.oid",
+   "mode": "extended",
+   "params": [
+    {
+     "oid": 20,
+     "value": "2200"
+    }
+   ]
+  },
+  {
+   "id": "dbeaver-11",
+   "tool": "DBeaver",
+   "provenance": "transcribed",
+   "source": "https://github.com/dbeaver/dbeaver/blob/devel/plugins/org.jkiss.dbeaver.ext.postgresql/src/org/jkiss/dbeaver/ext/postgresql/model/PostgreSchema.java",
+   "method": "indexes",
+   "sql": "SELECT i.*,i.indkey as keys,c.relname,c.relnamespace,c.relam,c.reltablespace,tc.relname as tabrelname,dsc.description,pg_catalog.pg_get_expr(i.indpred, i.indrelid) as pred_expr,pg_catalog.pg_get_expr(i.indexprs, i.indrelid, true) as expr,pg_catalog.pg_relation_size(i.indexrelid) as index_rel_size,pg_catalog.pg_stat_get_numscans(i.indexrelid) as index_num_scans\nFROM pg_catalog.pg_index i\nINNER JOIN pg_catalog.pg_class c ON c.oid=i.indexrelid\nINNER JOIN pg_catalog.pg_class tc ON tc.oid=i.indrelid\nLEFT OUTER JOIN pg_catalog.pg_description dsc ON i.indexrelid=dsc.objoid\nWHERE  c.relnamespace=$1 ORDER BY tabrelname, c.relname",
+   "mode": "extended",
+   "params": [
+    {
+     "oid": 20,
+     "value": "2200"
+    }
+   ]
+  },
+  {
+   "id": "dbeaver-12",
+   "tool": "DBeaver",
+   "provenance": "transcribed",
+   "source": "https://github.com/dbeaver/dbeaver/blob/devel/plugins/org.jkiss.dbeaver.ext.postgresql/src/org/jkiss/dbeaver/ext/postgresql/model/PostgreSchema.java",
+   "method": "one index expression",
+   "sql": "select pg_catalog.pg_get_indexdef($1, $2, true)",
+   "mode": "extended",
+   "params": [
+    {
+     "oid": 20,
+     "value": "16402"
+    },
+    {
+     "oid": 23,
+     "value": "1"
+    }
+   ]
+  },
+  {
+   "id": "metabase-05",
+   "tool": "Metabase",
+   "provenance": "transcribed",
+   "source": "https://github.com/metabase/metabase/blob/master/src/metabase/driver/postgres.clj",
+   "method": "set-timezone-sql, run when a query is given a report time zone",
+   "sql": "SET SESSION TIMEZONE TO 'UTC';",
+   "mode": "simple",
+   "expect": {
+    "notice": true
+   },
+   "note": "SET of a setting the server does not keep: it answers with a notice that SET had no effect"
+  },
+  {
+   "id": "metabase-06",
+   "tool": "Metabase",
+   "provenance": "transcribed",
+   "source": "https://github.com/metabase/metabase/blob/master/src/metabase/driver/postgres.clj",
+   "method": "set-role-statement, run for user impersonation",
+   "sql": "SET ROLE \"analyst\";",
+   "mode": "simple",
+   "expect": {
+    "notice": true
+   },
+   "note": "the role is not applied; the connection keeps the signed-in account (a notice says SET had no effect)"
+  },
+  {
+   "id": "sqlalchemy-05",
+   "tool": "SQLAlchemy (Superset)",
+   "provenance": "transcribed",
+   "source": "https://github.com/sqlalchemy/sqlalchemy/blob/main/lib/sqlalchemy/dialects/postgresql/base.py",
+   "method": "set_isolation_level",
+   "sql": "SET SESSION CHARACTERISTICS AS TRANSACTION ISOLATION LEVEL READ COMMITTED",
+   "mode": "simple",
+   "expect": {
+    "notice": true
+   },
+   "note": "followed by COMMIT, which is the next entry"
+  },
+  {
+   "id": "sqlalchemy-06",
+   "tool": "SQLAlchemy (Superset)",
+   "provenance": "transcribed",
+   "source": "https://github.com/sqlalchemy/sqlalchemy/blob/main/lib/sqlalchemy/dialects/postgresql/base.py",
+   "method": "set_isolation_level, second statement",
+   "sql": "COMMIT",
+   "mode": "simple",
+   "note": "a COMMIT with no transaction open is answered with a warning, not an error"
+  },
+  {
+   "id": "sqlalchemy-07",
+   "tool": "SQLAlchemy (Superset)",
+   "provenance": "transcribed",
+   "source": "https://github.com/sqlalchemy/sqlalchemy/blob/main/lib/sqlalchemy/dialects/postgresql/base.py",
+   "method": "documented 'connect' event recipe for search_path",
+   "sql": "SET SESSION search_path='public'",
+   "mode": "simple",
+   "expect": {
+    "notice": true
+   },
+   "note": "the search path is public and stays public"
+  },
+  {
+   "id": "psycopg2-01",
+   "tool": "psycopg2 (SQLAlchemy stream_results, Superset)",
+   "provenance": "written",
+   "source": "https://www.psycopg.org/docs/usage.html#server-side-cursors",
+   "method": "a named cursor, execute",
+   "sql": "DECLARE \"c1\" CURSOR WITHOUT HOLD FOR SELECT * FROM \"Customers\"",
+   "mode": "simple",
+   "expect": {
+    "error": "0A000"
+   },
+   "note": "the statement text is written from the documented behaviour (a named cursor is a DECLARE); psycopg2 source was not fetched"
+  },
+  {
+   "id": "psycopg2-02",
+   "tool": "psycopg2 (SQLAlchemy stream_results, Superset)",
+   "provenance": "written",
+   "source": "https://www.psycopg.org/docs/usage.html#server-side-cursors",
+   "method": "a named cursor, fetchmany",
+   "sql": "FETCH FORWARD 2000 FROM \"c1\"",
+   "mode": "simple",
+   "expect": {
+    "error": "0A000"
+   },
+   "note": "written, as above"
+  },
+  {
+   "id": "psycopg2-03",
+   "tool": "psycopg2 (SQLAlchemy stream_results, Superset)",
+   "provenance": "written",
+   "source": "https://www.psycopg.org/docs/usage.html#server-side-cursors",
+   "method": "a named cursor, close",
+   "sql": "CLOSE \"c1\"",
+   "mode": "simple",
+   "expect": {
+    "error": "0A000"
+   },
+   "note": "written, as above"
+  },
+  {
+   "id": "sql-prepare-01",
+   "tool": "any (SQL-level prepared statement)",
+   "provenance": "written",
+   "source": "https://www.postgresql.org/docs/current/sql-prepare.html",
+   "method": "PREPARE",
+   "sql": "PREPARE q(int) AS SELECT $1",
+   "mode": "simple",
+   "expect": {
+    "error": "0A000"
+   },
+   "note": "drivers use the protocol-level Parse instead; SQL PREPARE is refused with a message that says so"
+  },
+  {
+   "id": "sql-prepare-02",
+   "tool": "any (SQL-level prepared statement)",
+   "provenance": "written",
+   "source": "https://www.postgresql.org/docs/current/sql-execute.html",
+   "method": "EXECUTE",
+   "sql": "EXECUTE q(1)",
+   "mode": "simple",
+   "expect": {
+    "error": "0A000"
+   },
+   "note": "as above"
+  },
+  {
+   "id": "jdbc-15",
+   "tool": "JDBC (pgjdbc)",
+   "provenance": "written",
+   "source": "https://jdbc.postgresql.org/documentation/query/#getting-results-based-on-a-cursor",
+   "method": "setFetchSize(2): Execute with a row limit, the portal stays open",
+   "sql": "SELECT relname FROM pg_catalog.pg_class ORDER BY relname",
+   "mode": "extended",
+   "rowLimit": 2,
+   "expect": {
+    "rows": 2
+   },
+   "note": "the documented way pgjdbc reads in batches; the cursor is the protocol's portal, not DECLARE"
+  },
+  {
+   "id": "param-01",
+   "tool": "drivers (typed parameters)",
+   "provenance": "written",
+   "source": "https://www.postgresql.org/docs/current/protocol-flow.html#PROTOCOL-FLOW-EXT-QUERY",
+   "method": "Parse with parameter types int4 and text",
+   "sql": "SELECT $1::int4 + 1 AS a, $2::text AS b",
+   "mode": "extended",
+   "params": [
+    {
+     "oid": 23,
+     "value": "4"
+    },
+    {
+     "oid": 25,
+     "value": "x"
+    }
+   ],
+   "columns": [
+    "a",
+    "b"
+   ],
+   "expect": {
+    "rows": 1
+   },
+   "note": ""
+  },
+  {
+   "id": "param-02",
+   "tool": "drivers (typed parameters)",
+   "provenance": "written",
+   "source": "https://www.postgresql.org/docs/current/protocol-flow.html#PROTOCOL-FLOW-EXT-QUERY",
+   "method": "Parse with an unspecified parameter type (oid 0)",
+   "sql": "SELECT $1 AS a",
+   "mode": "extended",
+   "params": [
+    {
+     "oid": 0,
+     "value": "4"
+    }
+   ],
+   "columns": [
+    "a"
+   ],
+   "expect": {
+    "rows": 1
+   },
+   "note": ""
+  },
+  {
+   "id": "param-03",
+   "tool": "drivers (typed parameters)",
+   "provenance": "written",
+   "source": "https://www.postgresql.org/docs/current/protocol-flow.html#PROTOCOL-FLOW-EXT-QUERY",
+   "method": "Parse with bool, numeric and timestamptz",
+   "sql": "SELECT $1::bool AS a, $2::numeric AS b, $3::timestamptz AS c",
+   "mode": "extended",
+   "params": [
+    {
+     "oid": 16,
+     "value": "t"
+    },
+    {
+     "oid": 1700,
+     "value": "1.5"
+    },
+    {
+     "oid": 1184,
+     "value": "2024-01-01 00:00:00+00"
+    }
+   ],
+   "columns": [
+    "a",
+    "b",
+    "c"
+   ],
+   "expect": {
+    "rows": 1
+   },
+   "note": ""
+  },
+  {
+   "id": "fn-01",
+   "tool": "any (session functions)",
+   "provenance": "written",
+   "source": "https://www.postgresql.org/docs/current/functions-info.html",
+   "method": "current_schema(), current_schemas(true), current_database()",
+   "sql": "SELECT current_schema() AS s, current_schemas(true) AS ss, current_database() AS d",
+   "mode": "simple",
+   "columns": [
+    "s",
+    "ss",
+    "d"
+   ],
+   "expect": {
+    "rows": 1
+   },
+   "note": ""
+  },
+  {
+   "id": "fn-02",
+   "tool": "any (type names)",
+   "provenance": "written",
+   "source": "https://www.postgresql.org/docs/current/functions-info.html",
+   "method": "format_type",
+   "sql": "SELECT format_type(23, NULL) AS a, format_type(1043, NULL) AS b, format_type(1700, NULL) AS c",
+   "mode": "simple",
+   "columns": [
+    "a",
+    "b",
+    "c"
+   ],
+   "expect": {
+    "rows": 1
+   },
+   "note": "a type modifier (the 104 in varchar(100)) is not applied: the catalog has no modifiers"
+  },
+  {
+   "id": "fn-03",
+   "tool": "any (array_agg)",
+   "provenance": "written",
+   "source": "https://www.postgresql.org/docs/current/functions-aggregate.html",
+   "method": "array_agg over catalog rows and over the file's own table",
+   "sql": "SELECT array_agg(a.attname ORDER BY a.attnum) AS names FROM pg_catalog.pg_attribute a WHERE a.attrelid = {{oid:Customers}} AND a.attnum > 0",
+   "mode": "simple",
+   "columns": [
+    "names"
+   ],
+   "expect": {
+    "rows": 1
+   },
+   "note": ""
+  },
+  {
+   "id": "fn-04",
+   "tool": "any (array_agg)",
+   "provenance": "written",
+   "source": "https://www.postgresql.org/docs/current/functions-aggregate.html",
+   "method": "array_agg over the file's own table",
+   "sql": "SELECT array_agg(\"Name\") AS names FROM \"Customers\"",
+   "mode": "simple",
+   "columns": [
+    "names"
+   ],
+   "expect": {
+    "rows": 1
+   },
+   "note": ""
+  },
+  {
+   "id": "fn-05",
+   "tool": "any (array_agg)",
+   "provenance": "written",
+   "source": "https://www.postgresql.org/docs/current/functions-aggregate.html",
+   "method": "array_agg(DISTINCT x), which is not supported",
+   "sql": "SELECT array_agg(DISTINCT \"Name\") FROM \"Customers\"",
+   "mode": "simple",
+   "expect": {
+    "error": "42000"
+   },
+   "note": "a clean error naming the function; DISTINCT inside array_agg is not translated"
+  }
+ ],
+ "notVerified": [
+  {
+   "tool": "Grafana's PostgreSQL data source",
+   "what": "the queries it sends to list schemas, tables and columns in the query editor, and its connection check",
+   "why": "its source files could not be fetched (the paths tried returned 404), and no Grafana was run; nothing is claimed beyond the generic entries (version(), current_schema(), SET statements) that any client sends"
+  },
+  {
+   "tool": "Tableau's PostgreSQL connector",
+   "what": "every query",
+   "why": "closed source, and no public document lists the queries it sends; not tried"
+  },
+  {
+   "tool": "Power BI",
+   "what": "anything beyond Npgsql's type-loading batch",
+   "why": "Power BI's PostgreSQL connector is closed source; npgsql-01 is the batch its underlying driver documents in public source"
+  },
+  {
+   "tool": "SQLAlchemy reflection (Superset's table and column lists)",
+   "what": "the SQL behind inspect(engine).get_columns, get_table_names and the like",
+   "why": "SQLAlchemy builds it at run time from Core expressions; SQLAlchemy is not installed here and was not run, so only the fixed statements in the dialect's source are in the list"
+  },
+  {
+   "tool": "DBeaver",
+   "what": "which columns of SELECT c.*, a.*, i.* it reads by name",
+   "why": "the model classes that read them were not fetched; the list checks the SQL answers, and that the columns PostgreSQL's catalog documents for these tables exist, not that DBeaver finds everything it looks for"
+  },
+  {
+   "tool": "pgjdbc",
+   "what": "the exact text of setClientInfo's SET application_name, and the ORDER BY/ setup text of getTables and getColumns for server versions other than the one transcribed",
+   "why": "transcribed from the master branch; older drivers differ"
+  },
+  {
+   "tool": "psycopg2",
+   "what": "the text of a named cursor's DECLARE",
+   "why": "written from the documented behaviour, psycopg2's source was not fetched"
+  },
+  {
+   "tool": "all",
+   "what": "the exact version of each tool that sends these queries",
+   "why": "the sources were read from their main branches on the day of the work; psql was a real psql 16.15 client, the rest were not run"
+  }
+ ]
+}

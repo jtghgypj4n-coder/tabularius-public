@@ -1,0 +1,8 @@
+{
+  "name": "tabularius-release-tools",
+  "private": true,
+  "description": "The tool that puts the program's files into the Node executable at build time. Not shipped; the lockfile pins it and its dependencies by hash.",
+  "dependencies": {
+    "postject": "1.0.0-alpha.6"
+  }
+}

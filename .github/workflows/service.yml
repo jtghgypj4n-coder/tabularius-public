@@ -1,0 +1,23 @@
+# The server installed as a real system service on each system, upgraded,
+# and rolled back from a version that can't start (scripts/service-e2e.ts).
+# It runs on release tags and by hand from the Actions tab, not on every push:
+# the macOS and Windows runners are slow to start.
+name: service
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+jobs:
+  service:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node scripts/service-e2e.ts

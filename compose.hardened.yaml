@@ -1,0 +1,12 @@
+# Layered over compose.yaml: nothing the server needs is writable except /data and /tmp.
+#   docker compose -f compose.yaml -f compose.hardened.yaml up -d
+services:
+  tabularius:
+    stop_grace_period: 40s
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true

@@ -1,0 +1,36 @@
+# /etc/systemd/system/openhbam.service
+[Unit]
+Description=tabularius server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart="/usr/local/bin/node" "--no-warnings" "--eval" "const fs = require('node:fs'); const path = require('node:path'); const main = process.argv[1]; const app = path.resolve(path.dirname(main), '../../..'); if (!fs.existsSync(app) && fs.existsSync(app + '.previous')) fs.renameSync(app + '.previous', app); process.argv = [process.argv[0], main, ...process.argv.slice(2)]; process.execArgv.splice(process.execArgv.indexOf('--eval'), 2); import(require('node:url').pathToFileURL(main).href);" "/srv/tabularius/app/packages/cli/src/main.ts" "serve" "/srv/data" "--port" "443" "--host" "0.0.0.0" "--https" "db.example.org" "--workers" "auto" "--ai-key-file" "/etc/tabularius/ai.key"
+WorkingDirectory=/srv/data
+# Start again after a crash, waiting longer each time (systemd 254 and later; older ones ignore the two steps).
+Restart=on-failure
+RestartSec=5
+RestartSteps=5
+RestartMaxDelaySec=60
+# Finish saving and backing up on stop: the grace the stop command gives it, and as long again.
+TimeoutStopSec=60
+# Files it makes are for its own account.
+UMask=0077
+# Many files and connections at once (the default soft limit is 1024).
+LimitNOFILE=65536
+NoNewPrivileges=true
+PrivateTmp=true
+# /usr, /boot and /etc are read-only to it; the folders it writes stay writable even if they sit under those.
+ProtectSystem=full
+ReadWritePaths=-/srv/data -/var/lib/tabularius/.openhbam -/srv/tabularius
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+User=tabularius
+# Ports below 1024 (443 and 80 for --https) without running as root.
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+
+[Install]
+WantedBy=multi-user.target

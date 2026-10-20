@@ -1,0 +1,58 @@
+name: ci
+# Pull requests, and main once merged: a push to a PR's branch already runs
+# as the pull request, so it isn't run a second time. Run by hand from the
+# Actions tab, it also runs the soak test.
+#
+# Runs on GitHub-hosted runners, which are free and unlimited for a public
+# repository (never switch these to a "larger" runner: those are always billed).
+# - a newer push to a pull request cancels the run it replaces;
+# - on main, merges that land while a run is going wait as one run on the
+#   newest commit instead of a run each;
+# - changes to Markdown, screenshots, images, the licence or issue templates alone
+#   don't run the tests;
+# - a pull request from a fork runs here too: a hosted runner is a fresh virtual
+#   machine that is thrown away, and a fork's run gets no secrets. The repository
+#   setting "Require approval for all outside collaborators" stays on, and a
+#   maintainer reads any change to .github/ or scripts/ before approving a run.
+# - Linux runs on every pull request; macOS (a slower three-core runner) runs on
+#   main, nightly and by hand, so a pull request is not held up by it.
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['**.md', 'shots/**', '**.png', 'LICENSE', '.github/ISSUE_TEMPLATE/**', '.github/dependabot.yml']
+  pull_request:
+    paths-ignore: ['**.md', 'shots/**', '**.png', 'LICENSE', '.github/ISSUE_TEMPLATE/**', '.github/dependabot.yml']
+  workflow_dispatch:
+  schedule:
+    - cron: '47 6 * * *'
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run fixtures
+      - run: npm run test:ci
+        env:
+          TABULARIUS_SOAK: ${{ github.event_name == 'workflow_dispatch' && '1' || '' }}
+  test-macos:
+    if: github.event_name != 'pull_request'
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run fixtures
+      - run: npm run test:ci

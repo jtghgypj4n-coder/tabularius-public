@@ -1,0 +1,12 @@
+# Script: Close deal
+
+# Closes the deal you are on. The parameter is Won or Lost. A deal that is already closed is left alone.
+If [ Get ( ScriptParameter ) ≠ "Won" and Get ( ScriptParameter ) ≠ "Lost" ]
+	Exit Script [ Result: "say Won or Lost" ]
+End If
+If [ Deals::Stage = "Won" or Deals::Stage = "Lost" ]
+	Exit Script [ Result: "already closed" ]
+End If
+Set Field [ Deals::Stage ; Get ( ScriptParameter ) ]
+Set Field [ Deals::Closed ; Get ( CurrentDate ) ]
+Exit Script [ Result: "closed" ]

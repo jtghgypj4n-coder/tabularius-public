@@ -1,0 +1,15 @@
+Table occurrences
+
+Companies → Companies
+Contacts → Contacts
+Deals → Deals
+
+Relationships
+
+Companies ↔ Contacts
+  Companies::ID = Contacts::Company ID
+  Options: create in Contacts, delete in Contacts
+
+Companies ↔ Deals
+  Companies::ID = Deals::Company ID
+  Options: create in Deals, delete in Deals

@@ -1,0 +1,16 @@
+[package]
+name = "rust-text-tools"
+version = "1.0.0"
+edition = "2021"
+publish = false
+
+# A WebAssembly module that Tabularius loads as a plug-in. No dependencies: everything it needs is in src/lib.rs.
+[lib]
+crate-type = ["cdylib"]
+
+[profile.release]
+opt-level = "z"
+lto = true
+panic = "abort"
+codegen-units = 1
+strip = true

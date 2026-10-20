@@ -1,0 +1,11 @@
+node_modules
+fixtures
+.git
+**/*.sqlite
+**/*.sqlite-*
+Databases
+# Tests, browser tests, evaluations and benchmarks are for people who build the program; the image runs it (scripts/release-audit.ts keeps the release pack to the same rule).
+packages/*/test
+packages/*/e2e
+packages/*/evals
+packages/*/bench

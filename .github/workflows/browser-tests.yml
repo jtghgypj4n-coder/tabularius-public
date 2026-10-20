@@ -1,0 +1,44 @@
+# The browser tests that the main test run leaves out: the web client's end to
+# end tests (packages/web/e2e), the page smoke test and the accessibility audit.
+# They drive a real Chromium (the hosted Linux runner has Google Chrome), so they
+# run on a free GitHub-hosted runner, every night, on demand, and on pull requests
+# that change the web client or the server pages. The visual-regression baselines
+# are per platform; the Linux set is the one this job checks. A run fails, rather than
+# passing having skipped everything, when the computer has no Chromium.
+name: browser-tests
+on:
+  schedule:
+    - cron: '17 5 * * *'
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'packages/web/**'
+      - 'packages/server/admin/**'
+      - 'packages/server/src/webclient.ts'
+      - 'packages/server/src/pages.ts'
+      - 'scripts/smoke-web.ts'
+      - 'scripts/a11y-web.ts'
+      - 'scripts/chromium.ts'
+      - '.github/workflows/browser-tests.yml'
+concurrency:
+  group: browser-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm run fixtures
+      - name: A browser is installed
+        run: node --no-warnings scripts/require-browser.ts
+      - name: Page smoke test
+        run: npm run smoke:web
+      - name: Accessibility audit
+        run: npm run a11y:web
+      - name: End to end tests
+        run: npm run test:e2e -- --test-concurrency=2 --test-timeout=240000

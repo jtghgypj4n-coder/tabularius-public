@@ -1,0 +1,8 @@
+# Script: Send invoice
+
+# Moves a draft to Sent, but only once it has something to bill.
+If [ IsEmpty ( Invoices::Total ) or Invoices::Total = 0 ]
+	Show Custom Dialog [ Title: "Nothing to send" ; Message: "Add at least one line with a price first." ]
+	Exit Script [ Result: "empty" ]
+End If
+Set Field [ Invoices::Status ; "Sent" ]

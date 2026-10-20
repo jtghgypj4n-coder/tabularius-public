@@ -1,0 +1,16 @@
+{
+  "case": "handover-memo",
+  "source": "hand-written stand-in (no API key where the suite was built); re-record with npm run evals -- --live --record",
+  "ask": "(the handover memo for the file)",
+  "turns": [
+    {
+      "content": [
+        {
+          "type": "text",
+          "text": "# Charts: handover memo\n\n## What it is\nCharts holds the members of the US Congress (the Congress table: name, party, state, chamber, district and their liberal composite scores) and a Grades table of letter grades, with layouts for browsing members and charting scores.\n\n## Tables and relationships\n- **Congress**: one record per member. Display name is a stored calculation of the name and state.\n- **Grades**: a lookup of grades.\n\n## Scripts\n- **Count Democrats** counts Democrats with ExecuteSQL and shows the number in a dialog.\n\n## Security\nThe Party Desk privilege set sees only Democratic members and can't edit them.\n\n## Migration readiness\nNothing here is a blocker. Count Democrats shows a dialog, which a person has to answer in the web client; scripts run on the server can't show one.\n\n## Possibly unused\nSome layouts and value lists look unused; check before removing them.\n"
+        }
+      ],
+      "stop_reason": "end_turn"
+    }
+  ]
+}

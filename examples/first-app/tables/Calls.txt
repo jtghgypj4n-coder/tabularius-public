@@ -1,0 +1,16 @@
+Table: Calls
+
+ID
+  Type: number, normal
+  Options: {"autoEnter": {"serial": {"increment": 1}}}
+
+Contact ID
+  Type: number, normal
+  Comment: The ID of the contact this call was with.
+
+Date
+  Type: date, normal
+  Options: {"autoEnter": {"value": "creationDate"}}
+
+Summary
+  Type: text, normal

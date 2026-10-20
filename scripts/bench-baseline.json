@@ -1,0 +1,157 @@
+{
+  "version": 1,
+  "config": {
+    "records": 50000,
+    "customers": 2000,
+    "importRows": 5000,
+    "runs": 3
+  },
+  "tolerance": 0.4,
+  "operations": [
+    {
+      "group": "Open",
+      "operation": "Open the file and read the first 50 records",
+      "ratio": 0.25017663885127633
+    },
+    {
+      "group": "Find",
+      "operation": "Text, one word (first run builds the word index)",
+      "ratio": 0.7481188587342535
+    },
+    {
+      "group": "Find",
+      "operation": "Text, one customer's name (three words)",
+      "ratio": 0.01538974165211666
+    },
+    {
+      "group": "Find",
+      "operation": "Number range (Amount 900...1000)",
+      "ratio": 0.09862584140880618
+    },
+    {
+      "group": "Find",
+      "operation": "Date range (one month)",
+      "ratio": 0.19609974005781278
+    },
+    {
+      "group": "Find",
+      "operation": "Two fields (Region and Status)",
+      "ratio": 0.7077600187434767
+    },
+    {
+      "group": "Find",
+      "operation": "Two requests, with an omit",
+      "ratio": 0.9591397398010714
+    },
+    {
+      "group": "Find",
+      "operation": "Unstored calculation (Tax 100...200)",
+      "ratio": 15.99920773602412
+    },
+    {
+      "group": "Sort",
+      "operation": "All records by Customer",
+      "ratio": 0.00902033254315108
+    },
+    {
+      "group": "Sort",
+      "operation": "All records by Amount, descending",
+      "ratio": 0.009537531726195448
+    },
+    {
+      "group": "Sort",
+      "operation": "All records by Region, then Date",
+      "ratio": 0.01066867475347557
+    },
+    {
+      "group": "Sort",
+      "operation": "All records by an unstored calculation (Tax)",
+      "ratio": 17.675371055701376
+    },
+    {
+      "group": "Sort",
+      "operation": "A found set (Status Open) by Customer",
+      "ratio": 0.4677479322673963
+    },
+    {
+      "group": "Summary fields",
+      "operation": "All records, after a change",
+      "ratio": 2.662274063947239
+    },
+    {
+      "group": "Summary fields",
+      "operation": "All records, unchanged",
+      "ratio": 0.014488312468639969
+    },
+    {
+      "group": "Summary fields",
+      "operation": "A found set (Region North), after a change",
+      "ratio": 1.5036051110041782
+    },
+    {
+      "group": "Summary fields",
+      "operation": "A found set (Region North), unchanged",
+      "ratio": 0.5817846560191907
+    },
+    {
+      "group": "ExecuteSQL",
+      "operation": "SUM with a WHERE, after a change",
+      "ratio": 0.13422796393221922
+    },
+    {
+      "group": "ExecuteSQL",
+      "operation": "SUM with a WHERE, unchanged",
+      "ratio": 0.0007028008276577826
+    },
+    {
+      "group": "ExecuteSQL",
+      "operation": "COUNT with GROUP BY, after a change",
+      "ratio": 0.20832225865170706
+    },
+    {
+      "group": "ExecuteSQL",
+      "operation": "COUNT with GROUP BY, unchanged",
+      "ratio": 0.0008385433670565356
+    },
+    {
+      "group": "ExecuteSQL",
+      "operation": "JOIN to Customers, GROUP BY city, after a change",
+      "ratio": 0.48836259540103055
+    },
+    {
+      "group": "ExecuteSQL",
+      "operation": "JOIN to Customers, GROUP BY city, unchanged",
+      "ratio": 0.0007695015383110108
+    },
+    {
+      "group": "ExecuteSQL",
+      "operation": "ORDER BY with FETCH FIRST 10, after a change",
+      "ratio": 0.08785056064970978
+    },
+    {
+      "group": "ExecuteSQL",
+      "operation": "ORDER BY with FETCH FIRST 10, unchanged",
+      "ratio": 0.0006948748736534732
+    },
+    {
+      "group": "Import",
+      "operation": "Plan and import 5,000 rows of four fields",
+      "ratio": 59.007820152374286
+    },
+    {
+      "group": "Export",
+      "operation": "Every invoice (50,000) as comma-separated text, built in memory",
+      "ratio": 17.547666534615736
+    },
+    {
+      "group": "Backup",
+      "operation": "Back up the file to a new set",
+      "ratio": 6.001847565260323
+    },
+    {
+      "group": "Restore",
+      "operation": "Restore the set into an empty folder",
+      "ratio": 4.825550895053784
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+{
+  "name": "@tabularius/web",
+  "version": "0.1.0",
+  "description": "Browser client for hosted FileMaker solutions: draws their layouts and edits their records",
+  "license": "MIT",
+  "type": "module",
+  "private": true
+}

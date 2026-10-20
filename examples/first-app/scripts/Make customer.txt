@@ -1,0 +1,8 @@
+# Script: Make customer
+
+# Marks the contact you are on as a customer.
+If [ Contacts::Status = "Customer" ]
+	Show Custom Dialog [ Title: "Already a customer" ; Message: Contacts::Name & " is already a customer." ]
+	Exit Script [ Result: "no change" ]
+End If
+Set Field [ Contacts::Status ; "Customer" ]

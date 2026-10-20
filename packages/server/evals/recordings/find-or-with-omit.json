@@ -1,0 +1,60 @@
+{
+  "case": "find-or-with-omit",
+  "source": "hand-written stand-in (no API key where the suite was built); re-record with npm run evals -- --live --record",
+  "ask": "Show the House Republicans from Texas or Florida, but leave out anyone in district 1",
+  "turns": [
+    {
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "toolu_01",
+          "name": "describe_layout",
+          "input": {
+            "database": "Charts",
+            "layout": "Congress"
+          }
+        }
+      ],
+      "stop_reason": "tool_use"
+    },
+    {
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "toolu_02",
+          "name": "show_records",
+          "input": {
+            "layout": "Congress",
+            "query": [
+              {
+                "Party": "R",
+                "Chamber": "House",
+                "State": "Texas"
+              },
+              {
+                "Party": "R",
+                "Chamber": "House",
+                "State": "Florida"
+              },
+              {
+                "District": "1",
+                "omit": "true"
+              }
+            ],
+            "summary": "House Republicans from Texas or Florida, not district 1"
+          }
+        }
+      ],
+      "stop_reason": "tool_use"
+    },
+    {
+      "content": [
+        {
+          "type": "text",
+          "text": "That finds 40 House Republicans from Texas and Florida, with district 1 left out of both states. It is two find requests (one per state) and an omit request for district 1."
+        }
+      ],
+      "stop_reason": "end_turn"
+    }
+  ]
+}

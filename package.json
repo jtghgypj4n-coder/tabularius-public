@@ -1,0 +1,58 @@
+{
+  "name": "tabularius",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Open-source, AI-native platform that opens and hosts FileMaker .fmp12 files",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22.20"
+  },
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "mutate": "nice -n 19 node --no-warnings scripts/mutate.ts",
+    "test": "node --test --test-reporter=spec 'packages/*/test/*.test.ts'",
+    "test:ci": "node scripts/test-ci.ts",
+    "typecheck": "tsc -p tsconfig.json && tsc -p packages/web/tsconfig.json",
+    "evals": "node --no-warnings packages/server/evals/run.ts",
+    "eval:ai": "node --no-warnings packages/server/evals/run.ts --live",
+    "fixtures": "node scripts/fetch-fixtures.ts",
+    "licences": "node --no-warnings scripts/licence-gate.ts",
+    "licences:audit": "node --no-warnings scripts/licence-gate.ts --audit --list",
+    "public:snapshot": "node --no-warnings scripts/public-snapshot.ts",
+    "store:snapshot": "node --no-warnings scripts/store-snapshot.ts",
+    "rehearse-upgrade": "node --no-warnings scripts/rehearse-upgrade.ts",
+    "bench": "node --no-warnings scripts/bench.ts",
+    "bench:check": "node --no-warnings scripts/bench-check.ts",
+    "fuzz": "node --no-warnings scripts/fuzz/run.ts",
+    "smoke:web": "node --no-warnings scripts/smoke-web.ts",
+    "test:e2e": "node --no-warnings --test --test-reporter=spec 'packages/web/e2e/*.e2e.ts'",
+    "test:visual": "node --no-warnings scripts/test-visual.ts",
+    "smoke:sync": "node --no-warnings scripts/smoke-sync.ts",
+    "a11y:web": "node --no-warnings scripts/a11y-web.ts",
+    "converter-quality": "node --no-warnings scripts/converter-quality.ts",
+    "release:verify-repro": "node --no-warnings scripts/verify-repro.ts",
+    "release:sbom": "node --no-warnings scripts/sbom.ts",
+    "docs:reference": "node --no-warnings scripts/docs-reference.ts",
+    "docs:build": "node --no-warnings scripts/docs-site.ts",
+    "docs:known-differences": "node --no-warnings scripts/known-differences.ts",
+    "release-notes": "node --no-warnings scripts/release-notes.ts",
+    "docs:plugins": "node --no-warnings scripts/plugin-matrix.ts",
+    "docs:patterns": "node --no-warnings scripts/solution-patterns.ts",
+    "docs:security-defaults": "node --no-warnings scripts/security-defaults.ts",
+    "docs:error-strings": "node --no-warnings scripts/error-strings.ts",
+    "hooks:install": "git config core.hooksPath scripts/git-hooks",
+    "visual": "node --no-warnings scripts/visual.ts",
+    "tabularius": "node --no-warnings packages/cli/src/launch.cjs",
+    "openhbam": "node --no-warnings packages/cli/src/launch.cjs",
+    "precheck": "node --no-warnings scripts/precheck.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "axe-core": "^4.14.0",
+    "playwright-core": "^1.64.0",
+    "typescript": "5.9"
+  }
+}

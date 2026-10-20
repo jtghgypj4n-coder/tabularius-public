@@ -1,0 +1,11 @@
+{
+  "name": "@tabularius/cli",
+  "version": "0.1.0",
+  "description": "Command-line tool to inspect and convert FileMaker .fmp12 files",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "tabularius": "./src/launch.cjs",
+    "openhbam": "./src/launch.cjs"
+  }
+}

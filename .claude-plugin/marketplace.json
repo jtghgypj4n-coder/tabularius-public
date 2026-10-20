@@ -1,0 +1,19 @@
+{
+  "name": "tabularius",
+  "owner": {
+    "name": "Tabularius"
+  },
+  "plugins": [
+    {
+      "name": "tabularius",
+      "source": "./claude-plugin",
+      "description": "Work with a hosted Tabularius solution from Claude Code through its /mcp tools.",
+      "author": {
+        "name": "Tabularius"
+      }
+    }
+  ],
+  "metadata": {
+    "description": "Claude Code plugins for Tabularius, the open-source host for FileMaker .fmp12 files."
+  }
+}

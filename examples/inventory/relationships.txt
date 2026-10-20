@@ -1,0 +1,10 @@
+Table occurrences
+
+Movements → Movements
+Products → Products
+
+Relationships
+
+Products ↔ Movements
+  Products::ID = Movements::Product ID
+  Options: create in Movements, delete in Movements

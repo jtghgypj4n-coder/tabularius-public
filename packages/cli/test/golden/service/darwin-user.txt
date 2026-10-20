@@ -1,0 +1,16 @@
+# <HOME>/Library/LaunchAgents/org.openhbam.server.plist
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>org.openhbam.server</string>
+  <key>ProgramArguments</key><array><string>/usr/local/bin/node</string><string>--no-warnings</string><string>--eval</string><string>const fs = require('node:fs'); const path = require('node:path'); const main = process.argv[1]; const app = path.resolve(path.dirname(main), '../../..'); if (!fs.existsSync(app) &amp;&amp; fs.existsSync(app + '.previous')) fs.renameSync(app + '.previous', app); process.argv = [process.argv[0], main, ...process.argv.slice(2)]; process.execArgv.splice(process.execArgv.indexOf('--eval'), 2); import(require('node:url').pathToFileURL(main).href);</string><string>/srv/tabularius/app/packages/cli/src/main.ts</string><string>serve</string><string>/srv/data</string><string>--port</string><string>443</string><string>--host</string><string>0.0.0.0</string><string>--https</string><string>db.example.org</string><string>--workers</string><string>auto</string><string>--ai-key-file</string><string>/etc/tabularius/ai.key</string></array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ExitTimeOut</key><integer>40</integer>
+  <key>ThrottleInterval</key><integer>10</integer>
+  <key>Umask</key><integer>63</integer>
+  <key>SoftResourceLimits</key><dict><key>NumberOfFiles</key><integer>4096</integer></dict>
+  <key>WorkingDirectory</key><string>/srv/data</string>
+  <key>StandardOutPath</key><string>/var/lib/tabularius/.openhbam/logs/server.log</string>
+  <key>StandardErrorPath</key><string>/var/lib/tabularius/.openhbam/logs/server.log</string>
+</dict></plist>

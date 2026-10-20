@@ -1,0 +1,6 @@
+Value list: Invoice status
+
+Draft
+Sent
+Paid
+Void

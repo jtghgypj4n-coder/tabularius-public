@@ -1,0 +1,16 @@
+{
+  "case": "file-overview",
+  "source": "hand-written stand-in (no API key where the suite was built); re-record with npm run evals -- --live --record",
+  "ask": "In one short sentence: what is this file about?",
+  "turns": [
+    {
+      "content": [
+        {
+          "type": "text",
+          "text": "It is a sample file of FileMaker charts, built on US population figures, Congress voting scores, student grades, roller coasters and Northwind sales by customer and salesperson."
+        }
+      ],
+      "stop_reason": "end_turn"
+    }
+  ]
+}

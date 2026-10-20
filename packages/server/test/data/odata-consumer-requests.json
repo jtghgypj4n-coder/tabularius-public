@@ -1,0 +1,103 @@
+{
+  "about": "OData requests that BI and spreadsheet products send, one per entry, driven by odata-consumer-shapes.test.ts against a synthetic file ('Shop', entity set Items: Name 'Item 01'..'Item 25', Qty 1..25). 'verified' is true only where the cited page states the request. No product's private behaviour is guessed.",
+  "cases": [
+    {
+      "id": "pq-top-skip-select-orderby",
+      "product": "Power Query custom connector (TripPin sample)",
+      "source": "https://learn.microsoft.com/en-in/power-query/samples/trippin/10-tableview1/readme",
+      "verified": true,
+      "note": "The sample writes $top, $skip, $select and $orderby (\"col asc|desc\" joined with \", \") into the query string, and its query-string builder encodes the $ as %24.",
+      "request": { "path": "/Shop/Items?%24top=3&%24skip=2&%24select=Name&%24orderby=Name%20desc%2C%20Qty%20asc" },
+      "expect": { "status": 200, "names": ["Item 23", "Item 22", "Item 21"], "onlyKeys": ["ROWID", "ROWMODID", "Name"] }
+    },
+    {
+      "id": "pq-count-path",
+      "product": "Power Query custom connector (TripPin sample)",
+      "source": "https://learn.microsoft.com/en-in/power-query/samples/trippin/10-tableview1/readme",
+      "verified": true,
+      "note": "A row count is the /$count path segment, a scalar read as text (Accept: text/plain).",
+      "request": { "path": "/Shop/Items/$count", "headers": { "accept": "text/plain" } },
+      "expect": { "status": 200, "text": "25" }
+    },
+    {
+      "id": "pq-count-path-with-top",
+      "product": "Power Query custom connector (TripPin sample)",
+      "source": "https://learn.microsoft.com/en-in/power-query/samples/trippin/10-tableview1/readme",
+      "verified": true,
+      "note": "The page says /$count errors when $top or $skip ride along, so the sample falls back to counting locally. The answer here is either the count or a clean 400, never a 5xx.",
+      "request": { "path": "/Shop/Items/$count?%24top=3", "headers": { "accept": "text/plain" } },
+      "expect": { "statusIn": [200, 400] }
+    },
+    {
+      "id": "tableau-v4-json-basic",
+      "product": "Tableau OData connector",
+      "source": "https://help.tableau.com/current/pro/desktop/en-us/examples_odata.htm",
+      "verified": true,
+      "note": "The page states OData V4 is read as JSON feeds, the metadata document as XML, and the login is a user name and password. It names no query options (the connector extracts).",
+      "request": { "path": "/Shop/Items?%24top=2", "headers": { "accept": "application/json" } },
+      "expect": { "status": 200, "contentType": "^application/json", "headers": { "odata-version": "^4\\.0$" }, "rows": 2 }
+    },
+    {
+      "id": "tableau-metadata-xml",
+      "product": "Tableau OData connector",
+      "source": "https://help.tableau.com/current/pro/desktop/en-us/examples_odata.htm",
+      "verified": true,
+      "request": { "path": "/Shop/$metadata", "headers": { "accept": "application/xml" } },
+      "expect": { "status": 200, "contentType": "^application/xml", "textMatches": "<edmx:Edmx[^>]*Version=\"4\\.0\"" }
+    },
+    {
+      "id": "odata-count-inline",
+      "product": "any OData v4 client",
+      "source": "OData Version 4.0 Part 1: Protocol, section 11.2.5.5 (System Query Option $count)",
+      "verified": true,
+      "request": { "path": "/Shop/Items?%24count=true&%24top=0" },
+      "expect": { "status": 200, "rows": 0, "odataCount": 25 }
+    },
+    {
+      "id": "odata-format-json",
+      "product": "any OData v4 client",
+      "source": "OData Version 4.0 Part 1: Protocol, section 11.2.9 ($format)",
+      "verified": true,
+      "request": { "path": "/Shop/Items?%24format=json&%24top=1" },
+      "expect": { "status": 200, "contentType": "^application/json", "rows": 1 }
+    },
+    {
+      "id": "odata-maxpagesize",
+      "product": "any OData v4 client",
+      "source": "OData Version 4.0 Part 1: Protocol, section 8.2.8.6 (Prefer odata.maxpagesize)",
+      "verified": true,
+      "request": { "path": "/Shop/Items", "headers": { "prefer": "odata.maxpagesize=10" } },
+      "expect": { "status": 200, "rows": 10, "nextLink": true, "headers": { "preference-applied": "odata\\.maxpagesize=10" } }
+    },
+    {
+      "id": "odata-maxversion",
+      "product": "any OData v4 client",
+      "source": "OData Version 4.0 Part 1: Protocol, section 8.2.7 (OData-MaxVersion)",
+      "verified": true,
+      "request": { "path": "/Shop/Items?%24top=1", "headers": { "odata-maxversion": "4.0", "odata-version": "4.0", "accept": "application/json;odata.metadata=minimal;q=1.0,application/json;odata=minimalmetadata;q=0.9,*/*;q=0.1" } },
+      "expect": { "status": 200, "headers": { "odata-version": "^4\\.0$" }, "rows": 1 }
+    },
+    {
+      "id": "odata-select-star-and-skiptoken",
+      "product": "any OData v4 client",
+      "source": "OData Version 4.0 Part 1: Protocol, sections 11.2.4.1 ($select) and 11.2.5.7 (server-driven paging)",
+      "verified": true,
+      "request": { "path": "/Shop/Items?%24select=*&%24top=2&%24orderby=Qty" },
+      "expect": { "status": 200, "names": ["Item 01", "Item 02"], "hasKeys": ["Name", "Qty", "ROWID"] }
+    },
+    {
+      "id": "odata-filter-functions",
+      "product": "any OData v4 client",
+      "source": "OData Version 4.0 Part 2: URL Conventions, sections 5.1.1.4 and 5.1.1.5 (built-in filter operators and functions)",
+      "verified": true,
+      "request": { "path": "/Shop/Items?%24filter=contains(tolower(Name)%2C'item 1') and Qty ge 10 and Qty lt 14&%24orderby=Qty" },
+      "expect": { "status": 200, "names": ["Item 10", "Item 11", "Item 12", "Item 13"] }
+    }
+  ],
+  "notVerified": [
+    "Power BI / Excel / Power Query OData.Feed: the connector's own requests ($metadata handling, which $filter functions it folds, Prefer headers, $batch) are not described on any Microsoft page found; the existing odata-clients.test.ts keeps the request shapes seen in practice, which are not cited.",
+    "Tableau: the page lists no query options, $batch, $apply or paging behaviour; only V4 JSON, XML metadata, user name and password, and that it extracts.",
+    "Looker Studio, Zapier and Make: no first-party OData documentation was found, so no request is asserted for them.",
+    "OAuth sign-in: the OData endpoint accepts Basic, a Data API session token or an API token as Bearer; there is no OAuth authorisation flow for an OData client to follow."
+  ]
+}

@@ -1,0 +1,32 @@
+Table: Companies
+
+ID
+  Type: number, normal
+  Options: {"autoEnter": {"serial": {"increment": 1}}, "validation": {"notEmpty": true, "unique": true}}
+
+Name
+  Type: text, normal
+  Options: {"validation": {"notEmpty": true}}
+
+Industry
+  Type: text, normal
+  Comment: The Industry list offers the usual ones.
+
+Contacts Count
+  Type: number, calculation
+  Formula:
+    Count ( Contacts::ID )
+  Options: {"unstored": true}
+
+Pipeline
+  Type: number, calculation
+  Comment: What is still to be decided, in money: the amounts of the company's deals that are neither Won nor Lost.
+  Formula:
+    Sum ( Deals::Open Amount )
+  Options: {"unstored": true}
+
+Won
+  Type: number, calculation
+  Formula:
+    Sum ( Deals::Won Amount )
+  Options: {"unstored": true}

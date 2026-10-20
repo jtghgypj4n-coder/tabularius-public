@@ -1,0 +1,38 @@
+[
+  {
+    "file": "packages/cli/test/docs-index.test.ts",
+    "reason": "Checks documentation index links"
+  },
+  {
+    "file": "packages/cli/test/docs-numbers.test.ts",
+    "reason": "Checks numeric claims in documentation"
+  },
+  {
+    "file": "packages/cli/test/contributing.test.ts",
+    "reason": "Checks contributor guide links and commands"
+  },
+  {
+    "file": "packages/cli/test/pre-push-hook.test.ts",
+    "reason": "Checks pre-push hook wiring with a local npm stub"
+  },
+  {
+    "file": "packages/server/test/known-differences.test.ts",
+    "reason": "Checks known-difference markers and generated register"
+  },
+  {
+    "file": "packages/server/test/reference-docs.test.ts",
+    "reason": "Checks generated API reference pages"
+  },
+  {
+    "file": "packages/server/test/docs-links.test.ts",
+    "reason": "Checks server documentation links"
+  },
+  {
+    "file": "packages/store/test/docs-no-line-anchors.test.ts",
+    "reason": "Checks documentation links avoid line anchors"
+  },
+  {
+    "file": "packages/web/test/boot-guard.test.ts",
+    "reason": "Checks browser boot guard source without opening a browser"
+  }
+]

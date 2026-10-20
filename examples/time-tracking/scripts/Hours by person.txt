@@ -1,0 +1,6 @@
+# Script: Hours by person
+
+# The summary report: one line per person, "Name: hours", for one project (the parameter is its ID) or for all of them.
+Set Variable [ $where ; Value: If ( IsEmpty ( Get ( ScriptParameter ) ) ; "" ; " WHERE \"Project ID\" = " & Get ( ScriptParameter ) ) ]
+Set Variable [ $rows ; Value: ExecuteSQL ( "SELECT Person, SUM(Hours) FROM Entries" & $where & " GROUP BY Person ORDER BY Person" ; ": " ; ¶ ) ]
+Exit Script [ Result: $rows ]

@@ -1,0 +1,49 @@
+{
+  "case": "flicks-find-recent",
+  "source": "hand-written stand-in (no API key where the suite was built); re-record with npm run evals -- --live --record",
+  "ask": "Which movies came out in 2020 or later?",
+  "turns": [
+    {
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "toolu_01",
+          "name": "describe_layout",
+          "input": {
+            "database": "Flicks",
+            "layout": "WV Framework - Sample Data"
+          }
+        }
+      ],
+      "stop_reason": "tool_use"
+    },
+    {
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "toolu_02",
+          "name": "show_records",
+          "input": {
+            "layout": "WV Framework - Sample Data",
+            "query": [
+              {
+                "year": ">=2020"
+              }
+            ],
+            "summary": "Movies from 2020 on"
+          }
+        }
+      ],
+      "stop_reason": "tool_use"
+    },
+    {
+      "content": [
+        {
+          "type": "text",
+          "text": "27 movies came out in 2020 or later. Show records puts them in your window."
+        }
+      ],
+      "stop_reason": "end_turn"
+    }
+  ]
+}

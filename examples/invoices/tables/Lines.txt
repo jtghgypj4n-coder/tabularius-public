@@ -1,0 +1,29 @@
+Table: Lines
+
+ID
+  Type: number, normal
+  Options: {"autoEnter": {"serial": {"increment": 1}}}
+
+Invoice ID
+  Type: number, normal
+
+Product ID
+  Type: number, normal
+
+Description
+  Type: text, calculation
+  Formula:
+    Products::Name
+  Options: {"unstored": true}
+
+Quantity
+  Type: number, normal
+  Options: {"autoEnter": {"data": "1"}, "validation": {"notEmpty": true}}
+
+Unit Price
+  Type: number, normal
+
+Line Total
+  Type: number, calculation
+  Formula:
+    Quantity * Unit Price

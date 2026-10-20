@@ -1,0 +1,26 @@
+name: dependency-gate
+# Licences, committed sample files and known vulnerabilities in what ships
+# (scripts/dependency-gate.ts). The licence and committed-file checks also run in
+# the test suite; this adds `npm audit`, which needs the registry and changes
+# without any commit, so it runs nightly as well as when the dependencies change.
+# Runs on a free GitHub-hosted runner, like ci.yml.
+on:
+  schedule:
+    - cron: '17 4 * * *'
+  pull_request:
+    paths: ['package.json', 'package-lock.json', 'packages/*/package.json', '.github/workflows/dependency-gate.yml', 'scripts/dependency-gate.ts']
+  workflow_dispatch:
+concurrency:
+  group: dependency-gate-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: node --no-warnings scripts/dependency-gate.ts --audit

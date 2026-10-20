@@ -1,0 +1,36 @@
+Table: Entries
+
+ID
+  Type: number, normal
+  Options: {"autoEnter": {"serial": {"increment": 1}}}
+
+Project ID
+  Type: number, normal
+  Options: {"validation": {"notEmpty": true}}
+
+Project Name
+  Type: text, calculation
+  Formula:
+    Projects::Name
+  Options: {"unstored": true}
+
+Day
+  Type: date, normal
+  Options: {"autoEnter": {"value": "creationDate"}}
+
+Person
+  Type: text, normal
+  Options: {"validation": {"notEmpty": true}}
+
+Hours
+  Type: number, normal
+  Options: {"validation": {"notEmpty": true}}
+
+Note
+  Type: text, normal
+
+Amount
+  Type: number, calculation
+  Formula:
+    Hours * Projects::Hourly Rate
+  Options: {"unstored": true}

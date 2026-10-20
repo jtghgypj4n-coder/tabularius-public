@@ -1,0 +1,63 @@
+{
+  "common": {
+    "discovery": ["issuer", "authorization_endpoint", "token_endpoint", "jwks_uri"],
+    "jwks": { "keys": [{ "kty": "RSA", "kid": "generated-key", "use": "sig", "alg": "RS256", "n": "generated", "e": "AQAB" }] },
+    "source": "https://openid.net/specs/openid-connect-discovery-1_0.html"
+  },
+  "scimExercise": {
+    "lookup": "userName eq \"deprov@example.test\"",
+    "create": { "userName": "deprov@example.test", "active": "True", "emails": [{ "value": "deprov@example.test", "type": "work" }] },
+    "group": "Team Set",
+    "groupAdd": { "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"], "Operations": [{ "op": "Add", "path": "members", "value": [{ "value": "$USER_ID" }] }] },
+    "oktaPatch": { "Operations": [{ "op": "replace", "value": { "displayName": "Generated Person" } }] },
+    "authentikPut": { "userName": "deprov@example.test", "active": true, "displayName": "Generated Person via PUT" },
+    "authentikGroupPut": { "displayName": "Team Set", "members": [{ "value": "$USER_ID" }] },
+    "deactivate": { "Operations": [{ "op": "Replace", "path": "active", "value": "False" }] },
+    "reactivate": { "Operations": [{ "op": "Replace", "path": "active", "value": true }] },
+    "invalidFilter": "userName co \"deprov\""
+  },
+  "providers": [
+    {
+      "name": "Okta",
+      "sources": ["https://developer.okta.com/docs/guides/customize-tokens-groups-claim/", "https://developer.okta.com/docs/api/openapi/okta-scim/guides/scim-20"],
+      "oidc": { "groupClaim": "groups", "claims": { "sub": "00u-generated", "email_verified": true, "groups": ["Team"] }, "expect": "Team" },
+      "scim": { "documented": ["GET Users filter userName eq", "POST Users", "PATCH Users active", "PATCH Groups members", "DELETE Groups"], "errors": "SCIM 2.0 errors expected; vendor-specific retry behavior unverified" }
+    },
+    {
+      "name": "Entra ID",
+      "sources": ["https://learn.microsoft.com/entra/identity/app-provisioning/use-scim-to-provision-users-and-groups", "https://learn.microsoft.com/en-us/security/zero-trust/develop/configure-tokens-group-claims-app-roles", "https://learn.microsoft.com/en-us/azure/active-directory/hybrid/connect/how-to-connect-fed-group-claims"],
+      "oidc": { "groupClaim": "wids", "trustEmail": true, "claims": { "sub": "pairwise-generated", "wids": ["Team"], "roles": ["Team"] }, "expect": "Team" },
+      "scim": { "documented": ["GET Users filter userName eq", "POST Users", "PATCH Users active false", "POST Groups", "PATCH Groups members", "DELETE Users"], "errors": "2xx for updates and 204 for delete; exact retry behavior unverified" }
+    },
+    {
+      "name": "Google Workspace",
+      "sources": ["https://developers.google.com/identity/openid-connect/reference", "https://developers.google.com/identity/openid-connect/openid-connect"],
+      "oidc": { "claims": { "sub": "stable-generated-id", "email_verified": true }, "expect": "email" },
+      "scim": { "documented": [], "errors": "generic outbound SCIM request and error behavior unverified" }
+    },
+    {
+      "name": "Keycloak",
+      "sources": ["https://www.keycloak.org/admin-api/protocol-mappers", "https://www.keycloak.org/docs/latest/release_notes/index.html"],
+      "oidc": { "groupClaim": "realm_access.roles", "claims": { "sub": "generated-uuid", "email_verified": true, "realm_access": { "roles": ["Team"] } }, "expect": "Team" },
+      "scim": { "documented": [], "errors": "outbound SCIM requests unverified; Keycloak SCIM API is inbound" }
+    },
+    {
+      "name": "Auth0",
+      "sources": ["https://auth0.com/docs/manage-users/organizations/using-tokens", "https://auth0.com/docs/customize/actions/flows/login/add-custom-claims-to-tokens"],
+      "oidc": { "groupClaim": "https://example.test/roles", "claims": { "sub": "auth0|generated", "email_verified": true, "https://example.test/roles": ["Team"] }, "expect": "Team" },
+      "scim": { "documented": [], "errors": "outbound SCIM requests unverified; inbound SCIM behavior does not establish them" }
+    },
+    {
+      "name": "Authentik",
+      "sources": ["https://docs.goauthentik.io/docs/providers/scim/", "https://docs.goauthentik.io/add-secure-apps/providers/property-mappings/"],
+      "oidc": { "groupClaim": "groups", "claims": { "sub": "hashed-generated-id", "email_verified": "true", "groups": ["Team"] }, "expect": "Team" },
+      "scim": { "documented": ["PUT Users", "PUT Groups", "PATCH Groups members when target advertises PATCH"], "errors": "vendor-specific error and retry behavior unverified" }
+    },
+    {
+      "name": "PingOne",
+      "sources": ["https://docs.pingidentity.com/pingone/integrations/p1_create_scim_connection.html", "https://docs.pingidentity.com/pingone/applications/p1_editcustomidtokenmapping.html"],
+      "oidc": { "groupClaim": "roles", "claims": { "sub": "generated-user-id", "email_verified": true, "roles": ["Team"] }, "expect": "Team" },
+      "scim": { "documented": ["Users create/update/disable/delete", "Groups provisioning configurable"], "errors": "exact PATCH bodies and retry behavior unverified" }
+    }
+  ]
+}

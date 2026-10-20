@@ -1,0 +1,41 @@
+Table: Invoices
+
+ID
+  Type: number, normal
+  Options: {"autoEnter": {"serial": {"increment": 1}}, "validation": {"notEmpty": true, "unique": true}}
+
+Customer ID
+  Type: number, normal
+  Options: {"validation": {"notEmpty": true}}
+
+Customer Name
+  Type: text, calculation
+  Formula:
+    Customers::Name
+  Options: {"unstored": true}
+
+Issued
+  Type: date, normal
+  Options: {"autoEnter": {"value": "creationDate"}}
+
+Due
+  Type: date, calculation
+  Formula:
+    Issued + 30
+
+Status
+  Type: text, normal
+  Comment: Draft, Sent, Paid or Void. The Invoice status list offers these.
+  Options: {"autoEnter": {"data": "Draft"}}
+
+Total
+  Type: number, calculation
+  Formula:
+    Sum ( Lines::Line Total )
+  Options: {"unstored": true}
+
+Overdue
+  Type: number, calculation
+  Formula:
+    Case ( Status = "Sent" and Get ( CurrentDate ) > Due ; 1 ; 0 )
+  Options: {"unstored": true}

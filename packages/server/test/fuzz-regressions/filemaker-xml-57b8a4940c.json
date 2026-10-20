@@ -1,0 +1,6 @@
+{
+  "target": "filemaker-xml",
+  "finding": "numeric character reference past U+10FFFF in an attribute (snippet.ts decode)",
+  "signature": "RangeError | <anonymous>@packages/store/src/snippet.ts:31 | decode@packages/store/src/snippet.ts:30 | parseXml@packages/store/src/snippet.ts:71",
+  "input": "PEIgZT0iJiN4MTEwMDAwOyI+"
+}

@@ -1,0 +1,13 @@
+{
+  "name": "Tabularius",
+  "short_name": "Tabularius",
+  "description": "Your FileMaker files in the browser.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f3f5f6",
+  "theme_color": "#0d6e7c",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

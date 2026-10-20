@@ -1,0 +1,6 @@
+Value list: Ticket category
+
+Billing
+Bug
+How to
+Other

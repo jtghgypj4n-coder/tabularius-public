@@ -1,0 +1,7 @@
+# Script: Mark as paid
+
+# Marks the invoice you are on as paid, unless it is void or already paid.
+If [ Invoices::Status = "Void" or Invoices::Status = "Paid" ]
+	Exit Script [ Result: "no change" ]
+End If
+Set Field [ Invoices::Status ; "Paid" ]

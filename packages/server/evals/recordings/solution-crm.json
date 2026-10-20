@@ -1,0 +1,16 @@
+{
+  "case": "solution-crm",
+  "source": "hand-written stand-in (no API key where the suite was built); re-record with npm run evals -- --live --record",
+  "ask": "Track companies, the people who work at them, and deals moving through the stages Lead, Qualified, Won and Lost, with a pipeline view of deals by stage.",
+  "turns": [
+    {
+      "content": [
+        {
+          "type": "text",
+          "text": "{\"summary\": \"A small CRM: companies with their contacts and deals, a stage list, and a pipeline of deals by stage.\", \"changes\": [{\"op\": \"createTable\", \"name\": \"Companies\", \"fields\": [{\"name\": \"CompanyID\", \"type\": \"number\", \"options\": {\"autoEnter\": {\"serial\": {\"next\": \"1\", \"increment\": 1}, \"prohibitModification\": true}}}, {\"name\": \"Name\", \"type\": \"text\"}]}, {\"op\": \"createTable\", \"name\": \"Contacts\", \"fields\": [{\"name\": \"ContactID\", \"type\": \"number\", \"options\": {\"autoEnter\": {\"serial\": {\"next\": \"1\", \"increment\": 1}, \"prohibitModification\": true}}}, {\"name\": \"CompanyID\", \"type\": \"number\"}, {\"name\": \"First Name\", \"type\": \"text\"}, {\"name\": \"Last Name\", \"type\": \"text\"}, {\"name\": \"Email\", \"type\": \"text\"}]}, {\"op\": \"createTable\", \"name\": \"Deals\", \"fields\": [{\"name\": \"DealID\", \"type\": \"number\", \"options\": {\"autoEnter\": {\"serial\": {\"next\": \"1\", \"increment\": 1}, \"prohibitModification\": true}}}, {\"name\": \"CompanyID\", \"type\": \"number\"}, {\"name\": \"Title\", \"type\": \"text\"}, {\"name\": \"Stage\", \"type\": \"text\"}, {\"name\": \"Amount\", \"type\": \"number\"}]}, {\"op\": \"createRelationship\", \"left\": \"Companies\", \"right\": \"Contacts\", \"predicates\": [{\"left\": \"CompanyID\", \"right\": \"CompanyID\"}], \"rightCreate\": true, \"leftCreate\": false}, {\"op\": \"createRelationship\", \"left\": \"Companies\", \"right\": \"Deals\", \"predicates\": [{\"left\": \"CompanyID\", \"right\": \"CompanyID\"}], \"rightCreate\": true, \"leftCreate\": false}, {\"op\": \"createValueList\", \"name\": \"Stages\", \"values\": [\"Lead\", \"Qualified\", \"Won\", \"Lost\"]}, {\"op\": \"createLayout\", \"name\": \"Companies List\", \"occurrence\": \"Companies\", \"design\": {\"view\": \"list\"}}, {\"op\": \"createLayout\", \"name\": \"Contacts List\", \"occurrence\": \"Contacts\", \"design\": {\"view\": \"list\"}}, {\"op\": \"createLayout\", \"name\": \"Pipeline\", \"occurrence\": \"Deals\", \"design\": {\"view\": \"list\"}}, {\"op\": \"createScript\", \"name\": \"Show Pipeline\", \"text\": \"Go to Layout [ \\\"Pipeline\\\" ]\\nShow All Records\"}, {\"op\": \"createScript\", \"name\": \"Show Companies\", \"text\": \"Go to Layout [ \\\"Companies List\\\" ]\\nShow All Records\"}]}"
+        }
+      ],
+      "stop_reason": "end_turn"
+    }
+  ]
+}

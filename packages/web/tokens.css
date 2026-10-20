@@ -1,0 +1,70 @@
+/* Design tokens shared by every Tabularius page: docs/design-guide.md explains them.
+   The admin console carries the same block inline (its CSP allows no stylesheets);
+   packages/server/test/design-pages.test.ts keeps the two identical. */
+
+:root {
+  color-scheme: light dark;
+  --bg: #f3f5f6; --panel: #ffffff; --sunken: #eef1f3; --field: #ffffff;
+  --text: #1a2226; --muted: #5b676e; --faint: #66727a; --line: #dde3e6; --line-strong: #c6cfd4;
+  --brand: #0d6e7c; --brand-hover: #0a5c68; --brand-text: #ffffff; --brand-soft: #e2f1f3;
+  --accent: var(--brand); --accent-hover: var(--brand-hover); --accent-text: var(--brand-text); --accent-soft: var(--brand-soft);
+  --ok: #18794e; --ok-soft: #e3f4ea; --bad: #b42318; --bad-soft: #fdecea; --warn: #7a4a00; --warn-soft: #fff4dc;
+  --focus: 0 0 0 2px var(--panel), 0 0 0 4px var(--accent);
+  --shadow: 0 1px 2px rgb(16 32 40 / 6%), 0 1px 1px rgb(16 32 40 / 4%);
+  --shadow-raised: 0 4px 12px rgb(16 32 40 / 10%), 0 1px 3px rgb(16 32 40 / 8%);
+  --radius: 10px; --radius-sm: 6px;
+  --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px; --s6: 32px; --s7: 48px;
+  --t-xs: 12px; --t-sm: 13px; --t-md: 14px; --t-lg: 16px; --t-xl: 18px; --t-2xl: 22px;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font: var(--t-md)/1.5 var(--sans);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #11171a; --panel: #182024; --sunken: #141b1e; --field: #10161a;
+    --text: #e6edf0; --muted: #9aa8af; --faint: #7f8d94; --line: #263137; --line-strong: #34424a;
+    --brand: #4cc2cf; --brand-hover: #6fd2dc; --brand-text: #062a2f; --brand-soft: #15353a;
+    --ok: #4cc58a; --ok-soft: #14301f; --bad: #ff8a7a; --bad-soft: #3a1714; --warn: #f5c56b; --warn-soft: #33270c;
+    --shadow: 0 1px 2px rgb(0 0 0 / 30%);
+    --shadow-raised: 0 6px 18px rgb(0 0 0 / 40%), 0 1px 3px rgb(0 0 0 / 30%);
+  }
+}
+
+/* More contrast: the muted text, the borders and the status colours darken (lighten, in the dark palette) until
+   text clears 7:1 and a control's edge clears 3:1 against its surface, and the focus ring thickens. */
+@media (prefers-contrast: more) {
+  :root {
+    --muted: #374247; --faint: #374247; --line: #6b777e; --line-strong: #4a565d;
+    --brand: #0a5663; --brand-hover: #06414b; --ok: #0f5c3a; --bad: #9a1a10; --warn: #5e3900;
+    --focus: 0 0 0 2px var(--panel), 0 0 0 5px var(--accent);
+  }
+}
+@media (prefers-contrast: more) and (prefers-color-scheme: dark) {
+  :root {
+    --muted: #cbd5da; --faint: #cbd5da; --line: #6f8089; --line-strong: #9bacb4;
+    --brand: #7fdde7; --brand-hover: #a6eaf1; --ok: #7bdca9; --bad: #ffb0a4; --warn: #ffd88a;
+  }
+}
+
+/* On paper: dark ink on white whatever the screen's scheme is, no shadows, no tinted panels. */
+@media print {
+  :root {
+    color-scheme: light;
+    --bg: #ffffff; --panel: #ffffff; --sunken: #f3f5f6; --field: #ffffff;
+    --text: #000000; --muted: #333333; --faint: #333333; --line: #999999; --line-strong: #666666;
+    --brand: #0d6e7c; --brand-hover: #0a5c68; --brand-text: #ffffff; --brand-soft: #e2f1f3;
+    --ok: #18794e; --ok-soft: #e3f4ea; --bad: #b42318; --bad-soft: #fdecea; --warn: #7a4a00; --warn-soft: #fff4dc;
+    --shadow: none; --shadow-raised: none;
+  }
+}
+/* end of tokens */
+
+/* Hidden means hidden: a component's own display rule mustn't show (and let the keyboard reach)
+   something marked hidden, such as Edit and Delete with no dashboard open. */
+[hidden]:not([hidden="until-found"]) { display: none !important; }
+
+/* Browser surfaces take the palette too. */
+::selection { background: color-mix(in srgb, var(--accent) 28%, transparent); }
+/* Windows high contrast drops box-shadow focus rings: give every focused control a real outline. */
+@media (forced-colors: active) { :focus-visible { outline: 2px solid CanvasText !important; outline-offset: 2px; } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition-duration: 0s !important; animation-duration: 0s !important; scroll-behavior: auto !important; } }

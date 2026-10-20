@@ -1,0 +1,51 @@
+{
+  "case": "find-ohio-senate-democrats",
+  "source": "hand-written stand-in (no API key where the suite was built); re-record with npm run evals -- --live --record",
+  "ask": "Show me the Democratic senators from Ohio",
+  "turns": [
+    {
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "toolu_01",
+          "name": "describe_layout",
+          "input": {
+            "database": "Charts",
+            "layout": "Congress"
+          }
+        }
+      ],
+      "stop_reason": "tool_use"
+    },
+    {
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "toolu_02",
+          "name": "show_records",
+          "input": {
+            "layout": "Congress",
+            "query": [
+              {
+                "Party": "D",
+                "Chamber": "Senate",
+                "State": "Ohio"
+              }
+            ],
+            "summary": "Democratic senators from Ohio"
+          }
+        }
+      ],
+      "stop_reason": "tool_use"
+    },
+    {
+      "content": [
+        {
+          "type": "text",
+          "text": "There is 1 Democratic senator from Ohio: Sherrod Brown. Use Show records to see it in your window."
+        }
+      ],
+      "stop_reason": "end_turn"
+    }
+  ]
+}

@@ -1,0 +1,56 @@
+/* Manage Security pages: accounts, privilege sets, API tokens. Builds on
+   app.css tokens and design.css layout (d-shell, d-split, d-side, d-main). */
+
+.sec-badge { font-size: 11px; padding: 1px 7px; border-radius: 10px; background: var(--d-selected); color: var(--chrome-text); }
+.sec-badge.warn { background: #fde8c8; color: #8a5a00; }
+.sec-ok { color: var(--d-mode); font-weight: 600; }
+
+.sec-create { align-items: center; gap: 8px; }
+.sec-secret {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px;
+  padding: 8px 10px; border: 1px solid var(--d-line); border-radius: 6px; background: var(--d-code-bg);
+  word-break: break-all; user-select: all;
+}
+.sec-minted { border: 1px solid var(--accent); border-radius: 8px; padding: 10px; background: var(--d-subtle); }
+
+/* Layout-scope picker on a new token: a collapsible, filterable checkbox list. */
+.sec-layout-scope { border: 1px solid var(--d-line); border-radius: 6px; padding: 6px 10px; background: var(--d-surface); }
+.sec-layout-scope summary { cursor: pointer; font-size: 13px; }
+.sec-layout-scope > .d-hint { margin: 6px 0; }
+.sec-layout-scope input[type="search"] { width: 100%; box-sizing: border-box; margin-bottom: 6px; }
+.sec-layout-list { max-height: 180px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+
+.sec-table { border-collapse: collapse; width: 100%; background: var(--d-surface); }
+.sec-table th, .sec-table td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--d-line); font-size: 13px; vertical-align: middle; }
+.sec-table th { color: var(--chrome-muted); font-weight: 600; }
+
+/* Privilege-set editor. */
+.sec-rule { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.sec-rule-label { min-width: 54px; }
+.sec-calc { flex: 1 1 260px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
+.sec-table-priv { display: grid; gap: 6px; padding: 6px 0 2px; }
+.sec-field-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 2px 0; }
+.sec-field-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sec-field-row select { flex: 0 0 auto; }
+.sec-fields { margin-top: 4px; }
+.sec-fields > summary { cursor: pointer; color: var(--chrome-muted); font-size: 12px; margin-bottom: 4px; }
+details.sec-tbl { border: 1px solid var(--d-line); border-radius: 6px; padding: 6px 10px; background: var(--d-surface); }
+details.sec-tbl > summary { cursor: pointer; font-weight: 600; }
+.sec-ext { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 4px 12px; }
+
+@media (max-width: 720px) {
+  .sec-table, .sec-table thead, .sec-table tbody, .sec-table tr, .sec-table th, .sec-table td { display: block; }
+  .sec-table thead { display: none; }
+  .sec-table tr { border: 1px solid var(--d-line); border-radius: 6px; margin-bottom: 8px; padding: 4px 8px; }
+  .sec-table td { border: 0; padding: 3px 0; }
+}
+
+/* Local-account CSV preview uses the same security table and form controls. */
+.sec-account-import { margin-bottom: 24px; }
+.sec-account-import summary { cursor: pointer; font-weight: 600; }
+.sec-import-rows { max-height: 420px; overflow: auto; margin: 12px 0; }
+.sec-import-rows td { overflow-wrap: anywhere; }
+@media (max-width: 720px) {
+  /* Empty alt text: the column header already names each cell for assistive tech. */
+  .sec-import-rows td::before { content: attr(data-label) ': ' / ''; font-weight: 600; }
+}

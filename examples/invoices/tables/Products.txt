@@ -1,0 +1,12 @@
+Table: Products
+
+ID
+  Type: number, normal
+  Options: {"autoEnter": {"serial": {"increment": 1}}, "validation": {"notEmpty": true, "unique": true}}
+
+Name
+  Type: text, normal
+  Options: {"validation": {"notEmpty": true}}
+
+Price
+  Type: number, normal

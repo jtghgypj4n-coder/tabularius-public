@@ -1,0 +1,8 @@
+# Script: Close ticket
+
+# Closes the ticket you are on, but only after a person has looked at it.
+If [ Tickets::Needs Review = 1 ]
+	Show Custom Dialog [ Title: "Look at this ticket first" ; Message: "It is marked for review. Clear Needs Review once you have read it." ]
+	Exit Script [ Result: "needs review" ]
+End If
+Set Field [ Tickets::Status ; "Closed" ]

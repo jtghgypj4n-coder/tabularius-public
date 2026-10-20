@@ -1,0 +1,32 @@
+Table: Contacts
+
+ID
+  Type: number, normal
+  Comment: Serial number, filled in for each new contact.
+  Options: {"autoEnter": {"serial": {"increment": 1}}, "validation": {"notEmpty": true, "unique": true}}
+
+Name
+  Type: text, normal
+  Options: {"validation": {"notEmpty": true}}
+
+Email
+  Type: text, normal
+
+Phone
+  Type: text, normal
+
+Company
+  Type: text, normal
+
+Status
+  Type: text, normal
+  Comment: Lead, Customer or Past. The Contact status list offers these.
+
+Created
+  Type: timestamp, normal
+  Options: {"autoEnter": {"value": "creationTimestamp"}}
+
+Calls Count
+  Type: number, calculation
+  Formula:
+    Count ( Calls::ID )

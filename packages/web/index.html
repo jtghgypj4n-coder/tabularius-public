@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <title>Tabularius</title>
+  <meta name="theme-color" content="#0d6e7c" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#11171a" media="(prefers-color-scheme: dark)">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="app.css">
+  <noscript><style>.loading{display:none}</style></noscript>
+  <script>/* If the page never starts (script blocked, offline, a failed module), say so instead of Loading… forever. */
+  (function () {
+    function show() {
+      var l = document.querySelector('#app .loading');
+      if (!l) return;
+      l.className = 'fatal';
+      l.textContent = 'This page did not start. ';
+      var a = document.createElement('a');
+      a.href = location.href;
+      a.textContent = 'Reload';
+      l.appendChild(a);
+      var h = document.createElement('a');
+      h.href = '/docs/troubleshooting-web-client#the-page-is-blank-or-stays-on-loading';
+      h.textContent = ' Troubleshooting';
+      l.appendChild(h);
+    }
+    addEventListener('error', function (e) { var t = e.target; if (!t || t === window || t.tagName === 'SCRIPT') show(); }, true);
+    addEventListener('unhandledrejection', show);
+  })();</script>
+  <script type="module" src="src/main.ts"></script>
+</head>
+<body>
+  <div id="app"><p class="loading">Loading…</p><noscript><p class="fatal">Tabularius needs JavaScript. Turn it on in your browser settings and reload this page.</p></noscript></div>
+</body>
+</html>

@@ -1,0 +1,24 @@
+# docker compose up -d
+# Then open http://localhost:8080/ and log in. Files go in ./Databases, which the container's
+# unprivileged user (uid 1000) must be able to write: sudo chown 1000:1000 Databases
+#
+# Stricter: docker compose -f compose.yaml -f compose.hardened.yaml up -d
+# With HTTPS from Caddy: docker compose -f compose.https.yaml up -d
+services:
+  tabularius:
+    build: .
+    stop_grace_period: 40s
+    init: true
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./Databases:/data
+    environment:
+      # Daily backups to /data/Backups, keeping the last 7.
+      TABULARIUS_BACKUP_EVERY: 1d
+      TABULARIUS_BACKUP_KEEP: "7"
+      # Needed for MCP from other machines (AI clients send it as a Bearer token).
+      # TABULARIUS_MCP_TOKEN: change-me
+      # The address people use to reach the server, if it's behind a proxy.
+      # TABULARIUS_PUBLIC_URL: https://filemaker.example.com

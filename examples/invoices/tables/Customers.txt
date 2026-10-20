@@ -1,0 +1,27 @@
+Table: Customers
+
+ID
+  Type: number, normal
+  Options: {"autoEnter": {"serial": {"increment": 1}}, "validation": {"notEmpty": true, "unique": true}}
+
+Name
+  Type: text, normal
+  Options: {"validation": {"notEmpty": true}}
+
+Email
+  Type: text, normal
+
+Billing Address
+  Type: text, normal
+
+Invoice Count
+  Type: number, calculation
+  Formula:
+    Count ( Invoices::ID )
+  Options: {"unstored": true}
+
+Total Billed
+  Type: number, calculation
+  Formula:
+    Sum ( Invoices::Total )
+  Options: {"unstored": true}

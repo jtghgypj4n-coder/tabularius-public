@@ -1,0 +1,50 @@
+{
+  "case": "find-number-range",
+  "source": "hand-written stand-in (no API key where the suite was built); re-record with npm run evals -- --live --record",
+  "ask": "Which senators have a liberal composite score above 80?",
+  "turns": [
+    {
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "toolu_01",
+          "name": "describe_layout",
+          "input": {
+            "database": "Charts",
+            "layout": "Congress"
+          }
+        }
+      ],
+      "stop_reason": "tool_use"
+    },
+    {
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "toolu_02",
+          "name": "show_records",
+          "input": {
+            "layout": "Congress",
+            "query": [
+              {
+                "Chamber": "Senate",
+                "Liberal_Composite": ">80"
+              }
+            ],
+            "summary": "Senators with a liberal composite above 80"
+          }
+        }
+      ],
+      "stop_reason": "tool_use"
+    },
+    {
+      "content": [
+        {
+          "type": "text",
+          "text": "14 senators have a liberal composite score above 80. Show records puts them in your window."
+        }
+      ],
+      "stop_reason": "end_turn"
+    }
+  ]
+}

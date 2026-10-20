@@ -1,0 +1,49 @@
+{
+  "case": "flicks-find-year-range",
+  "source": "hand-written stand-in (no API key where the suite was built); re-record with npm run evals -- --live --record",
+  "ask": "Show me the movies from 2014 through 2016",
+  "turns": [
+    {
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "toolu_01",
+          "name": "describe_layout",
+          "input": {
+            "database": "Flicks",
+            "layout": "WV Framework - Sample Data"
+          }
+        }
+      ],
+      "stop_reason": "tool_use"
+    },
+    {
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "toolu_02",
+          "name": "show_records",
+          "input": {
+            "layout": "WV Framework - Sample Data",
+            "query": [
+              {
+                "year": "2014...2016"
+              }
+            ],
+            "summary": "Movies from 2014 to 2016"
+          }
+        }
+      ],
+      "stop_reason": "tool_use"
+    },
+    {
+      "content": [
+        {
+          "type": "text",
+          "text": "There are 28 movies from 2014 through 2016, now in your window."
+        }
+      ],
+      "stop_reason": "end_turn"
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+Table: Movements
+
+ID
+  Type: number, normal
+  Options: {"autoEnter": {"serial": {"increment": 1}}}
+
+Product ID
+  Type: number, normal
+  Options: {"validation": {"notEmpty": true}}
+
+Day
+  Type: date, normal
+  Options: {"autoEnter": {"value": "creationDate"}}
+
+Change
+  Type: number, normal
+  Comment: Plus for stock received, minus for stock sold or lost.
+  Options: {"validation": {"notEmpty": true}}
+
+Note
+  Type: text, normal

@@ -1,0 +1,3 @@
+Money ( amount )
+
+GetAsText ( Round ( amount ; 2 ) )

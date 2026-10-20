@@ -1,0 +1,17 @@
+# Script: Reorder alerts
+
+# Mails each supplier whose product is at or below its reorder level. Meant to run on a schedule (see the README).
+# Products with no supplier email are skipped. The result says how many mails were written.
+Go to Layout [ “Products” ]
+Show All Records
+Set Variable [ $mails ; Value: 0 ]
+Go to Record/Request/Page [ First ]
+Loop
+	Exit Loop If [ IsEmpty ( Products::ID ) ]
+	If [ Products::Status = "Reorder" and not IsEmpty ( Products::Supplier Email ) ]
+		Send Mail [ Send via SMTP Server ; With dialog: Off ; To: Products::Supplier Email ; Subject: "Reorder: " & Products::Name ; Message: "We are down to " & Products::On Hand & " of " & Products::Name & " (" & Products::SKU & "). Please send more." ]
+		Set Variable [ $mails ; Value: $mails + 1 ]
+	End If
+	Go to Record/Request/Page [ Next ; Exit after last: On ]
+End Loop
+Exit Script [ Result: $mails & " reorder mails" ]

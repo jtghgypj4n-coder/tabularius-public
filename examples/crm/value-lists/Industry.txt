@@ -1,0 +1,8 @@
+Value list: Industry
+
+Software
+Finance
+Health
+Retail
+Manufacturing
+Other

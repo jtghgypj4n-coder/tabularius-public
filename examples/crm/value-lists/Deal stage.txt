@@ -1,0 +1,6 @@
+Value list: Deal stage
+
+Lead
+Proposal
+Won
+Lost

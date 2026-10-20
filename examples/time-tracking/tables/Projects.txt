@@ -1,0 +1,25 @@
+Table: Projects
+
+ID
+  Type: number, normal
+  Options: {"autoEnter": {"serial": {"increment": 1}}, "validation": {"notEmpty": true, "unique": true}}
+
+Name
+  Type: text, normal
+  Options: {"validation": {"notEmpty": true}}
+
+Hourly Rate
+  Type: number, normal
+  Comment: What an hour of this project is billed at.
+
+Hours
+  Type: number, calculation
+  Formula:
+    Sum ( Entries::Hours )
+  Options: {"unstored": true}
+
+Billable
+  Type: number, calculation
+  Formula:
+    Hours * Hourly Rate
+  Options: {"unstored": true}

@@ -1,0 +1,140 @@
+{
+  "sections": [
+    {
+      "title": "Start here",
+      "pages": [
+        "README.md",
+        "QUICKSTART.md",
+        "ADMIN.md",
+        "docs/README.md"
+      ]
+    },
+    {
+      "title": "Getting started and tutorials",
+      "pages": [
+        "docs/moving-a-solution.md",
+        "docs/for-filemaker-developers.md",
+        "docs/known-differences.md",
+        "docs/starter-solutions.md",
+        "docs/moving-in-from-other-tools.md",
+        "docs/tutorials/move-a-file-in.md",
+        "docs/tutorials/data-api-client.md",
+        "docs/tutorials/let-an-ai-use-your-file-safely.md",
+        "docs/tutorials/connect-an-s3-bucket.md",
+        "docs/tutorials/backup-and-restore.md"
+      ]
+    },
+    {
+      "title": "Working with a solution",
+      "pages": [
+        "docs/design-mode.md",
+        "docs/text-comparison.md",
+        "docs/sort-languages.md",
+        "docs/web-client.md",
+        "docs/connect-ai.md",
+        "docs/local-embeddings.md",
+        "docs/writing-a-plugin.md",
+        "docs/native-field-types.md",
+        "docs/check-solution.md",
+        "docs/calendar-feeds.md",
+        "docs/audits/r19-07-language-sort.md"
+      ]
+    },
+    {
+      "title": "APIs and compatibility",
+      "pages": [
+        "docs/reference/rest.md",
+        "docs/reference/mcp.md",
+        "docs/mcp-conformance.md",
+        "docs/data-api-compatibility.md",
+        "docs/openapi.md",
+        "docs/admin-api-coverage.md",
+        "docs/fmcsadmin-parity.md",
+        "docs/plugin-compatibility.md",
+        "docs/script-steps-support.md",
+        "docs/error-codes.md"
+      ]
+    },
+    {
+      "title": "Troubleshooting and performance",
+      "pages": [
+        "docs/environment-variables.md",
+        "docs/monitoring.md",
+        "docs/clock-audit.md",
+        "docs/cluster-consistency.md",
+        "docs/consistency.md",
+        "docs/unknown-token-ground-truth.md",
+        "docs/calculation-privileges.md",
+        "docs/solution-patterns.md",
+        "docs/troubleshooting.md",
+        "docs/troubleshooting-web-client.md",
+        "docs/runbook.md",
+        "docs/upgrading.md",
+        "docs/reporting-a-file-that-does-not-open.md",
+        "docs/performance.md",
+        "docs/in-memory-lease-clocks.md",
+        "docs/pgwire-session.md",
+        "docs/pgwire-bi-tools.md",
+        "docs/sql-grammar-conformance.md",
+        "docs/pgwire-results.md",
+        "docs/pgwire-statement-deadline.md",
+        "docs/file-lifecycle-concurrency.md",
+        "docs/fms-migration-runbook.md"
+      ]
+    },
+    {
+      "title": "Security and release operations",
+      "pages": [
+        "docs/outbound-requests.md",
+        "docs/privacy.md",
+        "docs/security-defaults.md",
+        "docs/threat-model.md",
+        "docs/personal-data-isolation.md",
+        "docs/ai-visible-policy.md",
+        "docs/ai-visible-policy-report.md",
+        "docs/remote-connector-exposure.md",
+        "docs/security-upload-auth-audit.md",
+        "docs/audit-privilege-matrix.md",
+        "docs/token-file-scope-audit.md",
+        "docs/execution-refusal-catches.md",
+        "docs/versioning.md",
+        "docs/release-builds.md",
+        "docs/signing.md",
+        "docs/audits/audit-edge-limits.md",
+        "docs/audits/audit-plugin-ecosystem.md",
+        "docs/audits/mcp-conformance.md",
+        "docs/audits/r25-22-date-time-functions.md",
+        "docs/audit-mutation.md",
+        "docs/audits/r19-06-session-sequence-fuzz.md",
+        "docs/audits/r26-12-action-matrix.md",
+        "docs/audits/r26-12-audit-log.md",
+        "docs/audits/r26-14-standby-chaos-scale.md",
+        "docs/service-files.md",
+        "docs/dynapdf-stage2.md",
+        "docs/contributing.md"
+      ]
+    },
+    {
+      "title": "Architecture, design and research",
+      "pages": [
+        "docs/ARCHITECTURE.md",
+        "docs/design-guide.md",
+        "docs/visual-regression.md",
+        "docs/accessibility.md",
+        "docs/research/fmp12-format.md",
+        "docs/research/prior-work.md",
+        "docs/research/write-back.md",
+        "docs/research/secret-taint-tracking.md",
+        "docs/research/r17b-01-script-step-privileges.md"
+      ]
+    },
+    {
+      "title": "The project",
+      "pages": [
+        "SECURITY.md",
+        "CONTRIBUTING.md",
+        "CODE_OF_CONDUCT.md"
+      ]
+    }
+  ]
+}

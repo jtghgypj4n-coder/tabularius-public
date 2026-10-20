@@ -1,0 +1,6 @@
+{
+  "target": "zip",
+  "finding": "deflated entry that inflates past its declared size",
+  "signature": "RangeError [ERR_BUFFER_TOO_LARGE] | <anonymous>@packages/calc/src/zip.ts:132 | unzip@packages/calc/src/zip.ts:130",
+  "input": "UEsDBBQAAAgIAAAAIQBGBpXCEwAAANAHAAAJAAAAX19wcm90b19fO7zy8CgchaNwFI7CUTgKhzgEAFBLAQIUAxQAAAgIAAAAIQBGBpXCEwAAAAAAAAAJAAAAAAAAAAAAAACkgQAAAABfX3Byb3RvX19QSwUGAAAAAAEAAQA3AAAAOgAAAAAA"
+}

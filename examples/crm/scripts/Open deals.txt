@@ -1,0 +1,21 @@
+# Script: Open deals
+
+# The find-based report: every deal still at Lead or Proposal, one line each as "Company: Title, amount",
+# under a count. Two find requests make an "or".
+Set Error Capture [ On ]
+Go to Layout [ “Deals” ]
+Enter Find Mode
+Set Field [ Deals::Stage ; "Lead" ]
+New Record/Request
+Set Field [ Deals::Stage ; "Proposal" ]
+Perform Find
+If [ Get ( LastError ) ≠ 0 ]
+	Exit Script [ Result: "Open deals: 0" ]
+End If
+Set Variable [ $report ; Value: "Open deals: " & Get ( FoundCount ) ]
+Go to Record/Request/Page [ First ]
+Loop
+	Set Variable [ $report ; Value: $report & ¶ & Deals::Company Name & ": " & Deals::Title & ", " & Deals::Amount ]
+	Go to Record/Request/Page [ Next ; Exit after last: On ]
+End Loop
+Exit Script [ Result: $report ]

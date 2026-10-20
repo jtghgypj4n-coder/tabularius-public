@@ -1,0 +1,30 @@
+{
+  "case": "formula-label",
+  "source": "hand-written stand-in (no API key where the suite was built); re-record with npm run evals -- --live --record",
+  "ask": "A label like \"Sherrod Brown (D-Ohio)\": the name, then the party and state in brackets",
+  "turns": [
+    {
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "toolu_01",
+          "name": "offer_draft",
+          "input": {
+            "text": "Name & \" (\" & Party & \"-\" & State & \")\"",
+            "summary": "Name, then party and state in brackets"
+          }
+        }
+      ],
+      "stop_reason": "tool_use"
+    },
+    {
+      "content": [
+        {
+          "type": "text",
+          "text": "Here it is: for Sherrod Brown it gives \"Sherrod Brown (D-Ohio)\"."
+        }
+      ],
+      "stop_reason": "end_turn"
+    }
+  ]
+}

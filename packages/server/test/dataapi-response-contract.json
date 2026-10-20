@@ -1,0 +1,105 @@
+{
+  "source": "https://help.claris.com/en/data-api-guide/",
+  "envelope": {
+    "type": "object",
+    "required": ["response", "messages"],
+    "properties": {
+      "response": { "type": "object", "opaque": true },
+      "messages": { "type": "array", "items": { "$ref": "message" }, "minItems": 1 }
+    }, "extensions": { "tabularius:denial": { "$ref": "denial" } }
+  },
+  "definitions": {
+    "message": { "type": "object", "required": ["code", "message"], "properties": { "code": { "type": "string" }, "message": { "type": "string" } } },
+    "denial": { "type": "object", "required": ["operation", "permission", "explanation"], "properties": {
+      "operation": { "type": "string" }, "permission": { "type": "string" }, "explanation": { "type": "string" }
+    } },
+    "empty": { "type": "object", "properties": {} },
+    "scriptResults": { "type": "object", "properties": {
+      "scriptResult": { "type": "string" }, "scriptError": { "type": "string" },
+      "scriptResult.prerequest": { "type": "string" }, "scriptError.prerequest": { "type": "string" },
+      "scriptResult.presort": { "type": "string" }, "scriptError.presort": { "type": "string" }
+    } },
+    "dataInfo": { "type": "object", "source": "https://help.claris.com/en/pro-help/content/execute-filemaker-data-api.html", "required": ["database", "layout", "table", "totalRecordCount", "foundCount", "returnedCount"], "properties": {
+      "database": { "type": "string" }, "layout": { "type": "string" }, "table": { "type": "string" },
+      "totalRecordCount": { "type": "number" }, "foundCount": { "type": "number" }, "returnedCount": { "type": "number" }
+    } },
+    "fieldScalar": { "type": ["string", "number", "null"] },
+    "fieldValue": { "type": ["string", "number", "null", "array"], "items": { "$ref": "fieldScalar" } },
+    "fieldData": { "type": "object", "dynamic": "field", "values": { "$ref": "fieldValue" } },
+    "portalRow": { "type": "object", "required": ["recordId", "modId"], "properties": {
+      "recordId": { "type": "string" }, "modId": { "type": "string" }
+    }, "dynamic": "relatedField", "values": { "$ref": "fieldValue" } },
+    "portalData": { "type": "object", "dynamic": "portal", "values": { "type": "array", "items": { "$ref": "portalRow" } } },
+    "portalDataInfo": { "type": "array", "items": { "type": "object", "required": ["portalObjectName", "database", "table", "foundCount", "returnedCount"], "properties": {
+      "portalObjectName": { "type": "string" }, "database": { "type": "string" }, "table": { "type": "string" },
+      "foundCount": { "type": "number" }, "returnedCount": { "type": "number" }
+    } } },
+    "record": { "type": "object", "required": ["fieldData", "portalData", "recordId", "modId"], "properties": {
+      "fieldData": { "$ref": "fieldData" }, "portalData": { "$ref": "portalData" },
+      "recordId": { "type": "string" }, "modId": { "type": "string" }
+    }, "extensions": { "portalDataInfo": { "$ref": "portalDataInfo" }, "updating": { "type": "array", "items": { "type": "string" } }, "styles": { "type": "object", "opaque": true }, "portalStyles": { "type": "object", "opaque": true } } },
+    "records": { "type": "object", "required": ["data", "dataInfo"], "scriptResults": true, "properties": {
+      "data": { "type": "array", "items": { "$ref": "record" } }, "dataInfo": { "$ref": "dataInfo" }
+    } },
+    "fieldMeta": { "type": "object", "required": ["name", "type", "displayType", "result", "global", "autoEnter", "fourDigitYear", "maxRepeat", "maxCharacters", "notEmpty", "numeric", "timeOfDay", "repetitionStart", "repetitionEnd"], "properties": {
+      "name": { "type": "string" }, "type": { "type": "string" }, "displayType": { "type": "string" }, "result": { "type": "string" },
+      "valueList": { "type": "string" }, "global": { "type": "boolean" }, "autoEnter": { "type": "boolean" },
+      "fourDigitYear": { "type": "boolean" }, "maxRepeat": { "type": "number" }, "maxCharacters": { "type": "number" },
+      "notEmpty": { "type": "boolean" }, "numeric": { "type": "boolean" }, "timeOfDay": { "type": "boolean" },
+      "repetitionStart": { "type": "number" }, "repetitionEnd": { "type": "number" }
+    }, "extensions": { "repetitions": { "type": "number" } } },
+    "valueList": { "type": "object", "required": ["name", "type", "values"], "properties": {
+      "name": { "type": "string" }, "type": { "type": "string" }, "values": { "type": "array", "items": { "type": "object", "required": ["value", "displayValue"], "properties": {
+        "value": { "type": ["string", "number"] }, "displayValue": { "type": ["string", "number"] }
+      } } }
+    } },
+    "layoutEntry": { "type": "object", "required": ["name"], "properties": { "name": { "type": "string" }, "isFolder": { "type": "boolean" }, "folderLayoutNames": { "type": "array", "items": { "$ref": "layoutEntry" } } }, "extensions": { "table": { "type": "string" } } },
+    "scriptEntry": { "type": "object", "required": ["name", "isFolder"], "properties": { "name": { "type": "string" }, "isFolder": { "type": "boolean" }, "folderScriptNames": { "type": "array", "items": { "$ref": "scriptEntry" } } } }
+  },
+  "endpoints": {
+    "login": { "method": "POST", "path": "/databases/{db}/sessions", "source": "content/log-in-database-session.html", "response": { "type": "object", "required": ["token"], "properties": { "token": { "type": "string" } }, "extensions": { "passwordChangeRequired": { "type": "boolean" } } } },
+    "logout": { "method": "DELETE", "path": "/databases/{db}/sessions/{token}", "source": "content/log-out-database-session.html", "response": { "$ref": "empty" } },
+    "validateSession": { "method": "GET", "path": "/validateSession", "source": "content/validate-database-session.html", "response": { "type": "object", "required": ["isSessionInUse"], "properties": { "isSessionInUse": { "type": "boolean" } } } },
+    "productInfo": { "method": "GET", "path": "/productInfo", "source": "content/get-product-information.html", "response": { "type": "object", "required": ["productInfo"], "properties": { "productInfo": { "type": "object", "required": ["name", "dateFormat", "timeFormat", "timeStampFormat"], "properties": {
+      "name": { "type": "string" }, "dateFormat": { "type": "string" }, "timeFormat": { "type": "string" }, "timeStampFormat": { "type": "string" }
+    }, "extensions": { "buildDate": { "type": "string" }, "version": { "type": "string" } } } } } },
+    "databases": { "method": "GET", "path": "/databases", "source": "content/get-database-names.html", "response": { "type": "object", "required": ["databases"], "properties": { "databases": { "type": "array", "items": { "type": "object", "required": ["name"], "properties": { "name": { "type": "string" } } } } } } },
+    "layouts": { "method": "GET", "path": "/databases/{db}/layouts", "source": "content/get-layout-names.html", "response": { "type": "object", "required": ["layouts"], "properties": { "layouts": { "type": "array", "items": { "$ref": "layoutEntry" } } } } },
+    "scripts": { "method": "GET", "path": "/databases/{db}/scripts", "source": "content/get-script-names.html", "response": { "type": "object", "required": ["scripts"], "properties": { "scripts": { "type": "array", "items": { "$ref": "scriptEntry" } } } } },
+    "layoutMetadata": { "method": "GET", "path": "/databases/{db}/layouts/{layout}", "source": "content/get-layout-metadata.html", "response": { "type": "object", "required": ["fieldMetaData", "portalMetaData"], "properties": {
+      "fieldMetaData": { "type": "array", "items": { "$ref": "fieldMeta" } },
+      "portalMetaData": { "type": "object", "dynamic": "portal", "values": { "type": "array", "items": { "$ref": "fieldMeta" } } },
+      "valueLists": { "type": "array", "items": { "$ref": "valueList" } }
+    } } },
+    "range": { "method": "GET", "path": "/databases/{db}/layouts/{layout}/records", "source": "content/get-range-of-records.html", "response": { "$ref": "records" } },
+    "single": { "method": "GET", "path": "/databases/{db}/layouts/{layout}/records/{id}", "source": "content/get-single-record.html", "response": { "$ref": "records" } },
+    "create": { "method": "POST", "path": "/databases/{db}/layouts/{layout}/records", "source": "content/create-record.html", "response": { "type": "object", "required": ["recordId", "modId"], "scriptResults": true, "properties": { "recordId": { "type": "string" }, "modId": { "type": "string" } } } },
+    "edit": { "method": "PATCH", "path": "/databases/{db}/layouts/{layout}/records/{id}", "source": "content/edit-record.html", "response": { "type": "object", "required": ["modId"], "scriptResults": true, "properties": { "modId": { "type": "string" } } } },
+    "duplicate": { "method": "POST", "path": "/databases/{db}/layouts/{layout}/records/{id}", "source": "content/duplicate-record.html", "response": { "type": "object", "required": ["recordId", "modId"], "scriptResults": true, "properties": { "recordId": { "type": "string" }, "modId": { "type": "string" } } } },
+    "delete": { "method": "DELETE", "path": "/databases/{db}/layouts/{layout}/records/{id}", "source": "content/delete-record.html", "response": { "type": "object", "scriptResults": true, "properties": {} } },
+    "find": { "method": "POST", "path": "/databases/{db}/layouts/{layout}/_find", "source": "content/perform-find-request.html", "response": { "$ref": "records" } },
+    "globals": { "method": "PATCH", "path": "/databases/{db}/globals", "source": "content/set-global-field-values.html", "response": { "$ref": "empty" } },
+    "upload": { "method": "POST", "path": "/databases/{db}/layouts/{layout}/records/{id}/containers/{field}/{repetition}", "source": "content/upload-container-data.html", "response": { "$ref": "empty" } },
+    "runScript": { "method": "GET", "path": "/databases/{db}/layouts/{layout}/script/{script}", "source": "content/run-a-script.html", "response": { "type": "object", "required": ["scriptError"], "properties": { "scriptResult": { "type": "string" }, "scriptError": { "type": "string" } } } }
+  },
+  "errorStatuses": { "3": [404], "9": [401, 403], "10": [400], "101": [500], "102": [500], "105": [500], "200": [500], "201": [500], "212": [401], "301": [500], "306": [500], "401": [500], "500-511": [500], "802": [404], "812": [503], "952": [401], "958": [400], "960": [400], "1211": [401], "-1": [500] },
+  "notVerified": {
+    "GET /fmws/oauthproviderinfo": "The compatibility document marks its {data:[{Name,Slug}]} response unconfirmed against FileMaker Server.",
+    "GET /oauth/getoauthurl": "The guide describes a provider URL in the body and headers, but no JSON response shape is shown.",
+    "PATCH /databases/{db}/sessions": "tabularius-only password change; no Claris response shape exists.",
+    "POST /databases/{db}/sessions/passkey": "tabularius-only passkey challenge and sign-in; no Claris response shape exists.",
+    "POST /databases/{db}/sessions/passkey-2fa": "tabularius-only second factor; no Claris response shape exists.",
+    "POST /databases/{db}/sessions/recovery": "tabularius-only recovery sign-in; no Claris response shape exists.",
+    "GET /databases/{db}/passkey": "tabularius-only passkey management; no Claris response shape exists.",
+    "DELETE /databases/{db}/passkey/{credentialId}": "tabularius-only passkey management; no Claris response shape exists.",
+    "POST /databases/{db}/passkey/register": "tabularius-only passkey management; no Claris response shape exists.",
+    "POST /databases/{db}/passkey/register/options": "tabularius-only passkey management; no Claris response shape exists.",
+    "POST /databases/{db}/recovery-codes": "tabularius-only recovery management; no Claris response shape exists.",
+    "DELETE /databases/{db}/layouts/{layout}/records/{id}/containers/{field}": "tabularius-only operation; no Claris response shape exists.",
+    "Claris ID login": "FileMaker Cloud flow is unsupported here.",
+    "recordPortalDataInfo": "The guide examples do not show portalDataInfo; allowed only as a named Tabularius extension.",
+    "recordStylesStructure": "The guide has no Tabularius style-run format; styles and portalStyles are only constrained to objects here.",
+    "httpStatuses": ["10", "812", "958", "960"],
+    "unreachedErrorCodes": ["9", "102", "200", "201", "301", "500-511", "812", "1211", "-1"]
+  }
+}

@@ -1,0 +1,74 @@
+# Single-file builds of Tabularius for macOS, Linux and Windows
+# (scripts/build-release.ts), each checked on the machine it was built on
+# (scripts/release-smoke.ts). A tag like v0.2.0 builds that version; they can
+# also be built from the Actions tab. The programs are kept as this run's
+# artifacts: nothing is published.
+name: release
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  reproducible:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm run release:verify-repro
+  build:
+    needs: reproducible
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm run fixtures
+      - name: Build
+        shell: bash
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = tag ]; then version="${GITHUB_REF_NAME#v}"; else version=""; fi
+          node scripts/build-release.ts --out dist ${version:+--version "$version"}
+      - name: Sign it
+        shell: bash
+        env:
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_CERTIFICATE_P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          WINDOWS_CERT_PFX_BASE64: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
+          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+          WINDOWS_TIMESTAMP_URL: ${{ secrets.WINDOWS_TIMESTAMP_URL }}
+        run: node scripts/sign-release.ts dist/tabularius-*
+      - name: Checksums
+        shell: bash
+        run: |
+          for program in dist/tabularius-*; do
+            case "$program" in *.sha256|*.sbom.cdx.json|*.pack) continue ;; esac
+            node scripts/verify-release.ts write "$program"
+            node scripts/verify-release.ts verify "${program%.exe}.sha256"
+          done
+      - name: Check it
+        shell: bash
+        run: node scripts/release-smoke.ts dist/tabularius-*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tabularius-${{ runner.os }}-${{ runner.arch }}
+          path: |
+            dist/tabularius-*
+            dist/THIRD-PARTY-NOTICES.md
+          if-no-files-found: error

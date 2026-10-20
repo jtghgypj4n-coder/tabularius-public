@@ -1,0 +1,31 @@
+{
+  "case": "check-record-stale",
+  "source": "hand-written stand-in (no API key where the suite was built); re-record with npm run evals -- --live --record",
+  "ask": "Why does this record look wrong?",
+  "turns": [
+    {
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "toolu_01",
+          "name": "check_record",
+          "input": {
+            "database": "Charts",
+            "layout": "Congress",
+            "recordId": 2
+          }
+        }
+      ],
+      "stop_reason": "tool_use"
+    },
+    {
+      "content": [
+        {
+          "type": "text",
+          "text": "Display name is out of date on this record: it shows \"Old name (Ohio)\", but its formula (Name & \" (\" & State & \")\") now gives \"Martha Roby (Alabama)\". It is a stored calculation, so it kept the value from before Name and State changed. Recalculate it (Replace Field Contents with the same formula, or touch Name) and it will show the right value."
+        }
+      ],
+      "stop_reason": "end_turn"
+    }
+  ]
+}

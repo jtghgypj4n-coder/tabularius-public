@@ -1,0 +1,10 @@
+Table occurrences
+
+Calls → Calls
+Contacts → Contacts
+
+Relationships
+
+Contacts ↔ Calls
+  Contacts::ID = Calls::Contact ID
+  Options: create in Calls

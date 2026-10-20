@@ -1,0 +1,15 @@
+# Script: Log time
+
+# Adds an hour entry. The parameter is "project id | person | hours", for example "1|Ana|2.5".
+Set Variable [ $project ; Value: GetValue ( Substitute ( Get ( ScriptParameter ) ; "|" ; ¶ ) ; 1 ) ]
+Set Variable [ $person ; Value: GetValue ( Substitute ( Get ( ScriptParameter ) ; "|" ; ¶ ) ; 2 ) ]
+Set Variable [ $hours ; Value: GetValue ( Substitute ( Get ( ScriptParameter ) ; "|" ; ¶ ) ; 3 ) ]
+If [ IsEmpty ( $person ) or $hours ≤ 0 ]
+	Exit Script [ Result: "need a person and some hours" ]
+End If
+Go to Layout [ “Entries” ]
+New Record/Request
+Set Field [ Entries::Project ID ; $project ]
+Set Field [ Entries::Person ; $person ]
+Set Field [ Entries::Hours ; $hours ]
+Exit Script [ Result: "logged" ]

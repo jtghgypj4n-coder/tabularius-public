@@ -1,0 +1,15 @@
+# Script: Receive stock
+
+# Adds stock. The parameter is "product id | quantity | note", for example "1|24|Delivery 7".
+Set Variable [ $product ; Value: GetValue ( Substitute ( Get ( ScriptParameter ) ; "|" ; ¶ ) ; 1 ) ]
+Set Variable [ $quantity ; Value: GetValue ( Substitute ( Get ( ScriptParameter ) ; "|" ; ¶ ) ; 2 ) ]
+Set Variable [ $note ; Value: GetValue ( Substitute ( Get ( ScriptParameter ) ; "|" ; ¶ ) ; 3 ) ]
+If [ IsEmpty ( $product ) or $quantity ≤ 0 ]
+	Exit Script [ Result: "need a product and a quantity above 0" ]
+End If
+Go to Layout [ “Movements” ]
+New Record/Request
+Set Field [ Movements::Product ID ; $product ]
+Set Field [ Movements::Change ; $quantity ]
+Set Field [ Movements::Note ; $note ]
+Exit Script [ Result: "received" ]
