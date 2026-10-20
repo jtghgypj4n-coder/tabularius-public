@@ -646,6 +646,28 @@ test('the last run is still shown after a restart, for the same setup only', asy
   assert.equal(new SyncConsole(host).list().some((s) => s.database === 'LastRun'), false);
 });
 
+test('AR-server-observability-04', async () => {
+  const database = 'FailedSetupSave';
+  const { sc, config } = pair(database);
+  sc.put(database, { ...config, allowWrites: false });
+  const status = await sc.check(database);
+  const saved = readFileSync(join(host.dir, '.openhbam-sync.json'), 'utf8');
+  const lock = join(host.dir, '.openhbam-sync.json.lock.db');
+  rmSync(lock, { force: true });
+  mkdirSync(lock);
+  try {
+    assert.throws(() => sc.put(database, { ...config, allowWrites: true }));
+    assert.equal(sc.get(database).setup.allowWrites, undefined);
+    assert.deepEqual(sc.get(database).last, status);
+    assert.throws(() => sc.remove(database));
+    assert.equal(sc.get(database).setup.allowWrites, undefined);
+    assert.deepEqual(sc.get(database).last, status);
+    assert.equal(readFileSync(join(host.dir, '.openhbam-sync.json'), 'utf8'), saved);
+  } finally {
+    rmSync(lock, { recursive: true, force: true });
+  }
+});
+
 test('an unreadable sync setup is renamed before a later save replaces it', () => {
   const file = join(host.dir, '.openhbam-sync.json');
   const original = readFileSync(file);

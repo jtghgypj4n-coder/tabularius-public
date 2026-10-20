@@ -27,6 +27,7 @@ import { DEFAULT_LOG_LIMIT, logTime, redactPath } from './server-logs.ts';
 
 export const STATS_HEADER = ['Timestamp', 'Network KB/sec In', 'Network KB/sec Out', 'Disk KB/sec Read', 'Disk KB/sec Write', 'Cache Hit %', 'Cache Unsaved %', 'Pro Clients', 'Open Databases', 'Sessions', 'Remote Calls/sec', 'Remote Calls In Progress', 'Elapsed Time/call', 'Wait Time/call', 'I/O Time/call'];
 export const TOP_CALL_HEADER = ['Timestamp', 'Start Time', 'End Time', 'Total Elapsed', 'Operation', 'Target', 'Client Name', 'Network Bytes In', 'Network Bytes Out', 'Elapsed Time', 'Wait Time', 'I/O Time'];
+const MAX_TIMER_MS = 2_147_483_647;
 
 const OPERATIONS: Record<string, string> = {
   dataapi: 'Data API', odata: 'OData', adminapi: 'Admin API', mcp: 'MCP', sql: 'SQL', admin: 'Admin Console', app: 'Web Client', assistant: 'AI Assistant', containers: 'Container', design: 'Design', auth: 'Sign-in',
@@ -67,6 +68,8 @@ export class StatsLog {
   private readonly calls = new Map<string, Tally>();
   /** Only one process of a cluster writes Stats.log (the others' calls are added in); each writes its own top calls. */
   constructor(folder: string, metrics: Metrics, sources: StatsSources, opts: { intervalMs: number; stats: boolean; limit?: number }) {
+    if (!Number.isSafeInteger(opts.intervalMs) || opts.intervalMs < 0 || opts.intervalMs > MAX_TIMER_MS) throw new RangeError('stats interval must fit the runtime timer');
+    if (opts.limit !== undefined && (!Number.isSafeInteger(opts.limit) || opts.limit <= 0)) throw new RangeError('log limit must be a positive safe integer');
     this.metrics = metrics;
     this.sources = sources;
     this.opts = opts;
@@ -175,5 +178,7 @@ export function parseStatsInterval(text: string): number {
   if (text === 'off') return 0;
   const m = /^(\d+(?:\.\d+)?)\s*(ms|s|m)?$/.exec(text.trim());
   if (!m) throw new Error(`--stats-interval: "${text}" is not a time like 30s or 2m`);
-  return Math.round(Number(m[1]) * (m[2] === 'ms' ? 1 : m[2] === 'm' ? 60_000 : 1000));
+  const interval = Math.round(Number(m[1]) * (m[2] === 'ms' ? 1 : m[2] === 'm' ? 60_000 : 1000));
+  if (!Number.isSafeInteger(interval) || interval > MAX_TIMER_MS || (Number(m[1]) > 0 && interval === 0)) throw new Error(`--stats-interval: "${text}" is outside the supported timer range`);
+  return interval;
 }

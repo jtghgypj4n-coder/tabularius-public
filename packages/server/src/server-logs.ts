@@ -22,7 +22,7 @@
 //   GET /tabularius/admin/v1/logs/<name>/download          the file as it is
 
 import { appendFile, mkdir, rename, stat } from 'node:fs/promises';
-import { existsSync, mkdirSync, readFileSync, statSync, appendFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, statSync, appendFileSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
 
 export const LOGS = ['Event', 'Access', 'ScriptEvent', 'fmdapi', 'Admin'] as const;
@@ -50,7 +50,7 @@ const RETRY_MS = 5000;
 export function parseLogLimit(text: string | number): number {
   const m = /^(\d+(?:\.\d+)?)\s*(kb|mb|gb)?$/i.exec(String(text).trim());
   const bytes = m ? Math.round(Number(m[1]) * (({ kb: 1024, mb: 1024 ** 2, gb: 1024 ** 3 } as Record<string, number>)[(m[2] ?? 'mb').toLowerCase()])) : NaN;
-  if (!(bytes >= MIN_LOG_LIMIT)) throw new Error(`--log-limit: "${text}" is not a size like 100MB or 2GB (at least 64KB)`);
+  if (!Number.isSafeInteger(bytes) || bytes < MIN_LOG_LIMIT) throw new Error(`--log-limit: "${text}" is not a size like 100MB or 2GB (at least 64KB)`);
   return bytes;
 }
 
@@ -86,6 +86,7 @@ export class ServerLogs {
   constructor(folder: string, opts: { limit?: number; rotate?: boolean } = {}) {
     this.dir = join(folder, 'Logs');
     this.limit = opts.limit ?? DEFAULT_LIMIT;
+    if (!Number.isSafeInteger(this.limit) || this.limit <= 0) throw new RangeError('log limit must be a positive safe integer');
     this.rotate = opts.rotate ?? true;
   }
 
@@ -122,11 +123,10 @@ export class ServerLogs {
           await mkdir(this.dir, { recursive: true });
           const file = join(this.dir, `${log}.log`);
           if (this.rotate) {
-            try {
-              if ((await stat(file)).size >= this.limit) await rename(file, join(this.dir, `${log}-old.log`));
-            } catch {
-              // not there yet
-            }
+            let size = 0;
+            try { size = (await stat(file)).size; }
+            catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e; }
+            if (size >= this.limit) await rename(file, join(this.dir, `${log}-old.log`));
           }
           await appendFile(file, lines.join(''));
         } catch (e) {
@@ -160,7 +160,13 @@ export class ServerLogs {
     this.closed = true;
     try {
       mkdirSync(this.dir, { recursive: true });
-      for (const [log, lines] of this.pending) appendFileSync(join(this.dir, `${log}.log`), lines.join(''));
+      for (const [log, lines] of this.pending) {
+        const file = join(this.dir, `${log}.log`);
+        try {
+          if (this.rotate && existsSync(file) && statSync(file).size >= this.limit) renameSync(file, join(this.dir, `${log}-old.log`));
+          appendFileSync(file, lines.join(''));
+        } catch (e) { console.error(`logs: ${(e as Error).message}`); }
+      }
     } catch (e) {
       console.error(`logs: ${(e as Error).message}`);
     }

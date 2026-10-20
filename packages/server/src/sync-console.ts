@@ -235,11 +235,10 @@ export class SyncConsole {
     return this.host.scriptOptions().outbound?.captureOnly ?? [];
   }
 
-  private save(database: string): void {
+  private save(database: string, setup?: SyncSetup): void {
     const f = join(this.host.dir, FILE);
     updateJsonStateSync<{ setups: Record<string, SyncSetup> }>(f, { setups: {} }, (current) => {
       const setups = { ...current.setups };
-      const setup = this.setups.get(database);
       if (setup) setups[database] = setup;
       else delete setups[database];
       return { setups };
@@ -312,9 +311,9 @@ export class SyncConsole {
       ...(raw.allowPulls ? { allowPulls: true } : {}),
       ...(raw.allowContainers ? { allowContainers: true } : {}),
     };
+    this.save(database, setup);
     this.setups.set(database, setup);
     this.forget(database);
-    this.save(database);
     this.log(`sync: saved the setup for ${database} (FileMaker ${setup.database} on ${new URL(/^https?:\/\//i.test(setup.server) ? setup.server : `https://${setup.server}`).host}${setup.allowWrites ? ', writes allowed' : ''}${setup.allowPulls ? ', pulls allowed' : ''}${setup.allowContainers ? ', container files allowed' : ''})`);
     return this.get(database);
   }
@@ -322,10 +321,11 @@ export class SyncConsole {
   remove(database: string): boolean {
     database = this.canonical(database);
     this.idle(database);
-    const had = this.setups.delete(database);
-    this.forget(database);
+    const had = this.setups.has(database);
     if (had) {
       this.save(database);
+      this.setups.delete(database);
+      this.forget(database);
       this.log(`sync: removed the setup for ${database}`);
     }
     return had;

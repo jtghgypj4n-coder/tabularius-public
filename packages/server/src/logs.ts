@@ -33,7 +33,7 @@ export class LogShipper {
   private readonly host: Host;
   private readonly log: (m: string) => void;
   private readonly followers = new Set<LogFollower>();
-  private readonly followed = new WeakSet<Store>();
+  private readonly followed = new Map<Store, number>();
   private timer?: NodeJS.Timeout;
 
   constructor(host: Host, log: (m: string) => void = () => {}) {
@@ -43,11 +43,18 @@ export class LogShipper {
 
   add(follower: LogFollower): void {
     this.followers.add(follower);
-    for (const name of this.host.names()) {
-      const store = this.host.get(name)!;
-      if (this.followed.has(store)) follower.started?.(store);
+    try {
+      for (const name of this.host.names()) {
+        const store = this.host.get(name)!;
+        if (this.followed.has(store)) follower.started?.(store);
+        else this.follow(store);
+      }
+      this.restart();
+    } catch (e) {
+      this.followers.delete(follower);
+      this.restart();
+      throw e;
     }
-    this.restart();
   }
 
   remove(follower: LogFollower): void {
@@ -58,7 +65,7 @@ export class LogShipper {
   private restart(): void {
     clearInterval(this.timer);
     this.timer = undefined;
-    if (!this.followers.size) return;
+    if (!this.followers.size) { this.releaseIfIdle(); return; }
     this.timer = setInterval(() => this.ship(), Math.min(...[...this.followers].map((f) => f.every)));
     this.timer.unref();
   }
@@ -66,14 +73,28 @@ export class LogShipper {
   /** Starts following a file: its log only empties when taken from now on. */
   follow(store: Store): void {
     if (this.followed.has(store)) return;
+    const previous = Number((store.sql.prepare('PRAGMA wal_autocheckpoint').get() as { wal_autocheckpoint: number }).wal_autocheckpoint);
     store.sql.exec('PRAGMA wal_autocheckpoint = 0');
-    store.sql.exec('PRAGMA wal_checkpoint(TRUNCATE)');
-    this.followed.add(store);
+    try { store.sql.exec('PRAGMA wal_checkpoint(TRUNCATE)'); }
+    catch (e) { store.sql.exec(`PRAGMA wal_autocheckpoint = ${previous}`); throw e; }
+    this.followed.set(store, previous);
     for (const f of this.followers) f.started?.(store);
+  }
+
+  /** Give checkpoint ownership back when no follower can receive the WAL. */
+  releaseIfIdle(): void {
+    if (this.followers.size) return;
+    for (const [store, previous] of this.followed) {
+      try { store.sql.exec(`PRAGMA wal_autocheckpoint = ${previous}`); }
+      catch (e) { this.log(`couldn't restore checkpointing for ${store.name}: ${(e as Error).message}`); }
+    }
+    this.followed.clear();
   }
 
   /** Hands every file's changes to the followers now. */
   ship(): void {
+    const active = new Set(this.host.names().map((name) => this.host.get(name)!));
+    for (const store of this.followed.keys()) if (!active.has(store)) this.followed.delete(store);
     for (const name of this.host.names()) {
       const store = this.host.get(name)!;
       this.follow(store);
@@ -96,10 +117,13 @@ export class LogShipper {
 
   /** Hands over the last changes and stops. */
   stop(): void {
-    if (this.followers.size) this.ship();
-    clearInterval(this.timer);
-    this.timer = undefined;
-    this.followers.clear();
+    try { if (this.followers.size) this.ship(); }
+    finally {
+      clearInterval(this.timer);
+      this.timer = undefined;
+      this.followers.clear();
+      this.releaseIfIdle();
+    }
   }
 }
 
