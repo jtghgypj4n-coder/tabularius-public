@@ -46,7 +46,7 @@ import { applyXslt, XsltError } from '../../calc/src/xslt.ts';
 import { stepLocates } from './location-use.ts';
 import { localeElements } from './locale.ts';
 import { denialOf, retainDenial, explainAccessDenial, type AccessDenial } from '../../store/src/access-denial.ts';
-import { Privileges, PrivilegeError, StoreError, designReport, isFullAccess, dataSourceFile, endTransaction, type Transaction, privilegeSetName, summarize, serialNext, type FieldData, type FindRequest, type LayoutInfo, type SessionGlobals, type SortSpec, type Store, writer, lintScript, tableDDL, schemaVisibility, fmpXmlResult, fmpDsoResult, dsoElementName, type ExportField, type ExportRow, customFunctionDef, occurrence as occurrenceOf, rowsById, relatedCondition, designFunction, NO_FILE_ARGUMENT, containerValue, errorMeaning } from '../../store/src/index.ts';
+import { Privileges, PrivilegeError, StoreError, designReport, isFullAccess, dataSourceFile, endTransaction, type Transaction, summarize, serialNext, type FieldData, type FindRequest, type LayoutInfo, type SessionGlobals, type SortSpec, type Store, writer, lintScript, tableDDL, schemaVisibility, fmpXmlResult, fmpDsoResult, dsoElementName, type ExportField, type ExportRow, customFunctionDef, occurrence as occurrenceOf, rowsById, relatedCondition, designFunction, NO_FILE_ARGUMENT, containerValue, errorMeaning } from '../../store/src/index.ts';
 import type { SqlValue } from '../../store/src/find.ts';
 import { valueListOrder } from '../../store/src/value-list-sort.ts';
 import { recordSortKey, recordSortLanguage } from '../../calc/src/collation.ts';
@@ -5258,7 +5258,7 @@ export class ScriptEngine {
       // falls through: otherwise the account's own set
       case 'accountprivilegesetname': {
         if (this.opts.privileges) return text(this.opts.privileges.in(win.store).name);
-        const name = this.opts.account === undefined ? undefined : privilegeSetName(win.store.schema, this.opts.account);
+        const name = this.opts.account === undefined ? undefined : win.store.accountPrivilegeSet(this.opts.account);
         return name === undefined ? undefined : text(name);
       }
       case 'sortstate': return num(fs?.sort ? (fs.semi ? 2 : 1) : 0);
