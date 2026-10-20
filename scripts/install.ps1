@@ -36,7 +36,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $OhHome = if ($env:TABULARIUS_HOME) { $env:TABULARIUS_HOME } elseif ($env:OPENHBAM_HOME) { $env:OPENHBAM_HOME } else { Join-Path $env:USERPROFILE '.openhbam' }
-$Repo = if ($env:TABULARIUS_REPO) { $env:TABULARIUS_REPO } elseif ($env:OPENHBAM_REPO) { $env:OPENHBAM_REPO } else { 'https://github.com/jtghgypj4n-coder/tabularius-public.git' }
+$Repo = if ($env:TABULARIUS_REPO) { $env:TABULARIUS_REPO } elseif ($env:OPENHBAM_REPO) { $env:OPENHBAM_REPO } else { 'https://github.com/sitotisai/tabularius.git' }
 $NodeVersion = '22.22.0'
 
 function Say([string]$m) { Write-Host "==> $m" }

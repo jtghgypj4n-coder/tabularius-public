@@ -50,7 +50,7 @@ npm run precheck        # type check, repo gates and the tests for what you chan
 - **Author**: commit as `Tabularius contributors <noreply@tabularius.invalid>`. Set it with `git config user.name "Tabularius contributors"` and `git config user.email noreply@tabularius.invalid`. Never put a real name or personal email in a commit, file or PR.
 - **No token-shaped strings**, not even fake ones: GitHub push protection blocks them. Build fake secrets in tests from parts at runtime (for example `['sk', 'test', 'abc'].join('_')`).
 - **No sample or customer data**: never commit a `.fmp12` file, a backup, a record export, a screenshot of records or anything under `fixtures/`. A test builds its data on the spot.
-- **No former-employer material** and no names from files that belong to someone else; `scripts/banned-names.ts` and its test enforce the second.
+- **No material that belongs to someone else**: no names taken from files that are not ours; `scripts/banned-names.ts` and its test enforce this.
 - **Trademarks**: do not put "FileMaker" or "Claris" in product names, domains, repository descriptions or logos, and never use Claris logos. Describe the product factually ("opens and hosts .fmp12 files").
 - **Workflow files** (`.github/workflows/`) cannot be changed by the Claude GitHub app; ask the owner to paste such a change.
 - Branch from `main`, one change per PR. Fill in `.github/pull_request_template.md` (Before, After, How, Checked) and paste the `precheck: PASS` line. Make the automatic check green before asking for review; merge only reviewed green PRs. Security-related PRs need a review by a different model or person before merging.
