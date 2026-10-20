@@ -183,6 +183,31 @@ export function found(page: Page): Locator {
   return page.locator('.found').first();
 }
 
+/** Stable, compact view of Chromium's accessibility tree for state assertions. */
+export async function axTreeSnapshot(page: Page): Promise<Array<{ role: string; name: string; state: string[]; focusable: boolean }>> {
+  const cdp = await page.context().newCDPSession(page);
+  try {
+    const { nodes } = await cdp.send('Accessibility.getFullAXTree') as { nodes: Array<any> };
+    const byId = new Map(nodes.map((n) => [n.nodeId, n]));
+    const descendantText = (node: any): string => {
+      if (node.role?.value === 'StaticText') return String(node.name?.value ?? '');
+      return (node.childIds ?? []).map((id: string) => descendantText(byId.get(id))).join('');
+    };
+    const stateProperties = new Set(['checked', 'disabled', 'expanded', 'focused', 'invalid', 'pressed', 'required', 'selected', 'live', 'busy']);
+    const snapshotRoles = new Set(['RootWebArea', 'application', 'banner', 'main', 'navigation', 'contentinfo', 'heading', 'button', 'link', 'textbox', 'searchbox', 'spinbutton', 'checkbox', 'radio', 'radiogroup', 'combobox', 'option', 'tab', 'tablist', 'menu', 'menuitem', 'dialog', 'alert', 'status', 'table', 'grid', 'tree', 'treeitem', 'row', 'rowgroup', 'columnheader', 'cell', 'list', 'listitem', 'toolbar', 'group', 'switch', 'slider']);
+    return nodes.filter((n) => !n.ignored && snapshotRoles.has(n.role?.value))
+      .map((n) => {
+        const props = new Map<string, any>((n.properties ?? []).map((p: any) => [p.name, p.value?.value ?? p.value?.type ?? '']));
+        return {
+          role: String(n.role.value),
+          name: String(n.name?.value || (n.role?.value === 'status' ? descendantText(n) : '')).replace(/\s*Also here:.*/, ''),
+          state: [...props].filter(([key, value]) => stateProperties.has(key) && value !== '' && value !== false).map(([key, value]) => `${key}=${value}`).sort(),
+          focusable: props.get('focusable') === true,
+        };
+      });
+  } finally { await cdp.detach(); }
+}
+
 let axeSource: string | undefined;
 
 /**

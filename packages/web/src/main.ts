@@ -43,6 +43,7 @@ import { keepFocusOnPress } from './keep-focus.ts';
 import { triggerKeystroke } from './keystrokes.ts';
 import { pinnedToast, progressToast, toast, toastUndo } from './toast.ts';
 import { httpProblem } from './http-problem.ts';
+import { announce } from './announcer.ts';
 
 type View = 'form' | 'list' | 'table';
 type OpenPopover = { id: number; el: HTMLElement; button: number; parent?: OpenPopover };
@@ -1910,7 +1911,9 @@ class Session implements Host {
 
   /** A Records menu command the server does as its script step would (Duplicate Record, Omit Record, ...). */
   private async recordCommand(command: string, options: Record<string, unknown> = {}): Promise<void> {
+    const previousFoundCount = this.foundCount;
     await this.runButton(undefined, undefined, undefined, { command, ...options });
+    if (this.foundCount !== previousFoundCount) announce(`Found ${this.foundCount} record${this.foundCount === 1 ? '' : 's'}.`);
   }
 
   /** The field box an Insert menu command types into: the focused one, else the last one left (a menu took the focus). */
@@ -3740,6 +3743,7 @@ class Session implements Host {
 
   /** Re-runs the found set's query, keeping the current record when it is still found. */
   async reload(keepRecordId?: string): Promise<void> {
+    const previousFoundCount = this.foundCount;
     this.displayGeneration++;
     this.groupsGeneration++;
     this.cache.clear();
@@ -3766,6 +3770,7 @@ class Session implements Host {
     if (!this.cache.has(this.index) && this.foundCount) await this.fetch(this.index);
     await this.loadStates();
     this.render();
+    if (this.foundCount !== previousFoundCount) announce(`Found ${this.foundCount} record${this.foundCount === 1 ? '' : 's'}.`);
   }
 
   /**
@@ -3821,6 +3826,7 @@ class Session implements Host {
     await this.loadStates();
     if (this.view === 'form') this.render();
     else this.select();
+    if (this.index !== before) announce(`Record ${this.recordNumber} of ${this.foundCount}.`);
     if (this.index !== before) await this.fire('OnRecordLoad');
   }
 
@@ -4084,6 +4090,7 @@ class Session implements Host {
             rowEl.classList.remove('fm-portal-new');
             rowEl.dataset.row = made.recordId;
           }
+          if (!this.scripting) announce('Portal row added.');
           if (!this.scripting) this.uncommitted = rec.recordId;
           freshen(rec, await this.api.record(layout, rec.recordId));
           this.states.delete(rec.recordId);
@@ -4104,12 +4111,14 @@ class Session implements Host {
         } else if (row) {
           rec.modId = await retrying(() => this.api.update(layout, rec.recordId, {}, { portalData: { [row.portal]: [{ recordId: row.row.recordId, [key]: value }] } }));
           row.row[key] = value;
+          if (!this.scripting) announce('Changes saved.');
         } else {
           const merged = await this.merge(rec, key, value);
           if (merged === undefined) return;
           combined = merged !== value;
           value = merged;
           rec.fieldData[key] = value;
+          if (!this.scripting) announce('Changes saved.');
         }
         if (!this.scripting) this.uncommitted = rec.recordId;
         // A Set Field acts on the current record: typing on another row of a list goes to that record first.
@@ -4145,6 +4154,7 @@ class Session implements Host {
         else this.refreshValues();
         if (!row) await this.refreshBreaks(key);
       } catch (e) {
+        announce('Save failed.');
         toast(unreachableRequest(e) ? `Can't reach the server, so ${key.replace(/\(\d+\)$/, '')} wasn't saved.` : `Couldn't save ${key}: ${errorText(e)}`);
         if (e instanceof ApiError && (e.code === 306 || e.code === 301)) await this.reload(rec.recordId);
         // Nothing reached the server: the field goes back to the value it is stored with, not left looking saved.
@@ -4417,6 +4427,7 @@ class Session implements Host {
     if (!(await this.leaveMode())) return;
     this.preview = false;
     this.mode = 'find';
+    announce('Find mode.');
     this.requests = modifyLast && this.lastFind ? this.lastFind.map((r) => ({ criteria: { ...r.criteria }, omit: r.omit })) : [{ criteria: {}, omit: false }];
     this.request = 0;
     this.popover = undefined;
@@ -4434,6 +4445,7 @@ class Session implements Host {
     this.mode = 'browse';
     await this.loadStates();
     this.render();
+    if (was !== 'browse') announce('Browse mode.');
     if (was !== 'browse') await this.fire('OnModeEnter');
   }
 
@@ -4452,6 +4464,7 @@ class Session implements Host {
     if (was !== 'preview' && !(await this.leaveMode())) return;
     this.mode = 'browse';
     this.preview = true;
+    if (was !== 'preview') announce('Preview mode.');
     this.popover = undefined;
     await this.loadAll();
     await this.loadStates();
@@ -4719,6 +4732,7 @@ class Session implements Host {
     this.index = 0;
     await this.reload();
     if (!this.foundCount) {
+      announce('Found 0 records.');
       [this.query, this.ids] = previous;
       const again = (await noMatchDialog()) === 'modify';
       this.mode = again ? 'find' : 'browse';
@@ -4868,6 +4882,7 @@ class Session implements Host {
     this.sort = sort?.length ? sort : undefined;
     const id = this.record?.recordId;
     await this.reload(id);
+    announce('Sort applied.');
     if (this.meta) this.note({ kind: 'sort', occurrence: this.meta.layout.occurrence, ...(this.sort ? { sort: this.sort } : {}) });
   }
 
@@ -6479,6 +6494,7 @@ class Session implements Host {
     if (!row?.row.recordId || !rec) return;
     if (!(await askConfirm('Delete Related Record', question, 'Delete'))) return;
     await this.api.update(this.meta!.layout.name, rec.recordId, {}, { deleteRelated: `${row.portal}.${row.row.recordId}` });
+    announce('Portal row deleted.');
     freshen(rec, await this.api.record(this.meta!.layout.name, rec.recordId));
     this.render();
   }
@@ -7895,6 +7911,7 @@ class Session implements Host {
     if (!this.meta) return;
     if (this.mode === 'find' || this.preview) await this.enterBrowse();
     if (!(await this.commit())) return;
+    announce('Layout mode.');
     this.rememberReturn();
     try {
       sessionStorage.setItem('tabularius.windowRecord', JSON.stringify({ layout: this.meta.layout.name, recordId: this.record ? Number(this.record.recordId) : undefined }));
@@ -7962,6 +7979,7 @@ class Session implements Host {
   private async sendWaiting(): Promise<void> {
     if (!this.api.offline || this.api.copyOnly || this.syncing) return;
     this.syncing = true;
+    announce('Syncing offline changes.');
     try {
       const before = this.api.waiting;
       const clashes = await this.api.sync();
@@ -7969,9 +7987,13 @@ class Session implements Host {
         const choice = await clashDialog(edit, (key) => key);
         if (choice) await this.api.resolve(edit, choice === 'mine').catch((e) => toast(`Couldn't save your changes: ${errorText(e)}`));
       }
-      if (before && !this.api.waiting) toast(before === 1 ? 'The change made offline was saved.' : `The ${before} changes made offline were saved.`, 'info');
+      if (before && !this.api.waiting) {
+        announce('Offline changes saved.');
+        toast(before === 1 ? 'The change made offline was saved.' : `The ${before} changes made offline were saved.`, 'info');
+      } else announce('Offline sync complete.');
       if (before || clashes.length) await this.reload(this.record?.recordId);
     } catch (e) {
+      announce('Offline sync failed.');
       toast(`Couldn't send the changes made offline: ${errorText(e)}`);
     } finally {
       this.syncing = false;
