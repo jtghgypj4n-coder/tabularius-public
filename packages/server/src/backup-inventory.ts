@@ -1,4 +1,4 @@
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync, lstatSync, readdirSync } from 'node:fs';
 import { basename, join, win32 } from 'node:path';
 import { readBackupInfo } from './backup-info.ts';
 import { STORE_EXT } from './host.ts';
@@ -34,15 +34,22 @@ export function backupInventory(setDir: string, allowLegacy = false): { copies: 
     const hasEncrypted = existsSync(join(setDir, file + ENCRYPTED_EXT));
     if (!hasPlain && !hasEncrypted) problems[file] = 'missing database copy';
     else if (hasPlain && hasEncrypted) problems[file] = 'multiple database copies';
+    else {
+      // What is read back has to be an ordinary file: a link could point anywhere, and a set someone else can write to can hold one.
+      const kind = lstatSync(join(setDir, hasPlain ? file : file + ENCRYPTED_EXT));
+      if (!kind.isFile()) problems[file] = `not an ordinary file (a ${kind.isSymbolicLink() ? 'symbolic link' : 'directory or special file'}), so it is not restored`;
+    }
     if (info.sha256 && !info.sha256[file]) problems[file] ??= 'missing checksum in backup.json';
     return hasPlain ? file : file + ENCRYPTED_EXT;
   });
   return { copies, problems };
 }
 
-export function checkedBackupCopies(setDir: string): string[] {
+/** The copies of a set, refusing one with any problem; with `only` (a file's name), just that file's copy has to check out, which is how what is left of a damaged set is restored by naming it. */
+export function checkedBackupCopies(setDir: string, only?: string): string[] {
   const inventory = backupInventory(setDir, true);
-  const errors = Object.entries(inventory.problems);
+  const mine = (name: string) => !only || name === 'backup.json' || name.toLowerCase() === only.toLowerCase();
+  const errors = Object.entries(inventory.problems).filter(([name]) => mine(name));
   if (errors.length) throw new Error(errors.map(([file, problem]) => `${file}: ${problem}`).join('; '));
   return inventory.copies;
 }

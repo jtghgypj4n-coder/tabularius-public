@@ -137,8 +137,17 @@ export class LogShipper {
 // (AES-256-GCM, numbered by its place in the file).
 
 const MAGIC = Buffer.from('openhbam-log 1\n');
-const MAGIC_SEALED = Buffer.from('openhbam-log-sealed 1\n');
+const MAGIC_SEALED_1 = Buffer.from('openhbam-log-sealed 1\n');
+/** Sealed logs from this version on also authenticate each record's time and which file's log it is (see recordAad). */
+const MAGIC_SEALED = Buffer.from('openhbam-log-sealed 2\n');
 const SEALED_HEAD = MAGIC_SEALED.length + 24;
+
+/** What a sealed record authenticates besides its bytes: its time, as written in its header, and the database the log is of. */
+const recordAad = (at: number, database: string): Buffer => {
+  const time = Buffer.alloc(8);
+  time.writeDoubleBE(at, 0);
+  return Buffer.concat([time, Buffer.from(database)]);
+};
 
 export interface LogRecord {
   at: number;
@@ -172,25 +181,27 @@ export interface LogWriter {
   path: string;
   key?: Buffer;
   prefix?: Buffer;
+  /** The database this log is of; sealed records are bound to it. */
+  database: string;
   /** Records written so far. */
   n: number;
 }
 
 /** Starts a log file, sealed when given a passphrase. */
-export function startLog(path: string, passphrase?: string): LogWriter {
+export function startLog(path: string, passphrase?: string, database = ''): LogWriter {
   if (!passphrase) {
     writeFileSync(path, MAGIC);
-    return { path, n: 0 };
+    return { path, database, n: 0 };
   }
   const salt = randomBytes(16);
   const prefix = randomBytes(8);
   writeFileSync(path, Buffer.concat([MAGIC_SEALED, salt, prefix]));
-  return { path, key: deriveKeySync(passphrase, salt), prefix, n: 0 };
+  return { path, database, key: deriveKeySync(passphrase, salt), prefix, n: 0 };
 }
 
 /** Adds a record to a log file. */
 export function writeLog(w: LogWriter, r: LogRecord): void {
-  const data = w.key ? sealRecord(w.key, w.prefix!, w.n, r.data) : r.data;
+  const data = w.key ? sealRecord(w.key, w.prefix!, w.n, r.data, recordAad(r.at, w.database)) : r.data;
   appendFileSync(w.path, encodeRecord({ ...r, data }));
   w.n++;
 }
@@ -203,7 +214,7 @@ export function logRecords(path: string): { at: number; n: number; offset: numbe
     const head = Buffer.alloc(SEALED_HEAD);
     const got = readSync(fd, head, 0, head.length, 0);
     const start = head.subarray(0, MAGIC.length).equals(MAGIC) ? MAGIC.length
-      : got === SEALED_HEAD && head.subarray(0, MAGIC_SEALED.length).equals(MAGIC_SEALED) ? SEALED_HEAD : undefined;
+      : got === SEALED_HEAD && (head.subarray(0, MAGIC_SEALED.length).equals(MAGIC_SEALED) || head.subarray(0, MAGIC_SEALED_1.length).equals(MAGIC_SEALED_1)) ? SEALED_HEAD : undefined;
     if (start === undefined) return [];
     const out: { at: number; n: number; offset: number; length: number }[] = [];
     const rec = Buffer.alloc(16);
@@ -220,16 +231,23 @@ export function logRecords(path: string): { at: number; n: number; offset: numbe
   }
 }
 
-/** Reads records of a log file (see logRecords), opening sealed ones with the passphrase. */
-export async function logReader(path: string, passphrase?: string): Promise<(r: { n: number; offset: number; length: number }) => Buffer> {
+/**
+ * Reads records of a log file (see logRecords), opening sealed ones with the passphrase. `sealedOnly` refuses a log that is
+ * not sealed: a restore of a set that is signed has no use for one, and a plain log put in its place would be replayed as it is.
+ */
+export async function logReader(path: string, passphrase?: string, database = '', sealedOnly = false): Promise<(r: { at?: number; n: number; offset: number; length: number }) => Buffer> {
   const head = readPart(path, 0, Math.min(SEALED_HEAD, statSync(path).size));
-  if (!head.subarray(0, MAGIC_SEALED.length).equals(MAGIC_SEALED)) return (r) => readPart(path, r.offset, r.length);
+  const v2 = head.subarray(0, MAGIC_SEALED.length).equals(MAGIC_SEALED);
+  if (!v2 && !head.subarray(0, MAGIC_SEALED_1.length).equals(MAGIC_SEALED_1)) {
+    if (sealedOnly) throw new Error(`${path} is not encrypted, but the backup it is in is: it was not made by this backup, so it is not restored`);
+    return (r) => readPart(path, r.offset, r.length);
+  }
   if (!passphrase) throw new Error(`${path} is encrypted: set TABULARIUS_BACKUP_KEY to its passphrase`);
   const key = await deriveKey(passphrase, head.subarray(MAGIC_SEALED.length, MAGIC_SEALED.length + 16));
   const prefix = head.subarray(MAGIC_SEALED.length + 16, SEALED_HEAD);
   return (r) => {
     try {
-      return openRecord(key, prefix, r.n, readPart(path, r.offset, r.length));
+      return openRecord(key, prefix, r.n, readPart(path, r.offset, r.length), v2 ? recordAad(r.at ?? NaN, database) : undefined);
     } catch {
       throw new Error(r.n === 0 ? `can't decrypt ${path}: wrong passphrase, or the file is damaged` : `${path} is damaged`);
     }

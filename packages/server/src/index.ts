@@ -111,7 +111,7 @@ export { Metrics, routeOf } from './metrics.ts';
 export { SyncConsole, SyncConsoleError, type SyncSetup, type SyncStatus, type ConflictView } from './sync-console.ts';
 export { Schedules, ScheduleError, nextRun, type Schedule, type ScheduleRun, type SyncJobs, type SyncRunSummary, type SyncScheduleOptions } from './schedules.ts';
 export { verifySet, describeCheck, lastCheck, type SetCheck } from './backup-verify.ts';
-export { BackupStopped, backupFolder, backupRunning, stopBackups, backupKey, backupSets, defaultBackupDir, parseInterval, parseTime, restoreAt, restoreBackup, AccountChangesError, type AccountDifference, restorePoint, restorePointTo, restoreRange, runningServer, scheduleBackups, scheduleProgressive } from './backup.ts';
+export { BackupStopped, backupFolder, backupRunning, stopBackups, backupKey, backupSets, defaultBackupDir, parseInterval, parseTime, restoreAt, restoreBackup, AccountChangesError, type AccountDifference, type ChangedSince, restorePoint, restorePointTo, restoreRange, runningServer, scheduleBackups, scheduleProgressive } from './backup.ts';
 export { localCertificate, localCertificateFiles, localNames } from './local-tls.ts';
 export { AcmeClient, AutoTls, LETS_ENCRYPT, LETS_ENCRYPT_STAGING, certificateRequest, type AcmeOptions } from './acme.ts';
 export { Connections, ConnectionError, scriptConnections, CONNECTION_TYPES, looksLikeCredential, type Connection } from './connections.ts';

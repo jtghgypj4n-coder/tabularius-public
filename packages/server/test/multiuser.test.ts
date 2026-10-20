@@ -386,7 +386,7 @@ test('encrypted backups: unreadable without the passphrase, restored with it', {
     const cut = join(dest, 'cut');
     mkdirSync(cut);
     writeFileSync(join(cut, 'Charts.openhbam.sqlite.enc'), raw.subarray(0, raw.length - 100));
-    await assert.rejects(restoreBackup(target, cut, undefined, 'correct horse'), /damaged|cut off/);
+    await assert.rejects(restoreBackup(target, cut, undefined, 'correct horse', { acceptUnsigned: true }), /damaged|cut off/);
 
     assert.deepEqual(await restoreBackup(target, r.dir, 'Charts', 'correct horse'), ['Charts.openhbam.sqlite']);
     const copy = new DatabaseSync(join(target, 'Charts.openhbam.sqlite'), { readOnly: true });

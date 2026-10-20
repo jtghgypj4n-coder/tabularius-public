@@ -17,6 +17,7 @@ import { readBackupInfo, updateBackupInfo } from './backup-info.ts';
 import { commitRestore } from './restore-files.ts';
 import type { RestoreFile } from './restore-files.ts';
 import { checksum } from './backup-verify.ts';
+import { readVerified } from './backup-auth.ts';
 import { decryptFile, encryptFile, ENCRYPTED_EXT } from './encrypt.ts';
 
 /** Folders, next to a hosted file, that hold its externally stored container files. */
@@ -95,7 +96,18 @@ const native = (rel: string) => rel.split('/').join(sep);
  * the ones unchanged since `previousSet`, and records them in its backup.json.
  */
 export async function backupExternal(folder: string, names: string[], setDir: string, previousSet?: string, passphrase?: string, signal?: AbortSignal): Promise<ExternalManifest> {
-  const before = previousSet ? externalManifest(previousSet) : {};
+  // An earlier set's copies and checksums are carried over, not read again. When the backups are encrypted that is only
+  // done for a set whose signature holds: its entries are then the ones it was made with.
+  let before: ExternalManifest = {};
+  if (previousSet) {
+    if (!passphrase) before = externalManifest(previousSet);
+    else {
+      try {
+        const verified = await readVerified(previousSet, passphrase);
+        if (verified.state === 'signed') before = (verified.info.external ?? {}) as ExternalManifest;
+      } catch { /* a set that does not check out is not reused: every file is copied again */ }
+    }
+  }
   const ext = passphrase ? ENCRYPTED_EXT : '';
   const manifest: ExternalManifest = {};
   for (const rel of externalFiles(folder, names)) {
@@ -167,8 +179,8 @@ export async function verifyExternal(setDir: string, passphrase?: string): Promi
  * folders are rebuilt beside the hosted folder first and swapped in whole.
  * Hosted files whose set has no external files keep the folders they have.
  */
-export async function stageExternal(setDir: string, folder: string, names: string[], passphrase?: string, signal?: AbortSignal): Promise<{ count: number; files: RestoreFile[]; cleanup(): void }> {
-  const manifest = externalManifest(setDir);
+export async function stageExternal(setDir: string, folder: string, names: string[], passphrase?: string, signal?: AbortSignal, checked?: ExternalManifest): Promise<{ count: number; files: RestoreFile[]; cleanup(): void }> {
+  const manifest = checked ?? externalManifest(setDir);
   const roots = new Map<string, string[]>();
   for (const rel of Object.keys(manifest)) {
     validateExternal(setDir, rel);

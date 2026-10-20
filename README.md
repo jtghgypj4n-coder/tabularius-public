@@ -1199,6 +1199,34 @@ refuses a wrong one or a damaged file before putting anything back. Keep the
 passphrase somewhere other than the backups: without it they can't be
 restored.
 
+**What a backup protects against.** An unencrypted set carries SHA-256
+checksums, which catch a damaged disk, a cut-short copy or a sync that went
+wrong. They do not stop someone who can write the backup folder: that person can
+change a copy and write the matching checksum, so an unencrypted set is protected
+against accidents only. With `TABULARIUS_BACKUP_KEY` set, a set is also protected
+against someone who can write the folder but does not know the passphrase: each
+copy is authenticated, and the list of checksums, the finish times and the
+container-file checksums are signed with the passphrase. A restore, whole-set or to
+a moment, refuses a set whose signature does not match, a copy that is swapped,
+renamed, or taken from an older set, and, while the passphrase is set, a set with no
+signature at all (including a set someone put in the folder), unless you say
+`--accept-unsigned-backup`. A set made before signatures existed, or before the
+passphrase was set, is such a set: `verify-backup <folder> <set> --sign` reads every
+copy back and signs it, but it cannot tell whether the copies were swapped before it
+ran, so use it only on a set that has not been out of your hands. A whole older set,
+signature and all, is still a valid set, so a restore says which files had changes
+after the backup was taken (those changes are not in the restored file) and leaves the
+choice to you.
+
+Not covered: the saved changes for restoring to a moment (the logs). Their records
+are encrypted and bound to their time and file when the set is encrypted, and a signed
+set refuses a log that is not encrypted, but the manifest does not list the logs, so a
+whole log file removed from a set, or the tail of one cut off at a record boundary, is
+not noticed (the restore goes to the last point it finds); and a log made before this
+version carries no binding to its time or file. Also not covered: file names that the
+operating system treats as another (reserved names on Windows), and anyone who has the
+passphrase and write access to the folder, who can make a set that restores.
+
 The hosted stores themselves can be encrypted at rest too. Set
 `TABULARIUS_ENCRYPTION_KEY` to a passphrase and each store is kept as
 `<name>.openhbam.sqlite.enc` on disk (AES-256-GCM, scrypt), decrypted into its
