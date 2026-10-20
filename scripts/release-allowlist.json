@@ -150,6 +150,14 @@
         "why": "the administrator's guide"
       },
       {
+        "glob": "AGENTS.md",
+        "why": "the guide for AI coding agents"
+      },
+      {
+        "glob": "CLAUDE.md",
+        "why": "points coding agents at AGENTS.md"
+      },
+      {
         "glob": "CODE_OF_CONDUCT.md",
         "why": "community file"
       },
