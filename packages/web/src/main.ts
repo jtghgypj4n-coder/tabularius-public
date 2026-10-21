@@ -8340,7 +8340,9 @@ const networkBanner = h('aside', { class: 'network-banner', role: 'status' },
 let networkBannerDismissed = false;
 function showScriptNetwork(meta: LayoutMeta): void {
   if (meta.scriptNetwork === false && !networkBannerDismissed) {
-    if (!networkBanner.isConnected) document.body.append(networkBanner);
+    // In the flow at the top of the window, so it never covers the controls (or the bottom bar on a phone).
+    const shell = document.querySelector('.shell');
+    if (shell && networkBanner.parentElement !== shell) shell.prepend(networkBanner);
   } else networkBanner.remove();
 }
 
