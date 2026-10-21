@@ -3885,7 +3885,6 @@ export class ScriptEngine {
         const name = asText(calc(p.fieldName));
         if (this.calcError) return undefined;
         const value = calc(p.calculation);
-        if (this.calcError) return undefined;
         const m = /^(.*?)::(.*)$/.exec(name);
         const occurrence = m ? m[1] : this.layoutOf(win).occurrence;
         const field = m ? m[2] : name;
@@ -6219,8 +6218,6 @@ export class ScriptEngine {
     const target = p.field ?? this.activeTarget(win);
     if (!target) throw new ScriptError(ERROR.fieldMissing, 'Replace Field Contents names no field and no field is active');
     const set = { ...p, field: target };
-    if (p.calculation !== undefined) this.eval(f, p.calculation);
-    if (this.calcError) throw new ScriptError(this.calcError, this.calcMessage ?? 'Replace Field Contents calculation failed');
     const { info, field } = this.resolveTarget(f, target);
     if (p.replaceWith === 'serial' && p.serial?.updateEntryOptions) this.requireSerialAccess(info.owner, 'Replace Field Contents');
     const table = info.owner.schema.tables.find((t) => t.name === info.table);
@@ -6235,7 +6232,6 @@ export class ScriptEngine {
         serial = asText(this.eval(f, p.serial.initial));
         if (this.calcError) throw new ScriptError(this.calcError, this.calcMessage ?? 'Replace Field Contents calculation failed');
         by = asNumber(this.eval(f, p.serial.increment ?? '1')) || 1;
-        if (this.calcError) throw new ScriptError(this.calcError, this.calcMessage ?? 'Replace Field Contents calculation failed');
       } else {
         serial = table && info.owner.calc.peekSerial(table, field);
         if (serial === undefined) throw new ScriptError(ERROR.fieldMissing, `Field "${field.name}" has no serial number in its entry options`);
@@ -6243,7 +6239,6 @@ export class ScriptEngine {
       }
       value = (i) => text(i === 0 ? serial! : (serial = serialNext(serial!, by)));
     } else if (p.calculation !== undefined) {
-      // Fail before committing any field when even the first per-record calculation is invalid.
       value = () => this.eval(f, p.calculation!);
     } else throw new ScriptError(ERROR.unavailable, 'Replace Field Contents needs a calculation, the current contents or serial numbers');
     this.commit(win);
