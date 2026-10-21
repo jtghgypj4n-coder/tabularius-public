@@ -834,7 +834,7 @@ export class DesignApi {
         // Staged changes: looked over (each described, with its text before and after, what it would break, and whether
         // someone else has changed the same thing since) and then applied, all or some (design-review.ts).
         const others = this.host.openStores().filter((s) => s !== store);
-        const review = () => this.pending.review(store, (kind, name, change) => changeImpact(store, this.host.logs, kind, name, change, { others }));
+        const review = () => this.pending.review(store, (kind, name, change) => changeImpact(store, this.host.logs, kind, name, change, { others, canRead: (s) => privileges.in(s).full }));
         const ids = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is number => Number.isInteger(x)) : undefined);
         if (req.method === 'GET' && m[2] === 'pending') send(200, await review());
         else if (req.method === 'POST' && m[2] === 'pending') {
