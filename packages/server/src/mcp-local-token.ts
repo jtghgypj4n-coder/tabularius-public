@@ -40,7 +40,7 @@ export function readLocalMcpToken(dir: string): string | undefined {
   // One descriptor for the check and the read, opened without following a link, so the file cannot be swapped in between.
   let fd: number;
   try {
-    fd = openSync(file, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+    fd = openSync(file, constants.O_RDONLY | constants.O_NONBLOCK | (constants.O_NOFOLLOW ?? 0));
   } catch (e) {
     const code = (e as NodeJS.ErrnoException).code;
     if (code === 'ENOENT') return undefined;
