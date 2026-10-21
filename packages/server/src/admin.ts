@@ -129,7 +129,7 @@ import { isIP } from 'node:net';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { createHash, randomBytes } from 'node:crypto';
 import { copyFileSync, existsSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { basename, dirname, extname, join, sep } from 'node:path';
+import { basename, dirname, extname, join, resolve, sep } from 'node:path';
 import { hashPassword, checkPassword, addressBucket, StoreError, findStaleCalcs, refreshStaleCalcs, undoStaleRefresh, staleRefreshHistory, StaleCalcError, SECURITY_EVENT_CATEGORIES, isFullAccess, type AuditEntry, type FieldLevel, type SecurityEvent, type Store } from '../../store/src/index.ts';
 import { loadAsset, sendAsset } from './static-cache.ts';
 import type { DataApi } from './dataapi.ts';
@@ -1951,15 +1951,19 @@ export class Admin {
       // Save the latest changes, so moments up to now can be reached.
       this.progressive?.run();
       const dest = this.backupDest();
-      const point = restorePoint(dest, file.name + STORE_EXT, at);
-      if (!point) throw new RestoreError(400, `There is no backup of ${file.name} from before ${new Date(at).toLocaleString()}`);
-      // A set that is going to be refused (no signature, a log missing, a signature that does not match) is found out before the file is
-      // closed, and said without the server's own folders in it.
+      // A set that is going to be refused (a manifest that can't be read, no signature, a log missing, a signature that does not match,
+      // a copy that changed) is found out before the file is closed, and said without the server's own folders in it, however they
+      // are spelled (a folder given with // or /./ in it appears in messages in its plain form).
       const refused = (e: unknown, status: number) => {
-        const where = [dest, this.host.dir].map((d) => d.replace(/[\\/]+$/, '') + sep);
+        const where = [dest, this.host.dir].flatMap((d) => [d, resolve(d)]).map((d) => d.replace(/[\\/]+$/, '') + sep);
         return new RestoreError(status, where.reduce((text, d) => text.split(d).join(''), (e as Error).message));
       };
-      try { await checkRestorePoint(point); } catch (e) { throw refused(e, 409); }
+      let point: ReturnType<typeof restorePoint>;
+      try {
+        point = restorePoint(dest, file.name + STORE_EXT, at);
+        if (point) await checkRestorePoint(point);
+      } catch (e) { throw refused(e, 409); }
+      if (!point) throw new RestoreError(400, `There is no backup of ${file.name} from before ${new Date(at).toLocaleString()}`);
       if (mode === 'copy') {
         const d = new Date(point.time);
         const p2 = (n: number) => String(n).padStart(2, '0');
