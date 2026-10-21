@@ -1,6 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { csvField, formulaGuard, parseDelimited, stripFormulaGuard } from '../src/index.ts';
+import { createStore, Store } from '../src/index.ts';
 
 test('CSV fields neutralize formula prefixes after whitespace and controls', () => {
   for (const formula of ['=', '+', '-', '@']) assert.equal(csvField(`${formula}1+1`), `'${formula}1+1`);
@@ -10,6 +14,28 @@ test('CSV fields neutralize formula prefixes after whitespace and controls', () 
     assert.equal(parsed, `'${text}`);
   }
   for (const prefix of [' ', '\u00a0', '\ufeff']) assert.equal(csvField(`${prefix}=1`), `'${prefix}=1`);
+});
+
+test('AR-store-design-io-13', () => {
+  for (const type of ['number', 'date', 'time', 'timestamp', 'boolean', 'integer', 'decimal']) {
+    assert.equal(csvField('=1+1', { type }), "'=1+1");
+  }
+  assert.equal(csvField('-42', { type: 'number' }), '-42');
+  assert.equal(csvField('-2024-01-01', { type: 'date' }), "'-2024-01-01");
+  const dir = mkdtempSync(join(tmpdir(), 'tabularius-csv-'));
+  const path = join(dir, 'typed.sqlite');
+  let store: Store | undefined;
+  try {
+    createStore(path);
+    store = new Store(path, 'Typed');
+    store.applyDesign([{ op: 'createTable', name: 'T', fields: [{ name: 'D', type: 'date' }] }] as never);
+    store.create('T', { D: '=1+1' });
+    const value = String(store.select('SELECT D FROM T').rows[0][0]);
+    assert.equal(csvField(value, { type: 'date' }), "'=1+1");
+  } finally {
+    store?.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('CSV fields preserve cell text and quote after neutralization', () => {

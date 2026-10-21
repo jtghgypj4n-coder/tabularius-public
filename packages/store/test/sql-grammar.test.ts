@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { createStore, Store } from '../src/index.ts';
 import { fileMakerSqlSyntax } from '../src/sql-dates.ts';
 import { anyAllToIn, containerCastsToName, expandStars, fetchToLimit, refuseUnsupportedJoins } from '../src/sql-grammar.ts';
@@ -41,6 +42,54 @@ const run = (query: string, params: (string | number)[] = []) => {
   return target.select(sql, params, 100);
 };
 const rows = (query: string) => run(query).rows;
+
+test('AR-store-design-io-09', () => {
+  const db = new DatabaseSync(':memory:');
+  try {
+    const sql = anyAllToIn('SELECT ? > ALL (SELECT ?) AS result');
+    assert.equal((db.prepare(sql).get(2, 1) as { result: number }).result, 1);
+    const mixed = anyAllToIn('SELECT ?5 > ALL (SELECT ?) AS result');
+    assert.equal((db.prepare(mixed).get(null, null, null, null, 2, 1) as { result: number }).result, 1);
+    const after = anyAllToIn('SELECT ? > ALL (SELECT ?) AS result, ? AS tail');
+    assert.deepEqual({ ...db.prepare(after).get(2, 1, 7) }, { result: 1, tail: 7 });
+  } finally { db.close(); }
+});
+
+test('AR-store-design-io-10', () => {
+  const db = new DatabaseSync(':memory:');
+  try {
+    for (const [sql, expected] of [
+      ['SELECT NOT (2 > ALL (SELECT NULL)) AS result', null],
+      ['SELECT (2 < ANY (SELECT NULL)) IS NULL AS result', 1],
+      ['SELECT 2 > ALL (SELECT 1 WHERE 0) AS result', 1],
+      ['SELECT 2 < ANY (SELECT 1 WHERE 0) AS result', 0],
+      ['SELECT 2 > ALL (SELECT 3 UNION ALL SELECT NULL) AS result', 0],
+      ['SELECT 2 < ANY (SELECT 3 UNION ALL SELECT NULL) AS result', 1],
+    ] as const) assert.equal((db.prepare(anyAllToIn(sql)).get() as { result: number | null }).result, expected);
+  } finally { db.close(); }
+});
+
+test('AR-store-design-io-10 aggregate operands do not bind to the quantified subquery', () => {
+  for (const operand of ['COUNT(*)', 'COUNT(1)', 'SUM(1)', 'COUNT(?)']) {
+    const query = `SELECT N, ${operand} FROM W GROUP BY N HAVING ${operand} > ALL (SELECT 1) ORDER BY N`;
+    assert.equal(anyAllToIn(query), query);
+    assert.throws(() => run(query, operand.includes('?') ? [1] : []));
+  }
+  assert.deepEqual(rows('SELECT N, SUM(N) FROM W GROUP BY N HAVING SUM(N) > ALL (SELECT 1) ORDER BY N'), [[2, 6], [3, 3]]);
+});
+
+test('AR-store-design-io-11', () => {
+  const db = new DatabaseSync(':memory:');
+  try {
+    db.exec('CREATE TABLE T (Name TEXT); INSERT INTO T VALUES (\'A\')');
+    db.function('fm_cat', (a, b) => String(a) + String(b));
+    const sql = fileMakerSqlSyntax('SELECT "T"."Name" + \'B\' AS result FROM T');
+    assert.equal((db.prepare(sql).get() as { result: string }).result, 'AB');
+    db.exec('CREATE TABLE "T""Q" ("N""ame" TEXT); INSERT INTO "T""Q" VALUES (\'A\')');
+    const escaped = fileMakerSqlSyntax('SELECT "T""Q"."N""ame" + \'B\' AS result FROM "T""Q"');
+    assert.equal((db.prepare(escaped).get() as { result: string }).result, 'AB');
+  } finally { db.close(); }
+});
 
 test('container CAST uses the file name and leaves other CASTs, quoted text, and parameters alone', () => {
   const query = "SELECT CAST(Pic AS VARCHAR), CAST(Pay AS VARCHAR), 'CAST(Pic AS VARCHAR)' FROM P WHERE First = ?";
@@ -85,14 +134,14 @@ test('RIGHT and FULL OUTER JOIN are refused; the words in a string or a name are
   assert.equal(rows('SELECT P.Last FROM P LEFT OUTER JOIN Q ON P.Last = Q.Last ORDER BY P.First').length, 2);
 });
 
-test('= ANY and <> ALL are IN and NOT IN; the other quantified comparisons are EXISTS over the subquery', () => {
+test('= ANY and <> ALL are IN and NOT IN; other quantified comparisons aggregate the subquery', () => {
   assert.equal(anyAllToIn('SELECT 1 WHERE a = ANY (SELECT b FROM t)'), 'SELECT 1 WHERE a IN (SELECT b FROM t)');
   assert.equal(anyAllToIn('SELECT 1 WHERE a = SOME(SELECT b FROM t)'), 'SELECT 1 WHERE a IN (SELECT b FROM t)');
   assert.equal(anyAllToIn('SELECT 1 WHERE a <> ALL (SELECT b FROM t)'), 'SELECT 1 WHERE a NOT IN (SELECT b FROM t)');
   assert.equal(anyAllToIn('SELECT 1 WHERE a != ALL (SELECT b FROM t)'), 'SELECT 1 WHERE a NOT IN (SELECT b FROM t)');
-  assert.equal(anyAllToIn('SELECT 1 WHERE a > ALL (SELECT b FROM t)'), 'SELECT 1 WHERE NOT EXISTS (WITH fm_q(fm_v) AS (SELECT b FROM t) SELECT 1 FROM fm_q WHERE NOT COALESCE(a > fm_v, 0))');
-  assert.equal(anyAllToIn('SELECT 1 WHERE t.a <= SOME (SELECT b FROM t)'), 'SELECT 1 WHERE EXISTS (WITH fm_q(fm_v) AS (SELECT b FROM t) SELECT 1 FROM fm_q WHERE t.a <= fm_v)');
-  assert.equal(anyAllToIn('SELECT 1 WHERE a != ANY (SELECT b FROM t)'), 'SELECT 1 WHERE EXISTS (WITH fm_q(fm_v) AS (SELECT b FROM t) SELECT 1 FROM fm_q WHERE a <> fm_v)');
+  assert.equal(anyAllToIn('SELECT 1 WHERE a > ALL (SELECT b FROM t)'), 'SELECT 1 WHERE (WITH fm_q(fm_v) AS (SELECT b FROM t) SELECT CASE WHEN MIN(fm_cmp) = 0 THEN 0 WHEN COUNT(*) > COUNT(fm_cmp) THEN NULL ELSE 1 END FROM (SELECT a > fm_v AS fm_cmp FROM fm_q))');
+  assert.equal(anyAllToIn('SELECT 1 WHERE t.a <= SOME (SELECT b FROM t)'), 'SELECT 1 WHERE (WITH fm_q(fm_v) AS (SELECT b FROM t) SELECT CASE WHEN MAX(fm_cmp) = 1 THEN 1 WHEN COUNT(*) > COUNT(fm_cmp) THEN NULL ELSE 0 END FROM (SELECT t.a <= fm_v AS fm_cmp FROM fm_q))');
+  assert.equal(anyAllToIn('SELECT 1 WHERE a != ANY (SELECT b FROM t)'), 'SELECT 1 WHERE (WITH fm_q(fm_v) AS (SELECT b FROM t) SELECT CASE WHEN MAX(fm_cmp) = 1 THEN 1 WHEN COUNT(*) > COUNT(fm_cmp) THEN NULL ELSE 0 END FROM (SELECT a <> fm_v AS fm_cmp FROM fm_q))');
   // Part of a longer expression on the left: not this operand alone, so left for SQLite to report.
   assert.equal(anyAllToIn('SELECT 1 WHERE a + b > ALL (SELECT b FROM t)'), 'SELECT 1 WHERE a + b > ALL (SELECT b FROM t)');
   assert.equal(anyAllToIn("SELECT 1 WHERE a || 'x' > ALL (SELECT b FROM t)"), "SELECT 1 WHERE a || 'x' > ALL (SELECT b FROM t)");
