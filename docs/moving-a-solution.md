@@ -614,7 +614,11 @@ files in `<folder>/Documents`) run natively. BaseElements' web calls
 network** is turned on for the file, through the same guarded transport as
 Insert from URL (and, for mail, once the server is set up to send it); with the
 switch off they give "?" and error 3, and with `--test-outbound` they go to the
-Outbox instead. MBS `CURL.Perform` follows the same switch. The file variants
+Outbox instead. Turning on **Script network** also lets that file's scripts send
+mail through `BE_SMTPSend`, once the server is set up to send it. Call these
+functions from a script step (Set Variable, for example): inside a custom
+function they give an empty result and error 3 even with the switch on. MBS
+`CURL.Perform` follows the same switch. The file variants
 (`BE_HTTP_GETFile`, `PUTFile`), FTP, shell and clipboard calls are not built in
 and give "?" and error 3. <!-- known-difference: Vendor plug-ins ;; BaseElements' web calls answer with the body as text (BaseElements answers with a container), and the error number a failed request sets (7) is inferred ;; A script that reads the container or tests for another error number can behave differently ;; A run of the real plug-in against a failing address --> Of MBS, the `Text.*`
 functions run natively, following MBS's own documentation: case, trimming,
