@@ -1437,6 +1437,11 @@ export class Store {
   /** Changes made under the held savepoint, used to let another window commit on this file. */
   private heldSession?: Session;
   private heldAudit: { seq: number; onAudit?: (file: object, seq: number) => void }[] = [];
+
+  /** Audit rows still in this transaction, before commit publishes their callbacks. */
+  pendingAuditSeqs(tx: Transaction, onAudit: (file: object, seq: number) => void): number[] {
+    return this.heldBy === tx ? this.heldAudit.filter((entry) => entry.onAudit === onAudit).map((entry) => entry.seq) : [];
+  }
   private heldNewIds = new Map<string, number>();
   /** Container files written to disk (external storage) under the held transaction: removed if it rolls back. */
   private heldFiles: (() => void)[] = [];
