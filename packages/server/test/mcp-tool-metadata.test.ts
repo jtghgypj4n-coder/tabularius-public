@@ -17,7 +17,7 @@ let base: string;
 
 before(async () => {
   dir = mkdtempSync(join(tmpdir(), 'tabularius-mcp-metadata-'));
-  const s = await serve({ dir, port: 0, log: () => {} });
+  const s = await serve({ dir, port: 0, log: () => {}, mcpToken: 'metadata-test-admin' });
   server = s.server;
   base = s.url;
 });
@@ -29,7 +29,7 @@ after(async () => {
 test('initialize reports the server version to an MCP client', async () => {
   const client = new Client({ name: 'metadata-test', version: '1.0.0' });
   try {
-    await client.connect(new StreamableHTTPClientTransport(new URL(`${base}/mcp`)));
+    await client.connect(new StreamableHTTPClientTransport(new URL(`${base}/mcp`), { requestInit: { headers: { authorization: 'Bearer metadata-test-admin' } } }));
     assert.deepEqual(client.getServerVersion(), { name: 'tabularius', version: SERVER_VERSION });
   } finally {
     await client.close();
@@ -39,7 +39,7 @@ test('initialize reports the server version to an MCP client', async () => {
 test('every tool has a title, a described input for each property, and annotations', async () => {
   const res = await fetch(`${base}/mcp`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-protocol-version': '2025-06-18' },
+    headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-protocol-version': '2025-06-18', authorization: 'Bearer metadata-test-admin' },
     body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }),
   });
   const tools = (await res.json()).result.tools as { name: string; title?: string; annotations?: Record<string, unknown>; inputSchema: { properties?: Record<string, { description?: string }> } }[];

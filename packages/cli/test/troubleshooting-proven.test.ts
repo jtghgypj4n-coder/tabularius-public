@@ -157,6 +157,9 @@ test('a lost admin password: tabularius admin-password sets another from the mac
   assert.match(sectionOf('`Invalid user account and/or password; please try again`'), /`tabularius admin-password <folder>`/);
 });
 
+/** The administrator's /mcp token the server made in the folder on its first start. */
+const adminToken = (dir: string) => `Bearer ${readFileSync(join(dir, '.openhbam-mcp-token'), 'utf8').trim()}`;
+
 test('an unknown database name: a sign-in answers it as a wrong password on purpose, an AI app is told what is hosted, and doctor lists the folder', async (t) => {
   const dir = folder(t, ['Shop', 'Other']);
   const s = await start(t, dir);
@@ -165,7 +168,7 @@ test('an unknown database name: a sign-in answers it as a wrong password on purp
   assert.deepEqual([unknown.status, unknown.code, unknown.message], [wrong.status, wrong.code, wrong.message], 'a stranger cannot tell a missing file from a wrong password');
   const mcp = await fetch(`${s.url}/mcp`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-protocol-version': '2025-06-18' },
+    headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-protocol-version': '2025-06-18', authorization: adminToken(dir) },
     body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'describe_database', arguments: { database: 'Nope' } } }),
   });
   const refused = ((await mcp.json()) as { result: { isError?: boolean; content: { text: string }[] } }).result;
@@ -186,7 +189,7 @@ test('turned-off AI: the file says so, tabularius ai on turns it back on, and bo
   const ask = async (url: string) => {
     const r = await fetch(`${url}/mcp`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-protocol-version': '2025-06-18' },
+      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-protocol-version': '2025-06-18', authorization: adminToken(dir) },
       body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'describe_database', arguments: { database: 'Shop' } } }),
     });
     return ((await r.json()) as { result: { isError?: boolean; content: { text: string }[] } }).result;
