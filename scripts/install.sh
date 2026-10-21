@@ -35,7 +35,7 @@
 set -eu
 
 HOME_DIR="${TABULARIUS_HOME:-${OPENHBAM_HOME:-$HOME/.openhbam}}"
-REPO="${TABULARIUS_REPO:-${OPENHBAM_REPO:-https://github.com/jtghgypj4n-coder/tabularius-public.git}}"
+REPO="${TABULARIUS_REPO:-${OPENHBAM_REPO:-https://github.com/sitotisai/tabularius.git}}"
 BIN_DIR="${TABULARIUS_BIN:-${OPENHBAM_BIN:-$HOME/.local/bin}}"
 NODE_VERSION="22.22.0"
 SERVICE_DIR=""
