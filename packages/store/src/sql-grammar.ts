@@ -81,7 +81,9 @@ const CLAUSE = new Set(('BY OFFSET ASC DESC LEFT RIGHT INNER OUTER CROSS NATURAL
   + 'CURRENT ROW EXCLUDE TIES OTHERS NO NULLS FIRST LAST RECURSIVE MATERIALIZED WITH DEFAULT INDEXED').split(' '));
 const FROM_ENDS = new Set('WHERE GROUP ORDER HAVING LIMIT UNION INTERSECT EXCEPT WINDOW SELECT VALUES'.split(' '));
 const JOIN_WORDS = new Set('LEFT RIGHT INNER OUTER CROSS NATURAL FULL'.split(' '));
-const IMPLICIT_ROW = new Set(['rowid', '_rowid_', 'oid']);
+/** Names every table has, or that the engine fills in after this rewrite (the internal record and modification ids, ROWMODID's own name, the account's name). */
+const ACCOUNT = new Set(['user', 'username', 'current_user']);
+const IMPLICIT = new Set(['rowid', '_rowid_', 'oid', '_fm_record_id', '_fm_mod_id', ...ACCOUNT]);
 
 type Words = SqlToken[];
 interface Source { names: Set<string>; columns?: Set<string> }
@@ -130,12 +132,11 @@ function isOperatorWord(words: Words, at: number): boolean {
   return (endsOperand(words[at - 1]) || upper(words[at - 1]) === 'NOT') && startsOperand(words[at + 1]);
 }
 
-/** The tokens after AS that name a type or an alias (DOUBLE PRECISION, UNSIGNED BIG INT, DECIMAL(10, 2), x): the index of the last one. */
+/** The tokens after AS that name a type or an alias (DOUBLE PRECISION, UNSIGNED BIG INT, x): the index of the last one. A type's (10, 2) is left to the scan, which skips numbers. */
 function skipAsTail(words: Words, as: number): number {
   let at = as + 1;
   while (at < words.length) {
     const t = words[at];
-    if (t.kind === 'symbol' && t.text === '(') { at = closeOf(words, at) + 1; continue; }
     if (!isName(t) || (t.kind === 'word' && SYNTAX.has(t.text.toUpperCase()))) break;
     at++;
   }
@@ -143,10 +144,13 @@ function skipAsTail(words: Words, as: number): number {
 }
 
 /** The tables and aliases a select declares in its own FROM and JOINs, the aliases its select list gives, and which of its tokens are those names. */
-function declared(words: Words, columns: ColumnLookup | undefined): { scope: Scope; skip: Set<number> } {
+function declared(words: Words, columns: ColumnLookup | undefined, shadow: Set<string> = new Set()): { scope: Scope; skip: Set<number>; isolated: Set<number>; common: Set<string> } {
   const scope: Scope = { sources: [], aliases: new Set() };
   const skip = new Set<number>();
-  const common = new Set<string>();
+  // The parentheses of derived tables and common table expressions: bodies that do not see this select's own tables.
+  const isolated = new Set<number>();
+  // Common table expressions of this select and the selects around it hide the tables of the same name.
+  const common = new Set(shadow);
   const ignoredClose = new Set<number>();
   let inFrom = false;
   let depth = 0;
@@ -154,6 +158,7 @@ function declared(words: Words, columns: ColumnLookup | undefined): { scope: Sco
     let at = from;
     if (words[at]?.text === '(') {
       if (opensSubquery(words, at)) {
+        isolated.add(at);
         const source: Source = { names: new Set() };
         at = closeOf(words, at) + 1;
         at = alias(at, source);
@@ -200,6 +205,7 @@ function declared(words: Words, columns: ColumnLookup | undefined): { scope: Sco
     }
     const up = t.text.toUpperCase();
     if (up === 'AS' && words[i + 1]?.text === '(' && opensSubquery(words, i + 1)) {
+      isolated.add(i + 1);
       // WITH name [(columns)] AS (...): a common table, not a column.
       let nameAt = i - 1;
       if (words[nameAt]?.text === ')') { let k = nameAt; while (k > 0 && words[k].text !== '(') k--; for (let j = k; j <= nameAt; j++) skip.add(j); nameAt = k - 1; }
@@ -210,21 +216,22 @@ function declared(words: Words, columns: ColumnLookup | undefined): { scope: Sco
     else if (up === 'JOIN' && inFrom) i = item(i + 1) - 1;
     else if (inFrom && FROM_ENDS.has(up)) inFrom = false;
   }
-  return { scope, skip };
+  return { scope, skip, isolated, common };
 }
 
 /** Whether a select's body (outside its parentheses) refers to a column that none of its own or its enclosing selects' FROM clauses supply. */
-function reachesOutside(words: Words, enclosing: Scope[], columns: ColumnLookup | undefined): boolean {
-  const own = declared(words, columns);
+function reachesOutside(words: Words, enclosing: Scope[], columns: ColumnLookup | undefined, shadow: Set<string> = new Set()): boolean {
+  const own = declared(words, columns, shadow);
   const here = [own.scope, ...enclosing];
   const declares = (name: string) => here.some((sc) => sc.sources.some((s) => s.names.has(name)));
-  const supplies = (name: string) => IMPLICIT_ROW.has(name) || here.some((sc) => sc.aliases.has(name) || sc.sources.some((s) => !s.columns || s.columns.has(name)));
+  const supplies = (name: string) => IMPLICIT.has(name) || here.some((sc) => sc.aliases.has(name) || sc.sources.some((s) => !s.columns || s.columns.has(name)));
   let cases = 0;
   for (let i = 0; i < words.length; i++) {
     const t = words[i];
     if (t.kind === 'symbol' && t.text === '(' && opensSubquery(words, i)) {
       const close = closeOf(words, i);
-      if (reachesOutside(words.slice(i + 1, close), here, columns)) return true;
+      // A derived table or a common table expression does not see the tables of the select it is in, only the selects around that one.
+      if (reachesOutside(words.slice(i + 1, close), own.isolated.has(i) ? enclosing : here, columns, own.common)) return true;
       i = close;
       continue;
     }
@@ -274,14 +281,17 @@ function namesColumn(args: Words, ctx: Context): boolean {
     if (up === 'END' && cases > 0) { cases--; continue; }
     if (SYNTAX.has(up) || /^(?:\d|\$)/.test(t.text) || (up === 'X' && args[at + 1]?.kind === 'string') || isOperatorWord(args, at)) continue;
     if (args[at + 1]?.text === '(' || /^[:@]$/.test(args[at - 1]?.text ?? '')) continue;
-    // TRUE and FALSE are the constants unless a table of the query has a column of that name.
-    if ((up === 'TRUE' || up === 'FALSE') && !ctx.outer.sources.some((s) => s.columns?.has(up.toLowerCase()))) continue;
+    // TRUE and FALSE are the constants unless a table of the select has, or might have, a column of that name.
+    if ((up === 'TRUE' || up === 'FALSE') && !ctx.outer.sources.some((s) => !s.columns || s.columns.has(up.toLowerCase()))) continue;
+    // The account's name is filled in after this rewrite.
+    if (ACCOUNT.has(t.text.toLowerCase())) continue;
     return true;
   }
   return false;
 }
 
 interface Context { columns: ColumnLookup | undefined; outer: Scope }
+
 
 /** A column-free aggregate moved under fm_q would count its rows instead of the outer query's rows. */
 function aggregateWithoutColumn(operand: string, ctx: Context): boolean {
@@ -298,8 +308,25 @@ function aggregateWithoutColumn(operand: string, ctx: Context): boolean {
 
 function quantified(sql: string, budget: { left: number; depth: number }, columns: ColumnLookup | undefined): string {
   if (!/\b(?:ANY|SOME|ALL)\b/i.test(sql) || budget.depth > MAX_QUANTIFIED_DEPTH) return sql;
-  const ctx: Context = { columns, outer: declared(sqlTokens(sql).filter((t) => t.kind !== 'space' && t.kind !== 'comment'), columns).scope };
   const plain = blanked(sql);
+  // The tables of the select that holds the comparison: the innermost parenthesised subquery around it, or the whole text.
+  const scopes = new Map<number, Scope>();
+  const containerScope = (at: number): Scope => {
+    let start = 0;
+    let end = sql.length;
+    for (let i = at - 1, depth = 0; i >= 0; i--) {
+      if (plain[i] === ')') depth++;
+      else if (plain[i] === '(' && depth > 0) depth--;
+      else if (plain[i] === '(' && /^\(\s*(?:SELECT\b|VALUES\b|WITH\s+(?:RECURSIVE\b|\S+\s+AS\b))/i.test(plain.slice(i, i + 60))) {
+        const stop = closing(sql, i + 1);
+        start = i + 1;
+        end = stop < 0 ? sql.length : stop;
+        break;
+      }
+    }
+    if (!scopes.has(start)) scopes.set(start, declared(sqlTokens(sql.slice(start, end)).filter((t) => t.kind !== 'space' && t.kind !== 'comment'), columns).scope);
+    return scopes.get(start)!;
+  };
   let out = '';
   let copied = 0;
   for (const m of plain.matchAll(/(<=|>=|<>|!=|=|<|>)\s*(ANY|SOME|ALL)\s*(?=\()/gi)) {
@@ -319,7 +346,7 @@ function quantified(sql: string, budget: { left: number; depth: number }, column
     // A longer expression to the left (a + b, a || b, t.x with a sign) is not this operand alone.
     if (/[-+*/%^.|]$/.test(plain.slice(0, left).trimEnd())) continue;
     const operand = sql.slice(left, m.index).trimEnd();
-    if (aggregateWithoutColumn(operand, ctx)) continue;
+    if (aggregateWithoutColumn(operand, { columns, outer: containerScope(left) })) continue;
     budget.left--;
     budget.depth++;
     const x = quantified(operand, budget, columns);
