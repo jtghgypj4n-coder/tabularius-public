@@ -11,7 +11,7 @@
 
 import type { DesignOp, Store } from '../../store/src/index.ts';
 import { diffDesign } from '../../store/src/patch.ts';
-import { StoreError } from '../../store/src/index.ts';
+import { StoreError, type Privileges } from '../../store/src/index.ts';
 import { storable, unusedFindings, type OptimizationAction, type UnusedNames } from './optimization.ts';
 
 export type FixId = 'hide-scripts' | 'remove-scripts' | 'remove-value-lists' | 'remove-table-occurrences' | 'store-calculation';
@@ -160,11 +160,11 @@ export function fixChanges(store: Store): { id: number; at: string; label: strin
 }
 
 /** Makes the fix. `count` is how many the person was shown: if the file has changed since, nothing is done. */
-export function applyFix(store: Store, fix: FixId, req: { items?: string[]; count?: number } = {}, account?: string): { fix: FixId; label: string; done: number; will: string[]; undo: number } {
+export function applyFix(store: Store, fix: FixId, req: { items?: string[]; count?: number } = {}, account?: string, privileges?: Privileges): { fix: FixId; label: string; done: number; will: string[]; undo: number } {
   const plan = planFix(store, fix, req.items);
   if (req.count !== undefined && req.count !== plan.count) throw new FixError(409, `You were shown ${plural(req.count, 'change')} and the file has ${plan.count} now: look at the report again`);
   try {
-    store.applyDesign(plan.ops, { account });
+    store.applyDesign(plan.ops, { account, ...(privileges ? { privileges } : {}) });
   } catch (e) {
     if (e instanceof StoreError) throw new FixError(409, e.message);
     throw e;
@@ -179,13 +179,13 @@ export function applyFix(store: Store, fix: FixId, req: { items?: string[]; coun
 }
 
 /** Puts a fix back (the latest not yet undone when no id is given). What was changed since is left as it is. */
-export function undoFix(store: Store, id?: number, account?: string): { undone: string } {
+export function undoFix(store: Store, id?: number, account?: string, privileges?: Privileges): { undone: string } {
   const h = history(store);
   const change = id === undefined ? [...h.changes].reverse().find((c) => !c.undone) : h.changes.find((c) => c.id === id);
   if (!change) throw new FixError(404, id === undefined ? 'Nothing to undo' : `No change ${id}`);
   if (change.undone || !change.undo.length) throw new FixError(409, `"${change.label}" is already undone, or too old to undo`);
   try {
-    store.applyDesign(change.undo, { account, recordedRestore: true });
+    store.applyDesign(change.undo, { account, recordedRestore: true, ...(privileges ? { privileges } : {}) });
   } catch (e) {
     if (e instanceof StoreError) throw new FixError(409, `Can't undo "${change.label}": ${e.message}`);
     throw e;

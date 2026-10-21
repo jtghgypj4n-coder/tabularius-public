@@ -496,3 +496,61 @@ test('a value list made by the owner from the data file is not a way round: Valu
   const both = field('O');
   assert.equal((await make('Both', { name: both, kind: 'calculation', type: 'text', calculation: 'ValueListItems ( "" ; "Names" )' })).status, 200);
 });
+
+// --- long chains, summaries and the other ways a stored calculation is made ----------------------------------------
+
+test('a stored calculation reads through a chain of unstored calculations however long it is', async () => {
+  for (const length of [3, 17, 40]) {
+    const chain = Array.from({ length }, (_, i) => `${field('U')}c${i}`);
+    const changes = chain.map((name, i) => ({ op: 'createField', table: 'Mine', name, kind: 'calculation', type: 'text', calculation: i === 0 ? 'P::Salary' : chain[i - 1], options: { unstored: true } }));
+    assert.equal((await route('Hid', '', { changes })).status, 200, `${length} unstored calculations are fine to make`);
+    const name = field('S');
+    const r = await make('Hid', { name, kind: 'calculation', type: 'text', calculation: `${chain.at(-1)} & Key` });
+    assert.equal(r.status, 400, `${length}: ${r.text}`);
+    assert.equal(mineHas(name), false);
+    noSalary(r.text);
+    // The account that may read the data file stores it.
+    assert.equal((await make('Both', { name: field('T'), kind: 'calculation', type: 'text', calculation: `${chain.at(-1)} & Key` })).status, 200);
+  }
+});
+
+test('a summary over an unstored calculation is read as the calculation is, and a summary that is re-pointed re-checks what reads it', async () => {
+  const uq = field('Q');
+  const total = field('R');
+  const reader = field('V');
+  assert.equal((await make('Hid', { name: uq, kind: 'calculation', type: 'number', calculation: 'P::Salary', options: { unstored: true } })).status, 200);
+  assert.equal((await make('Hid', { name: total, kind: 'summary', type: 'number', summary: { type: 'total', field: uq } })).status, 200);
+  const r = await make('Hid', { name: reader, kind: 'calculation', type: 'text', calculation: `${total} & Key` });
+  assert.equal(r.status, 400, r.text);
+  assert.equal(mineHas(reader), false);
+  assert.equal((await make('Both', { name: field('W'), kind: 'calculation', type: 'text', calculation: `${total} & Key` })).status, 200);
+  // Pointed at a field that reads nothing outside, then at one that does.
+  const own = field('X');
+  assert.equal((await make('Hid', { name: own, kind: 'calculation', type: 'number', calculation: '1', options: { unstored: true } })).status, 200);
+  const plain = field('Y');
+  assert.equal((await make('Hid', { name: plain, kind: 'summary', type: 'number', summary: { type: 'total', field: own } })).status, 200);
+  const user = field('Z');
+  assert.equal((await make('Hid', { name: user, kind: 'calculation', type: 'text', calculation: `${plain} & Key` })).status, 200);
+  const move = await route('Hid', '', { changes: [{ op: 'updateField', table: 'Mine', field: plain, summary: { type: 'total', field: uq } }] });
+  assert.equal(move.status, 400, move.text);
+  touch();
+  assert.deepEqual(stored(user), ['2Ann', '2Bob']);
+});
+
+test('the optimization fix that stores a calculation runs the same check as the account that asks for it', async () => {
+  const uq = field('a');
+  const w = field('b');
+  assert.equal((await make('Hid', { name: uq, kind: 'calculation', type: 'text', calculation: 'P::Salary', options: { unstored: true } })).status, 200);
+  assert.equal((await make('Hid', { name: w, kind: 'calculation', type: 'text', calculation: `${uq} & Key`, options: { unstored: true } })).status, 200);
+  const fix = (account: string) => mcp(account, 'optimization_fix', { database: 'UI', fix: 'store-calculation', items: [`Mine::${w}`], confirm: true });
+  const refused = await fix('Hid');
+  assert.equal(refused.error, true, refused.text);
+  noSalary(refused.text);
+  assert.equal(ui.schema.tables.find((t) => t.name === 'Mine')!.fields.find((f) => f.name === w)!.options?.unstored, true);
+  touch();
+  // The account that may read the data file can.
+  const fine = await fix('Both');
+  assert.equal(fine.error, false, fine.text);
+  touch();
+  assert.deepEqual(stored(w), [`${SALARY}Ann`, `${BOBS}Bob`]);
+});

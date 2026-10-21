@@ -98,8 +98,11 @@ resolves.
   a comment, spacing or the case of a name cannot hide a call, and a name that is
   only inside a comment or a string is not a read. Custom functions are followed
   into their bodies (and the ones those call), and an unstored calculation the
-  formula reads is followed into its own formula, because a stored value reads it
-  with full data.
+  formula reads is followed into its own formula, however long the chain, because
+  a stored value reads it with full data; a summary field is read through its
+  source field and break field. When there is too much to follow, the save is
+  refused, not let through. The optimization fix that stores a calculation is
+  checked as the account that asks for it.
 - **Changes that reach formulas already saved**: changing, renaming or deleting
   a custom function, changing an unstored calculation, a table occurrence, or the
   file a data source points at, checks every stored formula that reaches what
