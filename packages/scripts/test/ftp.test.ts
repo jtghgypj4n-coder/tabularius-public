@@ -43,7 +43,8 @@ test('a delete reaches the server with the path as the login folder sees it', as
     const missing = await ftpTransfer({ op: 'delete', url: `ftp://127.0.0.1:${f.port}/nothing.txt`, user: 'ann', password: 'pw' }, { policy, timeoutMs: 5000 });
     assert.equal(missing.status, 0);
     assert.equal(missing.code, 21);
-    assert.match(missing.error!, /550 no such file/);
+    assert.match(missing.error!, /did not delete the file: 550/);
+    assert.doesNotMatch(missing.error!, /no such file/, 'the server\'s own words are not passed on');
   } finally { await f.close(); }
 });
 
@@ -156,4 +157,59 @@ test('a server that sends a huge line, or never answers, ends the call', async (
     assert.equal(r.status, 0);
     assert.ok(Date.now() - started < 3000);
   } finally { held.forEach((s) => s.destroy()); await new Promise<void>((r) => quiet.close(() => r())); }
+});
+
+test('a stalled connection or handshake ends at the time limit or the caller\'s stop, not never', async () => {
+  const held: Socket[] = [];
+  const quiet = createServer((s) => { held.push(s); s.on('error', () => {}); });
+  await new Promise<void>((r) => quiet.listen(0, '127.0.0.1', r));
+  const port = (quiet.address() as AddressInfo).port;
+  try {
+    // ftps to a server that accepts and never answers the TLS hello.
+    const started = Date.now();
+    const slow = await ftpTransfer({ op: 'delete', url: `ftps://127.0.0.1:${port}/a`, user: 'u', password: 'p' }, { policy, timeoutMs: 300 });
+    assert.equal(slow.status, 0);
+    assert.equal(slow.code, 7);
+    assert.match(slow.error!, /too long|stopped/);
+    assert.ok(Date.now() - started < 3000, 'the time limit ended it');
+    // The caller's stop ends it too.
+    const stop = new AbortController();
+    setTimeout(() => stop.abort(), 100);
+    const again = Date.now();
+    const stopped = await ftpTransfer({ op: 'delete', url: `ftps://127.0.0.1:${port}/a`, user: 'u', password: 'p' }, { policy, timeoutMs: 20_000, signal: stop.signal });
+    assert.match(stopped.error!, /too long|stopped/);
+    assert.ok(Date.now() - again < 3000, 'the stop ended it');
+  } finally { held.forEach((s) => s.destroy()); await new Promise<void>((r) => quiet.close(() => r())); }
+});
+
+test('a server that floods replies is cut off', async () => {
+  const flood = createServer((s) => { s.on('error', () => {}); s.write('220 hi\r\n' + '226 x\r\n'.repeat(5000)); });
+  await new Promise<void>((r) => flood.listen(0, '127.0.0.1', r));
+  try {
+    const r = await ftpTransfer({ op: 'put', url: `ftp://127.0.0.1:${(flood.address() as AddressInfo).port}/a`, user: 'u', password: 'p', bytes: new Uint8Array(1) }, { policy, timeoutMs: 3000 });
+    assert.equal(r.status, 0);
+    assert.match(r.error!, /far more replies/);
+  } finally { await new Promise<void>((r) => flood.close(() => r())); }
+});
+
+test('a data port that is a low one, or the control connection\'s own, is not used', async () => {
+  for (const reportPort of [() => 80, (_: number, control: number) => control]) {
+    const f = await fakeFtp({ reportPort });
+    try {
+      const r = await put(f, '/a', new Uint8Array(1));
+      assert.equal(r.code, 25);
+      assert.match(r.error!, /no port/);
+      assert.equal(f.commands.some((c) => c.startsWith('STOR')), false);
+      assert.equal(f.dataConnections, 0);
+    } finally { await f.close(); }
+  }
+});
+
+test('an allow-list entry that is a host name lets the data connection through too', async () => {
+  const f = await fakeFtp();
+  try {
+    const r = await ftpTransfer({ op: 'put', url: `ftp://localhost:${f.port}/n.txt`, user: 'ann', password: 'pw', bytes: new Uint8Array([9]) }, { policy: { private: ['localhost'] }, timeoutMs: 5000 });
+    assert.deepEqual(r, { status: 226 });
+    assert.deepEqual([...f.uploads.get('/n.txt')!], [9]);
+  } finally { await f.close(); }
 });

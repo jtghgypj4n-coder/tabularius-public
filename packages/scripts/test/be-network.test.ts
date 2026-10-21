@@ -187,3 +187,27 @@ test('in outbound test mode, the file variants and FTP calls go to the Outbox wi
     ['STOR', 'ftp://ftp.example.com/in/five.bin', 5], ['DELE', 'ftp://ftp.example.com/in/five.bin', 0],
   ]);
 });
+
+test('FTP calls follow the file\'s own switch, read only the documents folder, and refuse a file over 10 MB without reading it', async () => {
+  const docs = join(dir, 'Documents');
+  mkdirSync(docs, { recursive: true });
+  writeFileSync(join(docs, 'ftp-big.bin'), '');
+  truncateSync(join(docs, 'ftp-big.bin'), 10 * 1024 * 1024 + 1); // sparse
+  const f = await fakeFtp();
+  try {
+    script('FtpLimits', [
+      `Set Variable [ $out ; Value: BE_FTP_UploadFile ( "ftp://127.0.0.1:${f.port}/x" ; Get ( DocumentsPath ) & "../escape.bin" ; "ann" ; "pw" ) & "|" & BE_GetLastError ]`,
+      `Set Variable [ $big ; Value: BE_FTP_UploadFile ( "ftp://127.0.0.1:${f.port}/x" ; Get ( DocumentsPath ) & "ftp-big.bin" ; "ann" ; "pw" ) & "|" & BE_GetLastError ]`,
+      'Exit Script [ Text Result: $out & "," & $big ]',
+    ].join('\n'));
+    const { fetch } = net();
+    const options = { [TEST_ONLY_CUSTOM_FETCH]: true as const, network: fetch, networkAllow: ['127.0.0.1'], documents: docs };
+    assert.equal((await runScript(store, 'FtpLimits', options)).result, '2|2,25|25');
+    // The file's own switch is off while the run could reach the network: nothing is said to the server.
+    script('FtpSwitch', `Set Variable [ $r ; Value: BE_FTP_Delete ( "ftp://127.0.0.1:${f.port}/old/file.txt" ; "ann" ; "pw" ) & "|" & BE_GetLastError ]\nExit Script [ Text Result: $r ]`);
+    assert.equal((await runScript(store, 'FtpSwitch', options)).result, '|0');
+    f.commands.length = 0;
+    assert.equal((await runScript(store, 'FtpSwitch', { ...options, networkFiles: () => false })).result, '?');
+    assert.deepEqual(f.commands, []);
+  } finally { await f.close(); }
+});

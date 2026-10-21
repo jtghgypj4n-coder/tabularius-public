@@ -14,7 +14,7 @@ export interface Fake {
 }
 
 /** A passive-mode FTP server on 127.0.0.1. `pasvIp` is what PASV claims the data address is; `epsv` false makes EPSV fail. */
-export async function fakeFtp(options: { password?: string; pasvIp?: string; epsv?: boolean; refuseStor?: boolean; hugeLine?: boolean; tls?: { key: string; cert: string } } = {}): Promise<Fake> {
+export async function fakeFtp(options: { password?: string; pasvIp?: string; epsv?: boolean; refuseStor?: boolean; hugeLine?: boolean; reportPort?: (real: number, control: number) => number; tls?: { key: string; cert: string } } = {}): Promise<Fake> {
   const make = (listener?: (s: Socket) => void): Server => (options.tls ? tlsServer(options.tls, listener) : createServer(listener)) as Server;
   const commands: string[] = [];
   const uploads = new Map<string, Buffer>();
@@ -37,6 +37,7 @@ export async function fakeFtp(options: { password?: string; pasvIp?: string; eps
       dataSocket = new Promise<Socket>((got) => dataServer!.once(options.tls ? 'secureConnection' : 'connection', (s: Socket) => { dataConnections++; open.add(s); s.on('close', () => open.delete(s)); s.on('error', () => {}); got(s); }));
       dataServer.listen(0, '127.0.0.1', () => resolve((dataServer!.address() as AddressInfo).port));
     });
+    const shown = (real: number) => options.reportPort ? options.reportPort(real, (server.address() as AddressInfo).port) : real;
     let pending = '';
     control.on('data', async (chunk: string) => {
       pending += chunk;
@@ -52,9 +53,9 @@ export async function fakeFtp(options: { password?: string; pasvIp?: string; eps
           case 'TYPE': say('200 binary'); break;
           case 'PBSZ': say('200 ok'); break;
           case 'PROT': say(arg === 'P' ? '200 private' : '534 no'); break;
-          case 'EPSV': if (options.epsv === false) say('500 not understood'); else say(`229 Entering Extended Passive Mode (|||${await listen()}|)`); break;
+          case 'EPSV': if (options.epsv === false) say('500 not understood'); else say(`229 Entering Extended Passive Mode (|||${shown(await listen())}|)`); break;
           case 'PASV': {
-            const port = await listen();
+            const port = shown(await listen());
             say(`227 Entering Passive Mode (${(options.pasvIp ?? '127.0.0.1').replace(/\./g, ',')},${port >> 8},${port & 255})`);
             break;
           }
