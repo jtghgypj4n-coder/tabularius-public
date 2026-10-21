@@ -5,21 +5,42 @@ don't need FileMaker Pro or FileMaker Server.
 
 ## 1. Get Tabularius
 
-Pick one:
+On macOS or Linux, one command installs the single-file program. It needs no Node and
+nothing else, and takes a minute or two:
 
-- **The single-file program** for your system (macOS, Linux or Windows),
-  from the build artifacts of the release workflow. Nothing else to install.
-  On macOS and Linux, make it runnable first: `chmod +x tabularius-*`.
-- **From this repository**, with Node 22.20 or newer:
-  `./scripts/install.sh` on macOS or Linux, or
-  `powershell -ExecutionPolicy Bypass -File scripts\install.ps1` on Windows.
-  Both put a `tabularius` command on your PATH.
+<!-- docs-example: illustrative -->
+```sh
+curl -fsSL https://github.com/sitotisai/tabularius/releases/latest/download/get.sh | sh
+```
+
+It picks the build for your system (macOS or Linux, arm64 or x64), checks it against the
+release's `SHA256SUMS`, and puts `tabularius` in `~/.local/bin` (it tells you if that isn't on
+your PATH). `--version 0.1.0` installs a specific release instead of the latest. The script is
+[`scripts/get.sh`](scripts/get.sh); read it first if you like.
 
 **Want to look around first?** Run `tabularius demo`. It hosts a small sample app (companies,
 contacts and deals) for this computer only, opens it in your browser, prints a one-time
 password for the `Admin` account, and deletes everything when you press Ctrl-C. Nothing goes
 off your computer. `--starter tasks` (also `inventory`, `invoicing`, `booking`) picks another
 app, and `--keep <folder>` keeps the files.
+
+Other ways to get it:
+
+- **Download it yourself** from the [Releases page](https://github.com/sitotisai/tabularius/releases):
+  the file named `tabularius-<version>-<system>-<processor>` (`macos` or `linux`, `arm64` or `x64`),
+  and check it with `sha256sum -c SHA256SUMS --ignore-missing` (`shasum -a 256 -c` on macOS).
+  Make it runnable with `chmod +x`. A file saved by a browser is quarantined by macOS, which won't
+  run it until you clear that: `xattr -d com.apple.quarantine <file>`. (`get.sh` uses curl, which
+  doesn't set the quarantine.)
+- **Windows.** The release lists a `windows-x64.exe` program when it was built and passed its
+  check for that release; Windows is the least tested system ([versions](docs/versioning.md)). Without
+  one, use `powershell -ExecutionPolicy Bypass -File scripts\install.ps1` from a checkout, which
+  needs Git and puts a `tabularius` command on your PATH.
+- **Linux with musl (Alpine)** can't run the program, which needs glibc. Use Docker
+  (`docker compose up -d`) or the checkout install below.
+- **From a checkout**, with Node 22.20 or newer: `./scripts/install.sh` on macOS or Linux. It
+  puts a `tabularius` command on your PATH, and is the way to run Tabularius as a service
+  with `--service` (see [ADMIN.md](ADMIN.md#install)).
 
 ## 2. Start it
 

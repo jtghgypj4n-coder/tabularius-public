@@ -3,14 +3,13 @@
 // changes it proposes are shown with an Apply button and change nothing until
 // a person with [Full Access] applies them.
 
-import { renderChart } from './chart.ts';
 import { webViewer } from './layout.ts';
 import { modernPage } from './page-source.ts';
 import { automationCard, type AutomationOut } from './automation-view.ts';
 import { connectionCard } from './connection-card.ts';
 import { cleanupCard, type CleanupScan } from './cleanup-view.ts';
 import { agentPlanCard, type AgentPlan } from './agent-view.ts';
-import { renderWidget, type Widget, type WidgetData } from './dashboard-view.ts';
+import type { Widget, WidgetData } from './dashboard-view.ts';
 import { httpProblem } from './http-problem.ts';
 import { chatUsage, classifyError, confirmAction, destructiveChanges, ownerOf, toolView, type ChatError, type ToolStep } from './assistant-chat.ts';
 
@@ -311,12 +310,17 @@ export function suggestions(c: AssistantContext, full = false): string[] {
 /** A chart the assistant drew, as SVG, with a note when it shows only the largest groups. */
 function chartCard(c: ChartOut): HTMLElement {
   const box = h('figure', { class: 'ai-chart' });
-  try {
-    box.append(renderChart({ type: c.type, source: 'found-set', title: c.title, xTitle: c.xTitle, yTitle: c.yTitle, series: [{ data: '' }] },
-      { title: c.title, xTitle: c.xTitle, yTitle: c.yTitle, categories: c.categories, series: c.series }, 340, 230));
-  } catch {
-    box.append(h('p', {}, `(Couldn't draw the chart "${c.title}")`));
-  }
+  const loading = h('p', {}, 'Drawing chart…');
+  box.append(loading);
+  void import('./chart.ts').then(({ renderChart }) => {
+    if (!loading.isConnected) return;
+    try {
+      loading.replaceWith(renderChart({ type: c.type, source: 'found-set', title: c.title, xTitle: c.xTitle, yTitle: c.yTitle, series: [{ data: '' }] },
+        { title: c.title, xTitle: c.xTitle, yTitle: c.yTitle, categories: c.categories, series: c.series }, 340, 230));
+    } catch {
+      loading.textContent = `(Couldn't draw the chart "${c.title}")`;
+    }
+  });
   box.append(h('figcaption', {}, `${c.layout}${c.groupCount ? ` · ${c.categories.length} of ${c.groupCount} groups` : ''}`));
   return box;
 }
@@ -738,9 +742,14 @@ export class AssistantPanel {
   private dashboard(d: DashboardOut): HTMLElement {
     const name = h('input', { type: 'text', 'aria-label': 'Dashboard name' }) as HTMLInputElement;
     name.value = d.name;
+    const widgets = d.data.map(() => h('p', {}, 'Drawing dashboard…'));
     const card = h('div', { class: 'ai-proposal ai-dashboard' }, h('div', { class: 'ai-proposal-title' }, 'Dashboard'), name,
-      ...(d.description ? [h('div', { class: 'ai-note' }, d.description)] : []),
-      ...d.data.map((w) => renderWidget(w, { width: 340, height: 220 })));
+      ...(d.description ? [h('div', { class: 'ai-note' }, d.description)] : []), ...widgets);
+    void import('./dashboard-view.ts').then(({ renderWidget }) => {
+      for (const [i, widget] of d.data.entries()) {
+        if (widgets[i]!.isConnected) widgets[i]!.replaceWith(renderWidget(widget, { width: 340, height: 220 }));
+      }
+    });
     const save = h('button', { type: 'button', class: 'primary' }, 'Save dashboard');
     const status = h('span', { class: 'ai-note' });
     save.addEventListener('click', async () => {

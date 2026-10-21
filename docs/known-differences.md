@@ -111,7 +111,7 @@ part of it.
 
 | What differs or is unknown | How it shows | What would settle it | Where it is written |
 | --- | --- | --- | --- |
-| Patterns marked unverified run here but the Claris pages do not say what FileMaker gives (repeating-field names in the Data API, portal sort and filter in Go to Portal Row and in portalData), and partial ones differ in a stated part (the Install Menu Set script step has no text form; a layout generated for another file's table has no fields) | The page says so in the pattern's notes; the checks pin what happens here | A FileMaker run of each scenario, or a Claris page that states the result | [docs/solution-patterns.md](solution-patterns.md) — “(the whole page)” |
+| Patterns marked unverified run here but the Claris pages do not say what FileMaker gives (repeating-field names in the Data API, portal sort and filter in Go to Portal Row and in portalData), and partial ones differ in a stated part (the Install Menu Set script step has no text form) | The page says so in the pattern's notes; the checks pin what happens here | A FileMaker run of each scenario, or a Claris page that states the result | [docs/solution-patterns.md](solution-patterns.md) — “(the whole page)” |
 
 ## Sorting and languages
 

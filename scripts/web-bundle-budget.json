@@ -1,0 +1,227 @@
+{
+  "generatedFrom": "measured source bytes + 20%",
+  "assets": {
+    "packages/web/src/main.ts": {
+      "raw": 539822,
+      "gzip": 147977
+    },
+    "packages/web/src/layout.ts": {
+      "raw": 100386,
+      "gzip": 30770
+    },
+    "packages/web/src/assistant.ts": {
+      "raw": 68448,
+      "gzip": 20685
+    },
+    "packages/web/src/api.ts": {
+      "raw": 54400,
+      "gzip": 15455
+    },
+    "packages/web/src/menubar.ts": {
+      "raw": 29295,
+      "gzip": 8704
+    },
+    "packages/web/src/offline.ts": {
+      "raw": 26822,
+      "gzip": 7937
+    },
+    "packages/web/src/import-dialog.ts": {
+      "raw": 23716,
+      "gzip": 7678
+    },
+    "packages/web/src/preview.ts": {
+      "raw": 14428,
+      "gzip": 4842
+    },
+    "packages/web/src/device.ts": {
+      "raw": 14394,
+      "gzip": 4728
+    },
+    "packages/web/src/calendar-dialog.ts": {
+      "raw": 13876,
+      "gzip": 4589
+    },
+    "packages/web/src/assistant-chat.ts": {
+      "raw": 12311,
+      "gzip": 4533
+    },
+    "packages/web/src/live.ts": {
+      "raw": 11060,
+      "gzip": 3786
+    },
+    "packages/web/src/cleanup-view.ts": {
+      "raw": 10640,
+      "gzip": 3615
+    },
+    "packages/web/src/webauthn.ts": {
+      "raw": 10557,
+      "gzip": 2900
+    },
+    "packages/web/src/explain.ts": {
+      "raw": 10286,
+      "gzip": 3429
+    },
+    "packages/web/src/agent-view.ts": {
+      "raw": 9513,
+      "gzip": 3497
+    },
+    "packages/web/src/dashboards/digest.ts": {
+      "raw": 9311,
+      "gzip": 3336
+    },
+    "packages/web/src/macro.ts": {
+      "raw": 8718,
+      "gzip": 3257
+    },
+    "packages/web/src/record-history.ts": {
+      "raw": 8700,
+      "gzip": 3251
+    },
+    "packages/web/src/import-tables-dialog.ts": {
+      "raw": 8655,
+      "gzip": 3096
+    },
+    "packages/web/src/format.ts": {
+      "raw": 8243,
+      "gzip": 3093
+    },
+    "packages/web/src/page-source.ts": {
+      "raw": 8235,
+      "gzip": 3536
+    },
+    "packages/web/src/web-viewer.ts": {
+      "raw": 7804,
+      "gzip": 2734
+    },
+    "packages/web/src/styled.ts": {
+      "raw": 7649,
+      "gzip": 2900
+    },
+    "packages/web/src/connection-card.ts": {
+      "raw": 7385,
+      "gzip": 2739
+    },
+    "packages/web/src/styles.ts": {
+      "raw": 7314,
+      "gzip": 2921
+    },
+    "packages/web/src/refresh.ts": {
+      "raw": 6810,
+      "gzip": 2483
+    },
+    "packages/web/src/import-tables-model.ts": {
+      "raw": 5974,
+      "gzip": 2403
+    },
+    "packages/web/src/responsive.ts": {
+      "raw": 5949,
+      "gzip": 2360
+    },
+    "packages/web/src/automation-view.ts": {
+      "raw": 5910,
+      "gzip": 2200
+    },
+    "packages/web/src/macro-view.ts": {
+      "raw": 5565,
+      "gzip": 2180
+    },
+    "packages/web/src/toast.ts": {
+      "raw": 5490,
+      "gzip": 1997
+    },
+    "packages/web/src/url-state.ts": {
+      "raw": 4354,
+      "gzip": 1749
+    },
+    "packages/web/src/change-relay.ts": {
+      "raw": 3699,
+      "gzip": 1535
+    },
+    "packages/web/src/prefs-merge.ts": {
+      "raw": 3438,
+      "gzip": 1316
+    },
+    "packages/web/src/finds.ts": {
+      "raw": 3084,
+      "gzip": 1428
+    },
+    "packages/web/src/http-problem.ts": {
+      "raw": 2500,
+      "gzip": 1151
+    },
+    "packages/web/src/browser-features.ts": {
+      "raw": 2410,
+      "gzip": 968
+    },
+    "packages/web/src/design/dom.ts": {
+      "raw": 2391,
+      "gzip": 1013
+    },
+    "packages/web/src/rotation.ts": {
+      "raw": 2270,
+      "gzip": 1089
+    },
+    "packages/web/src/caret.ts": {
+      "raw": 1922,
+      "gzip": 773
+    },
+    "packages/web/src/design/dry-run-summary.ts": {
+      "raw": 1822,
+      "gzip": 914
+    },
+    "packages/web/src/announcer.ts": {
+      "raw": 1720,
+      "gzip": 809
+    },
+    "packages/web/src/sign-in-error.ts": {
+      "raw": 1608,
+      "gzip": 891
+    },
+    "packages/web/src/url-script.ts": {
+      "raw": 1467,
+      "gzip": 732
+    },
+    "packages/web/src/brand.ts": {
+      "raw": 1426,
+      "gzip": 773
+    },
+    "packages/web/src/keystrokes.ts": {
+      "raw": 1251,
+      "gzip": 708
+    },
+    "packages/web/src/updating.ts": {
+      "raw": 1049,
+      "gzip": 574
+    },
+    "packages/web/src/return-focus.ts": {
+      "raw": 849,
+      "gzip": 497
+    },
+    "packages/web/src/script-error.ts": {
+      "raw": 706,
+      "gzip": 411
+    },
+    "packages/web/src/keep-focus.ts": {
+      "raw": 692,
+      "gzip": 416
+    },
+    "packages/web/tokens.css": {
+      "raw": 4895,
+      "gzip": 2028
+    },
+    "packages/web/app.css": {
+      "raw": 107526,
+      "gzip": 22420
+    }
+  },
+  "largest": [
+    "packages/web/src/main.ts",
+    "packages/web/src/layout.ts",
+    "packages/web/src/assistant.ts",
+    "packages/web/src/api.ts",
+    "packages/web/src/menubar.ts",
+    "packages/web/src/offline.ts",
+    "packages/web/src/import-dialog.ts",
+    "packages/web/src/preview.ts"
+  ]
+}

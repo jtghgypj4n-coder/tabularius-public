@@ -64,8 +64,13 @@ try {
   const info = spawnSync(exe, ['info', fixture], { env, encoding: 'utf8' });
   assert.equal(info.status, 0, info.stderr);
   assert.equal(JSON.parse(info.stdout).tables, 10);
+  // The command line an installed service uses (service.ts): `--no-warnings --eval <code> <main.ts> serve ...`.
+  const unpacked = join(env.TABULARIUS_HOME, 'runtime', readdirSync(join(env.TABULARIUS_HOME, 'runtime')).find((d) => !d.includes('.partial-'))!);
+  const service = spawnSync(exe, ['--no-warnings', '--eval', 'throw new Error("a service\'s --eval code must not run")', join(unpacked, 'packages', 'cli', 'src', 'main.ts'), 'version'], { env, encoding: 'utf8' });
+  assert.equal(service.status, 0, service.stderr);
+  assert.match(service.stdout, /^tabularius \d+\.\d+\.\d+/, 'the service\'s command line starts the program');
   // A JavaScript custom function runs, in its sandbox: no files, no process.
-  const runtime = join(env.TABULARIUS_HOME, 'runtime', readdirSync(join(env.TABULARIUS_HOME, 'runtime')).find((d) => !d.includes('.partial-'))!);
+  const runtime = unpacked;
   const check = join(work, 'js-check.mjs');
   writeFileSync(check, [
     `import { callJavaScript, stopJavaScript } from ${JSON.stringify(pathToFileURL(join(runtime, 'packages', 'store', 'src', 'javascript.ts')).href)};`,

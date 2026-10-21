@@ -29,8 +29,8 @@ const MAX_LAYOUTS = 4;
 const MAX_DESIGN = 300_000;
 
 /** The changes as they would apply to this file, described. Throws (like checkDesign) when they would not apply. */
-export function previewDesign(store: Store, changes: DesignOp[]): DesignPreview {
-  const { schema, designs } = store.checkDesign(changes);
+export function previewDesign(store: Store, changes: DesignOp[], opts: { readOtherFile?: (file: Store) => boolean } = {}): DesignPreview {
+  const { schema, designs } = store.checkDesign(changes, opts);
   const lines = describeDiff(store.schema, schema);
   const was = new Map(store.designs().layouts.map((d) => [d.id, d]));
   const layouts: PreviewLayout[] = [];

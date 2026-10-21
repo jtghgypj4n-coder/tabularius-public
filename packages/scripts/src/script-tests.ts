@@ -46,6 +46,8 @@ export interface ScriptTestRunOptions {
   diff?: boolean;
   /** Comparing two versions of a script: reads every global variable and global field, the client actions and the mode at the end, and every record changed. */
   compare?: boolean;
+  /** Administrative cancellation signal for a run under test. */
+  stop?: AbortSignal;
 }
 
 /** A text value as a formula: a quoted literal. */
@@ -113,9 +115,9 @@ const shown = (v: unknown) => {
  * What a run did to records, from its audit entries in order: each record once, with each field's value
  * before the run and after it. A record created and then deleted in the same run left nothing, so it isn't listed.
  */
-export function recordChanges(entries: AuditEntry[], limit = DIFF_RECORDS, redact?: (value: string, field: string) => string): RecordChanges {
-  // Keep full values for comparison and redaction; clip only after masking.
-  const display = (value: unknown) => redact ? value === null || value === undefined ? '' : typeof value === 'string' ? value : JSON.stringify(value) : shown(value);
+export function recordChanges(entries: AuditEntry[], limit = DIFF_RECORDS, redact?: (value: string, field: string) => string, clipValues = true): RecordChanges {
+  // Keep full normalized values internally. Redaction and clipping belong to the report, not equality.
+  const display = (value: unknown) => value === null || value === undefined ? '' : typeof value === 'string' ? value : JSON.stringify(value);
   const byRecord = new Map<string, RecordChange & { values: Map<string, { before: string; after: string }> }>();
   const truncated: { table: string; records: number }[] = [];
   for (const e of entries) {
@@ -168,7 +170,9 @@ export function recordChanges(entries: AuditEntry[], limit = DIFF_RECORDS, redac
   const records = [...byRecord.values()].map(({ values, ...r }) => ({
     ...r,
     fields: [...values].filter(([, x]) => r.kind !== 'update' || x.before !== x.after).map(([field, x]) => ({
-      field, before: redact ? shown(redact(x.before, field)) : x.before, after: redact ? shown(redact(x.after, field)) : x.after,
+      field,
+      before: clipValues ? shown(redact ? redact(x.before, field) : x.before) : redact ? redact(x.before, field) : x.before,
+      after: clipValues ? shown(redact ? redact(x.after, field) : x.after) : redact ? redact(x.after, field) : x.after,
     })),
   })).filter((r) => r.kind !== 'update' || r.fields.length);
   return { records: records.slice(0, limit), more: Math.max(0, records.length - limit), truncated };
@@ -223,6 +227,7 @@ async function runCase(store: Store, script: Script, given: ScriptTestGiven, wan
         ...(given.ai?.length ? { ai: cannedAi(given.ai) } : {}),
         ...(opts.profile ? { profile: opts.profile } : {}),
         trace: true,
+        ...(opts.stop ? { stop: opts.stop } : {}),
       });
     } catch (e) {
       return { crash: e instanceof Error ? e.message : String(e), ended: {} };
@@ -254,7 +259,7 @@ async function runCase(store: Store, script: Script, given: ScriptTestGiven, wan
     if (opts.diff) {
       // Every file the run could open: their changes are part of what it would do.
       const read = [store, ...(opts.others ?? [])].map((s, i) => s.auditLog({ afterSeq: i ? othersSince[i - 1] : since, limit: DIFF_ENTRIES }));
-      const changes = recordChanges(read.flat(), opts.compare ? Infinity : undefined);
+      const changes = recordChanges(read.flat(), opts.compare ? Infinity : undefined, undefined, !opts.compare);
       return { r, ended, ...(state ? { state } : {}), changes: read.some((x) => x.length >= DIFF_ENTRIES) ? { ...changes, incomplete: true } : changes };
     }
     return { r, ended, ...(state ? { state } : {}) };
@@ -290,10 +295,15 @@ export async function runScriptTests(store: Store, tests: ScriptTest[], opts: Sc
       for (const [k, v] of Object.entries(e.variables ?? {})) check(k, v, a.variables?.[k]);
       for (const [k, v] of Object.entries(e.fields ?? {})) check(k, v, a.fields?.[k]);
     }
+    const stopAction = ran.r?.actions.find((x) => x.step === 'Halt Script' && typeof x.reason === 'string' && /(?:limit|canceled|cancelled|runaway|memory)/i.test(x.reason));
+    const termination = ran.r?.halted && (opts.stop?.aborted || stopAction)
+      ? typeof stopAction?.reason === 'string' ? stopAction.reason : 'canceled from the admin console'
+      : undefined;
     const stopped = ran.r?.error ? ran.r.trace?.slice().reverse().find((x) => x.error && x.message) : undefined;
+    if (termination) failures.push({ what: 'completion', expected: 'completed normally', actual: 'incomplete' });
     out.push({
       id: t.id, name: t.name, script: script.name, passed: !ran.crash && !failures.length, failures,
-      ...(ran.crash ? { message: ran.crash } : stopped ? { message: `Line ${stopped.index + 1}: ${stopped.message}` } : {}),
+      ...(ran.crash ? { message: ran.crash } : termination ? { message: `Script test incomplete: ${termination}` } : stopped ? { message: `Line ${stopped.index + 1}: ${stopped.message}` } : {}),
       steps: ran.r?.steps ?? 0, ms: Date.now() - started,
     });
   }

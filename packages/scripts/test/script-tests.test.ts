@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
 import { createStore, Store } from '@tabularius/store';
 import { recordScriptTest, runScriptTests } from '../src/index.ts';
 
@@ -103,6 +104,39 @@ test('a case whose layout is gone fails on its own; the other cases still run', 
   assert.equal(a.passed, false);
   assert.match(a.message ?? '', /found set/);
   assert.equal(b.passed, true, JSON.stringify(b));
+});
+
+test('draft comparison compares complete long field values', async () => {
+  const { compareScriptDraft } = await import('../src/index.ts');
+  const original = `${'a'.repeat(2000)}X`;
+  const changed = `${'a'.repeat(2000)}Y`;
+  store.applyDesign([{ op: 'createTable', name: 'LongValues', fields: [{ name: 'Value', type: 'text' }] }]);
+  store.create('LongValues', { Value: '' });
+  store.applyDesign([
+    { op: 'createScript', name: 'Long value', text: `Set Field [ LongValues::Value ; "${original}" ]` },
+  ]);
+  const script = store.schema.scripts.find((s) => s.name === 'Long value')!;
+  const comparison = await compareScriptDraft(store, script.id, `Set Field [ LongValues::Value ; "${changed}" ]`, [{ name: 'long tail', given: { layout: 'LongValues' } }], []);
+  assert.equal(comparison.cases[0].same, false);
+  assert.equal(comparison.equal, false);
+  assert.equal(comparison.cases[0].differences.some((d) => d.what === 'records changed'), true);
+});
+
+test('a resource-limited script test fails with an explanation while intentional Halt Script can pass', async () => {
+  const childPath = join(import.meta.dirname, 'script-tests-termination-child.mjs');
+  const child = spawnSync(process.execPath, [childPath], { encoding: 'utf8', timeout: 5_000 });
+  assert.equal(child.error, undefined, child.error?.message);
+  assert.equal(child.status, 0, child.stderr);
+  const { limited, canceled } = JSON.parse(child.stdout);
+  assert.equal(limited.passed, false, JSON.stringify(limited));
+  assert.match(limited.message ?? '', /step limit/i);
+  assert.equal(canceled.passed, false, JSON.stringify(canceled));
+  assert.match(canceled.message ?? '', /canceled|cancelled/i);
+
+  store.applyDesign([{ op: 'createScript', name: 'Intentional halt', text: 'Halt Script' }]);
+  const haltScript = store.schema.scripts.find((s) => s.name === 'Intentional halt')!;
+  const halted = await runScriptTests(store, [{ id: 'halt', script: haltScript.id, name: 'intentional halt', given: {}, expect: { error: 0 } }]);
+  assert.equal(halted[0].passed, true, JSON.stringify(halted[0]));
 });
 
 test('a case is kept small: long text, long lists and odd find requests are refused', () => {
