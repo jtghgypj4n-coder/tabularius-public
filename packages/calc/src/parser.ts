@@ -7,7 +7,7 @@
 // field is a single word.
 
 import { CalcError, CalcNestingError, ERR, exactIntegerText } from './values.ts';
-import { unknownFunctionId } from './unknown.ts';
+import { nodeChildren, unknownFunctionId } from './unknown.ts';
 
 const MISSING = /^<(Field|Table|Function) Missing>/;
 /** A name the file decoder could not resolve, preserved verbatim for reporting. */
@@ -500,28 +500,48 @@ export function fieldSpans(src: string, names: NameTable | CalcNames = new NameT
   });
 }
 
+/**
+ * Recursive consumers have a separate stack bound from the parser's syntactic nesting limit.
+ * Calls and Let scopes use more stack frames than binary operators. Weight those
+ * edges twice so generated 1,000-term chains fit without admitting 1,000 nested calls.
+ */
+export function assertTraversalDepth(root: Node): void {
+  const pending: [Node, number][] = [[root, 0]];
+  while (pending.length) {
+    const [node, depth] = pending.pop()!;
+    if (depth > 1024) throw new CalcNestingError(ERR.calculation, 'Calculation tree exceeds the supported weighted depth of 1,024');
+    const cost = node.k === 'call' || node.k === 'let' ? 2 : 1;
+    for (const child of nodeChildren(node)) pending.push([child, depth + cost]);
+  }
+}
+
 /** Fields a parsed formula reads, for recomputing it when they change. */
 /** Fields a formula reads: field nodes, and one-word names not bound by an enclosing Let or While. */
 export function fieldRefs(n: Node, out: { occurrence?: string; name: string }[] = [], bound: Set<string> = new Set()): { occurrence?: string; name: string }[] {
+  assertTraversalDepth(n);
+  return collectFieldRefs(n, out, bound);
+}
+
+function collectFieldRefs(n: Node, out: { occurrence?: string; name: string }[] = [], bound: Set<string> = new Set()): { occurrence?: string; name: string }[] {
   switch (n.k) {
-    case 'field': out.push({ occurrence: n.occurrence, name: n.name }); if (n.rep) fieldRefs(n.rep, out, bound); break;
+    case 'field': out.push({ occurrence: n.occurrence, name: n.name }); if (n.rep) collectFieldRefs(n.rep, out, bound); break;
     case 'var':
       if (!n.name.startsWith('$') && !bound.has(n.name.toLowerCase())) out.push({ name: n.name });
-      if (n.rep) fieldRefs(n.rep, out, bound);
+      if (n.rep) collectFieldRefs(n.rep, out, bound);
       break;
-    case 'call': n.args.forEach((a) => fieldRefs(a, out, bound)); break;
+    case 'call': n.args.forEach((a) => collectFieldRefs(a, out, bound)); break;
     case 'let': {
       const inner = new Set(bound);
       for (const [name, b, rep] of n.binds) {
-        fieldRefs(b, out, inner);
-        if (rep) fieldRefs(rep, out, inner);
+        collectFieldRefs(b, out, inner);
+        if (rep) collectFieldRefs(rep, out, inner);
         inner.add(name.replace(/\[.*$/, '').toLowerCase());
       }
-      fieldRefs(n.body, out, inner);
+      collectFieldRefs(n.body, out, inner);
       break;
     }
-    case 'unary': fieldRefs(n.a, out, bound); break;
-    case 'bin': fieldRefs(n.a, out, bound); fieldRefs(n.b, out, bound); break;
+    case 'unary': collectFieldRefs(n.a, out, bound); break;
+    case 'bin': collectFieldRefs(n.a, out, bound); collectFieldRefs(n.b, out, bound); break;
   }
   return out;
 }

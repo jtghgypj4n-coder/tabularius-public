@@ -7,8 +7,9 @@ import { FUNCTIONS, pluginNotInstalled, type Fn } from './functions.ts';
 import { getParameter } from './get.ts';
 import { unknownFunctionId } from './unknown.ts';
 import { concatRuns } from './styled.ts';
+import { checkCalcTextSize } from './text-budget.ts';
 import { Decimal, decimalFunction, decimalNumberText, supportsDecimalFunction, withDecimalBudget } from './decimal.ts';
-import { NameTable, parse, type CalcNames, type Node } from './parser.ts';
+import { assertTraversalDepth, NameTable, parse, type CalcNames, type Node } from './parser.ts';
 import {
   CalcError, ERR, EMPTY, asBoolean, asNumber, asNumberOrEmpty, asText, bool, exactOf, fromExact, isBeyondDouble, isEmpty, num, text, tidy,
   type DateStyle, type Value,
@@ -324,13 +325,15 @@ export class Env {
     return this.ctx.dateOrder ?? 'MDY';
   }
 
-  /** The clock is shared by every loop and Decimal operation in this evaluation. */
-  checkWorkBudget(): void {
+  /** The clock is shared by every loop and Decimal operation; small batches charge every step. */
+  checkWorkBudget(steps = 1): void {
+    this.tick(steps);
+    this.checkClock();
     if (calculationTime() < this.workDeadline) return;
     this.workExhausted = true;
     const error = new CalcError(ERR.recursion, this.whileDepth
       ? this.whileBudgetMessage()
-      : `SetPrecision exceeded its ${WORK_BUDGET_MS} ms calculation work budget`);
+      : `Calculation exceeded its ${WORK_BUDGET_MS} ms calculation work budget`);
     markExecutionRefusal(error);
     throw error;
   }
@@ -350,6 +353,7 @@ export class Env {
       this.tick();
       return this.traced(n);
     }
+    assertTraversalDepth(n);
     this.steps = 0;
     this.workExhausted = false;
     const started = calculationTime();
@@ -398,8 +402,9 @@ export class Env {
     if (this.evaluating && calculationTime() >= this.stop) throw new ComplexityError('Calculation exceeds the supported work budget');
   }
 
-  private tick(): void {
-    if (++this.steps > EVALUATION_LIMIT.steps || ((this.steps & 1023) === 0 && calculationTime() >= this.stop)) {
+  private tick(steps = 1): void {
+    this.steps += steps;
+    if (this.steps > EVALUATION_LIMIT.steps || ((this.steps & 1023) < steps && calculationTime() >= this.stop)) {
       throw new ComplexityError('Calculation exceeds the supported work budget');
     }
   }
@@ -693,6 +698,7 @@ export class Env {
     let n = this.compiled.get(formula);
     if (!n) {
       n = parse(formula, this.names, locals);
+      assertTraversalDepth(n);
       if (this.compiled.size >= EVALUATION_LIMIT.cachedFormulas) this.compiled.clear();
       this.compiled.set(formula, n);
     }
@@ -806,6 +812,7 @@ export class Env {
         // Formatting on either side is kept (TextColor ( "Due" ; RGB ( 255 ; 0 ; 0 ) ) & " " & Date).
         const at = this.textOf(a);
         const bt = this.textOf(b);
+        checkCalcTextSize(at.length + bt.length);
         const ar = a.type === 'text' ? a.runs : undefined;
         const br = b.type === 'text' ? b.runs : undefined;
         const runs = ar?.length || br?.length ? concatRuns(ar, at.length, br, bt.length) : undefined;

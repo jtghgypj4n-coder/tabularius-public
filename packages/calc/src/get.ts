@@ -148,8 +148,7 @@ export function getParameter(param: string, env: Env): Value {
   const v = env.ctx.get?.(param);
   if (v !== undefined) return v;
   const name = param.toLowerCase();
-  const fallback = DEFAULTS[name];
-  if (fallback) return fallback(env);
+  if (Object.hasOwn(DEFAULTS, name)) return DEFAULTS[name](env);
   if (!GET_NAMES.has(name) && env.ctx.notice) {
     let seen = unknownNoticed.get(env.ctx);
     if (!seen) { seen = new Set(); unknownNoticed.set(env.ctx, seen); }
