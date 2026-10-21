@@ -542,27 +542,27 @@ The following reasons apply to the exact enumerated expressions in each named fu
 | [packages/store/src/fmexport.ts:226](../../packages/store/src/fmexport.ts#L226) `fmExport` | `Store.recordCount` (226); `Store.query` (227); `Store.containerInfo` (242); `Store.container` (249) | OPERATOR |
 | [packages/store/src/import.ts:91](../../packages/store/src/import.ts#L91) `addExternalSizeColumn` | `SQLite.all` (91); `SQLite.prepare` (91) | OPERATOR |
 | [packages/store/src/import.ts:103](../../packages/store/src/import.ts#L103) `writeDesign` | `SQLite.prepare` (103, 107) | OPERATOR |
-| [packages/store/src/import.ts:121](../../packages/store/src/import.ts#L121) `importDesigns` | `SQLite.all` (121); `SQLite.prepare` (121, 137, 139) | OPERATOR |
-| [packages/store/src/import.ts:157](../../packages/store/src/import.ts#L157) `applyFileAccountStatus` | `SQLite.get` (157, 159); `SQLite.prepare` (157, 159, 161, 164) | OPERATOR |
-| [packages/store/src/import.ts:184](../../packages/store/src/import.ts#L184) `createStore` | `SQLite.prepare` (184, 195) | OPERATOR |
-| [packages/store/src/import.ts:207](../../packages/store/src/import.ts#L207) `needsDesigns` | `SQLite.get` (207); `SQLite.prepare` (207) | OPERATOR |
-| [packages/store/src/import.ts:254](../../packages/store/src/import.ts#L254) `readState` | `SQLite.get` (254); `SQLite.prepare` (254) | OPERATOR |
-| [packages/store/src/import.ts:301](../../packages/store/src/import.ts#L301) `importFmp12/save` | `SQLite.prepare` (301) | OPERATOR |
-| [packages/store/src/import.ts:310](../../packages/store/src/import.ts#L310) `importFmp12` | `SQLite.prepare` (310, 320, 326, 332, 336, 351, 362, 437, 438); `SQLite.get` (326, 351); `SQLite.all` (332) | OPERATOR |
+| [packages/store/src/import.ts:123](../../packages/store/src/import.ts#L123) `importDesigns` | `SQLite.all` (123); `SQLite.prepare` (123, 139, 141) | OPERATOR |
+| [packages/store/src/import.ts:163](../../packages/store/src/import.ts#L163) `applyFileAccountStatus` | `SQLite.get` (163, 165); `SQLite.prepare` (163, 165, 167, 170) | OPERATOR |
+| [packages/store/src/import.ts:190](../../packages/store/src/import.ts#L190) `createStore` | `SQLite.prepare` (190, 201) | OPERATOR |
+| [packages/store/src/import.ts:213](../../packages/store/src/import.ts#L213) `needsDesigns` | `SQLite.get` (213); `SQLite.prepare` (213) | OPERATOR |
+| [packages/store/src/import.ts:260](../../packages/store/src/import.ts#L260) `readState` | `SQLite.get` (260); `SQLite.prepare` (260) | OPERATOR |
+| [packages/store/src/import.ts:307](../../packages/store/src/import.ts#L307) `importFmp12/save` | `SQLite.prepare` (307) | OPERATOR |
+| [packages/store/src/import.ts:316](../../packages/store/src/import.ts#L316) `importFmp12` | `SQLite.prepare` (316, 326, 332, 338, 342, 357, 368, 443, 444); `SQLite.get` (332, 357); `SQLite.all` (338) | OPERATOR |
 | [packages/store/src/layout-speed.ts:56](../../packages/store/src/layout-speed.ts#L56) `layoutCost/recordCount` | `Store.recordCount` (56) | DESIGN |
 | [packages/store/src/layout-speed.ts:419](../../packages/store/src/layout-speed.ts#L419) `speedContext` | `Store.recordCount` (419) | DESIGN |
 | [packages/store/src/privileges.ts:514](../../packages/store/src/privileges.ts#L514) `privilegeSets` | `SQLite.all` (514); `SQLite.prepare` (514) | AUTH |
 | [packages/store/src/privileges.ts:542](../../packages/store/src/privileges.ts#L542) `ensurePrivilegeTables` | `SQLite.all` (542); `SQLite.prepare` (542) | AUTH |
-| [packages/store/src/reconvert.ts:97](../../packages/store/src/reconvert.ts#L97) `meta` | `SQLite.get` (97); `SQLite.prepare` (97) | OPERATOR |
-| [packages/store/src/reconvert.ts:102](../../packages/store/src/reconvert.ts#L102) `tableExists` | `SQLite.get` (102); `SQLite.prepare` (102) | OPERATOR |
-| [packages/store/src/reconvert.ts:106](../../packages/store/src/reconvert.ts#L106) `columns` | `SQLite.all` (106); `SQLite.prepare` (106) | OPERATOR |
-| [packages/store/src/reconvert.ts:119](../../packages/store/src/reconvert.ts#L119) `reconvertCheck` | `SQLite.get` (119); `SQLite.prepare` (119) | OPERATOR |
-| [packages/store/src/reconvert.ts:194](../../packages/store/src/reconvert.ts#L194) `build` | `SQLite.get` (194); `SQLite.prepare` (194, 197, 202); `SQLite.all` (202) | OPERATOR |
-| [packages/store/src/reconvert.ts:229](../../packages/store/src/reconvert.ts#L229) `previewOf/count` | `SQLite.get` (229); `SQLite.prepare` (229) | OPERATOR |
-| [packages/store/src/reconvert.ts:242](../../packages/store/src/reconvert.ts#L242) `previewOf` | `SQLite.get` (242); `SQLite.prepare` (242) | OPERATOR |
-| [packages/store/src/reconvert.ts:262](../../packages/store/src/reconvert.ts#L262) `copyContainer` | `SQLite.get` (262); `SQLite.prepare` (262, 264, 270) | OPERATOR |
-| [packages/store/src/reconvert.ts:299](../../packages/store/src/reconvert.ts#L299) `carryRecords` | `SQLite.prepare` (299, 302, 303, 313, 319, 320); `SQLite.all` (302, 306, 319) | OPERATOR |
-| [packages/store/src/reconvert.ts:328](../../packages/store/src/reconvert.ts#L328) `carrySettings` | `SQLite.all` (328, 332, 340); `SQLite.prepare` (328, 332, 340, 341, 345); `SQLite.get` (345) | OPERATOR |
+| [packages/store/src/reconvert.ts:87](../../packages/store/src/reconvert.ts#L87) `meta` | `SQLite.get` (87); `SQLite.prepare` (87) | OPERATOR |
+| [packages/store/src/reconvert.ts:92](../../packages/store/src/reconvert.ts#L92) `tableExists` | `SQLite.get` (92); `SQLite.prepare` (92) | OPERATOR |
+| [packages/store/src/reconvert.ts:96](../../packages/store/src/reconvert.ts#L96) `columns` | `SQLite.all` (96); `SQLite.prepare` (96) | OPERATOR |
+| [packages/store/src/reconvert.ts:109](../../packages/store/src/reconvert.ts#L109) `reconvertCheck` | `SQLite.get` (109); `SQLite.prepare` (109) | OPERATOR |
+| [packages/store/src/reconvert.ts:184](../../packages/store/src/reconvert.ts#L184) `build` | `SQLite.get` (184); `SQLite.prepare` (184, 187, 192); `SQLite.all` (192) | OPERATOR |
+| [packages/store/src/reconvert.ts:219](../../packages/store/src/reconvert.ts#L219) `previewOf/count` | `SQLite.get` (219); `SQLite.prepare` (219) | OPERATOR |
+| [packages/store/src/reconvert.ts:232](../../packages/store/src/reconvert.ts#L232) `previewOf` | `SQLite.get` (232); `SQLite.prepare` (232) | OPERATOR |
+| [packages/store/src/reconvert.ts:252](../../packages/store/src/reconvert.ts#L252) `copyContainer` | `SQLite.get` (252); `SQLite.prepare` (252, 254, 260) | OPERATOR |
+| [packages/store/src/reconvert.ts:289](../../packages/store/src/reconvert.ts#L289) `carryRecords` | `SQLite.prepare` (289, 292, 293, 303, 309, 310); `SQLite.all` (292, 296, 309) | OPERATOR |
+| [packages/store/src/reconvert.ts:318](../../packages/store/src/reconvert.ts#L318) `carrySettings` | `SQLite.all` (318, 322, 330); `SQLite.prepare` (318, 322, 330, 331, 335); `SQLite.get` (335) | OPERATOR |
 | [packages/store/src/record-chain.ts:58](../../packages/store/src/record-chain.ts#L58) `ensureRecordChain` | `SQLite.all` (58); `SQLite.prepare` (58, 67, 68, 71); `SQLite.get` (67, 68) | CORE |
 | [packages/store/src/record-chain.ts:80](../../packages/store/src/record-chain.ts#L80) `linkRecordEntry` | `SQLite.prepare` (80, 81, 82, 85, 86); `SQLite.get` (81, 82) | CORE |
 | [packages/store/src/record-chain.ts:93](../../packages/store/src/record-chain.ts#L93) `pruneRecordEntries` | `SQLite.prepare` (93, 94, 95, 97); `SQLite.get` (94) | CORE |
