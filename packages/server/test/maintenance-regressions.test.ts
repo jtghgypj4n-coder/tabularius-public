@@ -158,3 +158,21 @@ test('AR-server-backup-ops-13 case 2', () => {
     assert.deepEqual(hidden.duplicates[0].related, []);
   } finally { done(); }
 });
+
+test('AR-server-backup-ops-13 case 3: a related table with no layout of its own name', () => {
+  const { store, done } = made();
+  try {
+    parents(store, false);
+    store.create('Children', { Key: 'B', Category: 'hidden' });
+    store.applyDesign([{ op: 'deleteLayout', layout: 'Children' }] as never);
+    assert.throws(() => store.layout('Children'));
+    const access = { view: true as const, edit: false as const, create: false as const, delete: false as const };
+    store.savePrivilegeSet({ name: 'LimitedChildren', records: access,
+      tables: { Children: { ...access, view: 'Category = "one"' } },
+      layouts: 'viewOnly', valueLists: 'viewOnly', scripts: 'viewOnly', extendedPrivileges: [] });
+    store.setPassword('limited', 'password1234', 'LimitedChildren');
+    const visible = scanData(store, { layout: 'Parents', checks: ['duplicates'] }, store.privileges('limited'));
+    assert.equal(visible.duplicates[0].related[0].records, 1);
+    assert.equal(scanData(store, { layout: 'Parents', checks: ['duplicates'] }).duplicates[0].related[0].records, 2);
+  } finally { done(); }
+});
