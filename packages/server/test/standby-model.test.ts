@@ -10,6 +10,7 @@
 // A failure prints the seed and the history of operations. SEED=<n> replays one seed; STANDBY_SEEDS=<n> runs n seeds.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import http, { createServer } from 'node:http';
 import net from 'node:net';
 import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -99,7 +100,10 @@ class Link {
     this.sockets.add(c);
     this.sockets.add(up);
     const drop = () => { c.destroy(); up.destroy(); this.sockets.delete(c); this.sockets.delete(up); };
-    c.on('error', drop); up.on('error', drop); c.on('close', drop); up.on('close', drop);
+    // The primary finishing is not the standby leaving: what is still queued for the standby has to be written before its side closes
+    // (`end` waits for that, `destroy` does not), so only an error or the standby's own close drops both sides at once.
+    c.on('error', drop); up.on('error', drop); c.on('close', drop);
+    up.on('end', () => { if (this.mode === 'truncate') drop(); else c.end(); });
     c.on('data', (d) => up.write(d));
     up.on('data', (d) => {
       if (this.mode === 'truncate') c.write(d.subarray(0, Math.max(1, d.length >> 1)), drop);
@@ -556,6 +560,45 @@ for (const seed of seeds) {
 }
 
 // ---------------------------------------------------------------------------------------------------- the pieces the model leans on
+
+test('the loopback link hands over an answer bigger than the sockets can hold, whole, before it closes', async () => {
+  // The primary closes its side as soon as it has written the answer. A link that closed the standby's side at the same
+  // moment threw away what was still queued for it: nothing on Linux, where a loopback socket takes megabytes at once,
+  // but on macOS an answer of some hundred kilobytes (a standby's first changes after a busy spell) never arrived whole,
+  // and the standby saw "aborted" on every try.
+  const total = 24 * 1024 * 1024;
+  let originGone!: () => void;
+  const originClosed = new Promise<void>((r) => (originGone = r));
+  const origin = createServer((req, res) => {
+    req.socket.once('close', originGone);
+    res.writeHead(200, { 'content-length': total, connection: 'close' });
+    res.end(Buffer.alloc(total, 7));
+  });
+  await new Promise<void>((r) => origin.listen(0, '127.0.0.1', r));
+  const link = new Link();
+  await link.listen();
+  link.target = (origin.address() as net.AddressInfo).port;
+  try {
+    // The reader holds back until the primary has finished and gone, which is what a slow reader or a small socket buffer comes to.
+    const got = await new Promise<number>((resolve, reject) => {
+      http.get(link.url, { agent: false }, (res) => {
+        let n = 0;
+        res.pause();
+        res.on('data', (d: Buffer) => (n += d.length));
+        res.on('end', () => resolve(n));
+        res.on('error', reject);
+        void originClosed.then(async () => {
+          for (let i = 0; i < 5; i++) await new Promise<void>((r) => setImmediate(r));
+          res.resume();
+        });
+      }).on('error', reject);
+    });
+    assert.equal(got, total, 'every byte arrives');
+  } finally {
+    await link.close();
+    await new Promise<void>((r) => origin.close(() => r()));
+  }
+});
 
 test('changes taken from a file can be repeated, replayed from an earlier point or cut short, and the copy still ends up the same', async () => {
   const { applyLog } = await import('../src/logs.ts');

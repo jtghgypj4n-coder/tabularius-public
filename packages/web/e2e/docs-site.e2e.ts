@@ -62,9 +62,14 @@ test('search by keyboard: / jumps to the box, typing lists results, the arrows m
     await page.keyboard.press('ArrowDown');
     await Promise.all([page.waitForURL(/docs\/runbook\.html#forgot-the-admin-console-password$/), page.keyboard.press('Enter')]);
     await until(() => page.evaluate(() => { const h = document.getElementById('forgot-the-admin-console-password'); return !!h && h.getBoundingClientRect().top < globalThis.innerHeight; }), Boolean);
-    await page.keyboard.press('/');
+    // The page just loaded after Enter: press the slash again until its script has taken it, then read the results as they arrive.
+    await until(async () => {
+      const id = await page.evaluate(() => document.activeElement?.id);
+      if (id !== 'q') await page.keyboard.press('/');
+      return page.evaluate(() => document.activeElement?.id);
+    }, (id) => id === 'q', 15_000);
     await page.keyboard.type('zzzqqq');
-    assert.match(await page.locator('#search-results').innerText(), /Nothing matches "zzzqqq"/);
+    assert.match(await until(() => page.locator('#search-results').innerText(), (t) => /Nothing matches "zzzqqq"/.test(t), 15_000), /Nothing matches "zzzqqq"/);
     await page.keyboard.press('Escape');
     assert.equal(await page.locator('#search-results').isVisible(), false, 'Escape clears and closes the results');
     assert.equal(await page.locator('#q').inputValue(), '');
