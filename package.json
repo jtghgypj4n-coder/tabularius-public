@@ -19,6 +19,7 @@
     "evals": "node --no-warnings packages/server/evals/run.ts",
     "eval:ai": "node --no-warnings packages/server/evals/run.ts --live",
     "fixtures": "node scripts/fetch-fixtures.ts",
+    "ask:timing": "node --no-warnings scripts/ask-timing.ts",
     "licences": "node --no-warnings scripts/licence-gate.ts",
     "licences:audit": "node --no-warnings scripts/licence-gate.ts --audit --list",
     "public:snapshot": "node --no-warnings scripts/public-snapshot.ts",

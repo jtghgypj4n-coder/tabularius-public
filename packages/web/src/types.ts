@@ -229,7 +229,7 @@ export interface Theme {
 export interface FieldMeta { name: string; type: string; calculated: boolean; summary: boolean; global?: boolean; readOnly?: boolean }
 
 /** create: the relationship lets a new related record be added from the portal's empty last row. */
-export interface Portal { name: string; occurrenceId: number; occurrence: string; fields: string[]; create?: boolean; /** On the layout's own occurrence: it lists the window's found set. */ foundSet?: boolean; /** Portal Setup's filter and sort, which the server applies. */ filter?: string; sort?: unknown[] }
+export interface Portal { name: string; occurrenceId: number; occurrence: string; fields: string[]; create?: boolean; /** The table its rows belong to, and the file holding it when another file does. */ table?: string; file?: string; /** On the layout's own occurrence: it lists the window's found set. */ foundSet?: boolean; /** Portal Setup's filter and sort, which the server applies. */ filter?: string; sort?: unknown[] }
 
 /** GET /tabularius/app/v1/databases/{db}/layouts/{layout} */
 export interface LayoutMeta {

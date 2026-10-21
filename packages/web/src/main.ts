@@ -381,6 +381,7 @@ function adminNotice(text: string): void {
 }
 
 function errorText(e: unknown): string {
+  if (e instanceof ApiError && e.status === 503) return 'Server busy. Try again shortly.';
   if (unreachableRequest(e)) return "Can't reach the server. Check the connection and try again.";
   if (e instanceof ApiError) return `${e.message} (error ${e.code})${e.denial ? ` ${e.denial.explanation}` : ''}`;
   return e instanceof Error ? e.message : String(e);
@@ -478,7 +479,12 @@ async function showLogin(message?: string): Promise<void> {
   forgetAssistantHistory();
   // Without a connection, the files this browser keeps offline copies of can still be opened, with their password.
   let unreachable = false;
-  const online = await listDatabases().catch(() => { unreachable = true; return [] as string[]; });
+  let busy = false;
+  const online = await listDatabases().catch((e) => { if (e instanceof ApiError && e.status === 503) busy = true; else unreachable = true; return [] as string[]; });
+  if (busy) {
+    showBusyScreen();
+    return;
+  }
   const copies = unreachable && shelf ? await OfflineCopy.list(shelf).catch(() => []) : [];
   const dbs = unreachable ? [...new Set(copies.map((c) => c.db))] : online;
   // No file is open while signing in.
@@ -8103,8 +8109,18 @@ class Session implements Host {
   }
 }
 
+function showBusyScreen(): void {
+  document.title = `Busy · ${PRODUCT_NAME}`;
+  app.replaceChildren(h('main', { class: 'login-screen' }, h('div', { class: 'login', role: 'alert' },
+    lockup('div'), h('h1', {}, 'Busy, try again'),
+    h('p', {}, 'The server is handling a lot of requests. Your file has not changed.'),
+    button('Try again', () => location.reload(), { class: 'primary' }),
+  )));
+}
+
 start().catch((e) => {
-  app.replaceChildren(h('p', { class: 'fatal' }, `Couldn't start: ${errorText(e)}`));
+  if (e instanceof ApiError && e.status === 503) showBusyScreen();
+  else app.replaceChildren(h('p', { class: 'fatal' }, `Couldn't start: ${errorText(e)}`));
 });
 
 // Installable: the service worker keeps the client's own files so the app opens without a connection (it keeps no

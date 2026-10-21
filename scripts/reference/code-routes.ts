@@ -15,10 +15,11 @@ export const SERVER_SRC = join(import.meta.dirname, '..', '..', 'packages', 'ser
 
 /**
  * Files whose path expressions aren't routes of their own: metrics.ts sorts
- * requests into kinds for its counters, and cluster.ts decides which worker
- * process a request goes to (both match paths the other files serve).
+ * requests into kinds for its counters, cluster.ts decides which worker
+ * process a request goes to, and request-gate.ts sorts requests into admission
+ * classes (all of them match paths the other files serve).
  */
-export const NOT_ROUTES = new Set(['metrics.ts', 'cluster.ts']);
+export const NOT_ROUTES = new Set(['metrics.ts', 'cluster.ts', 'request-gate.ts']);
 
 const PATTERNS = [
   // A regular expression on a path: /^\/…/.exec( or /^\/…/.test(

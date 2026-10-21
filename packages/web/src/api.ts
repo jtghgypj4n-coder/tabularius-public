@@ -117,6 +117,8 @@ const EDIT = /^\/fmi\/data\/vLatest\/databases\/[^/]+\/layouts\/([^/]+)\/records
 export async function listDatabases(): Promise<string[]> {
   const r = await fetch('/fmi/data/vLatest/databases');
   const body = await r.json();
+  if (r.status === 503) throw new ApiError(301, 'Server busy. Try again shortly.', undefined, 503);
+  if (!r.ok) throw new ApiError(Number(body.messages?.[0]?.code ?? -1), body.messages?.[0]?.message ?? httpProblem(r.status), undefined, r.status);
   return (body.response?.databases ?? []).map((d: { name: string }) => d.name);
 }
 
@@ -166,7 +168,7 @@ export class Api {
     });
     const body = await r.json();
     const msg = body.messages?.[0];
-    if (!r.ok || msg?.code !== '0') throw new ApiError(Number(msg?.code ?? -1), msg?.message ?? 'Login failed', body['tabularius:denial']);
+    if (!r.ok || msg?.code !== '0') throw new ApiError(Number(msg?.code ?? -1), msg?.message ?? 'Login failed', body['tabularius:denial'], r.status);
     const api = new Api(db, body.response.token);
     api.passwordChangeRequired = !!body.response.passwordChangeRequired;
     return api;

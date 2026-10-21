@@ -243,7 +243,7 @@ for (const empty of [false, true]) for (const failure of ['permission', 'missing
       assert.equal(state.stale.has('1'), true);
       assert.equal(got.rows[0]?.Title, 'stale');
     }
-    assert.deepEqual(messages, [error instanceof ApiError ? `${error.message} (error ${error.code})` : failure === 'network' ? "Can't reach the server. Check the connection and try again." : error.message], 'the stopped request uses the usual error toast');
+    assert.deepEqual(messages, [error instanceof ApiError && error.status === 503 ? 'Server busy. Try again shortly.' : error instanceof ApiError ? `${error.message} (error ${error.code})` : failure === 'network' ? "Can't reach the server. Check the connection and try again." : error.message], 'the stopped request uses the usual error toast');
     t.mock.timers.tick(60_000);
     s.foundSetScrolled('found', 0, 0, 0);
     await Promise.resolve();
