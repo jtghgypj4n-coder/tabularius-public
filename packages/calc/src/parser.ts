@@ -43,6 +43,9 @@ type Token =
   | { t: 'op'; v: string; at: number }
   | { t: 'end'; v: ''; at: number };
 
+type FieldSpan = { at: number; end: number; occurrence?: string; name: string };
+const sourceFields = new WeakMap<Node, FieldSpan>();
+
 const DELIMS = new Set([...' \t\r\n ()[];,"+-*/^&=≠<>≤≥¶:']);
 const isWordChar = (c: string | undefined) => c !== undefined && !DELIMS.has(c);
 
@@ -348,7 +351,16 @@ class Parser {
       case 'str': return { k: 'str', value: t.v };
       case 'field':
         if (!t.to && this.bound.some((b) => b.has(t.v.toLowerCase()))) return this.postfix({ k: 'var', name: t.v });
-        return this.postfix({ k: 'field', occurrence: t.to, name: t.v });
+        {
+          const field: Node & { k: 'field' } = { k: 'field', occurrence: t.to, name: t.v };
+          sourceFields.set(field, {
+            at: t.at,
+            end: t.at + (t.to === undefined ? 0 : t.to.length + 2) + t.v.length,
+            ...(t.to === undefined ? {} : { occurrence: t.to }),
+            name: t.v,
+          });
+          return this.postfix(field);
+        }
       case 'end': throw new CalcError(ERR.unexpectedEnd, 'The calculation ends too soon');
       case 'op': {
         if (t.v === '(') {
@@ -492,12 +504,29 @@ export function parse(src: string, names: NameTable | CalcNames = new NameTable(
  * unqualified field name, with offsets into the source. Used to rewrite
  * formulas when a field or table occurrence is renamed or deleted.
  */
-export function fieldSpans(src: string, names: NameTable | CalcNames = new NameTable()): { at: number; end: number; occurrence?: string; name: string }[] {
-  const table = names instanceof NameTable ? names : new NameTable(names);
-  return lex(src, table).filter((t) => t.t === 'field').map((t) => {
-    const f = t as Extract<Token, { t: 'field' }>;
-    return { at: f.at, end: f.at + (f.to !== undefined ? f.to.length + 2 : 0) + f.v.length, ...(f.to !== undefined ? { occurrence: f.to } : {}), name: f.v };
-  });
+export function fieldSpans(src: string, names: NameTable | CalcNames = new NameTable()): FieldSpan[] {
+  const found: FieldSpan[] = [];
+  const stack: Node[] = [parse(src, names)];
+  while (stack.length) {
+    const node = stack.pop()!;
+    switch (node.k) {
+      case 'field': {
+        const span = sourceFields.get(node);
+        if (span) found.push(span);
+        if (node.rep) stack.push(node.rep);
+        break;
+      }
+      case 'var': if (node.rep) stack.push(node.rep); break;
+      case 'call': stack.push(...node.args); break;
+      case 'let':
+        stack.push(node.body);
+        for (const [, value, rep] of node.binds) { stack.push(value); if (rep) stack.push(rep); }
+        break;
+      case 'unary': stack.push(node.a); break;
+      case 'bin': stack.push(node.a, node.b); break;
+    }
+  }
+  return found.sort((a, b) => a.at - b.at);
 }
 
 /** Fields a parsed formula reads, for recomputing it when they change. */
@@ -509,7 +538,20 @@ export function fieldRefs(n: Node, out: { occurrence?: string; name: string }[] 
       if (!n.name.startsWith('$') && !bound.has(n.name.toLowerCase())) out.push({ name: n.name });
       if (n.rep) fieldRefs(n.rep, out, bound);
       break;
-    case 'call': n.args.forEach((a) => fieldRefs(a, out, bound)); break;
+    case 'call':
+      if (n.name.toLowerCase() === 'while' && n.args.length === 2 && n.args[0].k === 'let' && n.args[1].k === 'let') {
+        const inner = new Set(bound);
+        for (const half of n.args) {
+          if (half.k !== 'let') continue;
+          for (const [name, value, rep] of half.binds) {
+            fieldRefs(value, out, inner);
+            if (rep) fieldRefs(rep, out, inner);
+            inner.add(name.replace(/\[.*$/, '').toLowerCase());
+          }
+          fieldRefs(half.body, out, inner);
+        }
+      } else n.args.forEach((a) => fieldRefs(a, out, bound));
+      break;
     case 'let': {
       const inner = new Set(bound);
       for (const [name, b, rep] of n.binds) {

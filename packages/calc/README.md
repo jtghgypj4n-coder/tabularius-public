@@ -87,6 +87,21 @@ read and write the running script's variables.
   explicit host capabilities and obey the host's access restrictions; registering
   a plug-in name does not grant those capabilities.
 
+## KNOWN
+
+The following regression values follow the linked Claris rules, but the exact
+expressions have not been compared with a running FileMaker instance:
+
+| Finding | Inferred result and Claris basis |
+| --- | --- |
+| AR-calc-core-04 | An integer already at zero decimal places remains unchanged under [Round](https://help.claris.com/en/pro-help/content/round.html) and [Truncate](https://help.claris.com/en/pro-help/content/truncate.html). The 16-digit probe is inferred from those precision rules. |
+| AR-calc-core-05 | [SetPrecision](https://help.claris.com/en/pro-help/content/setprecision.html) changes precision; the exact nonnumeric and blank argument probes are inferred from the contracts for [Average](https://help.claris.com/en/pro-help/content/average.html), [Abs](https://help.claris.com/en/pro-help/content/abs.html), [VarianceP](https://help.claris.com/en/pro-help/content/variancep.html), [Sum](https://help.claris.com/en/pro-help/content/sum.html), and [Count](https://help.claris.com/en/pro-help/content/count.html). |
+| AR-calc-core-07 | [UniqueValues](https://help.claris.com/en/pro-help/content/uniquevalues.html) says the locale determines equality and Unicode_Raw distinguishes character encodings. The Turkish letter pair follows the package's locale keys; its exact FileMaker result is unverified. |
+| AR-calc-core-09 | [Custom functions](https://help.claris.com/en/pro-help/content/using-custom-functions.html) use declared parameters. The page does not explicitly confirm a parameter containing spaces, so that spelling follows the package's runtime parser. |
+| AR-calc-core-10 | The exclusion of [Get(FoundCount)](https://help.claris.com/en/pro-help/content/get-foundcount.html) parameters and [Let](https://help.claris.com/en/pro-help/content/let.html) bindings from rename spans is an internal dependency rule, inferred from their distinct roles in a formula. |
+| AR-calc-core-11 | [While](https://help.claris.com/en/pro-help/content/while.html) says initial and logic variables share one scope; the empty field-dependency result follows from that rule. |
+| AR-calc-core-12 | [Position](https://help.claris.com/en/pro-help/content/position.html) returns zero when the requested occurrence is absent; the single-character, second-backward-occurrence probe follows from that rule. |
+
 ## In the store
 
 `@tabularius/store` (packages/store/src/calc.ts) is the host for hosted files:
