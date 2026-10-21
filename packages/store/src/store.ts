@@ -9193,14 +9193,115 @@ export class Store {
   }
 
   private sortIdsCurrent(layout: string | LayoutInfo, ids: number[], sort: SortSpec[], opts: { privileges?: Privileges; valueLists?: { store: Store; recordId?: number } } = {}): number[] {
+    const work = this.sortIdsCurrentProgress(layout, ids, sort, opts);
+    for (let step = work.next();; step = work.next()) if (step.done) return step.value;
+  }
+
+  /** Yields completed key/read counts so a script can accept Stop without changing its found set until the sort finishes. */
+  sortIdsProgress(...args: Parameters<Store['sortIdsCurrent']>): Generator<number, number[]> {
+    const work = this.sortIdsCurrentProgress(...args);
+    const self = this;
+    return (function* (): Generator<number, number[]> {
+      try {
+        for (;;) {
+          const step = self.withDesignRead(() => work.next());
+          if (step.done) return step.value;
+          yield step.value;
+        }
+      } finally { work.return([]); }
+    })();
+  }
+
+  private *sortIdsCurrentProgress(layout: string | LayoutInfo, ids: number[], sort: SortSpec[], opts: { privileges?: Privileges; valueLists?: { store: Store; recordId?: number } } = {}): Generator<number, number[]> {
     const info = this.layoutInfo(layout);
     this.checkLayout(info, opts.privileges);
-    if (info.owner !== this) return info.owner.sortIds(info, ids, sort, opts);
+    if (info.owner !== this) return yield* info.owner.sortIdsProgress(info, ids, sort, opts);
     const pv = this.local(opts.privileges);
     this.checkFieldsVisible(info, pv, sort.map((s) => s.fieldName));
     const view = this.viewFilter(info, pv);
-    return (this.sql.prepare(`SELECT _fm_record_id AS id FROM ${q(info.table)} WHERE _fm_record_id IN (SELECT value FROM json_each(?)) AND ${view.where} ORDER BY ${this.orderBy(info, sort, opts.privileges, opts.valueLists)}`)
-      .all(JSON.stringify(ids), ...view.params) as { id: number }[]).map((r) => Number(r.id));
+    const table = this.table(info);
+    const defs = sort.map((s) => table.fields.find((f) => f.name === s.fieldName));
+    if (defs.some((f) => f && ((f.kind === 'calculation' && f.options?.unstored) || f.options?.global))) {
+      // The SQLite column of an unstored calculation is empty. Compute only the requested ids, once each,
+      // and keep one sort key per field and record. A temp table would write every calculated value and hold
+      // a long write transaction for a read-only sort.
+      this.orderBy(info, sort, opts.privileges, opts.valueLists); // validate names, summaries and custom lists
+      // Only records the account may see are sorted, as in the query below.
+      const visible = view.where === '1' ? ids
+        : (this.sql.prepare(`SELECT _fm_record_id AS id FROM ${q(info.table)} WHERE _fm_record_id IN (SELECT value FROM json_each(?)) AND ${view.where}`)
+          .all(JSON.stringify(ids), ...view.params) as { id: number }[]).map((r) => Number(r.id));
+      const pass = this.calc.newPass(opts.privileges?.account, opts.privileges);
+      const custom = sort.map((s, i) => {
+        const order = (s.sortOrder ?? 'ascend').toLowerCase();
+        if (['ascend', 'ascending', 'descend', 'descending'].includes(order)) return undefined;
+        const listStore = opts.valueLists?.store ?? this;
+        const from = opts.valueLists?.recordId !== undefined ? { info, recordId: opts.valueLists.recordId } : undefined;
+        const items = listStore.valueListItems(s.sortOrder!, from, opts.privileges);
+        return valueListOrder(defs[i]!, this.dateOrder, items.map((item) => item.value));
+      });
+      const repeating = defs.map((f) => (f?.options?.repetitions ?? 1) > 1 || (this.repeating[info.table] ?? []).includes(f!.name));
+      const firstRepetition = (v: SqlValue): SqlValue => {
+        if (typeof v !== 'string' || !v.startsWith('[')) return v;
+        try {
+          const list: unknown = JSON.parse(v);
+          return Array.isArray(list) ? (list[0] as SqlValue) ?? null : v;
+        } catch { return v; }
+      };
+      const keyed: { id: number; values: SqlValue[] }[] = [];
+      for (const rec of rowsById(this, table, visible)) {
+        checkMemory();
+        const values = defs.map((f, i) => {
+          const v = f!.options?.global ? this.calc.globalValue(table, f!) as SqlValue
+            : f!.kind === 'calculation' && f!.options?.unstored ? this.calc.unstoredValue(rec, f!, pass) as SqlValue
+            : rec.row[f!.name] as SqlValue;
+          return repeating[i] ? firstRepetition(v) : v;
+        });
+        keyed.push({ id: Number(rec.row._fm_record_id), values });
+        pass.values.clear();
+        pass.related.clear();
+        if ((keyed.length & 255) === 0 && keyed.length < visible.length) yield keyed.length;
+      }
+      // The same order the SQL path gives: empty values first when ascending, last when descending, then the
+      // field's own order (numbers, decimal keys, text keys in the field's index language), then the record id.
+      const valueCompare = (a: SqlValue, b: SqlValue, field: Field): number => {
+        if (field.type === 'number') return Number(a) - Number(b);
+        if (field.type === 'decimal') {
+          const x = decimalKey(String(a)) ?? '', y = decimalKey(String(b)) ?? '';
+          return x < y ? -1 : x > y ? 1 : 0;
+        }
+        const language = field.type === 'text' ? recordSortLanguage(field.options?.indexLanguage, field.options?.indexLanguageId) : 'unicode';
+        const x = language === 'unicode' ? String(a) : recordSortKey(String(a), language);
+        const y = language === 'unicode' ? String(b) : recordSortKey(String(b), language);
+        return Buffer.compare(Buffer.from(x), Buffer.from(y));
+      };
+      keyed.sort((a, b) => {
+        for (let i = 0; i < sort.length; i++) {
+          const field = defs[i]!;
+          const x = a.values[i], y = b.values[i];
+          const ordered = custom[i];
+          if (ordered) {
+            if (x === null || y === null) { if (x !== y) return x === null ? 1 : -1; continue; }
+            const cmp = ordered.compare(fromStored(x, field.type), fromStored(y, field.type));
+            if (cmp) return cmp;
+            continue;
+          }
+          const sign = ['descend', 'descending'].includes((sort[i].sortOrder ?? '').toLowerCase()) ? -1 : 1;
+          const xe = x === null || x === '', ye = y === null || y === '';
+          const cmp = xe || ye ? (xe ? 0 : 1) - (ye ? 0 : 1) || (xe && ye ? (x === null ? 0 : 1) - (y === null ? 0 : 1) : 0)
+            : valueCompare(x, y, field);
+          if (cmp) return sign * cmp;
+        }
+        return a.id - b.id;
+      });
+      return keyed.map((r) => r.id);
+    }
+    const sorted: number[] = [];
+    for (const r of this.sql.prepare(`SELECT _fm_record_id AS id FROM ${q(info.table)} WHERE _fm_record_id IN (SELECT value FROM json_each(?)) AND ${view.where} ORDER BY ${this.orderBy(info, sort, opts.privileges, opts.valueLists)}`)
+      .iterate(JSON.stringify(ids), ...view.params) as Iterable<{ id: number }>) {
+      sorted.push(Number(r.id));
+      if ((sorted.length & 255) === 0 && sorted.length < ids.length) yield sorted.length;
+    }
+    return sorted;
   }
 
   /**

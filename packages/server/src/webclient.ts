@@ -34,7 +34,7 @@ import { ReadAudit } from './read-audit.ts';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { dirname, join, normalize, extname, sep } from 'node:path';
 import { stripTypeScriptTypes } from 'node:module';
-import { explainAccessDenial, fmpXmlResult, formulaGuard, PendingApprovalError, PrivilegeError, StoreError, ExplainRelatedError, writer, canCreateRelated, explainField, explainRelated, occurrence, csvField, type EvaluateOptions, type FindRequest, type LayoutInfo, type Privileges, type SortSpec, type Store } from '../../store/src/index.ts';
+import { explainAccessDenial, fmpXmlResult, fmpXmlHeader, fmpXmlRow, fmpXmlFooter, formulaGuard, PendingApprovalError, PrivilegeError, StoreError, ExplainRelatedError, writer, canCreateRelated, explainField, explainRelated, occurrence, csvField, type EvaluateOptions, type FindRequest, type LayoutInfo, type Privileges, type SortSpec, type Store } from '../../store/src/index.ts';
 import { externalFieldNames, type DeviceType, type CustomMenu, type Script, type CustomMenuItem, type LayoutDesign, type LayoutObject, type StepParams, type Theme, type TriggerMode } from '../../fmp12/src/index.ts';
 import { asBoolean, asText, compile, num, text, type DeviceLocation, type Value } from '../../calc/src/index.ts';
 import { randomBytes } from 'node:crypto';
@@ -43,7 +43,7 @@ import { denialOf } from '../../store/src/access-denial.ts';
 import { scriptDenial, ScriptError, clientWindow, clientWindowGet, importFileRowIterator, runScript, type ClientAction, type DialogRequest, type OpenWindow, type RunResult, type WindowState, type ClientCheckpoint } from '../../scripts/src/index.ts';
 import { isoCell, xlsx, xlsxSheetNames, type XlsxOutCell } from '../../scripts/src/xlsx.ts';
 import { aiRefusal } from './ai-access.ts';
-import { ImportError, applyImport, importFields, importMappedRows, planImport, replan, undoImport, type ImportMapper } from './import-mapping.ts';
+import { ImportError, applyImport, applyImportAddStream, importFields, importMappedRows, planImport, replan, undoImport, type ImportMapper } from './import-mapping.ts';
 import { AiLimitError, type FillInput } from './assistant.ts';
 import { redactSecrets, secretName } from './ai-output.ts';
 import { redactExplanation, redactRelated } from './mcp.ts';
@@ -214,6 +214,7 @@ export class WebClient {
   private readonly paused = new Map<string, Paused>();
   /** Each session's running button scripts, by token and file, so the person can stop them (Allow User Abort). */
   private readonly running = new Map<string, Set<EventTarget>>();
+  private readonly runningProgress = new Map<EventTarget, { operation: string; completed: number; total: number }>();
   /**
    * The timer each web client session's window has (Install OnTimer Script),
    * by session token: the client fires it by id, and only the script the
@@ -312,6 +313,11 @@ export class WebClient {
       this.stopRuns(req, res, decodeURIComponent(stop[1]));
       return true;
     }
+    const progress = /^\/tabularius\/app\/v1\/databases\/([^/]+)\/runs\/progress$/.exec(path);
+    if (progress) {
+      this.progressRuns(req, res, decodeURIComponent(progress[1]));
+      return true;
+    }
     const ask = /^\/tabularius\/app\/v1\/databases\/([^/]+)\/runs\/([0-9a-f]+)\/file$/.exec(path);
     if (ask) {
       await this.answerFile(req, res, decodeURIComponent(ask[1]), ask[2]);
@@ -353,7 +359,27 @@ export class WebClient {
           if (!planning && !params.get('columns')) pv.checkImport(info.table);
           const type = req.headers['content-type'] ?? '';
           const raw = await readBody(req, MAX_FILE);
-          send(200, await this.importRecords(store, session, layout, multipartUpload(type, raw), url.searchParams, privileges, multipartText(type, raw, 'found')));
+          if (res.destroyed) return true;
+          this.api.authorize(req, db);
+          const active = new EventTarget();
+          const controller = new AbortController();
+          const stop = () => controller.abort();
+          active.addEventListener('stop', stop);
+          res.on('close', stop);
+          const key = `${session.token}\u0000${store.name}`;
+          const mine = this.running.get(key) ?? new Set<EventTarget>();
+          this.running.set(key, mine.add(active));
+          try {
+            if (res.destroyed) return true;
+            send(200, await this.importRecords(store, session, layout, multipartUpload(type, raw), url.searchParams, privileges, multipartText(type, raw, 'found'),
+              controller.signal, (completed) => this.runningProgress.set(active, { operation: 'Import Records', completed, total: 0 })));
+          } finally {
+            res.off('close', stop);
+            active.removeEventListener('stop', stop);
+            mine.delete(active);
+            this.runningProgress.delete(active);
+            if (!mine.size && this.running.get(key) === mine) this.running.delete(key);
+          }
           return true;
         }
         const body = await readJson(req);
@@ -376,10 +402,12 @@ export class WebClient {
           return true;
         }
         if (m[3] === 'export') {
-          // Text exports can be much larger than the server's heap. Send them a page at a
-          // time and respect socket backpressure; the other formats need their own encoders.
-          if (!['xlsx', 'xml', 'html'].includes(String(body.format))) {
-            await this.exportText(store, layout, body, privileges, res);
+          // Exports can be much larger than the server's heap. Send them a page at a time, respect socket
+          // backpressure and accept Stop; a workbook needs its whole content for its encoder.
+          if (body.format !== 'xlsx') {
+            if (res.destroyed) return true;
+            this.api.authorize(req, db);
+            await this.streamExportRecords(store, session, layout, body, privileges, res);
             return true;
           }
           const file = this.exportRecords(store, layout, body, privileges);
@@ -1235,10 +1263,13 @@ export class WebClient {
     return { records };
   }
 
-  /** Writes a CSV, tab or merge export in bounded record batches. */
-  private async exportText(store: Store, layout: string, body: Record<string, unknown>, privileges: Privileges, res: ServerResponse): Promise<void> {
+  /**
+   * Writes a CSV, tab, merge, XML or HTML export in bounded record batches. The run is registered for Stop and
+   * reports progress, so a person can cancel a large export; a stopped export leaves a partial download.
+   */
+  private async streamExportRecords(store: Store, session: Session, layout: string, body: Record<string, unknown>, privileges: Privileges, res: ServerResponse): Promise<void> {
     if (!privileges.canExport) throw new ApiError(9, 'Insufficient privileges: this account may not export records', 403);
-    const format = body.format === 'tab' || body.format === 'mer' ? body.format : 'csv';
+    const format = body.format === 'tab' || body.format === 'mer' || body.format === 'xml' || body.format === 'html' ? body.format : 'csv';
     const info = store.layout(layout);
     const fields = (Array.isArray(body.fields) ? body.fields : []).filter((f): f is string => typeof f === 'string' && !!f);
     if (!fields.length) throw new ApiError(3, 'Choose the fields to export', 400);
@@ -1251,18 +1282,22 @@ export class WebClient {
     };
     const kinds = fields.map((f) => def(f)?.type);
     const hasSummary = fields.some((f) => def(f)?.kind === 'summary');
-    // The common "all records" export walks the primary key in bounded pages.
+    // The common "all records" text export walks the primary key in bounded pages.
     // A supplied found set, query or sort still uses its exact order, and so does a summary: a running total or a
     // fraction of the total differs from record to record, so each batch works its summaries out in the found set's order.
-    const allInIdOrder = !('ids' in body) && !('query' in body) && !('sort' in body) && !hasSummary;
+    // XML states its record count first, so it needs the ids up front.
+    const text = format !== 'xml' && format !== 'html';
+    const allInIdOrder = text && !('ids' in body) && !('query' in body) && !('sort' in body) && !hasSummary;
     const ids = allInIdOrder ? undefined : foundIds(store, layout, body, privileges);
     const sort = sortOf(body.sort);
+    const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/\r\n|[\r\n]/g, '<br>');
     const cell = (v: string | number, i: number) => {
       const one = String(v).replace(/\r\n|[\r\n]/g, '\v');
       return format === 'tab' ? formulaGuard(one.replace(/\t/g, ' '), kinds[i]) : csvField(one, { quoteAll: true, type: kinds[i] });
     };
     const sepr = format === 'tab' ? '\t' : ',';
     const base = String(typeof body.name === 'string' && body.name.trim() ? body.name.trim() : layout).replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_');
+    const total = ids?.length ?? 0;
     let offset = 0;
     let lastId = 0;
     let sent = 0;
@@ -1275,8 +1310,12 @@ export class WebClient {
       offset += chunk.length;
       lastId = chunk[chunk.length - 1];
       const lines: string[] = [];
-      for (const r of store.getMany(layout, chunk, ids ?? chunk, { privileges, sort, fields })) {
-        lines.push(fields.map((f, k) => cell(privileges.fieldAccess(info.table, f) === 'masked' ? '' : r.fieldData[f] ?? '', k)).join(sepr) + '\r\n');
+      // FileMaker XML says its dates are ISO (DATEFORMAT yyyy-MM-dd); the other types have them as the file shows them.
+      for (const r of store.getMany(layout, chunk, ids ?? chunk, { privileges, sort, fields, ...(format === 'xml' ? { dateFormat: 'iso' as const } : {}) })) {
+        const row = fields.map((f) => privileges.fieldAccess(info.table, f) === 'masked' ? '' : r.fieldData[f] ?? '');
+        if (format === 'xml') lines.push(fmpXmlRow({ recordId: r.recordId, modId: 0, cells: row.map((v) => [String(v)]) }));
+        else if (format === 'html') lines.push(`<tr>${row.map((v) => `<td>${esc(String(v))}</td>`).join('')}</tr>\n`);
+        else lines.push(row.map(cell).join(sepr) + '\r\n');
         sent++;
         if (audited.length < 100) audited.push(Number(r.recordId));
       }
@@ -1285,33 +1324,55 @@ export class WebClient {
     // The first batch is read before any header goes out, so a record or field the account may not read is an
     // ordinary error response, as it is for the other formats; a later failure can only end the download early.
     let batch = nextBatch();
+    // Stop: the run is registered under the session and file, as a button script is.
+    const active = new EventTarget();
+    const key = `${session.token}\u0000${store.name}`;
+    const mine = this.running.get(key) ?? new Set<EventTarget>();
+    if (res.destroyed) return;
+    this.running.set(key, mine.add(active));
+    let stopped = false;
+    const stop = () => { stopped = true; };
+    active.addEventListener('stop', stop);
+    res.on('close', stop);
     res.writeHead(200, {
-      'content-type': `${format === 'tab' ? 'text/tab-separated-values' : 'text/csv'}; charset=utf-8`,
+      'content-type': format === 'xml' ? 'application/xml; charset=utf-8' : format === 'html' ? 'text/html; charset=utf-8' : `${format === 'tab' ? 'text/tab-separated-values' : 'text/csv'}; charset=utf-8`,
       // Not compressed: the compressing wrapper takes every write at once, so a slow client could not hold the export back.
       'cache-control': 'no-store, no-transform',
       'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent(`${base}.${format}`)}`,
     });
+    this.runningProgress.set(active, { operation: 'Export Records', completed: 0, total });
     const write = async (chunk: string): Promise<boolean> => {
-      if (res.destroyed) return false;
+      if (stopped || res.destroyed) return false;
       if (!res.write(chunk)) {
+        // Stop must release a write that is waiting for the client to drain.
         await new Promise<void>((resolve) => {
-          const done = () => { res.off('drain', done); res.off('close', done); resolve(); };
+          const done = () => { res.off('drain', done); res.off('close', done); active.removeEventListener('stop', done); resolve(); };
           res.once('drain', done);
           res.once('close', done);
+          active.addEventListener('stop', done, { once: true });
         });
       }
-      return !res.destroyed;
+      return !stopped && !res.destroyed;
     };
-    // What was read is logged however the download ends: finished, cut off by the client, or stopped by a later batch failing.
+    // What was read is logged however the download ends: finished, cut off by the client, stopped, or ended by a later batch failing.
     let failure: Error | undefined;
+    let finished = false;
     try {
-      const header = body.fieldNames === true || format === 'mer' ? fields.map((name) => cell(name, -1)).join(sepr) + '\r\n' : '';
-      if (await write((body.bom === true ? '\ufeff' : '') + header)) {
-        while (batch !== undefined && !res.destroyed) {
+      let head: string;
+      if (format === 'xml') head = fmpXmlHeader(store.name, fields.map((name, i) => ({ name, type: kinds[i] ?? 'text' })), total);
+      else if (format === 'html') head = `<!DOCTYPE html>\n<html><head><meta charset="utf-8"><title>${esc(info.table)}</title></head><body>\n<table border="1">\n<tr>${fields.map((f) => `<th>${esc(f)}</th>`).join('')}</tr>\n`;
+      else head = (body.bom === true ? '﻿' : '') + (body.fieldNames === true || format === 'mer' ? fields.map((name) => cell(name, -1)).join(sepr) + '\r\n' : '');
+      if (await write(head)) {
+        while (batch !== undefined && !stopped && !res.destroyed) {
           if (batch && !(await write(batch))) break;
+          this.runningProgress.set(active, { operation: 'Export Records', completed: ids ? Math.min(offset, total) : sent, total });
           // Other requests get their turn between batches, whatever the client's speed.
           await new Promise<void>((resolve) => setImmediate(resolve));
+          if (stopped || res.destroyed) break;
           batch = nextBatch();
+        }
+        if (batch === undefined && !stopped && !res.destroyed) {
+          finished = text || await write(format === 'xml' ? fmpXmlFooter() : '</table>\n</body></html>\n');
         }
       }
     } catch (e) {
@@ -1322,8 +1383,14 @@ export class WebClient {
     } catch (e) {
       failure ??= e instanceof Error ? e : new Error(String(e));
     }
+    res.off('close', stop);
+    active.removeEventListener('stop', stop);
+    mine.delete(active);
+    this.runningProgress.delete(active);
+    if (!mine.size && this.running.get(key) === mine) this.running.delete(key);
     if (failure) res.destroy(failure);
-    else if (!res.destroyed) res.end();
+    else if (!finished || res.destroyed) res.destroy();
+    else res.end();
   }
 
   /**
@@ -1410,7 +1477,8 @@ export class WebClient {
    * records; with `columns` (that plan, as the person left it) the import
    * itself, kept so `undo-import` can take it back (import-mapping.ts).
    */
-  private async importRecords(store: Store, session: Session, layout: string, file: { filename: string | null; data: Buffer }, params: URLSearchParams, privileges: Privileges, found?: string) {
+  private async importRecords(store: Store, session: Session, layout: string, file: { filename: string | null; data: Buffer }, params: URLSearchParams, privileges: Privileges, found?: string,
+    signal?: AbortSignal, onProgress?: (completed: number) => void) {
     const info = store.layout(layout);
     const pv = privileges.in(info.owner);
     const targets = info.fields.filter((f) => !f.calculated && !f.summary && f.type !== 'container' && pv.field(info.table, f.name) === 'modifiable').map((f) => f.name);
@@ -1456,23 +1524,42 @@ export class WebClient {
     };
     try {
       if (params.get('plan') === '1') {
-        rows = [...rowIterator!];
+        const retained: (string | number)[][] = [];
+        let sourceRows = 0;
+        for (const row of rowIterator!) {
+          if (signal?.aborted) throw new ImportError('Import preview was stopped');
+          sourceRows++;
+          if (retained.length < 20_001) retained.push(row);
+          if (sourceRows % 500 === 0) {
+            onProgress?.(sourceRows);
+            await new Promise<void>((resolve) => setImmediate(resolve));
+          }
+        }
+        const sampled = sourceRows > 20_000;
+        rows = sampled ? retained.slice(0, 2000) : retained;
+        const sized = <T extends { rows: number; headerRow: boolean }>(plan: T) => sampled
+          ? { ...plan, rows: Math.max(0, sourceRows - Number(plan.headerRow)), sampledRows: rows!.length }
+          : plan;
         if (!columns) {
           const off = params.get('ai') === '1' ? aiRefusal(store, { account: session.account, via: 'AI import matching' }) : undefined;
           const mapper = params.get('ai') === '1' && !off && privileges.has('fmmcp') ? this.importMapper?.(store, session.account) : undefined;
-          const plan = await planImport(store, layout, rows, { privileges, mapper, signal: AbortSignal.timeout(90_000) });
-          return { ...plan, ...about(), ...(params.get('ai') === '1' && !mapper ? { ai: { used: false, note: off ? `${off.startsWith('AI policy refused') ? off : off.replace(/:.*$/, '')}; matched by name` : 'The assistant is off here, or this account has no AI access; matched by name' } } : {}) };
+          const plan = await planImport(store, layout, rows, { privileges, mapper, signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(90_000)]) : AbortSignal.timeout(90_000) });
+          return { ...sized(plan), ...about(), ...(params.get('ai') === '1' && !mapper ? { ai: { used: false, note: off ? `${off.startsWith('AI policy refused') ? off : off.replace(/:.*$/, '')}; matched by name` : 'The assistant is off here, or this account has no AI access; matched by name' } } : {}) };
         }
         // Update matches only the records of the found set, so its preview looks there.
-        return { ...replan(store, layout, rows, parseRequestJson(columns), privileges, action === 'update' ? target() : undefined), ...about() };
+        return { ...sized(replan(store, layout, rows, parseRequestJson(columns), privileges, action === 'update' ? target() : undefined)), ...about() };
       }
       if (columns) {
-        rows = [...rowIterator!];
         const plan = parseRequestJson(columns) as Parameters<typeof applyImport>[3];
         const match = params.get('match');
+        if (action === 'add') return applyImportAddStream(store, layout, rowIterator!, plan, {
+          privileges, account: session.account, skipDuplicates: params.get('skipDuplicates') === '1', skipIssues: params.get('skipIssues') === '1', file: file.filename ?? undefined,
+          signal, onProgress,
+        });
+        rows = [...rowIterator!];
         return applyImport(store, layout, rows, plan, {
           privileges, account: session.account, skipDuplicates: params.get('skipDuplicates') === '1', skipIssues: params.get('skipIssues') === '1', file: file.filename ?? undefined,
-          action, ...(action === 'add' ? {} : { target: target(), addRemaining: params.get('addRemaining') === '1' }),
+          action, target: target(), addRemaining: params.get('addRemaining') === '1',
           ...(action === 'update' ? { match: matchFields(match ? parseRequestJson(match) : plan.keys) } : {}),
         });
       }
@@ -1489,7 +1576,7 @@ export class WebClient {
     if (!Array.isArray(mapping) || !mapping.some((f) => typeof f === 'string' && targets.includes(f))) throw new ApiError(3, 'Choose the fields to import into', 400);
     const into = mapping.map((f) => (typeof f === 'string' && targets.includes(f) ? f : undefined));
     try {
-      return { ...importMappedRows(store, layout, rowIterator!, into, { privileges, account: session.account, skipFirst: params.get('skipFirst') === '1' }), ...about() };
+      return { ...await importMappedRows(store, layout, rowIterator!, into, { privileges, account: session.account, skipFirst: params.get('skipFirst') === '1', signal, onProgress }), ...about() };
     } catch (e) {
       if (e instanceof ScriptError) throw new ApiError(3, e.message, 400);
       throw e;
@@ -1772,6 +1859,7 @@ export class WebClient {
     this.running.set(runningKey, mine.add(userStop));
     const forget = () => {
       mine.delete(userStop);
+      this.runningProgress.delete(userStop);
       if (!mine.size && this.running.get(runningKey) === mine) this.running.delete(runningKey);
     };
     let started: Promise<RunResult>;
@@ -1783,6 +1871,7 @@ export class WebClient {
       ...(byEvent ? { startedBy: { event: event!, ...(Number.isInteger(body.objectId) ? { objectId: Number(body.objectId) } : {}) } } : {}),
       ...(activeObject !== undefined && Number.isInteger(body.activeRow) ? { activeRow: Number(body.activeRow) } : {}), ...(openWindows?.length ? { openWindows } : {}), ...(trigger ? { trigger } : {}), ...(w.mode === 'find' ? { mode: 'find' as const, ...(findRequests(body.requests) ? { requests: inFileDateOrder(store, layout, findRequests(body.requests)) } : {}) } : {}), recordId, preview: body.preview === true, ...(body.view === 'form' || body.view === 'list' || body.view === 'table' ? { view: body.view } : {}), account: session.account, session: session.scripts, ...this.host.scriptOptions(store.name), executionAccount: session.account, executionVia: session.via, privileges,
       onAccessDenial: (denial, code) => collector.observe(denial, code),
+      onProgress: (event) => this.runningProgress.set(userStop, event),
       ...(lastVisited ? { lastVisited } : {}),
       ...(session.window ? { window: session.window } : {}),
       // Files the script exports or saves as PDF go to the person's browser, as in WebDirect.
@@ -1979,6 +2068,25 @@ export class WebClient {
       const err = e instanceof ApiError ? e : e instanceof URIError ? badPathError() : e instanceof StoreError || e instanceof PrivilegeError ? new ApiError(e.code, e.message, 400, e.denial) : unknownError(e);
       if (!(e instanceof URIError) && !(e instanceof ApiError) && !(e instanceof StoreError) && !(e instanceof PrivilegeError)) console.error(e);
       send(err.status, { error: { code: err.code, message: err.message, ...(err.denial ? { denial: explainAccessDenial(err.denial) } : {}) } });
+    }
+  }
+
+  /** A session sees aggregate progress for its own active runs only. */
+  private progressRuns(req: IncomingMessage, res: ServerResponse, db: string): void {
+    try {
+      if (req.method !== 'GET') throw new ApiError(3, 'Command is unavailable', 405);
+      const session = this.api.authorize(req, db);
+      const store = this.host.get(db);
+      if (!store) throw new ApiError(802, 'Unable to open file', 404);
+      const mine = this.running.get(`${session.token}\u0000${store.name}`);
+      const runs = [...(mine ?? [])].flatMap((run) => {
+        const progress = this.runningProgress.get(run);
+        return progress ? [progress] : [];
+      });
+      res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }).end(JSON.stringify({ runs }));
+    } catch (e) {
+      const err = e instanceof ApiError ? e : e instanceof URIError ? badPathError() : e instanceof StoreError || e instanceof PrivilegeError ? new ApiError(e.code, e.message, 400, e.denial) : unknownError(e);
+      res.writeHead(err.status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }).end(JSON.stringify({ error: { code: err.code, message: err.message } }));
     }
   }
 

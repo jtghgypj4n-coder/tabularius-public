@@ -2445,11 +2445,13 @@ class Session implements Host {
    * to stop it, with its button, Esc or ⌘-period as in FileMaker. A script
    * that turned Allow User Abort off carries on.
    */
-  private async whileRunning<T>(work: Promise<T>): Promise<T> {
+  private async whileRunning<T>(work: Promise<T>, label = 'Running a script…'): Promise<T> {
     let note: ReturnType<typeof pinnedToast> | undefined;
+    let polling = false;
+    let progressTimer: ReturnType<typeof setInterval> | undefined;
     const stop = () => {
       this.api.stopRuns().catch(() => {});
-      note?.say('Stopping the script…');
+      note?.say('Stopping…');
     };
     const onKey = (e: KeyboardEvent) => {
       // A dialog that is up (another script's, or the browser's own) keeps its Esc.
@@ -2461,13 +2463,22 @@ class Session implements Host {
       }
     };
     const timer = setTimeout(() => {
-      note = pinnedToast('Running a script…', { label: 'Stop', run: stop, title: 'Stop the script (Esc)' });
+      note = pinnedToast(label, { label: 'Stop', run: stop, title: 'Stop this operation (Esc)' });
       document.addEventListener('keydown', onKey, true);
+      progressTimer = setInterval(() => {
+        if (polling) return;
+        polling = true;
+        void this.api.runningProgress().then(({ runs }) => {
+          const current = runs.at(-1);
+          if (current) note?.say(current.total ? `${current.operation}: ${current.completed.toLocaleString()} of ${current.total.toLocaleString()}` : `${current.operation}: ${current.completed.toLocaleString()} records`);
+        }).catch(() => {}).finally(() => { polling = false; });
+      }, 500);
     }, 800);
     try {
       return await work;
     } finally {
       clearTimeout(timer);
+      if (progressTimer) clearInterval(progressTimer);
       note?.remove();
       document.removeEventListener('keydown', onKey, true);
     }
@@ -2569,7 +2580,10 @@ class Session implements Host {
     // The dialog names the worksheet each preview and the import read, so a pick still being previewed is never mixed with an older plan.
     const r = await importDialog(file.name, plan, {
       plan: (opts) => this.api.planImport(layout, file, { ...opts, found }),
-      apply: (choice, opts) => this.api.applyImport(layout, file, choice, { ...opts, found }),
+      apply: (choice, opts) => {
+        const request = this.api.applyImport(layout, file, choice, { ...opts, found });
+        return opts.action === 'add' ? this.whileRunning(request, 'Importing records…') : request;
+      },
     }, { ai, foundCount: this.mode === 'browse' ? this.foundCount : 0 });
     if (!r) return;
     this.ids = r.foundSet;
@@ -2578,11 +2592,12 @@ class Session implements Host {
     this.index = 0;
     this.mode = 'browse';
     await this.reload();
-    const skipped = r.skipped.length ? `; ${r.skipped.length} left out` : '';
+    const skippedCount = r.skippedCount ?? r.skipped.length;
+    const skipped = skippedCount ? `; ${skippedCount} left out` : '';
     const pending = r.pendingApproval ? `; ${r.pendingApproval} waiting for approval` : '';
     const updated = r.updated !== undefined ? `Updated ${r.updated} record(s)${r.imported ? ` and added ${r.imported}` : ''}` : `Imported ${r.imported} record(s)`;
     const cantUndo = r.undoable === false ? ' Too many records changed to keep an Undo.' : '';
-    toast(`${updated}${skipped}${pending}.${cantUndo}`, 'info', (r.imported || r.updated) && r.undoable !== false ? {
+    toast(`${r.stopped ? 'Stopped: ' : ''}${updated}${skipped}${pending}.${cantUndo}`, 'info', (r.imported || r.updated) && r.undoable !== false ? {
       label: 'Undo',
       run: () => void this.api.undoImport(layout, r.id).then(async (u) => {
         const made = new Set(r.foundSet.slice(r.updated ?? 0));
@@ -2636,10 +2651,11 @@ class Session implements Host {
       }
       dialog.close();
       if (!(await this.commit())) return;
-      const file = await this.api.exportRecords(layout, {
+      const request = this.api.exportRecords(layout, {
         fields, format: type.value as ExportFormat, fieldNames: names.checked, name: name.value, ...(bom.checked && !bom.disabled ? { bom: true } : {}),
         ...(this.ids ? { ids: this.ids } : { query: this.query }), sort: this.sort,
       });
+      const file = type.value === 'xlsx' ? await request : await this.whileRunning(request, 'Exporting records…');
       saveDownload(file.name, file.blob);
     };
     dialog.append(

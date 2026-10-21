@@ -41,6 +41,7 @@ export const groups: RestGroup[] = [
       `path === '/next/'`,
       String.raw`/^\/tabularius\/images\/([^/]+)\/(\d+)$/.exec(`,
       String.raw`/^\/tabularius\/app\/v1\/databases\/([^/]+)\/runs\/stop$/.exec(`,
+      String.raw`/^\/tabularius\/app\/v1\/databases\/([^/]+)\/runs\/progress$/.exec(`,
       String.raw`/^\/tabularius\/app\/v1\/databases\/([^/]+)\/runs\/([0-9a-f]+)\/file$/.exec(`,
       String.raw`/^\/tabularius\/app\/v1\/databases\/([^/]+)\/prefs(?:\/([a-z]+))?$/.exec(`,
       String.raw`/^\/tabularius\/app\/v1\/databases\/([^/]+)\/layouts(?:\/([^/]+)(?:\/(view|records|foundset|groups|charts|menus|button|index|position|export|import|undo-import|ai-replace|explain|history|revert|refresh|value-list))?)?$/.exec(`,
@@ -561,7 +562,7 @@ export const groups: RestGroup[] = [
       {
         method: 'POST',
         path: '/tabularius/app/v1/databases/{database}/runs/stop',
-        summary: 'Stops the scripts this session is running in the file, as Esc does in FileMaker: each halts at its next step, or at once in a timed pause.',
+        summary: 'Asks this session\'s running scripts, imports, and streamed exports to stop.',
         permissions: 'Any session of the file (Data API session token or ohbt_ API token); it reaches only the scripts that same session started.',
         params: [dbParam, authHeader],
         example: {
@@ -569,7 +570,20 @@ export const groups: RestGroup[] = [
           status: 200,
           response: json({ stopped: 1 }),
         },
-        notes: 'stopped counts the runs asked to stop (0 when none is running). A script that has Allow User Abort off ignores the ask (one made after it turns it back on counts), as does one waiting on the person (a dialog, Pause, Insert File), which their Cancel through …/runs/{id}/file stops instead. The stopped run\'s own …/button (or …/file) request answers as usual, with a Halt Script action whose reason is "canceled by the user". Only POST is answered (405 code 3).',
+        notes: 'Scripts honor Allow User Abort; imports keep their completed records, and a stopped streamed export can leave a partial download. stopped counts the runs asked to stop (0 when none is running). A script that has Allow User Abort off ignores the ask (one made after it turns it back on counts), as does one waiting on the person (a dialog, Pause, Insert File), which their Cancel through …/runs/{id}/file stops instead. The stopped run\'s own …/button (or …/file) request answers as usual, with a Halt Script action whose reason is "canceled by the user". Only POST is answered (405 code 3).',
+      },
+      {
+        method: 'GET',
+        path: '/tabularius/app/v1/databases/{database}/runs/progress',
+        summary: 'Counts for this session\'s active bulk operations.',
+        permissions: 'Any session of the file (Data API session token or ohbt_ API token); it sees only the operations that same session started.',
+        params: [dbParam, authHeader],
+        example: {
+          request: 'GET /tabularius/app/v1/databases/Invoices/runs/progress\nAuthorization: Bearer 2f1c…',
+          status: 200,
+          response: json({ runs: [{ operation: 'Import Records', completed: 500, total: 0 }] }),
+        },
+        notes: 'Returns only this authenticated session\'s active operations. Each entry has operation, completed, and total counts; total is 0 when the source iterator has no known length. An empty runs array means this session has no active operation. The response is private and has Cache-Control: no-store.',
       },
       {
         method: 'GET',

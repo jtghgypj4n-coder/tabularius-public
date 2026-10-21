@@ -77,7 +77,7 @@ process against the store, with no HTTP in between.
 | Summary fields | Total, average and count over all records and over a found set. |
 | ExecuteSQL | SUM with WHERE, COUNT with GROUP BY, a JOIN to Customers, and ORDER BY with FETCH FIRST. |
 | Import | Planning and importing `--import` rows of four text fields into the empty Imported table, as an import file with a header row is read. Done once. |
-| Export | Every invoice's stored fields as comma-separated text, in pages of 500, built whole in memory as the web client's export does. Done once. |
+| Export | Every invoice's stored fields as comma-separated text, in pages of 500, built whole in memory by this older benchmark. Done once. The web client's text and XML exports now stream. |
 | Backup, Restore | Copying the hosted folder into a new backup set, and the set back into an empty folder. Done once each. |
 
 Tabularius keeps summary and ExecuteSQL results while the data is unchanged, so
@@ -321,6 +321,25 @@ On 2026-10-17, a three-second synthetic HTTP load test ran on macOS 25.4, Apple 
 With 16 signed-in sessions and a fixed offered find rate, 800 finds/s had p95 of 28.6 ms and no refusals; 1,000 finds/s had p95 of 105 ms but 60 refusals; 1,200 finds/s crossed one second at p95 of 2,019 ms with 179 refusals. Server RSS rose from about 190 MiB before traffic to 365 MiB at 800 finds/s and 413 MiB at 1,200 finds/s. These short samples show transient growth, not a steady-state memory limit.
 
 The recommended starting point on that machine for this workload is `serve --workers 2` with the default per-worker gate: `TABULARIUS_REQUEST_LIMIT=32`, `TABULARIUS_REQUEST_QUEUE=64`, and a 750 ms queue wait. Two workers served 96 mixed-workload sessions at find p95 of 402 ms with no refusals. The gate reserves two slots for sign-in and assets, favors them over finds and exports, and sheds with HTTP 503 plus `Retry-After: 1`. Monitor `tabularius_request_gate_queue_depth` and `tabularius_request_gate_shed_total`. See [the full overload audit](audits/r20-11-overload-capacity.md) for methods and limits.
+
+## Bulk operations
+
+Run `node scripts/bulk-scale.ts --rows 20000` for the CI-sized synthetic profile, or `node scripts/bulk-scale.ts --rows 1000000` for the full profile. The script creates and removes its own generated database and temporary export. The results below are one 20,000-row run on 2026-10-17 with Node v22.22.2; they are not predictions for one million rows. The script exits nonzero if an operation exceeds its budget. RSS is absolute process RSS, not an increase from the operation's start. The 20,000-row ceilings are **512 MiB RSS** and **32 MiB sampled WAL** for each operation. The full profile uses **1,536 MiB RSS** and **256 MiB sampled WAL**. Statement and row-write ceilings scale with the row count and are shown here at 20,000 rows.
+
+| Operation | Time (ms) | Peak RSS (MiB) | Statements / limit | Rows written / limit | Peak WAL (MiB) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Omit Multiple | 13 | 147 | 25 / 100 | 0 / 0 | 0 |
+| Sort Records | 67 | 151 | 15 / 200 | 0 / 0 | 0 |
+| Sort calculated field | 261 | 167 | 132 / 60,000 | 0 / 0 | 0 |
+| Replace Field Contents | 16,866 | 192 | 200,037 / 500,000 | 100,000 / 160,000 | 4 |
+| Find/Replace across file | 16,651 | 187 | 320,038 / 600,000 | 100,000 / 160,000 | 4 |
+| Export Records | 2,343 | 184 | 120,014 / 400,000 | 0 / 0 | 0 |
+| Script loop with commits | 13,746 | 195 | 480,029 / 600,000 | 100,000 / 160,000 | 4 |
+| Duplicate Record loop | 13,744 | 196 | 520,022 / 800,000 | 100,000 / 160,000 | 4 |
+| Delete All Records | 12,960 | 206 | 280,025 / 600,000 | 100,000 / 160,000 | 4 |
+| Import Records | 11,741 | 206 | 180,019 / 300,000 | 100,000 / 160,000 | 4 |
+
+All ten operations passed. The script loop and Duplicate Record loop use 20,000 iterations in this run and at most 100,000 in the full profile. The statement hook counts prepared `.get`, `.all`, `.run`, and `.iterate` executions when `TABULARIUS_COUNT_SQL=1`; its rows-written count sums `.run().changes`. It does not include `exec` statements, trigger side effects, or database pages rewritten by WAL checkpoints. WAL is sampled every 50 ms and at operation end, so a shorter peak may be missed. See [the bulk-operation audit](../notes/audits/r25-15-bulk-ops-scale.md) for cancellation semantics and remaining scale limits.
 
 ## Also see
 
