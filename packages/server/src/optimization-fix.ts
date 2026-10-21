@@ -154,6 +154,19 @@ function keep(store: Store, h: { next: number; changes: FixChange[] }): void {
   store.sql.prepare('INSERT INTO _fm_meta VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET json = excluded.json').run(META, JSON.stringify(h));
 }
 
+function withHistory<T>(store: Store, run: () => T): T {
+  store.sql.exec('SAVEPOINT optimization_fix_history');
+  try {
+    const result = run();
+    store.sql.exec('RELEASE optimization_fix_history');
+    return result;
+  } catch (error) {
+    if (store.sql.isTransaction) store.sql.exec('ROLLBACK TO optimization_fix_history; RELEASE optimization_fix_history');
+    store.resetCaches();
+    throw error;
+  }
+}
+
 /** Fixes made so far, newest first (what the report lists with an Undo button). */
 export function fixChanges(store: Store): { id: number; at: string; label: string; undone?: true }[] {
   return history(store).changes.map(({ id, at, label, undone }) => ({ id, at, label, ...(undone ? { undone } : {}) })).reverse();
@@ -163,18 +176,22 @@ export function fixChanges(store: Store): { id: number; at: string; label: strin
 export function applyFix(store: Store, fix: FixId, req: { items?: string[]; count?: number } = {}, account?: string, privileges?: Privileges): { fix: FixId; label: string; done: number; will: string[]; undo: number } {
   const plan = planFix(store, fix, req.items);
   if (req.count !== undefined && req.count !== plan.count) throw new FixError(409, `You were shown ${plural(req.count, 'change')} and the file has ${plan.count} now: look at the report again`);
+  let id: number;
   try {
-    store.applyDesign(plan.ops, { account, ...(privileges ? { privileges } : {}) });
+    id = withHistory(store, () => {
+      store.applyDesign(plan.ops, { account, ...(privileges ? { privileges } : {}) });
+      const h = history(store);
+      const id = h.next++;
+      h.changes.push({ id, at: new Date().toISOString(), label: plan.label, will: plan.will.slice(0, 200), undo: plan.undo });
+      // Only the latest few keep what undoes them.
+      for (const old of h.changes.slice(0, Math.max(0, h.changes.length - KEPT))) { old.undo = []; old.undone = true; }
+      keep(store, h);
+      return id;
+    });
   } catch (e) {
     if (e instanceof StoreError) throw new FixError(409, e.message);
     throw e;
   }
-  const h = history(store);
-  const id = h.next++;
-  h.changes.push({ id, at: new Date().toISOString(), label: plan.label, will: plan.will.slice(0, 200), undo: plan.undo });
-  // Only the latest few keep what undoes them.
-  for (const old of h.changes.slice(0, Math.max(0, h.changes.length - KEPT))) { old.undo = []; old.undone = true; }
-  keep(store, h);
   return { fix, label: plan.label, done: plan.count, will: plan.will, undo: id };
 }
 
@@ -185,12 +202,14 @@ export function undoFix(store: Store, id?: number, account?: string, privileges?
   if (!change) throw new FixError(404, id === undefined ? 'Nothing to undo' : `No change ${id}`);
   if (change.undone || !change.undo.length) throw new FixError(409, `"${change.label}" is already undone, or too old to undo`);
   try {
-    store.applyDesign(change.undo, { account, recordedRestore: true, ...(privileges ? { privileges } : {}) });
+    withHistory(store, () => {
+      store.applyDesign(change.undo, { account, recordedRestore: true, ...(privileges ? { privileges } : {}) });
+      change.undone = true;
+      keep(store, h);
+    });
   } catch (e) {
     if (e instanceof StoreError) throw new FixError(409, `Can't undo "${change.label}": ${e.message}`);
     throw e;
   }
-  change.undone = true;
-  keep(store, h);
   return { undone: change.label };
 }
