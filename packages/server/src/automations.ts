@@ -55,6 +55,8 @@ export interface Automation {
   parameter?: string;
   /** The account the script runs as: its privilege set applies. */
   account: string;
+  /** Immutable execution principal; older saves must be explicitly rebound. */
+  accountId?: string;
   /** Insert from URL may reach the network: only when the server also allows scripts the network. */
   network?: boolean;
   created: string;
@@ -136,7 +138,7 @@ export function cleanAutomation(store: Store, input: Record<string, unknown>, ac
   return {
     name, ...(str('description') ? { description: str('description').slice(0, 1000) } : {}), enabled: input.enabled !== false,
     layout: info.name, on, ...(fields.length ? { fields } : {}), ...(condition ? { condition } : {}), script, ...(parameter ? { parameter } : {}),
-    account: runAs, ...(input.network === true ? { network: true } : {}),
+    account: runAs, accountId: store.accountIdentityId(runAs), ...(input.network === true ? { network: true } : {}),
   };
 }
 
@@ -238,6 +240,15 @@ export function saveAutomation(store: Store, input: Record<string, unknown>, by:
   return { automation, scriptChanged: !!script };
 }
 
+/** Resolve authority afresh at each execution boundary, including the shared script queue. */
+function executionPrivileges(store: Store, a: Pick<Automation, 'account' | 'accountId'>): Privileges {
+  store.requireActiveAccount(a.account);
+  if (!a.accountId || store.accountIdentityId(a.account) !== a.accountId) {
+    throw new AutomationError('The execution account changed; save the automation again to bind it');
+  }
+  return store.privileges(a.account);
+}
+
 // --- dry run --------------------------------------------------------------------------
 
 export interface AutomationDryRun {
@@ -291,7 +302,8 @@ export async function dryRunAutomation(store: Store, spec: Omit<Automation, 'id'
     if (script) copy.applyDesign([scriptChange(copy, script)], { account: 'AI dry run' });
     const info = copy.layout(spec.layout);
     // As the account it will run as, so the dry run shows what that account's privileges let it do, on a record it can see.
-    const privileges = copy.privileges(spec.account);
+    executionPrivileges(store, spec);
+    const privileges = executionPrivileges(copy, spec);
     const truth = (id: number) => !spec.condition || asBoolean(copy!.evaluateEach(info, [spec.condition], id, { account: spec.account, privileges })[0] ?? { type: 'text', value: '' });
     const ids = copy.findIds(info, {}).filter((id) => copy!.canViewRecord(info.table, id, privileges));
     let recordId: number | undefined;
@@ -434,9 +446,11 @@ export class AutomationRunner {
     }
   }
 
-  private requireSavedAccount(store: Store, a: Automation): void {
-    store.requireActiveAccount(a.account);
+  /** The account's privileges now, if it is still the account the automation was saved for and the automation still exists. */
+  private requireSavedAccount(store: Store, a: Automation): Privileges {
+    const privileges = executionPrivileges(store, a);
     if (!new Saved(store).get(a.id)) throw new StoreError(212, 'The automation is no longer available');
+    return privileges;
   }
 
   private async run(store: Store, a: Automation, recordId: number, deleted?: { seq: number; values: Record<string, unknown> }): Promise<void> {
@@ -470,10 +484,10 @@ export class AutomationRunner {
       privileges.checkScript(script.name);
       const parameter = a.parameter ? store.evaluate(info, a.parameter, recordId, { account: a.account, privileges }).value : undefined;
       const r = await writer.run({ owner: `${OWNER}${a.id}`, account: a.account, surface: 'automation' }, () => opts.serverQueue.run((stop) => {
-        this.requireSavedAccount(store, a);
+        const current = this.requireSavedAccount(store, a);
         return runScript(store, script, {
           ...(stop ? { stop } : {}),
-          layout: info.name, foundSet: [recordId], recordId, account: a.account, executionAccount: a.account, privileges, ...(parameter !== undefined ? { parameter } : {}),
+          layout: info.name, foundSet: [recordId], recordId, account: a.account, executionAccount: a.account, privileges: current, ...(parameter !== undefined ? { parameter } : {}),
           documents: opts.documents, ...itemNetwork(opts, a.network, 'automation'), ...(opts.networkAllow ? { networkAllow: opts.networkAllow } : {}),
           ...(opts.outbound ? { outbound: opts.outbound } : {}), ...(opts.profile ? { profile: opts.profile } : {}),
           // No AI steps: AI apps can save automations (MCP save_automation), and scripts AI apps start stay offline.
@@ -513,10 +527,10 @@ export class AutomationRunner {
     const parameter = JSON.stringify({ recordId, fields: deletedFields(values, info.table, privileges) });
     const opts = this.host.scriptOptions(store.name);
     const r = await writer.run({ owner: `${OWNER}${a.id}`, account: a.account, surface: 'automation' }, () => opts.serverQueue.run((stop) => {
-      this.requireSavedAccount(store, a);
+      const current = this.requireSavedAccount(store, a);
       return runScript(store, script, {
         ...(stop ? { stop } : {}),
-        layout: info.name, foundSet: [], account: a.account, executionAccount: a.account, privileges, parameter,
+        layout: info.name, foundSet: [], account: a.account, executionAccount: a.account, privileges: current, parameter,
         documents: opts.documents, ...itemNetwork(opts, a.network, 'automation'), ...(opts.networkAllow ? { networkAllow: opts.networkAllow } : {}),
         ...(opts.outbound ? { outbound: opts.outbound } : {}), ...(opts.profile ? { profile: opts.profile } : {}),
         timeoutMs: 60_000,

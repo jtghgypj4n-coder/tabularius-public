@@ -16,7 +16,7 @@
 // The summary's numbers are the dashboard's, worked out from the data; the assistant reads them and may look
 // further with its read-only tools, as the digest's account, offline, with secrets redacted.
 
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { StoreError, type Privileges, type Store } from '../../store/src/index.ts';
 import { ApiError, badPathError, readJson, sessionPrivileges, type DataApi } from './dataapi.ts';
@@ -39,11 +39,15 @@ export interface Digest {
   enabled: boolean;
   /** The account it runs as, the one that set it up. */
   account: string;
+  /** Identity approved when the digest was created. */
+  accountId?: string;
   created: string;
   updated: string;
 }
 
 export interface DigestRun {
+  /** Per-file authorization at computation; legacy scalar tokens are withheld. Never sent to clients. */
+  authorization?: string | string[];
   id: string;
   digest: string;
   at: string;
@@ -199,13 +203,13 @@ export class Digests {
   create(input: Omit<Digest, 'id' | 'created' | 'updated'>, now = new Date()): Digest {
     if (!this.table()) throw new DigestError('This file is read-only');
     const at = now.toISOString();
-    const d: Digest = { id: randomBytes(6).toString('hex'), ...input, created: at, updated: at };
+    const d: Digest = { id: randomBytes(6).toString('hex'), ...input, accountId: this.store.accountIdentityId(input.account), created: at, updated: at };
     // The time just passed doesn't count: the first run is the next one.
     this.store.sql.prepare('INSERT INTO _fm_digests (id, spec, last_slot) VALUES (?, ?, ?)').run(d.id, JSON.stringify(d), lastSlot(d, now)?.toISOString() ?? null);
     return d;
   }
 
-  update(id: string, change: Partial<Omit<Digest, 'id' | 'created' | 'account' | 'dashboard'>>, now = new Date()): Digest {
+  update(id: string, change: Partial<Omit<Digest, 'id' | 'created' | 'account' | 'accountId' | 'dashboard'>>, now = new Date()): Digest {
     const d = this.get(id);
     if (!d) throw new DigestError('No such digest');
     const next: Digest = { ...d, ...change, updated: now.toISOString() };
@@ -292,6 +296,47 @@ export class DigestRunner {
     this.log = log;
   }
 
+  /** Summaries can consult any open file. Snapshot identities and grants, not schema versions. */
+  private authorization(store: Store, d: Digest): Map<string, boolean> | undefined {
+    try {
+      store.requireActiveAccount(d.account);
+      if (!d.accountId || store.accountIdentityId(d.account) !== d.accountId) return undefined;
+      return new Map(this.host.openStores().map((s) => {
+        const p = s.privileges(d.account);
+        let active = false;
+        try { s.requireActiveAccount(d.account); active = true; } catch { /* No execution authority in this file. */ }
+        const token = createHash('sha256').update(JSON.stringify([d.accountId, s.name, s.accountIdentityId(d.account) ?? '', active, p.fingerprint])).digest('hex');
+        const dynamic = !p.full && [p.set.records, ...Object.values(p.set.tables ?? {})].some((r) => typeof r.view === 'string');
+        return [token, dynamic];
+      }));
+    } catch { return undefined; }
+  }
+
+  /** All cached-output consumers use this check, including latest-run summaries. */
+  runs(store: Store, d: Digest, limit = RUNS_KEPT): DigestRun[] {
+    const authorization = this.authorization(store, d);
+    return new Digests(store).runs(d.id, limit).flatMap((run) => {
+      // New files cannot revoke a past run. Every file that was open for that run must still match.
+      if (!authorization || !Array.isArray(run.authorization) || !run.authorization.length ||
+          !run.authorization.every((token) => authorization.has(token))) return [];
+      const dynamic = run.authorization.some((token) => authorization.get(token));
+      // Plain stored fields under a static table grant remain readable. A calculation or
+      // aggregate governed by a dynamic rule cannot establish access to its historical inputs.
+      if (dynamic && !run.data.every((w) => {
+        try {
+          const info = store.layout(w.layout);
+          const p = store.privileges(d.account).in(info.owner);
+          return p.table(info.table).view === true && info.fields.every((f) => !f.calculated && !f.summary);
+        } catch { return false; }
+      })) return [];
+      const visible = withoutAuthorization(run);
+      if (!dynamic) return [visible];
+      // The assistant may have consulted dynamic rules in files beyond those plain widgets.
+      const { summary: _summary, summaryNote: _note, error: _error, ...plain } = visible;
+      return [plain];
+    });
+  }
+
   /** Checks every minute for digests whose time has come. */
   start(every = 60_000): void {
     this.timer = setInterval(() => void this.tick(), every);
@@ -334,6 +379,7 @@ export class DigestRunner {
     };
     this.running.add(d.id);
     const digests = new Digests(store);
+    const authorization = this.authorization(store, d);
     try {
       // Includes related hosted files: a summary can read through the relationship graph. A change of accounts or
       // privileges always voids the run; a record write only does for an account whose view of records can depend on
@@ -357,6 +403,8 @@ export class DigestRunner {
       };
       try {
         if (!digests.get(d.id)) throw new DigestError('This digest is no longer available');
+        if (!authorization) throw new DigestError('The execution account changed; create the digest again to bind it');
+        run.authorization = [...authorization.keys()];
         const account = store.accounts().find((a) => a.name.toLowerCase() === d.account.toLowerCase());
         if (account?.inactive) throw new DigestError(`The account "${d.account}" it runs as is inactive`);
         const privileges = store.privileges(account?.name ?? d.account);
@@ -414,7 +462,7 @@ export class DigestRunner {
       run.ms = Date.now() - started;
       if (digests.get(d.id)) digests.addRun(run);
       if (run.outcome === 'error') this.log(`digest "${d.name}" in ${store.name}: ${run.error}`);
-      return run;
+      return withoutAuthorization(run);
     } finally {
       this.running.delete(d.id);
     }
@@ -428,7 +476,7 @@ export class DigestRunner {
       if (!store) return [];
       const digests = new Digests(store);
       return digests.list().map((d) => {
-        const last = digests.runs(d.id, 1)[0];
+        const last = this.runs(store, d, 1)[0];
         const next = d.enabled ? nextSlot(d, now) : undefined;
         return { ...d, database: store.name, schedule: describeSchedule(d), ...(next ? { next: next.toISOString() } : {}), ...(last ? { last: withoutData(last) } : {}) };
       });
@@ -437,6 +485,7 @@ export class DigestRunner {
 }
 
 const withoutData = ({ data: _d, ...run }: DigestRun): Omit<DigestRun, 'data'> => run;
+const withoutAuthorization = ({ authorization: _a, ...run }: DigestRun): DigestRun => run;
 
 /** Whether an account may see a digest's runs: they hold what its account sees, so its account, or [Full Access]. */
 export const mayRead = (d: Digest, account: string | undefined, privileges: Privileges) =>
@@ -473,14 +522,14 @@ export class DigestApi {
       // Runs and schedules use the saved account; a scoped token cannot act as that account or read its cached results.
       if (privileges.ceiling) throw new ApiError(9, 'This API token cannot use account-level digests', 403);
       const digests = new Digests(store);
-      const runs = (id: string, limit?: number) => digests.runs(id, limit).map((run) => privileges.readsEverything ? run : withoutRecordData(run));
+      const runs = (d: Digest, limit?: number) => this.runner.runs(store, d, limit).map((run) => privileges.readsEverything ? run : withoutRecordData(run));
       const boards = new Dashboards(store);
       const hooks = (this.webhooks?.() ?? []).filter((w) => w.database.toLowerCase() === store.name.toLowerCase());
       const now = new Date();
       const shown = (d: Digest) => {
         const board = boards.get(d.dashboard);
         const readable = mayRead(d, session.account, privileges);
-        const last = readable ? runs(d.id, 1)[0] : undefined;
+        const last = readable ? runs(d, 1)[0] : undefined;
         const next = d.enabled ? nextSlot(d, now) : undefined;
         return {
           ...d, ...(privileges.full ? {} : { webhook: undefined }), schedule: describeSchedule(d), dashboardName: board?.name, ...(next ? { next: next.toISOString() } : {}),
@@ -506,9 +555,9 @@ export class DigestApi {
         const d = id ? digests.get(id) : undefined;
         if (!d) throw new ApiError(401, 'No such digest', 404);
         if (!mayRead(d, session.account, privileges)) throw new ApiError(9, 'Only the account that set up this digest, or one with [Full Access], can see or change it', 403);
-        if (sub === 'runs' && req.method === 'GET') send(200, { runs: runs(d.id) });
+        if (sub === 'runs' && req.method === 'GET') send(200, { runs: runs(d) });
         else if (sub === 'run' && req.method === 'POST') send(200, { run: await this.runner.run(store, d) });
-        else if (!sub && req.method === 'GET') send(200, { digest: shown(d), runs: runs(d.id) });
+        else if (!sub && req.method === 'GET') send(200, { digest: shown(d), runs: runs(d) });
         else if (!sub && req.method === 'PUT') {
           const body = await readJson(req);
           const { dashboard: _d, ...change } = cleanDigest(store, body, true, hooks);
