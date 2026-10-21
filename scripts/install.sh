@@ -16,8 +16,9 @@
 #                 a bundle where you can reach GitHub with
 #                 `git -C tabularius bundle create tabularius.bundle HEAD main`.
 #
-# Service options: --port 8080, --host 127.0.0.1 (default: this machine only;
-# --host 0.0.0.0 reaches the network and needs HTTPS: -- --https local). Anything after `--` is passed
+# Service options: --port 8080, --host (default: this machine only, or every address
+# when `-- --https files.example.com` asks for a certificate; --host 0.0.0.0 reaches the
+# network and needs HTTPS: -- --https local). Anything after `--` is passed
 # to `tabularius serve`, e.g. -- --https files.example.com --sql-port 5432.
 #
 #   --system      run at boot without anyone logged in, as you (asks for sudo):
@@ -40,7 +41,7 @@ BIN_DIR="${TABULARIUS_BIN:-${OPENHBAM_BIN:-$HOME/.local/bin}}"
 NODE_VERSION="22.22.0"
 SERVICE_DIR=""
 PORT=8080
-HOST=127.0.0.1
+HOST=""  # left out, `tabularius service` chooses: this computer only, or every address when --https names a domain
 SYSTEM=""
 PRINT=""
 UNINSTALL=""
@@ -194,4 +195,4 @@ CLI="$APP/packages/cli/src/main.ts"
 if [ -n "$UNINSTALL" ]; then exec "$NODE" --no-warnings "$CLI" service uninstall --platform "$PLATFORM"; fi
 [ -n "$SERVICE_DIR" ] || { say "Done. Try: tabularius serve <folder of .fmp12 files>"; exit 0; }
 if [ -n "$PRINT" ]; then ACTION=print; else ACTION=install; fi
-exec "$NODE" --no-warnings "$CLI" service "$ACTION" "$SERVICE_DIR" --platform "$PLATFORM" --port "$PORT" --host "$HOST" ${SYSTEM:+--system} -- "$@"
+exec "$NODE" --no-warnings "$CLI" service "$ACTION" "$SERVICE_DIR" --platform "$PLATFORM" --port "$PORT" ${HOST:+--host "$HOST"} ${SYSTEM:+--system} -- "$@"

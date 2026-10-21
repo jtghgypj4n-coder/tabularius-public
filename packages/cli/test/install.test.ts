@@ -11,6 +11,13 @@ const print = (os: string, ...args: string[]) =>
   execFileSync('sh', [script, '--service', '/srv/Databases', '--print', ...args], { env: { ...process.env, TABULARIUS_OS: os }, stdio: ['ignore', 'pipe', 'ignore'] }).toString();
 const sh = spawnSync('sh', ['-c', 'true']).status === 0 ? false : 'no sh';
 
+test('the service listens on this computer only unless a certificate for a domain asks otherwise', { skip: sh }, () => {
+  assert.match(print('Linux'), /"--host" "127\.0\.0\.1"/);
+  assert.match(print('Linux', '--', '--https', 'local'), /"--host" "127\.0\.0\.1"/);
+  assert.match(print('Linux', '--', '--https', 'files.example.com'), /"--host" "0\.0\.0\.0"/);
+  assert.match(print('Linux', '--host', '127.0.0.1', '--', '--https', 'files.example.com'), /"--host" "127\.0\.0\.1"/);
+});
+
 test('systemd: a user service, or a system one that starts at boot and may use port 443', { skip: sh }, () => {
   const user = print('Linux', '--', '--sql-port', '5432', '--https', 'files.example.com');
   // The service starts through a short --eval entry that puts the previous release back if an upgrade stopped between its renames.

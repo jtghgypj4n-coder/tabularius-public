@@ -10,8 +10,9 @@
 # Run from outside a checkout, it clones the repository into
 # %USERPROFILE%\.openhbam\app (needs Git; set TABULARIUS_REPO for another URL).
 #
-# Service options: -Port 8080, -HostName 127.0.0.1 (default: this machine only;
-# 0.0.0.0 reaches the network and needs HTTPS: -ServeArgs '--https','local'), -ServeArgs for more
+# Service options: -Port 8080, -HostName (default: this machine only, or every
+# address when -ServeArgs '--https','files.example.com' asks for a certificate; 0.0.0.0
+# reaches the network and needs HTTPS: -ServeArgs '--https','local'), -ServeArgs for more
 # `tabularius serve` options, e.g. -ServeArgs '--sql-port','5432'.
 #
 #   -System      run at boot without anyone signed in, as the system account
@@ -26,7 +27,7 @@
 param(
   [string]$Service,
   [int]$Port = 8080,
-  [string]$HostName = '127.0.0.1',
+  [string]$HostName = '',
   [switch]$System,
   [switch]$Print,
   [switch]$Uninstall,
@@ -152,18 +153,22 @@ if (-not $Print) {
 
 if (-not $Service) { Say 'Done. Try: tabularius serve <folder of .fmp12 files>'; exit 0 }
 $action = if ($Print) { 'print' } else { 'install' }
-$serviceArgs = @('--no-warnings', $Cli, 'service', $action, $Service, '--platform', 'win32', '--port', "$Port", '--host', $HostName)
+$serviceArgs = @('--no-warnings', $Cli, 'service', $action, $Service, '--platform', 'win32', '--port', "$Port")
+if ($HostName) { $serviceArgs += @('--host', $HostName) }
 if ($System) { $serviceArgs += '--system' }
 $serviceArgs += '--'
 $serviceArgs += $ServeArgs
 & $Node @serviceArgs
 if ($LASTEXITCODE) { exit $LASTEXITCODE }
-if ($System -and -not $Print -and $HostName -ne '127.0.0.1') {
+# Reachable from the network: a host other than this computer, or a certificate for a domain (which listens on every address).
+$httpsAt = [array]::IndexOf($ServeArgs, '--https')
+$reachable = ($HostName -and $HostName -ne '127.0.0.1') -or ($httpsAt -ge 0 -and $httpsAt + 1 -lt $ServeArgs.Count -and @('local', 'lan') -notcontains $ServeArgs[$httpsAt + 1])
+if ($System -and -not $Print -and $reachable) {
   # Others on the network reach it only once the firewall lets them in.
   if (-not (Get-NetFirewallRule -DisplayName 'tabularius' -ErrorAction SilentlyContinue)) {
     New-NetFirewallRule -DisplayName 'tabularius' -Direction Inbound -Protocol TCP -LocalPort $Port -Action Allow | Out-Null
     Say "Opened TCP port $Port in Windows Firewall"
   }
-} elseif (-not $Print -and $HostName -ne '127.0.0.1') {
+} elseif (-not $Print -and $reachable) {
   Say "If others can't reach it, allow TCP port $Port in Windows Firewall (or install with -System as administrator)"
 }
