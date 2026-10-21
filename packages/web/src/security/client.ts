@@ -112,6 +112,8 @@ export interface Security {
   /** Changes proposed by approval-gated AI agents, oldest first. */
   pendingChanges: PendingChange[];
   passwordPolicy: PasswordPolicy;
+  /** Days a new API token lives when the form leaves the lifetime blank (0: no expiry). */
+  tokenDefaultDays?: number;
   /** The file requires a confirmed second factor on every full-access account. */
   requireTotpForFullAccess: boolean;
   /** Full-access accounts with no second factor yet (what the switch would lock out). */

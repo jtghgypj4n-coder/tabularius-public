@@ -18,12 +18,12 @@ import { clientAddress } from './client-address.ts';
 import { createHash } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { endTransaction, StoreError, writer, type FieldData, type FindRequest, type LayoutInfo, type Store, type Transaction } from '../../store/src/index.ts';
-import { expiryClock } from '../../store/src/clock.ts';
 import { addDays, buildCalendar, parseDate, parseStamp, readCalendar, READ_LIMITS, utcToZoned, zonedToUtc, zoneName, type FeedEvent, type ReadTime, type When } from '../../store/src/calendar.ts';
 import { ApiError, badPathError, maxLimit, readBody, sessionPrivileges, type DataApi } from './dataapi.ts';
 import type { Host } from './host.ts';
 import { MAX_JSON_QUERY_BYTES, parseRequestJson } from './request-json.ts';
 import { requestOrigin } from './public-origin.ts';
+import { DEFAULT_FEED_DAYS, MAX_TOKEN_DAYS, tokenExpiry } from './token-expiry.ts';
 import { redactPath } from './server-logs.ts';
 
 export const MAX_EVENTS = 5000;
@@ -182,11 +182,11 @@ export function createFeed(store: Store, account: string, privileges: ReturnType
     if (!Number.isInteger(req.limit) || req.limit < 1 || req.limit > most) throw new ApiError(960, `Parameter is invalid: limit (1 to ${most})`, 400);
     q.set('limit', String(req.limit));
   }
-  let expires: Date | undefined;
-  if (req.expiresDays !== undefined && req.expiresDays !== null) {
-    if (typeof req.expiresDays !== 'number' || !(req.expiresDays > 0) || req.expiresDays > 3650) throw new ApiError(960, 'Parameter is invalid: expiresDays (above 0 and up to 3650)', 400);
-    expires = new Date(expiryClock.now() + req.expiresDays * 86_400_000);
+  // Left out, the address lives DEFAULT_FEED_DAYS; 0 is "never", asked for on purpose.
+  if (req.expiresDays !== undefined && req.expiresDays !== null && (typeof req.expiresDays !== 'number' || !(req.expiresDays >= 0) || req.expiresDays > MAX_TOKEN_DAYS)) {
+    throw new ApiError(960, 'Parameter is invalid: expiresDays (above 0 and up to 3650, or 0 for never)', 400);
   }
+  const expires = tokenExpiry(req.expiresDays, DEFAULT_FEED_DAYS);
   const label = typeof req.label === 'string' && req.label.trim() ? req.label.trim().slice(0, 60) : '';
   let token: string;
   try {

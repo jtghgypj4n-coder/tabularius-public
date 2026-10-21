@@ -22,7 +22,7 @@ import { FmpDatabase, fileSource, encryptionInfo, readLayoutDesigns, segmentOf, 
 import { BUILT_IN_EXTENDED_PRIVILEGES, addCensus, styleCensus, styleCensusText, calcFidelity, censusText, exportSql, exportSqlSummary, planImportTables, importTables, importTablesSummary, notionMarkdownSheet, MAX_IMPORT_ROWS, type SheetInput, type ColumnOverrides, type ColumnKind, findStaleCalcs, layoutCensus, type LayoutCensus, createStore, designReport, importFmp12, PASSWORD_POLICY, reconvert, reconvertCheck, verifySecurityAudit, verifyRecordAudit, anchorHead, checkAnchor, Store, syncPlan, openForPlanning, applySync, readSyncLog, releaseHeldTables, type ConflictPolicy, writeBackKit, designText, writeDesignText, diffDesigns, planDesignApply, readDesignFolder, type DesignOp, type ReconvertPreview, csvField } from '../../store/src/index.ts';
 import { xlsxSheetNames } from '../../scripts/src/xlsx.ts';
 import { importFileRowIterator, neverAllowed, parseAllowList, SCREEN_STEPS, SERVER_STEPS, testScripts, type ScriptTestResult } from '../../scripts/src/index.ts';
-import { conversionReport, explainScriptFailure, type ScriptFailure, DEFAULT_MODEL, Host, serve, serveCluster, serveStdio, aiStatus, STORE_EXT, ENCRYPTED_EXT, encryptFileSync, decryptFileSync, setAdminPassword, backupFolder, backupSets, defaultBackupDir, parseInterval, parseTime, restoreAt, restoreBackup, AccountChangesError, type AccountDifference, type ChangedSince, verifySet, describeCheck, resolveEmbedEndpoint, resolveImageEmbed, localCertificateFiles, Standby, S3, s3FromEnv, mirrorDown, fetchFmsExport, migrateFms, describeMigration, copySize, readSettings, runningServer, dataApiSource, dataApiClient, checkSyncAllowed, describeApply, describePlan, verifySync, describeSyncVerification, parseSyncConfig, CONTAINER_PULL_MAX_BYTES, type FmsExport } from '../../server/src/index.ts';
+import { conversionReport, explainScriptFailure, type ScriptFailure, DEFAULT_MODEL, Host, serve, serveCluster, serveStdio, aiStatus, STORE_EXT, ENCRYPTED_EXT, encryptFileSync, decryptFileSync, setAdminPassword, tokenExpiry, backupFolder, backupSets, defaultBackupDir, parseInterval, parseTime, restoreAt, restoreBackup, AccountChangesError, type AccountDifference, type ChangedSince, verifySet, describeCheck, resolveEmbedEndpoint, resolveImageEmbed, localCertificateFiles, Standby, S3, s3FromEnv, mirrorDown, fetchFmsExport, migrateFms, describeMigration, copySize, readSettings, runningServer, dataApiSource, dataApiClient, checkSyncAllowed, describeApply, describePlan, verifySync, describeSyncVerification, parseSyncConfig, CONTAINER_PULL_MAX_BYTES, type FmsExport } from '../../server/src/index.ts';
 // optimize's report (kept apart from the busy import line above).
 import { sheetsFromFile, checkSheetNames, sheetNameOf } from '../../server/src/import-sheets.ts';
 import { optimizationReport, openApiDocument, typesFromOpenApi, checkSolution, checkSolutionText, createFeed, importIcs, listFeeds, revokeFeed } from '../../server/src/index.ts';
@@ -699,10 +699,11 @@ function optionValue(args: string[], name: string, what: string): string | undef
 }
 
 function expiryDays(args: string[], command: string): string | undefined {
-  const error = () => new Error(`${command}: --expires-days takes a number of days above zero`);
+  const error = () => new Error(`${command}: --expires-days takes a number of days above zero, or 0 (or "never") for no expiry`);
   let days: string | undefined;
   try { days = strictFlag(args, '--expires-days'); } catch { throw error(); }
-  if (days !== undefined && !(/^\d+(\.\d+)?$/.test(days) && Number(days) > 0)) throw error();
+  if (days === 'never') return '0';
+  if (days !== undefined && !/^\d+(\.\d+)?$/.test(days)) throw error();
   return days;
 }
 
@@ -2493,7 +2494,8 @@ function main(argv: string[]): number {
           const token = store.createApiToken(account, {
             label,
             readOnly,
-            expires: days ? new Date(expiryClock.now() + Number(days) * 86_400_000) : undefined,
+            // Left out, the token lives the default (90 days, TABULARIUS_TOKEN_DEFAULT_DAYS); 0 or "never" asks for none.
+            expires: tokenExpiry(days === undefined ? undefined : Number(days)),
             surfaces: tokenSurfaces,
             layouts: tokenLayouts,
             provenance: 'service',

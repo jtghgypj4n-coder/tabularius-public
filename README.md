@@ -631,8 +631,9 @@ trusted network, since a plain bind sends the password.
 For integrations, mint a scoped API token instead of embedding a password. A
 token acts as one account (so it carries that account's privilege set), is used
 as a Bearer token on the Data API and SQL endpoints, and can be revoked on its
-own. `--read-only` makes it refuse every write and script; `--expires-days`
-gives it a lifetime.
+own. `--read-only` makes it refuse every write and script. A token stops
+working after 90 days unless `--expires-days N` says otherwise (`--expires-days 0`
+makes one that never expires; `TABULARIUS_TOKEN_DEFAULT_DAYS` changes the default).
 
 <!-- docs-example: illustrative -->
 ```sh
@@ -760,7 +761,7 @@ The easiest way to connect an AI app is the admin console's **Connect an AI app*
 section (guide at `/docs/connect-ai`, from [docs/connect-ai.md](docs/connect-ai.md)):
 pick a file, then a new AI agent account (never `[Full Access]`, its changes
 optionally held for a person to approve) or an existing account, and any limits
-(read-only, only some layouts, expiry). It makes one of the file's API tokens
+(read-only, only some layouts, a lifetime; 90 days unless you pick another). It makes one of the file's API tokens
 for AI apps only (shown once; only its hash is kept) with the settings to paste
 into Claude Code, Claude Desktop or any other MCP client, and checks it works.
 A limited token sees no design and gets no SQL or free-form calculations. MCP
@@ -773,7 +774,7 @@ tokens (`ohm_`) keep working until revoked.
 
 Control a hosted solution from a Claude Code session. In the admin console's
 **Connect an AI app**, pick the file and make a token (read-only, limited to
-some layouts, or with an expiry if you like), then run:
+some layouts, or for a shorter or longer time than the 90 days it gets), then run:
 
 ```
 claude mcp add --transport http tabularius http://SERVER:8080/mcp --header "Authorization: Bearer ohbt_…"

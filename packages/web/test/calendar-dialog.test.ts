@@ -24,6 +24,7 @@ test('a feed request leaves out what is blank and keeps what is chosen', () => {
   assert.deepEqual(feedRequest(blank), { layout: 'Events', start: 'Day' });
   assert.deepEqual(feedRequest({ ...blank, end: 'Starts', title: 'Title', zone: ' UTC ', label: ' Team ', expiresDays: '30' }),
     { layout: 'Events', start: 'Day', end: 'Starts', title: 'Title', zone: 'UTC', label: 'Team', expiresDays: 30 });
+  assert.equal(feedRequest({ ...blank, expiresDays: '0' }).expiresDays, 0, '0 asks for an address that never expires');
   assert.equal('expiresDays' in feedRequest({ ...blank, expiresDays: '-4' }), false);
   assert.equal('expiresDays' in feedRequest({ ...blank, expiresDays: 'soon' }), false);
 });

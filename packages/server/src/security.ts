@@ -20,7 +20,7 @@
 // Same session tokens as the Data API, and, like design mode, only an account
 // with [Full Access] may use it.
 
-import { expiryClock } from '../../store/src/clock.ts';
+import { defaultTokenDays, tokenExpiry } from './token-expiry.ts';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { BUILT_IN_EXTENDED_PRIVILEGES, StoreError, customAccess, isFullAccess, type DesignOp, type SecurityOp, type Store } from '../../store/src/index.ts';
 import { ApiError, badPathError, lenient, readJson, sessionPrivileges, type DataApi } from './dataapi.ts';
@@ -115,6 +115,8 @@ export function securityOf(store: Store) {
     // Changes proposed by approval-gated AI agents, waiting for a human to approve or reject.
     pendingChanges: store.pendingChanges(),
     passwordPolicy: store.passwordPolicy(),
+    // Days a new token lives when the form leaves it blank (0: none).
+    tokenDefaultDays: defaultTokenDays(),
     requireTotpForFullAccess: store.requireTotpForFullAccess(),
     // Full-access accounts without a second factor: what blocks the switch, and
     // what it would lock out, shown so an admin can fix them before turning it on.
@@ -186,8 +188,8 @@ export class SecurityApi {
       } else if (req.method === 'POST' && sub === 'tokens') {
         const body = await readJson(req);
         if (typeof body.account !== 'string') throw new ApiError(960, 'account is required', 400);
-        const expires = body.expiresDays !== undefined && body.expiresDays !== null
-          ? new Date(expiryClock.now() + Number(body.expiresDays) * 86_400_000) : undefined;
+        // Left out, the token takes the default lifetime; 0 days is "never", asked for on purpose.
+        const expires = tokenExpiry(body.expiresDays);
         const token = store.createApiToken(body.account, {
           label: typeof body.label === 'string' ? body.label : undefined,
           readOnly: !!body.readOnly,

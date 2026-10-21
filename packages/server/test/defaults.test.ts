@@ -3,7 +3,7 @@
 // row, and so the page, says the new thing.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawn, type ChildProcess } from 'node:child_process';
+import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { createServer } from 'node:net';
 import { request as httpRequest } from 'node:http';
 import { mkdtempSync, readFileSync, readdirSync, rmSync, openSync, readSync, closeSync, existsSync } from 'node:fs';
@@ -130,12 +130,21 @@ test('every row of the table holds on a server started with no flags', async (t)
       try { return JSON.stringify(s.passwordPolicy()); } finally { s.close(); }
     },
     apiTokenShape() {
-      const s = new Store(file, 'Shop');
+      // Made the way a person makes one on the command line, with no flags, in a folder of its own.
+      const folder = mkdtempSync(join(tmpdir(), 'tabularius-defaults-token-'));
+      folders.push(folder);
+      const f = join(folder, 'Tok.openhbam.sqlite');
+      createStore(f);
+      const s = new Store(f, 'Tok');
+      try { s.setPassword('Admin', 'Admin correct password 1', '[Full Access]'); } finally { s.close(); }
+      const made = spawnSync(process.execPath, ['--no-warnings', mainFile, 'token', folder, 'Tok', 'create', 'Admin'], { env: cleanEnv(home), encoding: 'utf8' });
+      if (made.status !== 0) return `token create failed: ${made.stderr.slice(0, 200)}`;
+      const r = new Store(f, 'Tok');
       try {
-        s.createApiToken('Admin', { label: 'defaults test' });
-        const made = s.apiTokens().find((x) => x.label === 'defaults test')!;
-        return !made.expires && !made.readOnly ? 'no expiry, read-write' : `expires ${made.expires}, readOnly ${made.readOnly}`;
-      } finally { s.close(); }
+        const t = r.apiTokens()[0]!;
+        const days = t.expires ? Math.round((Date.parse(t.expires) - Date.now()) / 86_400_000) : undefined;
+        return days === 90 && !t.readOnly ? 'expires in 90 days, read-write' : `expires in ${days} days, readOnly ${t.readOnly}`;
+      } finally { r.close(); }
     },
     newStoreSetting(key) {
       const f = join(mkdtempSync(join(tmpdir(), 'tabularius-defaults-new-')), 'New.openhbam.sqlite');

@@ -121,7 +121,6 @@ import { auditCsvField } from '../../store/src/audit-output.ts';
 // on another site can't send, so a browser's saved login can't be used
 // against the console from elsewhere.
 
-import { expiryClock } from '../../store/src/clock.ts';
 import { AUTH_BODY_LIMIT } from './request-body.ts';
 import { IdentityInFlight, busyHeaders } from './in-flight.ts';
 import { directFromThisComputer, hasTrustedClientAddress, UNKNOWN_CLIENT } from './client-address.ts';
@@ -153,6 +152,7 @@ import { PassphraseNeeded, STORE_EXT } from './host.ts';
 import { BackupStopped, backupFolder, backupKey, backupRunning, stopBackups, backupSets, defaultBackupDir, parseTime, checkRestorePoint, restorePoint, restorePointTo, restoreRange, type BackupSchedule, type ProgressiveSchedule } from './backup.ts';
 import { ENCRYPTED_EXT } from './encrypt.ts';
 import { isLocalAdmin } from './local-admin.ts';
+import { tokenExpiry } from './token-expiry.ts';
 import { localAuthority } from './local-tls.ts';
 import { describeCheck, describeRestore, lastCheck, lastRestore, testRestore, verifyAfterBackup, verifySet } from './backup-verify.ts';
 import { LOGS, type LogName, type LogType, type ServerLogs } from './server-logs.ts';
@@ -1666,11 +1666,13 @@ export class Admin {
               const wanted = String(body.agent ? body.agent.name : body.account ?? '').trim().toLowerCase();
               const account = store.accounts().find((a) => a.name.toLowerCase() === wanted && !a.inactive);
               if (!account) throw new StoreError(960, `${store.name} has no account named ${JSON.stringify(said(body.account))}`);
-              const days = body.days === undefined || body.days === null ? undefined : body.days;
-              if (days !== undefined && !(typeof days === 'number' && Number.isInteger(days) && days > 0 && days <= 3650)) throw new StoreError(960, 'Days should be from 1 to 3650, or empty for no expiry');
+              // Left out, the token takes the default lifetime; 0 days is "never", asked for on purpose.
+              const days = body.days === undefined || body.days === null || (body.days as unknown) === '' ? undefined : body.days;
+              if (days !== undefined && !(typeof days === 'number' && Number.isInteger(days) && days >= 0 && days <= 3650)) throw new StoreError(960, 'Days should be from 1 to 3650, or 0 for a token that never expires');
+              const expires = tokenExpiry(days);
               const label = said(body.label).trim().slice(0, 200) || `AI app: ${account.name} in ${store.name}`;
               const token = store.createApiToken(account.name, {
-                label, surfaces: ['fmmcp'], readOnly: body.readOnly === true, ...(days ? { expires: new Date(expiryClock.now() + days * 86_400_000) } : {}),
+                label, surfaces: ['fmmcp'], readOnly: body.readOnly === true, ...(expires ? { expires } : {}),
                 ...(Array.isArray(body.layouts) && body.layouts.length ? { layouts: body.layouts.map(String) } : {}),
                 provenance: 'service',
               });

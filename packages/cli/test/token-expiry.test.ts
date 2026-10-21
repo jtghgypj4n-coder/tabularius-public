@@ -1,4 +1,5 @@
-// `tabularius token <folder> <database> create <account> --expires-days N` takes a number of days above zero.
+// `tabularius token <folder> <database> create <account> --expires-days N` takes a number of days above zero, or 0 ("never") for
+// none; left out, the token lives 90 days (TABULARIUS_TOKEN_DEFAULT_DAYS changes that, 0 turning it off).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -31,7 +32,7 @@ test('CLI relative token expiry uses the guarded epoch after rollback', () => {
   }
 });
 
-test('--expires-days that is not a number above zero is refused, a good one is accepted', async () => {
+test('--expires-days that is not a number of days (above zero, or 0 for never) is refused, a good one is accepted', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'tabularius-token-'));
   try {
     createStore(join(dir, 'Real' + STORE_EXT));
@@ -39,7 +40,7 @@ test('--expires-days that is not a number above zero is refused, a good one is a
     host.get('Real')!.setPassword('Admin', 'pw-for-tests', '[Full Access]');
     await host.close();
     // Invalid values are rejected before any token is written, so each check is independent.
-    const badValues = ['soon', '0', '-3', 'NaN', 'Infinity', ''];
+    const badValues = ['soon', '-3', 'NaN', 'Infinity', ''];
     const refused = await Promise.all(badValues.map((bad) => cli('token', dir, 'Real', 'create', 'Admin', '--expires-days', bad)));
     for (const [index, bad] of badValues.entries()) {
       const r = refused[index];
@@ -51,6 +52,33 @@ test('--expires-days that is not a number above zero is refused, a good one is a
     assert.equal(ok.status, 0, ok.stderr);
     assert.match(ok.stdout.trim(), /\S+/);
     assert.match(ok.stderr, /\(read-only\)/, 'the read-only note now shows');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a token made with no --expires-days lives 90 days; 0 and "never" ask for none; the variable changes the default', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'tabularius-token-default-'));
+  try {
+    createStore(join(dir, 'Real' + STORE_EXT));
+    const host = new Host(dir, () => {});
+    host.get('Real')!.setPassword('Admin', 'pw-for-tests', '[Full Access]');
+    await host.close();
+    const made = async (extra: string[], env?: NodeJS.ProcessEnv) => {
+      const r = await runCli(main, ['token', dir, 'Real', 'create', 'Admin', ...extra], { env: { ...process.env, ...env } });
+      assert.equal(r.status, 0, r.stderr);
+      const list = await cli('token', dir, 'Real', 'list');
+      const token = r.stdout.trim();
+      const entry = list.stdout.trim().split('\n').map((l) => JSON.parse(l) as { id: string; expires?: string }).find((t) => token.startsWith(`ohbt_${t.id}.`))!;
+      return entry.expires ? (Date.parse(entry.expires) - Date.now()) / 86_400_000 : undefined;
+    };
+    const days = (await made([]))!;
+    assert.ok(Math.abs(days - 90) < 0.1, `${days} days`);
+    assert.equal(await made(['--expires-days', '0']), undefined);
+    assert.equal(await made(['--expires-days', 'never']), undefined);
+    const thirty = (await made([], { TABULARIUS_TOKEN_DEFAULT_DAYS: '30' }))!;
+    assert.ok(Math.abs(thirty - 30) < 0.1, `${thirty} days`);
+    assert.equal(await made([], { TABULARIUS_TOKEN_DEFAULT_DAYS: '0' }), undefined);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
