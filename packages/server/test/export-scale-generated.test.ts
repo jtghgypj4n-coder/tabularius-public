@@ -51,6 +51,8 @@ before(async () => {
 });
 
 after(async () => {
+  // A failed assertion can leave a response unread and its export blocked on backpressure; close the sockets too.
+  server?.closeAllConnections();
   await new Promise<void>((resolve) => (server ? server.close(() => resolve()) : resolve()));
   if (dir) rmSync(dir, { recursive: true, force: true });
 });
@@ -126,6 +128,24 @@ test('a sort in the request orders the running total of a text export', async ()
   assert.deepEqual(rows[0], ['700', '700']);
   assert.deepEqual(rows[1], ['699', String(700 + 699)]);
   assert.deepEqual(rows[699], ['1', String((700 * 701) / 2)]);
+});
+
+test('a query in the request limits a text export and its running total to the found records', async () => {
+  const res = await fetch(`${base}/tabularius/app/v1/databases/Scale/layouts/Small/export`, {
+    method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ fields: ['Id', 'Running Id', 'Share Id'], format: 'csv', query: [{ Id: '>600' }] }),
+  });
+  assert.equal(res.status, 200);
+  const rows = rowsOf(await res.text());
+  assert.equal(rows.length, SMALL - 600);
+  const total = (SMALL * (SMALL + 1)) / 2 - (600 * 601) / 2;
+  for (const k of [1, 2, 500, 501, SMALL - 600]) {
+    const [id, running, share] = rows[k - 1];
+    const sum = (600 * k) + (k * (k + 1)) / 2;
+    assert.equal(id, String(600 + k));
+    assert.equal(running, String(sum), `running total at row ${k}`);
+    assert.ok(Math.abs(Number(share) - (600 + k) / total) < 1e-9, `fraction of the found set's total at row ${k}: ${share}`);
+  }
 });
 
 test('a download the client cuts off is still logged as a read of the records already sent', async () => {

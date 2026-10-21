@@ -200,14 +200,18 @@ Exports with no summary field, with or without a find or sort, take time in
 proportion to their rows (200,000 rows in a few seconds). An export that
 includes a summary field recomputes it over the whole found set for every batch
 of 500 rows, as it did before, so its time grows with the square of the rows:
-tens of thousands of rows take seconds, and 200,000 take minutes. Export such a
-file in parts, or leave the summary field out.
+tens of thousands of rows take seconds, and 200,000 take minutes. Its memory
+grows with the rows too (the server's heap measured about 90 MB at 15,000 rows,
+140 MB at 30,000 and 200 MB at 60,000). Export such a file in parts, or leave the
+summary field out.
 
 Upgrade impact: CSV, tab and merge exports from the web client are now sent a
-batch at a time, uncompressed (`cache-control: no-transform`) and with no `content-length`, so a download can no longer fail as a
-clean error after its first batch (it ends early instead), and the read-audit
-entry, when read logging is on, is written when the download ends. Summaries in
-such an export are worked out in the found set's order, as in the other formats.
+batch at a time, uncompressed (`cache-control: no-transform`) and with no
+`content-length`, so a download can no longer fail as a clean error after its
+first batch (it ends early instead). Only CSV and merge exports were compressed
+before; tab exports never were. The read-audit entry, when read logging is on,
+is written when the download ends. Summaries in such an export are worked out in
+the found set's order, as in the other formats.
 
 ## Drawing big layouts in the web client
 
