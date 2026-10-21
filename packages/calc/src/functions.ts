@@ -6,6 +6,7 @@ import { withXmlWorkBudget } from './work-budget.ts';
 // to case.
 
 import { charCount, charsBefore, unitAt } from './text.ts';
+import { Decimal } from './decimal.ts';
 import { rethrowExecutionRefusal } from './execution-refusal.ts';
 import { checkCalcTextSize, joinCalcText, substituteText } from './text-budget.ts';
 import { ComplexityError } from './complexity-error.ts';
@@ -46,7 +47,7 @@ import type { Node } from './parser.ts';
 import { ALL_STYLES, STYLE_BITS, restyle, rgbHex, sliceRuns, toCss, type TextFormat } from './styled.ts';
 import {
   CalcError, HostWait, ERR, EMPTY, asBoolean, asDate, asNumber, asNumberOrEmpty, asText, asTime, asTimestamp, bool, dayNumber,
-  decimalSum, formatNumber, fromDayNumber, isEmpty, num, numberFromText, parseDateText, parseTimeText, parseTimestampText, text, type Value,
+  decimalSum, exactOf, formatNumber, fromDayNumber, fromExact, isEmpty, num, numberFromText, parseDateText, parseTimeText, parseTimestampText, text, type Value,
 } from './values.ts';
 
 export interface Fn {
@@ -363,6 +364,7 @@ eager('Position', 4, 4, (v, env) => {
   if (occ > 0) {
     let at = unitAt(t, Math.max(0, start - 1));
     for (let k = 0; k < occ; k++) {
+      if ((k & 1023) === 0) env.checkWorkBudget();
       const found = t.indexOf(s, at);
       if (found < 0) return num(0);
       if (k === occ - 1) return num(charsBefore(t, found) + 1);
@@ -373,6 +375,8 @@ eager('Position', 4, 4, (v, env) => {
     if (start > chars) start = chars;
     let at = unitAt(t, start - 1);
     for (let k = 0; k < -occ; k++) {
+      if ((k & 1023) === 0) env.checkWorkBudget();
+      if (at < 0) return num(0);
       const found = t.lastIndexOf(s, at);
       if (found < 0) return num(0);
       if (k === -occ - 1) return num(charsBefore(t, found) + 1);
@@ -474,10 +478,13 @@ eager('UniqueValues', 1, 3, (v, env) => {
   const seen = new Set<string>();
   const out: string[] = [];
   const kind = v[1] === undefined ? 1 : Math.abs(Math.trunc(N(v[1])));
+  const locale = v[2] === undefined ? '' : T(v[2], env);
+  const language = sortLanguage(locale);
+  const textKey = (s: string) => `t${locale.trim().toLowerCase() === 'unicode_raw' ? s : sortKey(s, language)}`;
   for (const s of splitValues(T(v[0], env))) {
     // With a number, date, time or timestamp type, 18 and 18.0 (or 7/4/2026 and 07/04/2026) are one value.
     const n = typedNumber(s, kind, env);
-    const k = n !== undefined ? `#${n}` : s.toLowerCase();
+    const k = n !== undefined ? `#${n}` : textKey(s);
     if (!seen.has(k)) {
       seen.add(k);
       out.push(s);
@@ -596,17 +603,36 @@ eager('GetAsTimestamp', 1, 1, (v, env) => {
 
 // --- numbers -------------------------------------------------------------------
 
-const roundTo = (n: number, places: number, f: (x: number) => number) => {
-  const p = Math.pow(10, places);
-  // Round half away from zero; the small epsilon absorbs binary representation error.
-  return f(Number((Math.abs(n) * p).toPrecision(15))) / p * Math.sign(n);
+const roundTo = (n: number, places: number, round: boolean) => {
+  if (!Number.isFinite(n) || !Number.isFinite(places)) return NaN;
+  if (places > 20) return n;
+  if (places < -400) return 0;
+  const value = Decimal.parse(String(Math.abs(n)), 20);
+  const unit = 10n ** BigInt(20 - places);
+  const magnitude = (value.n + (round ? unit / 2n : 0n)) / unit * unit;
+  return Number(value.with(magnitude).string()) * Math.sign(n);
+};
+const roundValue = (v: Value[], round: boolean): Value => {
+  const n = asNumberOrEmpty(v[0]);
+  if (n === undefined) return EMPTY;
+  const places = Math.trunc(asNumber(v[1]));
+  const exact = exactOf(v[0]);
+  if (exact !== undefined && Number.isFinite(places)) {
+    if (places >= 0) return fromExact(exact);
+    if (places < -400) return num(0);
+    const unit = 10n ** BigInt(-places);
+    const magnitude = exact < 0n ? -exact : exact;
+    const rounded = (round ? magnitude + unit / 2n : magnitude) / unit * unit;
+    return fromExact(exact < 0n ? -rounded : rounded);
+  }
+  return num(roundTo(n, places, round));
 };
 numeric('Abs', 1, 1, Math.abs);
 numeric('Ceiling', 1, 1, Math.ceil);
 numeric('Floor', 1, 1, Math.floor);
 numeric('Int', 1, 1, Math.trunc);
-numeric('Round', 2, 2, (n, p) => roundTo(n, Math.trunc(p), (x) => Math.floor(x + 0.5)));
-numeric('Truncate', 2, 2, (n, p) => roundTo(n, Math.trunc(p), Math.floor));
+eager('Round', 2, 2, (v) => roundValue(v, true));
+eager('Truncate', 2, 2, (v) => roundValue(v, false));
 numeric('SetPrecision', 2, 2, (n) => n);
 // By zero these give "?", like the / operator.
 numeric('Mod', 2, 2, (n, d) => (d === 0 ? NaN : n - d * Math.floor(n / d)));
