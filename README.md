@@ -832,7 +832,8 @@ service manager by itself, so this is the built-in way to keep it running
 without installing a wrapper program.
 
 Once installed, the same is one command on every system:
-`tabularius service install <folder> [--system] [--port 8080] [-- serve options]`,
+`tabularius service install <folder> [--system] [--port 8080] [--host 127.0.0.1] [-- serve options]`
+(it listens on this computer only until you give `--host 0.0.0.0` and HTTPS, for example `-- --https local`),
 `tabularius service print ...` and `tabularius service uninstall`.
 
 **Upgrading in place.** `tabularius upgrade` (or `install.sh --upgrade`,
@@ -855,7 +856,7 @@ For a read-only root filesystem and no extra capabilities, add
 name in `Caddyfile`), use `docker compose -f compose.https.yaml up -d`.
 
 Drop `.fmp12` files into the folder, even while the server runs: each is
-converted once (in the background, so nobody waits) and hosted. Others on your network open `http://<this machine>:8080/`.
+converted once (in the background, so nobody waits) and hosted. The port is published on this computer only (`127.0.0.1:8080`). To let others on your network open `http://<this machine>:8080/`, change `compose.yaml` to publish `"8080:8080"`; that is plain HTTP, so passwords cross the network unencrypted. Prefer `compose.https.yaml`.
 
 A browser is never "the server's own computer" to a server in a container, so an account with an empty password can't sign in there, and the admin console has no password yet. The image has the `tabularius` command, working on the mounted folder `/data`:
 
@@ -1277,8 +1278,8 @@ second or so behind, ready to take over if the main one fails:
 
 <!-- docs-example: illustrative -->
 ```sh
-tabularius serve ~/Databases --host 0.0.0.0 --replication-token "$TOKEN"     # main
-tabularius standby ~/Standby --primary http://main:8080 --token "$TOKEN"     # standby
+tabularius serve ~/Databases --host 0.0.0.0 --https local --replication-token "$TOKEN"     # main
+tabularius standby ~/Standby --primary https://main:8080 --token "$TOKEN"     # standby
 ```
 
 The standby copies each file once, then applies its changes as they happen

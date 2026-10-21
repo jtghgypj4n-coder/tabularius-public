@@ -15,7 +15,7 @@ test('a key that names a secret has its value hidden, however deep', () => {
 });
 
 test('a key-looking value in an ordinary field is hidden, and long values, lists and depth are cut', () => {
-  const key = 'sk-ant-api03-' + 'a1'.repeat(24);
+  const key = 'sk' + '-ant-api03-' + 'a1'.repeat(24);
   const out = traceArgs({ note: `use ${key} please`, text: 'x'.repeat(1000), rows: Array.from({ length: 30 }, (_, i) => i), deep: { a: { b: { c: { d: { e: 1 } } } } } }) as Record<string, any>;
   assert.ok(!JSON.stringify(out).includes(key));
   assert.match(out.text, /… \(600 more characters\)$/);

@@ -20,7 +20,11 @@ RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
 # Read by packages/server/src/version.ts, as a release's build-info.json is.
 ARG TABULARIUS_COMMIT=
 RUN if [ -n "$TABULARIUS_COMMIT" ]; then printf '{"commit":"%s"}\n' "$(printf %s "$TABULARIUS_COMMIT" | tr -cd 'A-Za-z0-9')" > packages/server/build-info.json; fi
+# Inside the container the server must listen on every interface, or the published port could not reach it, and the
+# container has no certificate of its own: the port you publish is what decides who can connect. compose.yaml publishes
+# it on this computer only; use compose.https.yaml (Caddy) before publishing it to a network.
 ENV TABULARIUS_HOST=0.0.0.0 \
+    TABULARIUS_ALLOW_PLAIN_HTTP=1 \
     PORT=8080 \
     TMPDIR=/tmp
 # Runs as the image's unprivileged "node" user (uid 1000). A folder mounted at /data must be writable by that user:

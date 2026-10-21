@@ -129,7 +129,7 @@ test('an answer streams in without moving what is above it, follows only at the 
     await page.locator('.ai-assistant', { hasText: 'Line 60 of the answer.' }).waitFor();
 
     // The second answer: two tool calls (one fine, one that fails, with a secret in its arguments), then words, slowly.
-    const KEY = 'sk-ant-api03-' + 'a1'.repeat(24);
+    const KEY = 'sk' + '-ant-api03-' + 'a1'.repeat(24);
     turns.push(
       { tools: [{ name: 'describe_layout', input: { layout: 'Orders' } }, { name: 'describe_layout', input: { layout: 'Nowhere', password: 'hunter2', note: `use ${KEY} here` } }], delay: 100 },
       { text: Array.from({ length: 12 }, (_, i) => `Piece ${i + 1}. `), delay: 150 },

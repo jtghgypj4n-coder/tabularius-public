@@ -32,13 +32,13 @@ test('an agent account is password-less, bound to its set, and records its creat
   const { store, dir } = fresh();
   try {
     const set = agentSet(store);
-    store.setAgentAccount('reporting-bot', set, { createdBy: 'Jordan' });
+    store.setAgentAccount('reporting-bot', set, { createdBy: 'Casey' });
 
     const a = store.accounts().find((x) => x.name === 'reporting-bot')!;
     assert.equal(a.agent, true);
     assert.equal(a.hasPassword, false);
     assert.equal(a.privilegeSet, 'Bot');
-    assert.equal(a.createdBy, 'Jordan');
+    assert.equal(a.createdBy, 'Casey');
     assert.equal(a.external, undefined, 'an agent is not an external account');
     assert.equal(store.isAgent('reporting-bot'), true);
     assert.equal(store.isAgent('Admin'), false);
@@ -46,7 +46,7 @@ test('an agent account is password-less, bound to its set, and records its creat
     // It logs an agent-added security event naming the creator.
     const added = store.auditLog({ kind: 'agent-added', security: true }).find((e) => e.target === 'reporting-bot');
     assert.ok(added, 'agent-added logged');
-    assert.equal((added!.changes as { createdBy?: string } | undefined)?.createdBy, 'Jordan');
+    assert.equal((added!.changes as { createdBy?: string } | undefined)?.createdBy, 'Casey');
   } finally {
     store.close();
     rmSync(dir, { recursive: true });

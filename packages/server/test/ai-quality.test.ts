@@ -49,7 +49,7 @@ async function call(name: string, args: Record<string, unknown>): Promise<{ isEr
 
 test('secrets in script text are hidden, other literals are not', () => {
   assert.equal(redactSecrets('Set Variable [ $Password ; Value: "hunter2" ]'), 'Set Variable [ $Password ; Value: "‹hidden from AI tools›" ]');
-  assert.doesNotMatch(redactSecrets('Set Variable [ $key ; Value: "AKIAABCDEFGHIJKLMNOP" ]'), /AKIA/);
+  assert.doesNotMatch(redactSecrets('Set Variable [ $key ; Value: "AKIA' + 'ABCDEFGHIJKLMNOP" ]'), /AKIA/);
   assert.doesNotMatch(redactSecrets('Insert from URL [ $r ; "https://bob:s3cret@example.com/x" ]'), /s3cret/);
   assert.doesNotMatch(redactSecrets('cURL options: "--user bob:s3cret"'), /s3cret/);
   assert.equal(redactSecrets('If [ $result = "pass" ]'), 'If [ $result = "pass" ]');

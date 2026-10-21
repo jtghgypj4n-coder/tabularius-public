@@ -16,7 +16,8 @@ nothing reads, so this list and the code cannot drift apart.
 
 | Variable | Same as | What it sets |
 | --- | --- | --- |
-| `TABULARIUS_HOST` | `--host` | The address to listen on (`127.0.0.1` by default; `0.0.0.0` with `--https name`). |
+| `TABULARIUS_HOST` | `--host` | The address to listen on (`127.0.0.1` by default; `0.0.0.0` with `--https name`). Beyond this computer it needs HTTPS or `TABULARIUS_ALLOW_PLAIN_HTTP`. |
+| `TABULARIUS_ALLOW_PLAIN_HTTP` | `--allow-plain-http` | Lets the server listen beyond this computer over plain HTTP, which it otherwise refuses to do (a proxy or network you control does the HTTPS). Set in the Docker image. |
 | `TABULARIUS_HTTPS` | `--https` | `name[,name]` for a Let's Encrypt certificate, or `local` for this server's own authority. |
 | `TABULARIUS_HTTPS_EMAIL` | `--https-email` | The contact address given to Let's Encrypt. |
 | `TABULARIUS_HTTP_PORT` | `--http-port` | The port that answers the certificate challenge and redirects to https (80 by default). |
