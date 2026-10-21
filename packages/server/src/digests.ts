@@ -336,7 +336,7 @@ export class DigestRunner {
     try {
       // Includes related hosted files: a summary can read through the relationship graph. A change of accounts or
       // privileges always voids the run; a record write only does for an account whose view of records can depend on
-      // them (an account that reads everything is shown the same records whatever is written meanwhile).
+      // them (an account that reads everything is shown the same records of this file whatever is written meanwhile).
       let writes = true;
       const stamp = () => JSON.stringify(this.host.names().map((name) => {
         const file = this.host.get(name);
@@ -344,8 +344,10 @@ export class DigestRunner {
       }));
       let before = stamp();
       // After the webhook post the payload has gone out, so its record stays: the run says that it was sent.
+      let voided = false;
       const recheck = (posted = false) => {
-        if (stamp() === before) return;
+        if (voided || stamp() === before) return;
+        voided = true;
         const clean = withoutRecordData(run);
         for (const key of ['summary', 'summaryNote', 'error', ...(posted ? [] : ['webhook'] as const)] as const) delete run[key];
         Object.assign(run, clean, { outcome: 'error', error: posted && run.webhook?.sent

@@ -136,6 +136,25 @@ test('a digest whose access changes while the webhook is posted keeps the record
   safe(result);
 });
 
+test('a digest voided before the webhook post stores the error that the webhook received', async (t) => {
+  const { m } = await setup(t);
+  const board = new Dashboards(m.store).create({ name: 'Count', widgets: [{ title: 'Count', kind: 'number', layout: 'Items' }] }, 'Caller');
+  const digest = new Digests(m.store).create({ name: 'Early', dashboard: board.id, days: [1], at: '09:00', enabled: false, account: 'Caller', webhook: 'synthetic' });
+  const restricted = m.store.privilegeSet('Matrix')!;
+  m.store.savePrivilegeSet(SHAPES[0].definition);
+  const posted: { run: { error?: string; summary?: string } }[] = [];
+  const runner = new DigestRunner(m.host);
+  runner.writer = { summarize: async () => { m.store.savePrivilegeSet(restricted); return { summary: 'HIDDEN_FIELD' }; } };
+  runner.poster = { allowed: true, post: async (_id, _db, payload) => { posted.push(payload as never); } };
+  const result = await runner.run(m.store, digest);
+  assert.equal(result.outcome, 'error');
+  assert.equal(posted.length, 1);
+  assert.equal(posted[0].run.summary, undefined);
+  assert.equal(result.error, posted[0].run.error);
+  assert.doesNotMatch(result.error ?? '', /after it was sent/);
+  safe(result); safe(posted);
+});
+
 test('a digest of an account that reads everything survives record writes made while its summary is written', async (t) => {
   const { m } = await setup(t);
   const board = new Dashboards(m.store).create({ name: 'Count', widgets: [{ title: 'Count', kind: 'number', layout: 'Items' }] }, 'Caller');
