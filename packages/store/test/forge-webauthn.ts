@@ -41,8 +41,8 @@ export function makeAuthenticator(rpId: string, origin: string): ForgedAuthentic
 }
 
 /** Forge the browser's registration response for a given server challenge. */
-export function forgeRegistration(a: ForgedAuthenticator, challenge: string, signCount = 0) {
-  const flags = 0x01 | 0x04 | 0x40;
+export function forgeRegistration(a: ForgedAuthenticator, challenge: string, signCount = 0, userVerified = true) {
+  const flags = 0x01 | (userVerified ? 0x04 : 0) | 0x40;
   const credLen = Buffer.from([a.credId.length >> 8, a.credId.length & 0xff]);
   const authData = Buffer.concat([sha256(Buffer.from(a.rpId)), Buffer.from([flags]), count(signCount), Buffer.alloc(16), credLen, a.credId, a.cose]);
   const attestationObject = cbor(new Map<string, unknown>([['fmt', 'none'], ['attStmt', new Map()], ['authData', authData]]));
@@ -51,8 +51,8 @@ export function forgeRegistration(a: ForgedAuthenticator, challenge: string, sig
 }
 
 /** Forge the browser's sign-in assertion for a given server challenge. */
-export function forgeAssertion(a: ForgedAuthenticator, challenge: string, signCount = 1) {
-  const authData = Buffer.concat([sha256(Buffer.from(a.rpId)), Buffer.from([0x01 | 0x04]), count(signCount)]);
+export function forgeAssertion(a: ForgedAuthenticator, challenge: string, signCount = 1, userVerified = true) {
+  const authData = Buffer.concat([sha256(Buffer.from(a.rpId)), Buffer.from([0x01 | (userVerified ? 0x04 : 0)]), count(signCount)]);
   const clientDataJSON = Buffer.from(JSON.stringify({ type: 'webauthn.get', challenge, origin: a.origin }));
   const signed = Buffer.concat([authData, sha256(clientDataJSON)]);
   const signature = createSign('sha256').update(signed).sign({ key: a.privateKey, dsaEncoding: 'der' });

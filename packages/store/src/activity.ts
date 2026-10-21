@@ -206,6 +206,9 @@ function holdTransactionLock(locks: RecordLocks, lock: RecordLock): void {
 /** How long someone counts as looking at a record without renewal. Clients renew while it is on screen. */
 export const VIEW_TTL_MS = 45_000;
 
+/** At most 128 concurrent record/design views per file/session, independently of edit locks. */
+export const MAX_SESSION_VIEWS = 128;
+
 /**
  * Record locks, and presence: who is looking at which record. Presence is
  * not a lock (FileMaker has no such thing); it lets people see that someone
@@ -214,6 +217,8 @@ export const VIEW_TTL_MS = 45_000;
 export class RecordLocks {
   private readonly locks = new Map<string, RecordLease>();
   private readonly viewing = new Map<string, RecordLease>();
+  private readonly viewCounts = new Map<string, number>();
+  private nextViewExpiry = Infinity;
   private readonly counts = new Map<string, number>();
   private nextSweep = 0;
   protected readonly maxLocksPerSession: number;
@@ -317,18 +322,44 @@ export class RecordLocks {
     return [...this.locks.values()].map(({ lock }) => lock);
   }
 
-  /** Marks a session as looking at a record, or renews it. Returns whether it is new. */
+  private removeView(key: string, owner: string): boolean {
+    if (!this.viewing.delete(key)) return false;
+    const count = (this.viewCounts.get(owner) ?? 0) - 1;
+    if (count) this.viewCounts.set(owner, count);
+    else this.viewCounts.delete(owner);
+    return true;
+  }
+
+  private sweepViews(now: number): void {
+    if (now < this.nextViewExpiry) return;
+    this.nextViewExpiry = Infinity;
+    for (const [key, lease] of this.viewing) {
+      if (lease.until <= now) this.removeView(key, lease.lock.owner);
+      else this.nextViewExpiry = Math.min(this.nextViewExpiry, lease.until);
+    }
+  }
+
+  protected checkViewCapacity(count: number): void {
+    if (count >= MAX_SESSION_VIEWS) throw new StoreError(812, `Exceeded host's capacity: a session may view at most ${MAX_SESSION_VIEWS} records per file`);
+  }
+
+  /** Marks or renews presence. New entries must fit the per-session presence limit. */
   view(table: string, recordId: number, owner: string, account: string, now = monotonicClock.now()): boolean {
+    this.sweepViews(now);
     const k = `${owner}\u0000${this.key(table, recordId)}`;
-    const fresh = !((this.viewing.get(k)?.until ?? -Infinity) > now);
+    const fresh = !this.viewing.has(k);
+    const count = this.viewCounts.get(owner) ?? 0;
+    if (fresh) this.checkViewCapacity(count);
     const lock: RecordLock = { table, recordId, owner, account, expires: Date.now() + VIEW_TTL_MS };
     this.viewing.set(k, { lock, until: now + VIEW_TTL_MS });
+    if (fresh) this.viewCounts.set(owner, count + 1);
+    this.nextViewExpiry = Math.min(this.nextViewExpiry, now + VIEW_TTL_MS);
     return fresh;
   }
 
   /** A session stopped looking at a record. Returns whether it was. */
   leave(table: string, recordId: number, owner: string): boolean {
-    return this.viewing.delete(`${owner}\u0000${this.key(table, recordId)}`);
+    return this.removeView(`${owner}\u0000${this.key(table, recordId)}`, owner);
   }
 
   /** Forgets every record a session was looking at (logout), returning them. */
@@ -336,7 +367,7 @@ export class RecordLocks {
     const out: RecordLock[] = [];
     for (const [k, { lock: v }] of this.viewing) {
       if (v.owner !== owner) continue;
-      this.viewing.delete(k);
+      this.removeView(k, owner);
       out.push(v);
     }
     return out;
@@ -344,7 +375,7 @@ export class RecordLocks {
 
   /** Who is looking at which record now. */
   viewers(now = monotonicClock.now()): RecordLock[] {
-    for (const [k, v] of this.viewing) if (v.until <= now) this.viewing.delete(k);
+    this.sweepViews(now);
     return [...this.viewing.values()].map(({ lock }) => lock);
   }
 }
@@ -367,6 +398,7 @@ export class SharedRecordLocks extends RecordLocks {
       owner TEXT NOT NULL, account TEXT NOT NULL, expires INTEGER NOT NULL, PRIMARY KEY (file, tbl, record_id))`);
     db.exec(`CREATE TABLE IF NOT EXISTS viewing (file TEXT NOT NULL, tbl TEXT NOT NULL, record_id INTEGER NOT NULL,
       owner TEXT NOT NULL, account TEXT NOT NULL, expires INTEGER NOT NULL, PRIMARY KEY (file, owner, tbl, record_id))`);
+    db.exec('CREATE INDEX IF NOT EXISTS viewing_expiry ON viewing (file, expires)');
     // Bootstrap once, including leases left by an earlier version. Triggers keep counts exact across
     // workers, expiry, owner changes and rollback, without enumerating locks on each acquire.
     db.exec('BEGIN IMMEDIATE');
@@ -471,9 +503,18 @@ export class SharedRecordLocks extends RecordLocks {
   }
 
   override view(table: string, recordId: number, owner: string, account: string, now = Date.now()): boolean {
-    const was = this.db.prepare('SELECT expires FROM viewing WHERE file = ? AND owner = ? AND tbl = ? AND record_id = ?').get(this.file, owner, table, recordId);
-    this.db.prepare('INSERT OR REPLACE INTO viewing (file, tbl, record_id, owner, account, expires) VALUES (?, ?, ?, ?, ?, ?)').run(this.file, table, recordId, owner, account, now + VIEW_TTL_MS);
-    return !(Number(was?.expires ?? 0) > now);
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      this.db.prepare('DELETE FROM viewing WHERE file = ? AND expires <= ?').run(this.file, now);
+      const was = this.db.prepare('SELECT 1 FROM viewing WHERE file = ? AND owner = ? AND tbl = ? AND record_id = ?').get(this.file, owner, table, recordId);
+      if (!was) this.checkViewCapacity(Number(this.db.prepare('SELECT count(*) AS n FROM viewing WHERE file = ? AND owner = ?').get(this.file, owner)!.n));
+      this.db.prepare('INSERT OR REPLACE INTO viewing (file, tbl, record_id, owner, account, expires) VALUES (?, ?, ?, ?, ?, ?)').run(this.file, table, recordId, owner, account, now + VIEW_TTL_MS);
+      this.db.exec('COMMIT');
+      return !was;
+    } catch (e) {
+      this.db.exec('ROLLBACK');
+      throw e;
+    }
   }
 
   override leave(table: string, recordId: number, owner: string): boolean {
