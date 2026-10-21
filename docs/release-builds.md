@@ -78,8 +78,54 @@ beside it, so publish the checksum file somewhere the program is not. On macOS, 
 `codesign --verify --strict` on the signed program and stops the build if it fails, as Windows already did with
 `signtool verify`.
 
-## Putting it in the release workflow
+## Making a release
 
-Workflow files need a token with the `workflow` scope, so the steps are proposed rather than pushed: a job that runs
-`npm run release:verify-repro` before the matrix builds, and a "Checksums" step after "Sign it". See
-`notes/proposed/release-reproducible.yml` in the project files.
+`.github/workflows/release.yml` builds the program on five GitHub-hosted systems (Linux x64 and arm64, macOS arm64
+and Intel, Windows), checks each on the machine it was built on, and then puts a GitHub release together.
+
+- **A tag** like `v0.1.0` builds that version. If the tagged commit is on `main` and `ci` passed on it (or on an
+  earlier commit that differs only in files `ci` skips, such as Markdown), the `publish` job makes a **draft**
+  release. Nothing is public until a person reads the draft and clicks Publish. The notes are
+  `.github/release-notes/v0.1.0.md`; a release whose version has no `-` in it is not made without that file.
+- **A manual run** from the Actions tab only builds. Give it a version such as `0.1.0-rc.1` and set `publish` to
+  `draft` or `prerelease` to also make a release. That works only from `main`, after the same CI check as for a tag, for a
+  pre-release (the version contains a `-`), and for a tag that does not exist yet.
+- **Required and optional systems.** The four macOS and Linux programs are required: if one fails its build or its
+  check, no release is made. The Windows program is attached when it builds and passes its check, and left out
+  when it does not (the release's file list says which).
+
+`node scripts/release-assemble.ts <artifacts> <out> --version 0.1.0 --require linux-x64,...` does the putting
+together: it re-checks each program against the checksum file its build wrote (the files have been uploaded and
+downloaded since), copies the programs, their bills of materials, the licence notices and `get.sh` into one folder,
+and writes one `SHA256SUMS` over all of it. `sha256sum -c SHA256SUMS --ignore-missing` checks any files you
+downloaded from the release. The per-system `.sha256` files stay in the workflow's artifacts; the release has the
+one list.
+
+## The one-line install
+
+`scripts/get.sh` is attached to every release, so
+
+```sh
+curl -fsSL https://github.com/sitotisai/tabularius/releases/latest/download/get.sh | sh
+```
+
+always runs the installer that came with the newest published release (pre-releases and drafts are not "latest").
+It works out the system (macOS or Linux, arm64 or x64; an Intel shell on an Apple silicon Mac gets the arm64 program;
+musl Linux such as Alpine is refused, since the program needs glibc), finds the newest version from the redirect of
+`/releases/latest` (so GitHub's API limits don't apply; this needs curl, and without it `--version` names the version), downloads the program and `SHA256SUMS`, and installs nothing
+unless the program's SHA-256 matches its line in the list. It copies the program beside its destination and renames it
+into `~/.local/bin/tabularius`, so a failure leaves the old program, then runs `tabularius --version` to show it works.
+`--version 0.1.0` (or `TABULARIUS_VERSION`) picks a version, `--bin-dir` (or `TABULARIUS_BIN`) another folder, and
+`TABULARIUS_RELEASES` another releases page, which is how the tests (`packages/cli/test/get-script.test.ts`) point it at
+a stand-in. From an https page it refuses a redirect to plain http. The list comes from the same page as the program, so this catches a damaged or cut-off download, not a
+release replaced by someone who controls the page; the platform signatures ([signing](signing.md)) are the answer to
+who made it.
+
+## Cutting a release
+
+1. `main` is green, and everything the launch needs has merged.
+2. Write `.github/release-notes/v<version>.md`.
+3. Run the workflow by hand with `version` `<version>-rc.1` and `publish` `prerelease`, then
+   `curl -fsSL https://github.com/sitotisai/tabularius/releases/download/v<version>-rc.1/get.sh | sh -s -- --version <version>-rc.1`
+   on a clean machine, and `tabularius demo`. Delete the pre-release and its tag when done.
+4. Tag the commit: `git tag v<version> && git push origin v<version>`. Read the draft release, then publish it.

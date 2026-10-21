@@ -4,9 +4,17 @@ An open-source (MIT licence), AI-native platform for FileMaker solutions: open a
 `.fmp12` file, host it, and work with it from a modern client, with an MCP
 server built in.
 
-**Just want to see it?** `tabularius demo` hosts a sample app on this computer only, opens it in
-your browser with a one-time password for `Admin`, and deletes everything when you press Ctrl-C.
-To host your own FileMaker file, see [QUICKSTART.md](QUICKSTART.md).
+**Just want to see it?** On macOS or Linux, one command installs the single-file program (no Node
+needed), and `tabularius demo` hosts a sample app on this computer only:
+
+<!-- docs-example: illustrative -->
+```sh
+curl -fsSL https://github.com/sitotisai/tabularius/releases/latest/download/get.sh | sh
+tabularius demo
+```
+
+The demo opens in your browser with a one-time password for `Admin`, and deletes everything
+when you press Ctrl-C. To host your own FileMaker file, see [QUICKSTART.md](QUICKSTART.md).
 
 **Status:** early, working end to end for data:
 

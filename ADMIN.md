@@ -127,8 +127,11 @@ idle expiry but does not disable either byte limit.
 
 You need one of:
 
-- **The single-file program** for macOS, Linux or Windows (from the release
-  workflow's build artifacts). Nothing else to install.
+- **The single-file program** for macOS or Linux, from the latest release:
+  `curl -fsSL https://github.com/sitotisai/tabularius/releases/latest/download/get.sh | sh`
+  (it checks the download against the release's `SHA256SUMS`; see [QUICKSTART.md](QUICKSTART.md)).
+  Windows has a program on the release page when that release's Windows build passed its check.
+  Nothing else to install.
 - **Node 22.20 or newer** and this repository: `./scripts/install.sh`
   (macOS, Linux) or `powershell -ExecutionPolicy Bypass -File scripts\install.ps1`
   (Windows). Each puts a `tabularius` command on your PATH and fetches Node
