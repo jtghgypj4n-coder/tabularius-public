@@ -1966,10 +1966,12 @@ export function createMcpServer(host: Host, who: McpIdentity = { admin: true }, 
     const store = host.get(database);
     if (!store) return fail(`No hosted database named "${database}". Hosted: ${aiHostedNames(host, canSee(who))}`);
     try {
-      designAccess(store, privilegesIn(store, who));
-      if (undo !== undefined && undo !== false) return json(undoFix(store, typeof undo === 'number' ? undo : undefined));
+      const p = privilegesIn(store, who);
+      designAccess(store, p);
+      // The fix stores or removes design as the account that asks, so it is checked as that account's design change is.
+      if (undo !== undefined && undo !== false) return json(undoFix(store, typeof undo === 'number' ? undo : undefined, p?.account, p));
       if (!fix) return fail('Send fix (one of the actions in optimization_report), or undo');
-      return json(confirm === true ? applyFix(store, fix, { items }) : { ...previewFix(store, fix, items), note: 'Nothing was changed. Send confirm: true once a person has approved this.' });
+      return json(confirm === true ? applyFix(store, fix, { items }, p?.account, p) : { ...previewFix(store, fix, items), note: 'Nothing was changed. Send confirm: true once a person has approved this.' });
     } catch (e) {
       if (e instanceof FixError) return fail(e.message);
       return failError(e);

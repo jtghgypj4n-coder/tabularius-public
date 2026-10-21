@@ -50,11 +50,11 @@ interface Read {
 
 /** What a formula reaches when it is worked out. */
 interface Reach {
-  /** A call that reads fields, tables or records by a name or a query worked out as it runs. */
-  byName: boolean;
-  /** ValueListItems: the values of a list, which may come from a field. */
-  lists: boolean;
-  /** Fields it reads, in whichever file, through unstored calculations as well. */
+  /** The files (the one the formula is in, or another one reached through an unstored calculation) where a call reads fields, tables or records by a name or a query worked out as it runs. */
+  byName: Set<Store>;
+  /** The files where ValueListItems is called and a value list takes its values from a file the account cannot read in full. */
+  lists: Set<Store>;
+  /** Fields it reads, in whichever file, through unstored calculations and summaries as well. */
   reads: Read[];
   /** It names a table occurrence of a file the account has no Full Access in (whether the field is there or not). */
   outside: boolean;
@@ -62,19 +62,51 @@ interface Reach {
   fields: Set<Field>;
   customs: Set<string>;
   occurrences: Set<string>;
+  /** There was more to follow than is looked at: the save is refused, never let through. */
+  truncated: boolean;
 }
+
+/** The most formulas followed for one: a chain of unstored calculations is followed to its end, cycles are cut by what was seen. */
+const MOST_FORMULAS = 20000;
 
 /**
  * What `formula` reaches from occurrence `from` of `store`: the parser's own view of it, as the evaluator will run it. A
- * formula that does not parse reaches nothing (it cannot run).
+ * formula that does not parse reaches nothing (it cannot run). `fromOutside` says a value list takes its values from a
+ * file the account cannot read in full, which makes ValueListItems a read by name.
  */
-function reach(store: Store, formula: string, from: number, privileges: Privileges): Reach {
-  const out: Reach = { byName: false, lists: false, reads: [], outside: false, fields: new Set(), customs: new Set(), occurrences: new Set() };
+function reach(store: Store, formula: string, from: number, privileges: Privileges, fromOutside: boolean): Reach {
+  const out: Reach = { byName: new Set(), lists: new Set(), reads: [], outside: false, fields: new Set(), customs: new Set(), occurrences: new Set(), truncated: false };
+  const queue: { home: Store; text: string; toId: number }[] = [];
   const seen = new Set<string>();
-  const follow = (home: Store, text: string, toId: number | undefined, depth: number): void => {
+  const enqueue = (home: Store, text: string, toId: number | undefined): void => {
     const key = `${home.name}\0${toId}\0${text}`;
-    if (toId === undefined || depth > 16 || seen.has(key)) return;
+    if (toId === undefined || seen.has(key)) return;
     seen.add(key);
+    queue.push({ home, text, toId });
+  };
+  // A field read: what it is, and what it reads in turn (a summary its source and break field, an unstored calculation its formula, which a stored value reads with full data).
+  const touch = (home: Store, table: Table, f: Field, guard = new Set<Field>()): void => {
+    if (guard.has(f)) return;
+    guard.add(f);
+    out.reads.push({ home, table, field: f });
+    out.fields.add(f);
+    if (f.kind === 'summary') {
+      for (const id of [f.summary?.fieldId, f.summary?.restartFieldId]) {
+        const of = id === undefined ? undefined : table.fields.find((x) => x.id === id);
+        if (of) touch(home, table, of, guard);
+      }
+    }
+    if (f.kind === 'calculation' && f.options?.unstored && !f.options.global && f.calculation) {
+      enqueue(home, f.calculation, f.calculationContextId ?? home.calc.defaultOccurrence(table));
+    }
+  };
+  enqueue(store, formula, from);
+  for (let at = 0; at < queue.length; at++) {
+    if (at >= MOST_FORMULAS) {
+      out.truncated = true;
+      break;
+    }
+    const { home, text, toId } = queue[at];
     const names = home.calc.names(toId);
     const functions = new Set<string>();
     const reference = (r: { occurrence?: string; name: string }): void => {
@@ -85,17 +117,7 @@ function reach(store: Store, formula: string, from: number, privileges: Privileg
       if (!where) return;
       if (where.store !== store && !privileges.in(where.store).full) out.outside = true;
       const f = where.table.fields.find((x) => x.name.toLowerCase() === r.name.toLowerCase());
-      if (!f) return;
-      out.reads.push({ home: where.store, table: where.table, field: f });
-      out.fields.add(f);
-      if (f.kind === 'summary') {
-        const of = where.table.fields.find((x) => x.id === f.summary?.fieldId);
-        if (of) out.reads.push({ home: where.store, table: where.table, field: of });
-      }
-      // An unstored calculation is worked out when it is read, and a stored value reads it with full data.
-      if (f.kind === 'calculation' && f.options?.unstored && !f.options.global && f.calculation) {
-        follow(where.store, f.calculation, f.calculationContextId ?? where.store.calc.defaultOccurrence(where.table), depth + 1);
-      }
+      if (f) touch(where.store, where.table, f);
     };
     const custom = (name: string): void => {
       const lower = name.toLowerCase();
@@ -103,7 +125,7 @@ function reach(store: Store, formula: string, from: number, privileges: Privileg
       if (!cf || functions.has(lower)) return;
       functions.add(lower);
       out.customs.add(lower);
-      if (cf.language !== 'javascript' && cf.formula !== undefined) visit(cf.formula, cf.parameters.map((p) => p.trim()));
+      if (cf.language !== 'javascript' && cf.formula !== undefined) visit(cf.formula, cf.parameters.map((x) => x.trim()));
     };
     const walk = (n: Node): void => {
       switch (n.k) {
@@ -111,8 +133,8 @@ function reach(store: Store, formula: string, from: number, privileges: Privileg
         case 'var': if (!n.name.startsWith('$')) custom(n.name); if (n.rep) walk(n.rep); break;
         case 'call': {
           const lower = n.name.toLowerCase();
-          if (BY_NAME.has(lower)) out.byName = true;
-          if (lower === 'valuelistitems') out.lists = true;
+          if (BY_NAME.has(lower)) out.byName.add(home);
+          if (lower === 'valuelistitems' && (fromOutside || home !== store)) out.lists.add(home);
           custom(n.name);
           n.args.forEach(walk);
           break;
@@ -136,8 +158,7 @@ function reach(store: Store, formula: string, from: number, privileges: Privileg
       fieldRefs(node).forEach(reference);
     };
     visit(text, []);
-  };
-  follow(store, formula, from, 0);
+  }
   return out;
 }
 
@@ -233,12 +254,12 @@ export function assertMayReadWhatItSaves(store: Store, was: Schema, privileges: 
   const outsideSources = new Set([...outside.keys()].map((id) => s.tableOccurrences.find((t) => t.id === id)?.dataSourceId).filter((x): x is number => x !== undefined));
   const lists = listsOutside(store, outsideTables, outsideSources);
 
-  const fieldKey = (f: Field) => json([f.kind, f.calculation, f.calculationContextId, f.options?.unstored, f.options?.global, f.options?.autoEnter, f.options?.validation]);
+  const fieldKey = (f: Field) => json([f.kind, f.calculation, f.calculationContextId, f.summary, f.options?.unstored, f.options?.global, f.options?.autoEnter, f.options?.validation]);
   const before = new Map(was.tables.flatMap((t) => t.fields.map((f) => [`${t.id}/${f.id}`, fieldKey(f)] as const)));
   const changedFields = new Set<Field>();
   for (const table of s.tables) for (const f of table.fields) if (before.get(`${table.id}/${f.id}`) !== fieldKey(f)) changedFields.add(f);
-  // A formula reads an unstored calculation's own formula too: when one changed, the formulas that read it are looked at again.
-  const calculationChanged = [...changedFields].some((f) => f.kind === 'calculation');
+  // A formula reads an unstored calculation's own formula, and a summary its source: when one changed, the formulas that read it are looked at again.
+  const calculationChanged = [...changedFields].some((f) => f.kind === 'calculation' || f.kind === 'summary');
 
   for (const table of s.tables) {
     for (const f of table.fields) {
@@ -253,33 +274,50 @@ export function assertMayReadWhatItSaves(store: Store, was: Schema, privileges: 
       }
       if (!changed && !structural && !calculationChanged) continue;
       for (const c of carriers(store, table, f)) {
-        const r = reach(store, c.formula, c.from, privileges);
+        const r = reach(store, c.formula, c.from, privileges, lists);
         // A formula nothing changed is looked at only when it reaches something that did.
         if (!changed
           && ![...r.customs].some((n) => changedFunctions.has(n)) && ![...r.occurrences].some((n) => changedNames.has(n))
-          && ![...r.fields].some((x) => changedFields.has(x)) && !(r.byName && newlyOutside) && !(r.lists && lists && (newlyOutside || listsChanged))) continue;
-        assertFormula(store, c, r, outside, privileges, lists);
+          && ![...r.fields].some((x) => changedFields.has(x)) && !(r.byName.size && newlyOutside) && !(r.lists.size && (newlyOutside || listsChanged))) continue;
+        assertFormula(store, c, r, outside, privileges);
       }
     }
   }
 }
 
-function assertFormula(store: Store, c: Carrier, r: Reach, outside: Map<number, { name: string; home: { store: Store; table: Table }; source: string }>, privileges: Privileges, lists: boolean): void {
-  const byName = r.byName || (r.lists && lists);
-  if (!r.outside && !byName) return;
+/** Every file a call that reads by name or query in `home` can name: itself and the files its table occurrences are in. */
+function filesNamedIn(store: Store, home: Store, outside: Map<number, { home: { store: Store } }>): Set<Store> {
+  if (home === store) return new Set([...outside.values()].map((o) => o.home.store));
+  const out = new Set<Store>([home]);
+  for (const to of home.schema.tableOccurrences) {
+    const other = to.dataSourceId ? home.calc.occurrenceTable(to.id)?.store : undefined;
+    if (other && other !== store) out.add(other);
+  }
+  return out;
+}
+
+function assertFormula(store: Store, c: Carrier, r: Reach, outside: Map<number, { name: string; home: { store: Store; table: Table }; source: string }>, privileges: Privileges): void {
+  // Too much to follow is never let through.
+  if (r.truncated) throw new StoreError(200, `The ${c.what} reaches too many other calculations to be checked against the other file's privileges here. Use an unstored calculation, or fewer steps.`);
+  const named = new Set([...r.byName, ...r.lists]);
+  if (!r.outside && !named.size) return;
 
   // What the account itself can resolve: a field it cannot see is as missing as one that is not there.
   const seen = checkStoreFormula(store, c.formula, { occurrence: c.from }, privileges);
   if (!seen.ok && (seen.code === 102 || checkStoreFormula(store, c.formula, { occurrence: c.from }).ok)) throw new StoreError(seen.code, seen.message);
-  // What it reads, directly or through an unstored calculation or a custom function: a field the account cannot see there, or a table where it sees only some rows.
+  // What it reads, directly or through an unstored calculation, a summary or a custom function: a field the account cannot see there, or a table where it sees only some rows.
   for (const x of r.reads) {
     if (x.home === store || privileges.in(x.home).full) continue;
     const where = [...outside.values()].find((o) => o.home.store === x.home && o.home.table === x.table)?.name ?? x.home.name;
     if (x.home.fieldHidden(x.table.name, x.field.name, privileges)) throw new StoreError(102, `The ${c.what} reads a field of ${x.home.name} that this account can't read there`);
     if (x.home.limitsView(x.table.name, privileges)) throw new StoreError(200, rowsMessage(where, c.what));
   }
-  if (byName) {
-    const partial = [...outside.values()].find((o) => !privileges.in(o.home.store).readsEverything);
-    if (partial) throw new StoreError(200, `A stored ${c.what} that reads fields or records by name or query (GetField, Evaluate, ExecuteSQL) can't be saved by an account that can't read all of ${partial.source}. Name the fields directly, or use an unstored calculation.`);
+  // Reading by name or query, in this file or in one reached through an unstored calculation, can name any file it can reach.
+  for (const home of named) {
+    for (const file of filesNamedIn(store, home, outside)) {
+      if (privileges.in(file).readsEverything) continue;
+      const source = [...outside.values()].find((o) => o.home.store === file)?.source ?? file.name;
+      throw new StoreError(200, `A stored ${c.what} that reads fields or records by name or query (GetField, Evaluate, ExecuteSQL) can't be saved by an account that can't read all of ${source}. Name the fields directly, or use an unstored calculation.`);
+    }
   }
 }
