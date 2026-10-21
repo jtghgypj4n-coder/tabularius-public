@@ -4604,7 +4604,7 @@ export class Store {
     if (!taken.ok || (taken.account && taken.account.toLowerCase() !== account.toLowerCase())) throw new StoreError(960, 'The registration has expired; start again');
     let cred: RegisteredCredential;
     try {
-      cred = verifyRegistration({ attestationObject: response.attestationObject, clientDataJSON: response.clientDataJSON, challenge: env.challenge, origin: env.origin, rpId: env.rpId });
+      cred = verifyRegistration({ userVerification: 'preferred', attestationObject: response.attestationObject, clientDataJSON: response.clientDataJSON, challenge: env.challenge, origin: env.origin, rpId: env.rpId });
     } catch (e) {
       throw new StoreError(960, `The passkey could not be registered: ${(e as Error).message}`);
     }
@@ -4635,17 +4635,23 @@ export class Store {
    */
   verifyPasskeyAssertion(response: { credentialId: string; clientDataJSON: string; authenticatorData: string; signature: string },
     env: { rpId: string; origin: string | string[]; challenge: string }): string {
+    return this.verifyPasskeyCredential(response, env);
+  }
+
+  private verifyPasskeyCredential(response: { credentialId: string; clientDataJSON: string; authenticatorData: string; signature: string },
+    env: { rpId: string; origin: string | string[]; challenge: string }, factorAccount?: string): string {
     if (typeof response.credentialId !== 'string' || typeof env.challenge !== 'string') throw new StoreError(212, PASSKEY_REFUSED);
     const taken = this.takeWebauthnChallenge(env.challenge, 'auth');
     if (!taken.ok) throw new StoreError(212, 'The sign-in has expired; try again');
     const row = this.sql.prepare('SELECT account, public_key, sign_count FROM _fm_passkeys WHERE id = ?').get(response.credentialId) as
       { account: string; public_key: string; sign_count: number } | undefined;
     // One answer for every way a passkey can fail, so nobody learns which of them it was.
-    if (!row || this.accountInactive(row.account)) throw new StoreError(212, PASSKEY_REFUSED);
+    if (!row || this.accountInactive(row.account) || (factorAccount !== undefined && row.account.toLowerCase() !== factorAccount.toLowerCase())) throw new StoreError(212, PASSKEY_REFUSED);
     let result: { signCount: number };
     try {
       result = verifyAssertion({ publicKey: row.public_key, clientDataJSON: response.clientDataJSON, authenticatorData: response.authenticatorData,
-        signature: response.signature, challenge: env.challenge, origin: env.origin, rpId: env.rpId, storedSignCount: row.sign_count });
+        signature: response.signature, challenge: env.challenge, origin: env.origin, rpId: env.rpId, storedSignCount: row.sign_count,
+        userVerification: factorAccount === undefined ? 'required' : 'preferred' });
     } catch (e) {
       throw new StoreError(212, PASSKEY_REFUSED);
     }
@@ -4662,8 +4668,7 @@ export class Store {
    */
   verifyPasskeyFactor(account: string, response: { credentialId: string; clientDataJSON: string; authenticatorData: string; signature: string },
     env: { rpId: string; origin: string | string[]; challenge: string }): void {
-    const who = this.verifyPasskeyAssertion(response, env);
-    if (who.toLowerCase() !== account.toLowerCase()) throw new StoreError(212, PASSKEY_REFUSED);
+    this.verifyPasskeyCredential(response, env, account);
   }
 
   /** Whether an account has a confirmed second factor of any kind (an authenticator app or a passkey) set up. */

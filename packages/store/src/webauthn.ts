@@ -153,6 +153,8 @@ export interface RegistrationInput {
   challenge: string; // the base64url challenge the server issued
   origin: string | string[];
   rpId: string;
+  /** Defaults to required; possession-only ceremonies must opt in explicitly. */
+  userVerification?: 'required' | 'preferred';
 }
 export interface RegisteredCredential {
   credentialId: string; // base64url
@@ -172,6 +174,7 @@ export function verifyRegistration(input: RegistrationInput): RegisteredCredenti
   const parsed = parseAuthData(authData);
   if (!parsed.rpIdHash.equals(sha256(Buffer.from(input.rpId)))) throw new Error('rpIdHash does not match the expected relying party');
   if (!parsed.userPresent) throw new Error('the authenticator did not report user presence');
+  if (input.userVerification !== 'preferred' && !parsed.userVerified) throw new Error('the authenticator did not report user verification');
   if (!parsed.credentialId || !parsed.cosePublicKey) throw new Error('no credential was attested');
   coseToKey(decodeCbor(parsed.cosePublicKey) as Map<unknown, unknown>); // validate it parses to a supported key
   return {
@@ -191,6 +194,8 @@ export interface AssertionInput {
   origin: string | string[];
   rpId: string;
   storedSignCount: number;
+  /** Defaults to required; only a password-backed second factor may opt out. */
+  userVerification?: 'required' | 'preferred';
 }
 
 /**
@@ -206,6 +211,7 @@ export function verifyAssertion(input: AssertionInput): { signCount: number } {
   const parsed = parseAuthData(authenticatorData);
   if (!parsed.rpIdHash.equals(sha256(Buffer.from(input.rpId)))) throw new Error('rpIdHash does not match the expected relying party');
   if (!parsed.userPresent) throw new Error('the authenticator did not report user presence');
+  if (input.userVerification !== 'preferred' && !parsed.userVerified) throw new Error('the authenticator did not report user verification');
 
   const { key, alg } = coseToKey(decodeCbor(fromB64url(input.publicKey)) as Map<unknown, unknown>);
   const signed = Buffer.concat([authenticatorData, sha256(clientDataJSON)]);

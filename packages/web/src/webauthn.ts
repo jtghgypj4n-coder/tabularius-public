@@ -94,7 +94,7 @@ export async function signInWithPasskey(db: string, account: string): Promise<Pa
       challenge: fromB64url(begin.challenge),
       rpId: begin.rpId,
       allowCredentials: allow.map((id) => ({ type: 'public-key', id: fromB64url(id) })),
-      userVerification: 'preferred',
+      userVerification: 'required',
       timeout: 60_000,
     },
   }) as PublicKeyCredential | null;
