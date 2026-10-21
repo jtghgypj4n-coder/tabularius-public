@@ -3,6 +3,7 @@
 // hosted files), and the file's custom functions count as functions.
 
 import { checkFormula, NameTable, type CheckResult } from '../../calc/src/index.ts';
+import type { Privileges } from './privileges.ts';
 import type { Store } from './store.ts';
 
 export interface FormulaContext {
@@ -14,10 +15,14 @@ export interface FormulaContext {
   parameters?: string[];
 }
 
-export function checkStoreFormula(store: Store, formula: string, ctx: FormulaContext = {}): CheckResult {
+/**
+ * With `privileges` (the account typing the formula), a field of another hosted file resolves only where the account can
+ * see it, so the check says the same of a field it cannot see as of one that does not exist.
+ */
+export function checkStoreFormula(store: Store, formula: string, ctx: FormulaContext = {}, privileges?: Privileges): CheckResult {
   const s = store.schema;
   const toId = ctx.occurrence ?? (ctx.table !== undefined ? s.tableOccurrences.find((t) => !t.dataSourceId && t.baseTableId === ctx.table)?.id : undefined);
-  const fieldsOf = (id: number) => store.calc.occurrenceTable(id)?.table.fields.map((f) => f.name) ?? [];
+  const fieldsOf = (id: number) => store.calc.fieldNamesOf(id, privileges);
   // Parameter names may hold spaces ("window name"), so they lex as names, like fields.
   const parameters = ctx.parameters?.map((p) => p.trim()).filter((p) => p);
   const names = new NameTable({

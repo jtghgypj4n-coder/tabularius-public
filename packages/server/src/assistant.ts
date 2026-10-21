@@ -507,8 +507,8 @@ export interface Draft {
 export type DraftSamples = FormulaPreview;
 
 /** A drafted calculation evaluated on the first few records it would see (the window's record first); see formula-preview.ts. */
-function sampleDraft(store: Store, contextTo: number | undefined, text: string, context: ChatContext): DraftSamples | undefined {
-  return previewFormula(store, contextTo, text, { layout: context.layout, recordId: context.recordId });
+function sampleDraft(store: Store, contextTo: number | undefined, text: string, context: ChatContext, privileges?: Privileges): DraftSamples | undefined {
+  return previewFormula(store, contextTo, text, { layout: context.layout, recordId: context.recordId }, undefined, privileges);
 }
 
 /** The samples as the model reads them: a result that reads or copies a password, key or token is hidden (the person's card keeps the real ones). */
@@ -526,9 +526,9 @@ const EDITOR: Record<Draft['kind'], { what: string; box: string }> = {
 };
 
 /** Problems with a draft, as check_calculation and check_script find them; none when it can go in the editor. */
-function checkDraft(store: Store, target: { kind: Draft['kind']; contextTo?: number }, text: string, parameters: string[]): string[] {
+function checkDraft(store: Store, target: { kind: Draft['kind']; contextTo?: number }, text: string, parameters: string[], privileges?: Privileges): string[] {
   if (!text) return ['The draft is empty'];
-  const formula = (f: string) => (({ error, problems }: { error?: { message: string }; problems: string[] }) => (error ? [error.message] : problems))(checkFormula(store, target.contextTo, f));
+  const formula = (f: string) => (({ error, problems }: { error?: { message: string }; problems: string[] }) => (error ? [error.message] : problems))(checkFormula(store, target.contextTo, f, privileges));
   if (target.kind === 'calculation') return formula(text);
   if (target.kind === 'script') return checkScript(store, text).problems.map((p) => `Line ${p.line}${p.step ? ` (${p.step})` : ''}: ${p.message}`);
   // A custom function's body sees its parameters and fields only as Occurrence::Field (no context table).
@@ -1940,7 +1940,7 @@ export class Assistant {
             const text = typeof c.input.text === 'string' ? c.input.text.trim() : '';
             const parameters = target.kind === 'function' && Array.isArray(c.input.parameters)
               ? c.input.parameters.filter((p): p is string => typeof p === 'string').map((p) => p.trim()).filter(Boolean).slice(0, 32) : [];
-            const problems = checkDraft(store, target, text, parameters);
+            const problems = checkDraft(store, target, text, parameters, privileges);
             if (problems.length) {
               results.push({ type: 'tool_result', tool_use_id: c.id, content: `The draft has problems: ${clip(problems.join('; '), 4000)}. Fix them and offer it again.`, is_error: true });
               continue;
@@ -1950,7 +1950,7 @@ export class Assistant {
             const dryRun = target.kind === 'script' && this.opts.dryRun !== false ? await dryRunScript(store, target.label, text, undefined, { changes: true }) : undefined;
             const lint = target.kind === 'script' ? lintDraft(store, text) : [];
             // A calculation is evaluated on a few records, so the person sees its results before using it.
-            const samples = target.kind === 'calculation' ? sampleDraft(store, target.contextTo, text, context) : undefined;
+            const samples = target.kind === 'calculation' ? sampleDraft(store, target.contextTo, text, context, privileges) : undefined;
             drafts.push({ kind: target.kind, text, summary: String(c.input.summary ?? '').slice(0, 500), ...(target.kind === 'function' ? { parameters } : {}), ...(dryRun ? { dryRun } : {}), ...(lint.length ? { lint } : {}), ...(samples ? { samples } : {}) });
             results.push({ type: 'tool_result', tool_use_id: c.id, content: 'Checked, and shown to the person with a button to put it in the editor. Nothing is saved yet.' +
               (samples && !pii ? ` ${describeSamples(store, target.contextTo, text, samples)}` : '') +

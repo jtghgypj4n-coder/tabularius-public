@@ -22,6 +22,7 @@ import { defineFold, WordIndexes, wordIndexName } from './words.ts';
 import { q, dataSourceFile, SQL_TYPES, DESIGN_LOG, writeDesign, addExternalSizeColumn } from './import.ts';
 import { decimalKey, decimalNumberText, nativeValue } from './native-types.ts';
 import { Calculations, ValidationError, rowsById, sortKeyFunction, summaryColumns, summaryType, summedFor, type Pass, type Rec, type Row, type Summed, type EditedRecord } from './calc.ts';
+import { assertMayReadWhatItSaves } from './formula-access.ts';
 import { asBoolean, asNumberOrEmpty, asText, CalcError, compare, decimalSum, editRuns, evaluate as evaluateFormula, fromStored, isEmpty, toStored, type CalcContext, type InstalledPlugin, type PluginFunction, type StyleRun, type Value } from '../../calc/src/index.ts';
 import { foldCase, recordSortKey, recordSortLanguage, SORT_LANGUAGE_IDS, sortFunction, sortKey, sortLanguage } from '../../calc/src/collation.ts';
 import { valueListOrder } from './value-list-sort.ts';
@@ -541,6 +542,12 @@ export interface EvaluateOptions extends WriteOptions {
   variable?: (name: string, repetition: number) => Value | undefined;
   /** Where Let ( $$name = ... ) writes, in `evaluate` (the Data Viewer); otherwise $$variables set by a formula last only for it. */
   setVariable?: (name: string, repetition: number, value: Value) => void;
+  /**
+   * The formula was typed by the person asking (a formula box, a calculation test), not read from the design: with
+   * `privileges`, a field of another file the account cannot see does not resolve, so it is reported as missing
+   * rather than read as empty and says nothing about the other file.
+   */
+  typed?: boolean;
 }
 
 /** A run of records sharing a sub-summary's break values: position in the found set, size and summary values. */
@@ -1707,7 +1714,9 @@ export class Store {
         this.logSecurity('schema-changed', { account: opts.account ?? null, detail: { ops: byOp, count: result.ops.length } });
       }
       this.resetCaches();
-      for (const e of recompute) this.recompute(e.table, e.field);
+      // A change made for an account holds only what it may read of other files (see formula-access.ts).
+      if (opts.privileges) assertMayReadWhatItSaves(this, was, opts.privileges);
+      for (const e of recompute) this.recompute(e.table, e.field, opts.privileges);
       crashPoint('design-apply:before-commit');
       this.sql.exec(nested ? 'RELEASE security_design' : 'COMMIT');
       crashPoint('design-apply:after-commit');
@@ -2541,7 +2550,7 @@ export class Store {
   }
 
   /** Compute a stored calculation for every record of a table. */
-  private recompute(tableName: string, fieldName: string): void {
+  private recompute(tableName: string, fieldName: string, privileges?: Privileges): void {
     const table = this.schema.tables.find((t) => t.name === tableName);
     const field = table?.fields.find((f) => f.name === fieldName);
     if (!table || !field) return;
@@ -2550,7 +2559,7 @@ export class Store {
     const styled = field.kind === 'calculation' && this.keepsFormatting(field);
     const kept: [number, string, StyleRun[] | undefined][] = [];
     for (const row of this.sql.prepare(`SELECT * FROM ${q(table.name)}`).iterate() as Iterable<Row>) {
-      const { value: v, runs } = this.calc.computeStoredStyled({ store: this, table, row }, field);
+      const { value: v, runs } = this.calc.computeStoredStyled({ store: this, table, row }, field, false, privileges);
       if (v !== row[field.name]) update.run(v as string | number | null, row._fm_record_id as number);
       if (styled && (runs || this.textStyles.has(table.id))) kept.push([row._fm_record_id as number, String(v ?? ''), runs]);
     }
@@ -8089,7 +8098,9 @@ export class Store {
     const owner = info.owner;
     const table = owner.schema.tables.find((t) => t.name === info.table)!;
     const rec = recordId === undefined ? undefined : { store: owner, table, row: (opts.row ?? owner.row(info, recordId)) as Row };
-    const ctx = this.calc.context(rec, to.id, this.calc.newPass(opts.account, opts.privileges));
+    const pass = this.calc.newPass(opts.account, opts.privileges);
+    if (opts.typed && opts.privileges) pass.typed = true;
+    const ctx = this.calc.context(rec, to.id, pass, opts.typed && opts.privileges ? { names: this.calc.names(to.id, opts.privileges) } : {});
     if (opts.get) {
       const baseGet = ctx.get;
       ctx.get = (name) => opts.get!(name) ?? baseGet?.(name);

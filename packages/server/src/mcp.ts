@@ -1082,7 +1082,7 @@ export function createMcpServer(host: Host, who: McpIdentity = { admin: true }, 
     readsEverything(p);
     if (p && recordId !== undefined) s.get(layout, recordId, 'iso', undefined, p, { fields: [] });
     else if (p) s.find(layout, { limit: 0, privileges: p });
-    const result: Record<string, unknown> = s.evaluate(layout, formula, recordId, { account: p?.account, ...(p ? { privileges: p } : {}) });
+    const result: Record<string, unknown> = s.evaluate(layout, formula, recordId, { account: p?.account, ...(p ? { privileges: p, typed: true } : {}) });
     const info = s.layout(layout);
     const toId = s.calc.occurrence(info.occurrence)?.id;
     const fields = checkFormula(s, toId, formula).fields.filter((f) => f.found);
@@ -1314,7 +1314,7 @@ export function createMcpServer(host: Host, who: McpIdentity = { admin: true }, 
       p.checkLayout(layout);
       readsEverything(p);
     }
-    return checkCalculation(s, layout, formula, sampleRecords);
+    return checkCalculation(s, layout, formula, sampleRecords, p);
   }));
 
   server.registerTool('explain_value', {
@@ -2061,7 +2061,7 @@ export function createMcpServer(host: Host, who: McpIdentity = { admin: true }, 
   registerDesignTools(server, host, (s) => {
     const p = privilegesIn(s, who);
     if (p && !p.full) throw new Error(`Insufficient privileges: design changes need [Full Access]; "${p.account}" has "${p.name}"`);
-  }, 'admin' in who, canSee(who), readOtherFile);
+  }, 'admin' in who, canSee(who), readOtherFile, (s) => privilegesIn(s, who));
   // Sync status is the administrator's: a file's account never sees another file's connection to FileMaker Server.
   if ('admin' in who && extras.sync && extras.schedules) {
     registerSyncTools(server, extras.sync, extras.schedules, (name) => {

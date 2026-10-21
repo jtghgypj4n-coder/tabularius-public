@@ -324,7 +324,8 @@ export class DebugApi {
           return send(200, { layout, occurrence: info.occurrence, table: info.table, ...(recordId !== undefined ? { recordId } : {}), fields: redaction.data(fields), variables: redaction.data(variables) }), true;
         }
         if (!Array.isArray(body.formulas)) throw new ApiError(960, 'Send {"formulas": ["..."], "layout": "..."}', 400);
-        const opts = screen(session, layout, windowState(body.window));
+        // As the account: a field of another file it can't see there is missing, not read.
+        const opts: EvaluateOptions = { ...screen(session, layout, windowState(body.window)), privileges, typed: true };
         const results = body.formulas.map((f) => {
           const formula = String(f);
           try {

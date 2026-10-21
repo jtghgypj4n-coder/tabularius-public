@@ -86,6 +86,11 @@ export interface Pass {
    * full data — matching FileMaker, where stored values are computed once.
    */
   privileges?: Privileges;
+  /**
+   * The formula was typed by the account (with `privileges`): a field of another file it cannot see is missing, as one
+   * that is not there is, instead of empty (see EvaluateOptions.typed).
+   */
+  typed?: boolean;
   /** The found set summary fields in its table cover (all of the table's records when absent). */
   foundSet?: { table: Table; recs: Iterable<Rec> };
   /** The found set's current sort, when a window supplied one for GetSummary. */
@@ -245,7 +250,18 @@ export class Calculations {
     return this.store.schema.tableOccurrences.find((t) => !t.dataSourceId && t.baseTableId === table.id)?.id;
   }
 
-  names(toId: number): NameTable {
+  /**
+   * The names a formula resolves from occurrence toId. With `privileges`, a field of a table in another hosted file
+   * resolves only when the account can see it there (see fieldNamesOf): for a formula someone types, a field it cannot
+   * see is as missing as one that does not exist, so naming it says nothing about the other file.
+   */
+  names(toId: number, privileges?: Privileges): NameTable {
+    if (privileges && this.store.schema.tableOccurrences.some((to) => to.dataSourceId)) {
+      return new NameTable({
+        fields: this.fieldNamesOf(toId, privileges),
+        occurrences: this.store.schema.tableOccurrences.map((to) => [to.name, this.fieldNamesOf(to.id, privileges)] as [string, string[]]),
+      });
+    }
     let names = this.nameTables.get(toId);
     if (!names) {
       const own = this.occurrenceTable(toId)?.table.fields.map((f) => f.name) ?? [];
@@ -255,6 +271,18 @@ export class Calculations {
       this.nameTables.set(toId, names);
     }
     return names;
+  }
+
+  /**
+   * The fields of an occurrence's table an account may see. A table of another hosted file follows the account's
+   * privileges in that file: none at all without an account there, none of a table it cannot view, and not a field
+   * it has no access to (hidden or masked). This file's own tables are not narrowed here (designing them is for
+   * Full Access). Without privileges, every field.
+   */
+  fieldNamesOf(toId: number, privileges?: Privileges): string[] {
+    const home = this.occurrenceTable(toId);
+    if (!home) return [];
+    return home.table.fields.filter((f) => !privileges || home.store === this.store || !home.store.fieldHidden(home.table.name, f.name, privileges)).map((f) => f.name);
   }
 
   /** The formula of a field, parsed in its context; null when it cannot be parsed (an unknown function, say). */
@@ -1706,7 +1734,7 @@ export class Calculations {
         // calc, tooltip or condition, including on their own record. fieldHidden
         // includes masked fields. Internal stored/validation/rule passes have no
         // privileges and keep using full data (see docs/calculation-privileges.md).
-        if (pass.privileges && t.store.fieldHidden(t.table.name, f.name, pass.privileges)) return EMPTY;
+        if (pass.privileges && t.store.fieldHidden(t.table.name, f.name, pass.privileges)) return pass.typed && t.store !== store ? undefined : EMPTY;
         // A summary through a relationship summarizes the related records.
         if (f.kind === 'summary' && ref.occurrence && t.to.id !== toId) {
           return t.store.calc.summary(rec ? this.relatedRecs(rec, toId, t.to.id, pass) : [], t.table, f, pass);
@@ -1721,7 +1749,7 @@ export class Calculations {
         const f = t && fieldOf(t.table, ref.field);
         if (!t || !f) return undefined;
         // Check before the global and same-occurrence shortcuts as well.
-        if (pass.privileges && t.store.fieldHidden(t.table.name, f.name, pass.privileges)) return [];
+        if (pass.privileges && t.store.fieldHidden(t.table.name, f.name, pass.privileges)) return pass.typed && t.store !== store ? undefined : [];
         if (f.options?.global) return [storedValue(t.store, t.store.calc.globalValue(t.table, f), f, ref.repetition)];
         if (!rec) return [];
         if (t.to.id === toId) return [this.value(rec, f, ref.repetition, pass)];
@@ -2443,13 +2471,14 @@ export class Calculations {
   }
 
   /** The same, with the formatting a text result carries, for the store to keep beside the value. */
-  computeStoredStyled(rec: Rec, f: Field, strict = false): { value: SqlValue; runs?: StyleRun[] } {
+  computeStoredStyled(rec: Rec, f: Field, strict = false, privileges?: Privileges): { value: SqlValue; runs?: StyleRun[] } {
     const c = this.formula(rec.table, f);
     const toId = f.calculationContextId ?? this.defaultOccurrence(rec.table);
     if (!c || toId === undefined) return { value: null };
     try {
       const repetitions = f.kind === 'calculation' ? f.options?.repetitions ?? 1 : 1;
-      const pass = newPass();
+      // With privileges (design mode working out a formula its author just wrote), reads of other files are theirs.
+      const pass = newPass(privileges?.account, privileges);
       const results: SqlValue[] = [];
       let styled: { value: SqlValue; runs?: StyleRun[] } | undefined;
       for (let rep = 1; rep <= repetitions; rep++) {
