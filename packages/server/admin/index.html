@@ -134,6 +134,7 @@
   td:first-child { font-weight: 500; }
   td.wrap { white-space: normal; min-width: 10em; }
   td.wrap button { margin: 2px 0; }
+  #dbs td.wrap { min-width: 7em; }
   td.num, th.num { text-align: right; }
   .stale-ex { display: grid; grid-template-columns: auto 1fr; gap: 0 var(--s2); font-size: var(--t-xs); }
   .stale-ex .was { color: var(--muted); text-decoration: line-through; text-decoration-color: var(--line-strong); }
@@ -1920,9 +1921,9 @@ async function refresh() {
       : d.ai.byServer ? `<span class="bad" title="The server was started with --ai-exclude for this file">Off (server setting)</span>`
       : `<span class="bad" title="It uses data from ${esc(d.ai.through)}, which has AI turned off">Off, uses ${esc(d.ai.through)}</span>` },
     { label: 'AI policy', wrap: true, html: (d) => `${d.aiPolicy ? 'On' : 'Off'} <button data-ai-policy="${esc(d.name)}" data-on="${d.aiPolicy ? '' : '1'}" aria-label="${d.aiPolicy ? 'Turn off' : 'Turn on'} AI-visible policy for ${esc(d.name)}">${d.aiPolicy ? 'Turn off' : 'Turn on'}</button>` },
-    { label: 'Script network', wrap: true, html: (d) => !d.scriptNetwork ? '' : d.scriptNetwork.own
+    { label: 'Script network', html: (d) => !d.scriptNetwork ? '' : d.scriptNetwork.own
       ? `<span class="ok" title="This file's scripts can reach the network: Insert from URL, connections and MBS CURL, within the host limits">On</span> <button data-script-network="${esc(d.name)}" data-on="" aria-label="Turn off script network access for ${esc(d.name)}">Turn off</button>`
-      : d.scriptNetwork.on ? `<span class="ok" title="The server was started with --allow-script-network, which allows every file">On (server setting)</span>`
+      : d.scriptNetwork.on ? `<span class="ok" title="The server was started with --allow-script-network, which allows every file">On (server)</span>`
       : `<span class="meta" title="Scripts in this file can't reach the network yet">Off</span> <button data-script-network="${esc(d.name)}" data-on="1" aria-label="Turn on script network access for ${esc(d.name)}">Turn on</button>` },
     { label: 'Personal data', wrap: true, html: (d) => !d.pii ? '' : `${d.pii.on
       ? `<span class="ok" title="Names, emails, phone numbers, addresses, ids and free text reach AI only as stand-ins like &lt;PERSON_3&gt;">Kept from AI${d.pii.through ? ` (by ${esc(d.pii.through)})` : ''}</span>`
