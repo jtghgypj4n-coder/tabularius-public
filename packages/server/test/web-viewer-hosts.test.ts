@@ -44,6 +44,8 @@ test('web viewer hosts: none to begin with; the console lists them, the app page
       assert.match(refused.body.error, /address of this server itself/);
     }
     assert.deepEqual(store.webViewerHosts, []);
+    hosted.host.publicUrl = 'https://files.corp-example.com./';
+    assert.equal((await hostsOf({ hosts: ['files.corp-example.com'] })).status, 400, 'a trailing dot in the public address changes nothing');
     hosted.host.publicUrl = undefined;
     assert.deepEqual(store.webViewerHosts, []);
     assert.equal((await fetch(`${hosted.url}/tabularius/admin/v1/web-viewer-hosts/Nope`)).status, 404);
@@ -65,6 +67,24 @@ test('web viewer hosts: none to begin with; the console lists them, the app page
     assert.deepEqual((await hostsOf({ hosts: [] })).body, { hosts: [] });
     assert.match(await policy(), /frame-src 'self' about: data: blob:;/);
     assert.equal(store.securityEvents({ kind: 'web-viewer-hosts-changed' }).length, 2);
+  } finally {
+    await new Promise<void>((r) => hosted.server.close(() => r()));
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('web viewer hosts: the app page names a bounded number of hosts across all files, by count and by size', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'web-viewer-hosts-all-'));
+  for (let i = 0; i < 5; i++) createStore(join(dir, `File${i}.openhbam.sqlite`));
+  const hosted = await serve({ dir, port: 0, log: () => {} });
+  try {
+    for (let i = 0; i < 5; i++) hosted.host.get(`File${i}`)!.setWebViewerHosts(Array.from({ length: 50 }, (_, j) => `h${i}x${j}.example.com`));
+    assert.equal(hosted.host.webViewerHostsAll().length, 200);
+    // Long names are bounded by size, so the header stays small.
+    for (let i = 0; i < 5; i++) hosted.host.get(`File${i}`)!.setWebViewerHosts(Array.from({ length: 50 }, (_, j) => `${'a'.repeat(50)}${i}x${j}.${'b'.repeat(60)}.${'c'.repeat(60)}.example.com`));
+    const names = hosted.host.webViewerHostsAll();
+    assert.ok(names.length > 0 && names.length < 200);
+    assert.ok((await fetch(`${hosted.url}/app/`)).headers.get('content-security-policy')!.length < 10_000);
   } finally {
     await new Promise<void>((r) => hosted.server.close(() => r()));
     rmSync(dir, { recursive: true, force: true });
