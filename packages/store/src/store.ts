@@ -2,7 +2,7 @@
 // API in FileMaker's shapes: field names, repetitions as "Field(2)", and
 // dates in US (M/D/YYYY) or ISO format.
 
-import { normalizeWebViewerHosts } from './web-viewer-hosts.ts';
+import { normalizeWebViewerHosts, trustedWebViewerHosts } from './web-viewer-hosts.ts';
 import { cleanSql, sqlName, sqlTokens } from './sql-tokens.ts';
 import { SignInFailures, LOCKOUT, NO_ADDRESS_BUDGET, addressBucket, accountsSharingLockout, lockoutName } from './sign-in-failures.ts';
 import { expiryClock } from './clock.ts';
@@ -3177,8 +3177,7 @@ export class Store {
    * or new file starts with none, and a web viewer then shows only its own content. Kept in the file, and in its security log.
    */
   get webViewerHosts(): string[] {
-    const v = this.meta('webViewerHosts');
-    return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+    return trustedWebViewerHosts(this.meta('webViewerHosts'));
   }
 
   setWebViewerHosts(hosts: unknown, opts: { account?: string } = {}): void {

@@ -1242,8 +1242,13 @@ export function allowedWebAddress(url: string | undefined, hosts: readonly strin
   try { u = new URL(url); } catch { return undefined; }
   if (u.protocol !== 'https:' || u.username || u.password || u.port) return undefined;
   const host = u.hostname.toLowerCase();
-  const ok = hosts.some((h) => (h.startsWith('*.') ? host.endsWith(h.slice(1)) : host === h));
+  const ok = hosts.some((h) => (h.startsWith('*.') ? host.length > h.length - 1 && !host.startsWith('.') && host.endsWith(h.slice(1)) : host === h));
   return ok ? u : undefined;
+}
+
+/** The frame of a listed web host: sandboxed, no referrer, the checked address and no other. */
+export function externalFrameAttributes(web: URL): Record<string, string> {
+  return { class: 'fm-content fm-webviewer', sandbox: 'allow-scripts allow-same-origin allow-forms', referrerpolicy: 'no-referrer', title: 'Web viewer', src: web.href };
 }
 
 export function webViewer(url: string | undefined, bridge = false, hosts?: readonly string[]): HTMLElement {
@@ -1253,7 +1258,7 @@ export function webViewer(url: string | undefined, bridge = false, hosts?: reado
     // A listed web host: its page in a frame of its own origin, which can't reach the app, its cookies or the session
     // (it is another site), can't open windows or take this one over, and is told nothing about it. None of the bridge:
     // the page gets no FileMaker.PerformScript, and Perform JavaScript in Web Viewer sends it nothing.
-    const frame = h('iframe', { class: 'fm-content fm-webviewer', sandbox: 'allow-scripts allow-same-origin allow-forms', referrerpolicy: 'no-referrer', title: 'Web viewer', src: web.href });
+    const frame = h('iframe', externalFrameAttributes(web));
     frame.dataset.viewerAddress = url;
     frame.dataset.external = '1';
     frame.addEventListener('load', () => { frame.dataset.loaded = '1'; });

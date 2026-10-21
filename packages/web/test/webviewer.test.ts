@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { runInNewContext } from 'node:vm';
-import { dataHtml, callWebViewer, webViewerBlank, webViewerChrome, allowedWebAddress } from '../src/layout.ts';
+import { dataHtml, callWebViewer, webViewerBlank, webViewerChrome, allowedWebAddress, externalFrameAttributes } from '../src/layout.ts';
 import { ViewerState, viewerKey, webViewerBridge, viewerMessage, restoreViewer } from '../src/web-viewer.ts';
 import { inlinePage } from '../../server/test/refresh-fixture.ts';
 import { mergeObjectState } from '../src/refresh.ts';
@@ -266,7 +266,7 @@ test('web viewers: only an https address on the file\'s list loads; "*." allows 
   for (const refused of [
     'https://cdn.example.org/', 'https://evilcdn.example.org/', 'https://maps.example.com.evil.net/', 'https://evil.net/?maps.example.com',
     'http://maps.example.com/', 'https://maps.example.com:8443/', 'https://user:pw@maps.example.com/', 'https://maps.example.com@evil.net/',
-    'javascript:alert(1)', 'data:text/html,<b>x</b>', 'not a url', '', 'ftp://maps.example.com/',
+    'javascript:alert(1)', 'data:text/html,<b>x</b>', 'not a url', '', 'ftp://maps.example.com/', 'https://.cdn.example.org/',
   ]) assert.equal(allowedWebAddress(refused, hosts), undefined, refused);
   assert.equal(allowedWebAddress('https://maps.example.com/', []), undefined);
   assert.equal(allowedWebAddress('https://maps.example.com/', undefined), undefined);
@@ -279,4 +279,12 @@ test('web viewers: a page from a web host is sent nothing by the window', async 
   await callWebViewer(frame, 'later', ['secret']);
   restoreViewer(frame, new ViewerState('https://x.example.com/'));
   assert.deepEqual(sent, []);
+});
+
+test('web viewers: a page from a web host sits in a sandbox with no referrer, at the address that was checked', () => {
+  const web = allowedWebAddress('HTTPS://Maps.Example.com:443/a b', ['maps.example.com'])!;
+  const attributes = externalFrameAttributes(web);
+  assert.equal(attributes.src, 'https://maps.example.com/a%20b');
+  assert.equal(attributes.referrerpolicy, 'no-referrer');
+  assert.deepEqual(attributes.sandbox.split(' ').sort(), ['allow-forms', 'allow-same-origin', 'allow-scripts']);
 });

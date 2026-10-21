@@ -279,5 +279,6 @@ the web shows as text that names the host to allow.
   recorded in the file's security log (Web viewer hosts), with what was allowed and removed.
 - A host name on the list says nothing about what is on its pages: allowing `*.example.com` allows every site under it,
   and a name that is a public suffix (such as `*.co.uk`) would allow far more than you mean to.
+  The console refuses the address of the server itself, since a page of it would run beside the app.
 
 <!-- known-difference: Web client ;; A web viewer loads an https address only when an administrator listed its host for the file, over https only; FileMaker loads any address, and Go Back, Go Forward and Perform JavaScript in Web Viewer do not work on a page from a web host ;; An address on the web shows as text naming the host, until it is listed ;; Owner decision -->
