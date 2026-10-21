@@ -617,10 +617,14 @@ switch off they give "?" and error 3, and with `--test-outbound` they go to the
 Outbox instead. Turning on **Script network** also lets that file's scripts send
 mail through `BE_SMTPSend`, once the server is set up to send it. Call these
 functions from a script step (Set Variable, for example): inside a custom
-function they give an empty result and error 3 even with the switch on. MBS
-`CURL.Perform` follows the same switch. The file variants
-(`BE_HTTP_GETFile`, `PUTFile`), FTP, shell and clipboard calls are not built in
-and give "?" and error 3. <!-- known-difference: Vendor plug-ins ;; BaseElements' web calls answer with the body as text (BaseElements answers with a container), and the error number a failed request sets (7) is inferred ;; A script that reads the container or tests for another error number can behave differently ;; A run of the real plug-in against a failing address --> Of MBS, the `Text.*`
+function they give an empty result and error 3 even with the switch on.
+`BE_HTTP_GET_File` (and `BE_HTTP_GETFile`, `BE_SaveURLToFile`) saves the answer,
+byte for byte, to a path in the Documents folder, and `BE_HTTP_PUTFile` sends a
+file from there (up to 10 MB); both take `http` and `https` addresses only. MBS
+`CURL.Perform` follows the same switch. FTP (`BE_FTP_Upload`, `UploadFile`,
+`Delete`), and the `ftp`, `ftps` and `sftp` addresses `BE_HTTP_GET_File` takes in
+BaseElements, are not built in and give "?" and error 3. Shell and clipboard
+calls are not either. <!-- known-difference: Vendor plug-ins ;; BaseElements' web calls answer with the body as text (BaseElements answers with a container), and the error number a failed request sets (7) is inferred ;; A script that reads the container or tests for another error number can behave differently ;; A run of the real plug-in against a failing address --> Of MBS, the `Text.*`
 functions run natively, following MBS's own documentation: case, trimming,
 lists and words, Base64, hex, URL, quoted-printable, HTML and XML encoding in
 the text encoding you name (UTF-8, UTF-16, Latin-1, Windows, Mac, Hex,
