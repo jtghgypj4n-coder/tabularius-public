@@ -1134,6 +1134,11 @@ export class Store {
     }
   }
 
+  /** Whether the FileMaker file had its built-in [Guest] switched on when it was converted (it comes across off either way). */
+  fileHadGuestOn(): boolean {
+    return this.meta('accountStatus')?.guestWasOn === true;
+  }
+
   private meta(key: string) {
     const row = this.sql.prepare('SELECT json FROM _fm_meta WHERE key = ?').get(key) as { json: string } | undefined;
     return row ? JSON.parse(row.json) : undefined;

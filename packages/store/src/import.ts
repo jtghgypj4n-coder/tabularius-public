@@ -134,6 +134,9 @@ export function importDesigns(sql: DatabaseSync, db: FmpDatabase, log: (msg: str
   writeDesign(sql, state.schema, state.designs);
   const off = applyFileAccountStatus(sql);
   if (off.length) log(`turned off ${off.length} account${off.length === 1 ? '' : 's'} that the FileMaker file has switched off: ${off.join(', ')}`);
+  if ((sql.prepare('SELECT json FROM _fm_meta WHERE key = ?').get(ACCOUNT_STATUS_META) as { json: string } | undefined)?.json.includes('"guestWasOn":true')) {
+    log('the FileMaker file had [Guest] switched on; it comes across switched off, and Manage Security can switch it on');
+  }
   sql.prepare('INSERT INTO _fm_meta VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET json = excluded.json').run('designVersion', JSON.stringify(DESIGN_VERSION));
   sql.exec('DELETE FROM _fm_images');
   const addImage = sql.prepare('INSERT INTO _fm_images VALUES (?, ?, ?, ?)');
@@ -160,8 +163,18 @@ export function applyFileAccountStatus(sql: DatabaseSync): string[] {
   const schema = row ? JSON.parse(row.json) as Schema : undefined;
   const off = sql.prepare(`UPDATE _fm_accounts SET inactive = 1 WHERE name = ? COLLATE NOCASE AND source IN ('fmp12', 'external') AND inactive = 0`);
   const changed: string[] = [];
-  for (const a of schema?.accounts ?? []) if (a.inactive && Number(off.run(a.name).changes)) changed.push(a.name);
-  sql.prepare('INSERT INTO _fm_meta VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET json = excluded.json').run(ACCOUNT_STATUS_META, JSON.stringify({ switchedOff: changed }));
+  // The built-in [Guest] comes across switched off whatever the file says: it is FileMaker's sign-in without a name, and a
+  // converted file should not be one switch away from that. Whoever wants it switches it on in Manage Security.
+  let guestWasOn = false;
+  for (const a of schema?.accounts ?? []) {
+    const guest = a.name === '[Guest]' && !a.external;
+    if ((a.inactive || guest) && Number(off.run(a.name).changes)) {
+      if (guest && !a.inactive) guestWasOn = true;
+      else changed.push(a.name);
+    }
+  }
+  sql.prepare('INSERT INTO _fm_meta VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET json = excluded.json')
+    .run(ACCOUNT_STATUS_META, JSON.stringify({ switchedOff: changed, ...(guestWasOn ? { guestWasOn: true } : {}) }));
   return changed;
 }
 

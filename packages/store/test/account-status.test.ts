@@ -128,3 +128,27 @@ test('recovery login refuses inactive accounts without consuming their codes', {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+const guestOnFixture = join(import.meta.dirname, '..', '..', '..', 'fixtures', 'fmp12', 'PortableCode39-2.fmp12');
+const guestSkip = existsSync(guestOnFixture) ? false : 'fixtures missing: run npm run fixtures';
+
+test('[Guest] comes across switched off even when the file has it on, and switched on it still signs nobody in', { skip: guestSkip }, () => {
+  const dir = mkdtempSync(join(tmpdir(), 'tabularius-guest-'));
+  const path = join(dir, 'Portable.openhbam.sqlite');
+  try {
+    importFmp12(guestOnFixture, path);
+    const store = new Store(path, 'Portable');
+    try {
+      const guest = store.accounts().find((a) => a.name === '[Guest]')!;
+      assert.equal(guest.inactive, true, 'the file has [Guest] on, here it is off');
+      assert.equal(store.fileHadGuestOn(), true);
+      // An administrator who switches it on gets an account no one can sign in to without its password.
+      store.setAccountActive('[Guest]', true);
+      for (const from of ['127.0.0.1', '203.0.113.9']) for (const password of ['', 'guest', 'Guest']) assert.equal(store.verify('[Guest]', password, from), false, `${JSON.stringify(password)} from ${from}`);
+    } finally {
+      store.close();
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
