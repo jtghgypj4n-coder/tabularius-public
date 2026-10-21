@@ -495,3 +495,15 @@ test('the rewrite settles however deep the nesting', () => {
   const once = fileMakerSqlSyntax(query);
   assert.equal(fileMakerSqlSyntax(once), once);
 });
+
+test('a long run of comparisons that are left alone costs a bounded scan', () => {
+  // Each is skipped because its aggregate names no column of the outer query; every attempt counts against the limit, so the scan does not grow with the number of them.
+  const skipped = 'COUNT(*) = ALL (SELECT 1) AND ';
+  for (const nest of ['', '('.repeat(2000)]) {
+    const query = `SELECT 1 FROM W GROUP BY N HAVING ${nest}${skipped.repeat(Math.floor(190_000 / skipped.length))}1`;
+    const started = Date.now();
+    assert.equal(rewrite(query), query);
+    // Unbounded, this took 1.4 s and 3.1 s; bounded it takes tens of milliseconds. A generous bound, not a measurement.
+    assert.ok(Date.now() - started < 1_000, `${Date.now() - started} ms`);
+  }
+});

@@ -340,6 +340,8 @@ function quantified(sql: string, budget: { left: number; depth: number }, column
       continue;
     }
     if (budget.left <= 0) break;
+    // Every attempt counts, even one that is left alone: the scan to the operand and its select is not free.
+    budget.left--;
     const open = m.index + m[0].length;
     const close = closing(sql, open + 1);
     const left = operandStart(sql, m.index);
@@ -348,7 +350,6 @@ function quantified(sql: string, budget: { left: number; depth: number }, column
     if (/[-+*/%^.|]$/.test(plain.slice(0, left).trimEnd())) continue;
     const operand = sql.slice(left, m.index).trimEnd();
     if (aggregateWithoutColumn(operand, { columns, outer: containerScope(left) })) continue;
-    budget.left--;
     budget.depth++;
     const x = quantified(operand, budget, columns);
     const sub = quantified(sql.slice(open + 1, close), budget, columns);
