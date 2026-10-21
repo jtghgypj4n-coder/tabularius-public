@@ -16,6 +16,7 @@
 // in parts (S3 takes at most 5 GB in one request).
 
 import { readJsonStateSync, updateJsonStateSync } from '../../store/src/durable.ts';
+import { redactDiagnosticText } from '../../scripts/src/redaction.ts';
 import { createHash, createHmac } from 'node:crypto';
 import { closeSync, constants as fsConstants, createWriteStream, existsSync, mkdirSync, openSync, readSync, readdirSync, renameSync, statSync } from 'node:fs';
 import { dirname, join, relative, sep } from 'node:path';
@@ -322,7 +323,7 @@ export interface OffsiteSchedule {
 
 /** Mirrors the backup folder now and then: every `every` ms, and when asked (after each backup). */
 export function scheduleOffsite(folder: string, s3: S3, opts: { every: number; log?: (m: string) => void }): OffsiteSchedule {
-  const log = opts.log ?? (() => {});
+  const log = (message: string) => opts.log?.(redactDiagnosticText(message));
   let running: Promise<void> | undefined;
   let again = false;
   const once = async () => {

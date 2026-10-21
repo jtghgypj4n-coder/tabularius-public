@@ -42,7 +42,7 @@ test('errorClass keeps no quoted text, paths or numbers', () => {
   const e = new Error('no table "Clients 2019" at /Users/x/Secret.fmp12 block 1234');
   const c = errorClass(e);
   assert.ok(!/Clients|Secret|1234|Users/.test(c), c);
-  assert.match(c, /^no table "…" at …path block N/);
+  assert.equal(c, 'Error');
 });
 
 test('buildReport ranks by how many files use a thing, and names known plug-in makers', () => {

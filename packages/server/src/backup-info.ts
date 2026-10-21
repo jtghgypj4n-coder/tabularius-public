@@ -10,7 +10,7 @@ export function readBackupInfo<T extends object = Record<string, unknown>>(setDi
     return info as T;
   } catch (e) {
     if (allowMissing && (e as NodeJS.ErrnoException).code === 'ENOENT') return {} as T;
-    throw new Error(`unreadable manifest ${join(setDir, 'backup.json')}: ${(e as Error).message}`);
+    throw new Error(`unreadable manifest ${join(setDir, 'backup.json')}: ${e instanceof SyntaxError ? 'invalid JSON' : 'manifest could not be read'}`);
   }
 }
 

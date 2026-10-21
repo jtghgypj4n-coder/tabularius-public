@@ -5,7 +5,7 @@
 import { SCRIPT_STEP_NAMES, type Script } from '../../fmp12/src/index.ts';
 
 /** Variable and field names that hold a password, key or token. */
-export const CREDENTIAL_NAME = String.raw`pass(?:word|wd|phrase|code)|passwort|kennwort|contrase[ñn]a|senha|mot[ _-]?de[ _-]?passe|parola[ _-]?d['’ _-]?ordine|(?:smtp|sender|mail)_?user(?:_?name)?|pwd|secret|(?:api|access|private)[ _-]?key|(?:(?:auth|access|refresh|session|id)[ _-]?)?token|jwt|credential|authorization|bearer|(?<![a-z])(?:ssn|iban|cvv|otp)(?![a-z])`;
+export const CREDENTIAL_NAME = String.raw`pass[ _-]?(?:word|wd|phrase|code)|passwort|kennwort|contrase[ñn]a|senha|mot[ _-]?de[ _-]?passe|parola[ _-]?d['’ _-]?ordine|(?:smtp|sender|mail)[ _-]?user(?:[ _-]?name)?|pwd|secret|(?:api|access|private|signing)[ _-]?key|(?:(?:auth|access|refresh|session|id)[ _-]?)?token|jwt|credential|authorization|bearer|(?<![a-z])(?:ssn|iban|cvv|otp)(?![a-z])`;
 const SECRET_NAME = new RegExp(`${CREDENTIAL_NAME}|custom debug info`, 'i');
 const SHORT_SECRET_NAME = /(?:^|[^a-z])(?:pass|pw)(?:$|[^a-z])/i;
 // Skipping execution needs a whole credential-name word: status/counter names
@@ -22,6 +22,11 @@ export const isCredentialName = (name: string): boolean => {
 export function sqlMayReadSecret(query: string, secretText: (text: string) => boolean = isCredentialName): boolean {
   return secretText(query) || /\*/.test(query.replace(/count\s*\(\s*\*\s*\)/gi, ''));
 }
+
+// URL parameters and diagnostic labels need word boundaries: "secretary" is not a secret.
+const CREDENTIAL_LABEL = new RegExp(`(?:^|[^a-z0-9])(?:(?:container|plugin)[ _-]?)?(?:${CREDENTIAL_NAME}|credentials|pass|pw)(?:$|[^a-z0-9])`, 'i');
+export const isCredentialLabelName = (name: string): boolean => CREDENTIAL_LABEL.test(name.replace(/([a-z0-9])([A-Z])/g, '$1 $2'));
+export const isCredentialParameterName = (name: string): boolean => isCredentialLabelName(name) || /^(?:sig|signature|key|code|state|x-amz-signature)$/i.test(name);
 
 /** Patterns that are a credential wherever they appear, and what to call them. */
 const PATTERNS: [RegExp, string][] = [

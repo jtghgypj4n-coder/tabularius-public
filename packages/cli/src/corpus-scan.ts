@@ -33,7 +33,7 @@ const PROGRESS_LINE = 'tabularius-scan-progress ';
 /** What one file uses; every key is FileMaker's own vocabulary or an id, never the file's words. */
 export interface FileScan {
   status: 'ok' | 'encrypted' | 'failed' | 'timeout';
-  /** Why it failed: the error with quoted text and numbers masked, and where in Tabularius. */
+  /** Why it failed: a fixed error class and code location, with no file contents. */
   error?: string;
   creator?: string;
   versionDate?: string;
@@ -105,14 +105,11 @@ const add = (t: Tally, k: string, n = 1) => {
   t[k] = (t[k] ?? 0) + n;
 };
 
-/** An error with nothing from the file in it: quoted text and numbers masked, plus where Tabularius threw it. */
+/** A fixed error class and code location, with no decoder message or file contents. */
 export function errorClass(e: unknown): string {
   const err = e as Error;
-  const msg = String(err?.message ?? e)
-    .replace(/"[^"]*"|“[^”]*”|'[^']*'/g, '"…"')
-    .replace(/\/[^\s:]+/g, '…path')
-    .replace(/\d+/g, 'N')
-    .slice(0, 160);
+  // Decoder messages may contain unquoted file contents. Keep only a fixed error class and code location.
+  const msg = e instanceof RangeError ? 'RangeError' : e instanceof TypeError ? 'TypeError' : 'Error';
   const frame = String(err?.stack ?? '').split('\n').slice(1).map((l) => l.match(/packages\/([\w-]+\/src\/[\w.-]+):(\d+)/)).find(Boolean);
   return frame ? `${msg} @ ${frame[1]}:${frame[2]}` : msg;
 }

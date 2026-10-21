@@ -32,6 +32,7 @@ import { OutboundRefused, guardedFetch, isInternalHost, mappedIPv4, NAME_LOOKUP 
 import { ApiError, badPathError, sessionPrivileges, type DataApi } from './dataapi.ts';
 import type { Host } from './host.ts';
 import { readJsonStateSync, updateJsonStateSync } from '../../store/src/durable.ts';
+import { diagnosticEndpoint, redactDiagnosticText } from '../../scripts/src/redaction.ts';
 
 /** Receivers set up under the old product name (openhbam) look for these headers. */
 const legacyHookHeaders = (signature: string, id: string) => ({ 'x-openhbam-signature': signature, 'x-openhbam-webhook': id });
@@ -395,7 +396,7 @@ export class Webhooks {
           if (attempt >= TRIES || this.stopped) {
             q.splice(0, batch.length);
             state.dropped += batch.length;
-            this.log(`webhook ${h.id} (${h.url}): dropped ${batch.length} changes after ${attempt} tries: ${(e as Error).message}`);
+            this.log(`webhook ${h.id} (${diagnosticEndpoint(h.url)}): dropped ${batch.length} changes after ${attempt} tries: ${redactDiagnosticText((e as Error).message)}`);
             break;
           }
           await new Promise((ok) => setTimeout(ok, 1000 * 2 ** (attempt - 1)).unref());
