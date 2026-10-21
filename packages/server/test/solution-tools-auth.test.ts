@@ -334,3 +334,34 @@ for (const change of ['same-file schema', 'other-file schema', 'new hosted file'
   other.deleteAccount('Reviewer');
   assert.deepEqual(restarted.runs(store, d), []);
 });
+
+for (const ahead of [900_001, 3 * 3600_000]) test(`AR-server-solution-tools-04 recovers from clock ${ahead}ms ahead`, async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: Date.parse('2026-10-19T12:00:00Z') });
+  const { host, store, dir } = await setup(t);
+  store.applyDesign([{ op: 'createScript', name: 'Ack', text: 'Exit Script [ Text Result: "ok" ]' }]);
+  const hooks = new InboundHooks(host, true);
+  const first = hooks.create({ name: 'First', database: 'Public', script: 'Ack', account: 'Reviewer' });
+  const second = hooks.create({ name: 'Second', database: 'Public', script: 'Ack', account: 'Reviewer' });
+  const wall = Date.now();
+  const stamp = String(wall / 1000);
+  const send = (hook = first, body = '{}', timestamp = stamp) => request(new InboundHooks(host, true), hook.path, 'POST', body,
+    { 'x-tabularius-timestamp': timestamp, 'x-tabularius-signature': hookSignature(hook.secret, timestamp, body) });
+  assert.equal((await send()).status, 200);
+  const db = new DatabaseSync(join(dir, 'inbound-hook-replays.sqlite'));
+  t.after(() => db.close());
+  db.prepare('UPDATE clock SET high_water = ? WHERE id = 1').run(wall + ahead);
+  assert.equal((await send()).status, 409, 'clock recovery must retain consumed signatures');
+  assert.equal(db.prepare('SELECT high_water FROM clock WHERE id = 1').get()!.high_water, wall);
+  assert.equal((await send(first, '{"new":1}')).status, 200);
+  assert.equal((await send(second)).status, 200, 'other hooks recover too');
+  assert.equal((await send(first, '{"new":1}')).status, 409, 'recovery persists across instances');
+  assert.equal((await send(first, '{"stale":1}', String(wall / 1000 - 301))).status, 401);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM claims').get()!.n, 3);
+  // The maximum ordinary rollback remains conservative; a larger excursion recovers on the next call.
+  db.prepare('UPDATE clock SET high_water = ? WHERE id = 1').run(wall + 900_000);
+  assert.equal((await send(first, '{"boundary":1}')).status, 401);
+  assert.equal(db.prepare('SELECT high_water FROM clock WHERE id = 1').get()!.high_water, wall + 900_000);
+  t.mock.timers.setTime(wall - 1);
+  assert.equal((await send(first, '{"boundary":1}')).status, 200);
+  assert.equal(db.prepare('SELECT high_water FROM clock WHERE id = 1').get()!.high_water, wall - 1);
+});
