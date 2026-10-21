@@ -2,15 +2,12 @@
 // records, filtering, rotation and download.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Server } from 'node:http';
 import { serve } from '../src/index.ts';
 import { ServerLogs, logTime, parseLogLimit, parseLogTime, redactPath } from '../src/server-logs.ts';
-
-const fixture = join(import.meta.dirname, '..', '..', '..', 'fixtures', 'fmp12', 'Charts.fmp12');
-const skip = existsSync(fixture) ? false : 'fixtures missing: run npm run fixtures';
 
 test('entries are read back newest first, filtered, across the log and its older half', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'tabularius-logs-'));
@@ -53,20 +50,20 @@ test('timestamps carry the offset from UTC and read back to the same moment; tok
   assert.equal(parseLogTime(logTime(d)), d.getTime());
   assert.match(logTime(d), /^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d\.\d{3} [+-]\d{4}$/);
   assert.equal(redactPath('/fmi/data/vLatest/databases/X/sessions/abc123'), '/fmi/data/vLatest/databases/X/sessions/…');
-  assert.equal(redactPath('/tabularius/auth/v1/oidc/callback?code=xyz&state=s1&x=1'), '/tabularius/auth/v1/oidc/callback?code=…&state=…&x=1');
+  assert.equal(redactPath('/tabularius/auth/v1/oidc/callback?code=xyz&state=s1&x=1'), '/tabularius/auth/v1/oidc/callback');
 });
 
 let dir: string;
 let server: Server;
 let base: string;
 before(async () => {
-  if (skip) return;
   dir = mkdtempSync(join(tmpdir(), 'tabularius-logviewer-'));
-  copyFileSync(fixture, join(dir, 'Charts.fmp12'));
-  const s = await serve({ dir, port: 0, log: () => {} });
+  const s = await serve({ dir, port: 0, watch: false, log: () => {} });
   server = s.server;
   base = s.url;
-  const store = s.host.get('Charts')!;
+  const store = s.host.create('Charts');
+  store.applyDesign([{ op: 'createTable', name: 'Congress', fields: [{ name: 'Name' }] }]);
+  store.create('Congress', { Name: 'Synthetic record' });
   const full = store.privilegeSets().find((p) => p.id === 1)!;
   store.savePrivilegeSet({ ...full, extendedPrivileges: [...full.extendedPrivileges, 'fmrest'] });
   store.setPassword('Ann', 'pw', full.name);
@@ -80,7 +77,7 @@ after(async () => {
 const admin = (path: string, init: RequestInit = {}) => fetch(`${base}/tabularius/admin/v1/${path}`, { ...init, headers: { 'x-tabularius-admin': '1', ...init.headers } });
 const entries = async (log: string, query = '') => (await (await admin(`logs/${log}${query}`)).json()).entries as { type: string; source: string; message: string }[];
 
-test('sign-ins, Data API calls, server scripts and admin changes are logged and shown in the console', { skip }, async () => {
+test('sign-ins, Data API calls, server scripts and admin changes are logged and shown in the console', async () => {
   const data = `${base}/fmi/data/vLatest/databases/Charts`;
   const signIn = (password: string) => fetch(`${data}/sessions`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Basic ' + btoa(`Ann:${password}`) }, body: '{}' }).then((r) => r.json());
   assert.equal((await signIn('wrong')).messages[0].code, '212');
@@ -99,7 +96,7 @@ test('sign-ins, Data API calls, server scripts and admin changes are logged and 
 
   const calls = await entries('fmdapi');
   const records = calls.find((e) => e.message.startsWith('GET /fmi/data/vLatest/databases/Charts/layouts/Congress/records'))!;
-  assert.match(records.message, /\?_limit=2 200 code 0 \d+ ms \d+ bytes account Ann$/);
+  assert.match(records.message, /\/records 200 code 0 \d+ ms \d+ bytes account Ann$/);
   const signOut = calls.find((e) => e.message.startsWith('DELETE'))!;
   assert.ok(!signOut.message.includes(token), 'the token is not in the log');
   assert.ok(calls.some((e) => / 401 code 212 /.test(e.message) && e.type === 'Warning'));

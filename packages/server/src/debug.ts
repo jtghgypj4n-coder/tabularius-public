@@ -41,6 +41,7 @@ import { RunProfile, ScriptDebugger, ScriptSession, recordRun, type DebugCommand
 import { ApiError, badPathError, readJson, sessionPrivileges, type DataApi, type Session } from './dataapi.ts';
 import type { Host } from './host.ts';
 import { said } from './said.ts';
+import { ReadAudit } from './read-audit.ts';
 
 const IDLE_MS = 10 * 60_000;
 /** Files larger than this aren't copied for a scratch run (the copy takes a while and the disk). */
@@ -92,6 +93,11 @@ function copySession(from: ScriptSession): ScriptSession {
   for (const [k, v] of from.variables) to.variables.set(k, v.slice());
   for (const [k, v] of from.globalFields) to.globalFields.set(k, v.slice());
   return to;
+}
+
+/** Scratch execution receives only capabilities belonging to its temporary directory. */
+function scratchOptions(copy: { dir: string }): { network: false; documents: string } {
+  return { network: false, documents: join(copy.dir, 'Documents') };
 }
 
 /** Closes a scratch copy and deletes its folder. */
@@ -306,14 +312,18 @@ export class DebugApi {
         const info = store.layout(layout);
         const recordId = body.recordId === undefined || body.recordId === '' ? undefined : Number(body.recordId);
         if (recordId !== undefined && !Number.isInteger(recordId)) throw new ApiError(101, 'Record ID must be a whole number', 400);
-        if (recordId !== undefined) store.row(info, recordId); // 101 when it's gone
+        if (recordId !== undefined) info.owner.row(info, recordId); // 101 when it's gone
         const redaction = diagnosticsOf(store);
         learnStoredCredentials(store, redaction);
         const to = store.calc.occurrence(info.occurrence);
+        const reads = new ReadAudit();
         let fields: Record<string, unknown> = {};
         if (recordId !== undefined && to) {
           const occ = occurrence(store, to.id);
-          if (occ) fields = store.get(store.occurrenceInfo(occ), recordId).fieldData;
+          if (occ) {
+            fields = store.get(store.occurrenceInfo(occ), recordId).fieldData;
+            reads.add(occ.store, occ.table.name, [recordId]);
+          }
         }
         const variables = globalsOf(store, session);
         // Seed both collections first so ordinary aliases of credentials are hidden
@@ -321,10 +331,16 @@ export class DebugApi {
         redaction.data(fields);
         redaction.data(variables);
         if (kind === 'current') {
+          reads.log(privileges);
           return send(200, { layout, occurrence: info.occurrence, table: info.table, ...(recordId !== undefined ? { recordId } : {}), fields: redaction.data(fields), variables: redaction.data(variables) }), true;
         }
         if (!Array.isArray(body.formulas)) throw new ApiError(960, 'Send {"formulas": ["..."], "layout": "..."}', 400);
-        const opts = screen(session, layout, windowState(body.window));
+        const queries: { store: Store; query: string; rows: number }[] = [];
+        const opts = {
+          ...screen(session, layout, windowState(body.window)), privileges,
+          onRead: reads.add.bind(reads),
+          onQuery: (store: Store, query: string, rows: number) => { queries.push({ store, query, rows }); },
+        };
         const results = body.formulas.map((f) => {
           const formula = String(f);
           try {
@@ -340,6 +356,8 @@ export class DebugApi {
             return { value: '?', error: e.code, message: safe, formula };
           }
         });
+        reads.log(privileges);
+        for (const query of queries) query.store.logQuery(query.query, query.rows, { privileges });
         return send(200, { results: results.map(({ formula, ...result }) => ({
           ...result,
           value: redaction.value(result.value, undefined, redaction.sensitiveExpression(formula)),
@@ -360,9 +378,8 @@ export class DebugApi {
             ...(ids ? { foundSet: ids } : {}),
             ...(Number.isInteger(body.recordId) ? { recordId: Number(body.recordId) } : {}),
             account: session.account, privileges: sessionPrivileges(copy.store, session),
-            ...this.host.scriptOptions(), executionAccount: session.account, executionVia: session.via, executionStore: store,
+            ...scratchOptions(copy), executionAccount: session.account, executionVia: session.via, executionStore: store,
             // Always on the copy and offline; the session's globals are copied, not changed.
-            network: false, outbound: undefined, mail: undefined, documents: join(copy.dir, 'Documents'), serverQueue: undefined,
             session: scripts,
           });
           return send(200, recording), true;
@@ -394,9 +411,8 @@ export class DebugApi {
           ...(ids ? { foundSet: ids } : {}),
           ...(Number.isInteger(body.recordId) ? { recordId: Number(body.recordId) } : {}),
           account: session.account, session: session.scripts, privileges: run.scratch ? sessionPrivileges(run.scratch.store, session) : privileges,
-          ...this.host.scriptOptions(), executionAccount: session.account, executionVia: session.via, executionStore: store,
           // A scratch run is always offline, and its files go in its own folder.
-          ...(run.scratch ? { network: false, outbound: undefined, mail: undefined, documents: join(run.scratch.dir, 'Documents') } : {}),
+          ...(run.scratch ? scratchOptions(run.scratch) : this.host.scriptOptions()), executionAccount: session.account, executionVia: session.via, executionStore: store,
           // Debugger runs stay out of the server's profile; the run has its own, counting each step's own time (never a pause here).
           profile: run.profile, stop: run.stop.signal,
         });
