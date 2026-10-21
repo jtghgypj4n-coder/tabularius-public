@@ -14,6 +14,13 @@ let pendingTotp: { account: string; secret: string; uri: string } | undefined;
 // The one-time passwords from the last migration, kept across re-renders so the
 // admin can read them off (they are shown once and never stored in clear).
 let migration: { account: string; password: string }[] | undefined;
+const passwordResetsPending = new Set<string>();
+const totpDisablesPending = new Set<string>();
+
+/** Confirm removal of the selected account's enrolled authenticator. */
+export function confirmTotpRemoval(account: string, ask: (message: string) => boolean = (message) => confirm(message)): boolean {
+  return ask(`Turn off two-factor for "${account}"? This removes its enrolled authenticator.`);
+}
 
 function badges(a: Account): HTMLElement[] {
   const out: HTMLElement[] = [];
@@ -74,10 +81,10 @@ export function accountsTab(sec: Sec): HTMLElement {
     const n = name.value.trim();
     if (!n) return;
     const change = agent.input.checked
-      ? { op: 'setAgentAccount', name: n, privilegeSet: setPick.value, needsApproval: needsApproval.input.checked }
+      ? { op: 'createAccount', kind: 'agent', name: n, privilegeSet: setPick.value, needsApproval: needsApproval.input.checked }
       : external.input.checked
-      ? { op: 'setExternalAccount', name: n, privilegeSet: setPick.value }
-      : { op: 'setAccount', name: n, password: password.value, privilegeSet: setPick.value, mustChange: mustChange.input.checked };
+      ? { op: 'createAccount', kind: 'external', name: n, privilegeSet: setPick.value }
+      : { op: 'createAccount', kind: 'password', name: n, password: password.value, privilegeSet: setPick.value, mustChange: mustChange.input.checked };
     if (await sec.apply([change], `Added "${n}"`)) {
       sec.selected.account = n;
       sec.render();
@@ -207,10 +214,20 @@ function detail(sec: Sec, a: Account, setNames: string[]): HTMLElement[] {
   // Password (not for external or agent accounts, which don't sign in with one).
   if (!a.external && !a.agent) {
     const pw = h('input', { type: 'password', placeholder: 'New password', 'aria-label': 'New password' });
-    const setPw = button('Set password', () => {
-      void sec.apply([{ op: 'setAccount', name: a.name, password: pw.value }], 'Password set');
-      pw.value = '';
-    });
+    const setPw = button('Set password', async () => {
+      if (passwordResetsPending.has(a.name)) return;
+      passwordResetsPending.add(a.name);
+      setPw.disabled = true;
+      try {
+        if (await sec.apply([{ op: 'setAccount', name: a.name, password: pw.value }], 'Password set')) pw.value = '';
+      } finally {
+        passwordResetsPending.delete(a.name);
+        for (const control of document.querySelectorAll<HTMLButtonElement>('.password-reset')) {
+          if (control.dataset.account === a.name) control.disabled = false;
+        }
+      }
+    }, { class: 'password-reset', 'data-account': a.name });
+    setPw.disabled = passwordResetsPending.has(a.name);
     blocks.push(field('Password', h('div', { class: 'd-row' }, pw, setPw), a.blankPassword ? 'This account still has the file’s empty password.' : undefined));
 
     // Account options: require a password change on the next sign-in, on its own.
@@ -240,9 +257,22 @@ function totpBlock(sec: Sec, a: Account): HTMLElement {
   if (a.agent) return h('div', { class: 'd-group' }, field('Two-factor', h('span', { class: 'd-muted' }, 'Not used — an agent signs in with an MCP token, not a password.')));
   if (a.external) return h('div', { class: 'd-group' }, field('Two-factor', h('span', { class: 'd-muted' }, 'Left to the identity provider.')));
   if (a.hasTotp) {
+    const turnOff = button('Turn off', async () => {
+      if (totpDisablesPending.has(a.name) || !confirmTotpRemoval(a.name)) return;
+      totpDisablesPending.add(a.name);
+      turnOff.disabled = true;
+      try { await sec.apply([{ op: 'disableTotp', account: a.name }], 'Two-factor turned off'); }
+      finally {
+        totpDisablesPending.delete(a.name);
+        for (const control of document.querySelectorAll<HTMLButtonElement>('.totp-disable')) {
+          if (control.dataset.account === a.name) control.disabled = false;
+        }
+      }
+    }, { class: 'danger totp-disable', 'data-account': a.name });
+    turnOff.disabled = totpDisablesPending.has(a.name);
     return h('div', { class: 'd-group' }, field('Two-factor',
       h('div', { class: 'd-row' }, h('span', { class: 'sec-ok' }, 'On ✓'),
-        button('Turn off', () => void sec.apply([{ op: 'disableTotp', account: a.name }], 'Two-factor turned off'), { class: 'danger' }))));
+        turnOff)));
   }
   if (pendingTotp?.account === a.name) {
     const code = h('input', { placeholder: '6-digit code', 'aria-label': 'Code from the app', inputmode: 'numeric' });

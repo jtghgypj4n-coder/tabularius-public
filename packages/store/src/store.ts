@@ -51,6 +51,11 @@ import { ensureTextStyles, repetitionText, TextStyles } from './text-styles.ts';
 import { checkFormat, storedFormat } from './store-format.ts';
 export { StoreError, PendingApprovalError };
 
+/** Name equality used by the existing case-insensitive account and privilege-set rules. */
+export function foldSecurityName(name: string): string {
+  return name.normalize('NFC').toLowerCase().normalize('NFC');
+}
+
 export interface AccountMutationAudit { account?: string; by?: string; detail?: Record<string, unknown> }
 
 export type DateFormat = 'us' | 'iso';
@@ -331,6 +336,8 @@ export interface PasswordPolicy {
 
 /** A security change, applied all-or-none by Store.applySecurity (see security.ts). */
 export type SecurityOp =
+  | { op: 'createAccount'; name: string; kind: 'password' | 'external' | 'agent'; password?: string; privilegeSet: string; mustChange?: boolean; needsApproval?: boolean; createdBy?: string }
+  | { op: 'createPrivilegeSet'; set: unknown }
   | { op: 'setAccount'; name: string; password?: string; privilegeSet?: string; mustChange?: boolean; localOnly?: boolean; require2fa?: boolean }
   | { op: 'setExternalAccount'; name: string; privilegeSet: string }
   | { op: 'setAgentAccount'; name: string; privilegeSet: string; createdBy?: string; needsApproval?: boolean }
@@ -1327,6 +1334,10 @@ export class Store {
 
   /** Publications belonging to the single-write transaction we own, never a caller's transaction. */
   private writePublications?: (() => void)[];
+  /** Design publications raised by a mixed security batch, which must wait for its rollback boundary. */
+  private securityBatchPublications?: (() => void)[];
+  /** Batch publications held until the caller-owned transaction reaches its outer boundary. */
+  private transactionSecurityPublications = new WeakMap<Transaction, (() => void)[]>();
 
   /** Keep the record id, serial allocation, validation and write under one file lock. */
   private withWriteTransaction<T>(run: () => T): T {
@@ -1366,6 +1377,8 @@ export class Store {
     this.heldFiles = [];
     const began = this.heldBegan;
     this.heldBegan = false;
+    const securityPublications = this.transactionSecurityPublications.get(tx);
+    this.transactionSecurityPublications.delete(tx);
     try {
       this.sql.exec(keep ? `RELEASE ${name}${began ? '; COMMIT' : ''}` : `ROLLBACK TO ${name}; RELEASE ${name}${began ? '; COMMIT' : ''}`);
     } catch (e) {
@@ -1374,6 +1387,7 @@ export class Store {
       this.resetCaches();
       throw e;
     }
+    if (keep) for (const publish of securityPublications ?? []) publish();
     if (!keep) {
       this.resetCaches();
       // No container names them any more: the files go too, as if they had never been put in.
@@ -1581,6 +1595,10 @@ export class Store {
 
   /** Tells live clients about a change. */
   notify(kind: ChangeKind, table: string, recordId?: number, modId?: number, by?: { owner?: string; account?: string }, fields?: string[], ids?: number[]): void {
+    if (this.securityBatchPublications) {
+      this.securityBatchPublications.push(() => this.notify(kind, table, recordId, modId, by, fields, ids));
+      return;
+    }
     if (this.writePublications) {
       this.writePublications.push(() => this.notify(kind, table, recordId, modId, by, fields, ids));
       return;
@@ -1716,7 +1734,8 @@ export class Store {
       this.resetCaches();
       throw e instanceof DesignError ? new StoreError(e.code, e.message) : e;
     }
-    this.onDesignChange();
+    if (this.securityBatchPublications) this.securityBatchPublications.push(() => this.onDesignChange());
+    else this.onDesignChange();
     if (result.ops.length) {
       // Design mode in other windows reloads what changed (the layouts by id, so an open layout editor knows it's its own).
       const layoutId = (ref: unknown) => (typeof ref === 'number' ? ref : this.schema.layouts.find((l) => l.name === ref)?.id);
@@ -2212,6 +2231,31 @@ export class Store {
       this.privilegeCache.invalidate((cache) => cache.clear());
       throw e;
     }
+  }
+
+  /** Runs a mixed security and design-security batch under one rollback boundary. */
+  securityChangeBatch<T>(run: () => T): T {
+    const publications: (() => void)[] = [];
+    const parent = this.securityBatchPublications;
+    this.securityBatchPublications = publications;
+    let result: T;
+    try {
+      result = this.securityChange(run);
+    } catch (e) {
+      this.securityBatchPublications = parent;
+      throw e;
+    }
+    this.securityBatchPublications = parent;
+    if (parent) parent.push(...publications);
+    else {
+      const tx = writer.getStore()?.transaction?.open;
+      if (tx) {
+        const pending = this.transactionSecurityPublications.get(tx) ?? [];
+        pending.push(...publications);
+        this.transactionSecurityPublications.set(tx, pending);
+      } else for (const publish of publications) publish();
+    }
+    return result;
   }
 
   /**
@@ -4730,7 +4774,7 @@ export class Store {
   }
 
   privilegeSet(name: string): PrivilegeDefinition | undefined {
-    return this.privilegeSets().find((p) => p.name.toLowerCase() === name.toLowerCase());
+    return this.privilegeSets().find((p) => foldSecurityName(p.name) === foldSecurityName(name));
   }
 
   /** Adds or replaces a privilege set ([Full Access] can only change its extended privileges). */
@@ -4738,6 +4782,9 @@ export class Store {
     return this.securityChange(() => {
       const d = this.privilegeError(() => validateDefinition(definition));
       const existing = this.privilegeSet(d.name);
+      if (!existing && this.privilegeSets().some((p) => foldSecurityName(p.name) === foldSecurityName(d.name))) {
+        throw new StoreError(960, `Privilege set "${d.name}" already exists`);
+      }
       // A set keeps its name's spelling and its id in the file; an id can't be taken from another set.
       const name = existing?.name ?? d.name;
       const id = existing ? existing.id : d.id !== undefined && this.privilegeSets().some((p) => p.id === d.id) ? undefined : d.id;
@@ -4818,10 +4865,27 @@ export class Store {
     this.securityChange(() => {
       for (const op of ops) {
         switch (op.op) {
+          case 'createAccount': {
+            if (this.accounts().some((a) => foldSecurityName(a.name) === foldSecurityName(op.name))) throw new StoreError(960, `Account "${op.name}" already exists`);
+            if (op.kind === 'password') this.setPassword(op.name, op.password ?? '', op.privilegeSet, { mustChange: op.mustChange });
+            else if (op.kind === 'external') this.setExternalAccount(op.name, op.privilegeSet);
+            else if (op.kind === 'agent') this.setAgentAccount(op.name, op.privilegeSet, { createdBy: op.createdBy, needsApproval: op.needsApproval });
+            else throw new StoreError(960, 'Account creation kind is invalid');
+            break;
+          }
+          case 'createPrivilegeSet': {
+            const set = op.set as { name?: unknown };
+            const name = typeof set?.name === 'string' ? set.name : undefined;
+            if (name && this.privilegeSets().some((p) => foldSecurityName(p.name) === foldSecurityName(name))) {
+              throw new StoreError(960, `Privilege set "${name}" already exists`);
+            }
+            this.savePrivilegeSet(op.set);
+            break;
+          }
           case 'setAccount':
             if (op.password !== undefined) this.setPassword(op.name, op.password, op.privilegeSet, { mustChange: op.mustChange });
             else {
-              if (!this.accounts().some((a) => a.name.toLowerCase() === op.name.toLowerCase())) throw new StoreError(960, `No account "${op.name}" (give it a password to create it)`);
+              if (!this.accounts().some((a) => foldSecurityName(a.name) === foldSecurityName(op.name))) throw new StoreError(960, `No account "${op.name}" (give it a password to create it)`);
               if (op.privilegeSet !== undefined) this.setAccountPrivilegeSet(op.name, op.privilegeSet);
               if (op.mustChange !== undefined) this.setMustChangePassword(op.name, op.mustChange);
             }
