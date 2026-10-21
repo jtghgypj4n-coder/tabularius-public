@@ -1386,6 +1386,65 @@ test('an owed file forgotten unsent where FileMaker holds no file is not a chang
   } finally { cleanup(r); }
 });
 
+/** A record owing Photo and Scan, with FileMaker's Scan replaced, whose second run sent nothing (the Photo upload was refused as in use) and forgot Scan. */
+async function forgottenScan(): Promise<Rig> {
+  const r = rig(true);
+  withFiles(r, 'u1', { Photo: 'p', Scan: 'scan bytes long' });
+  r.fm.enableFetch();
+  await killed(r, { start: 0 });
+  const theirs = r.fm.byUuid('u1')!;
+  r.fm.hold('container-theirs', Buffer.from('their scan'));
+  theirs.fields.Scan = 'container-theirs';
+  theirs.modId++;
+  restart(r);
+  r.fm.uploadFailure = new SyncWriteError('Record is in use (error 301)', '301', true);
+  await again(r, { containers: { maxBytes: 5 } });
+  assert.deepEqual(owedFields(r.store), ['u1:Photo']);
+  return r;
+}
+
+test('a Scan forgotten unsent while the Photo upload failed is brought by a pull, not overwritten by the next retry', async () => {
+  const r = await forgottenScan();
+  try {
+    await again(r, { pull: true });
+    assert.equal(r.store.container(Number(rows(r.store)[0].Scan))?.data.length, 'their scan'.length);
+    assert.equal(r.fm.byUuid('u1')!.fields.Scan, 'container-theirs');
+    assert.ok(!sentFields(r).includes('u1:Scan'));
+    await again(r, { pull: true });
+    assert.deepEqual(pendingRows(r.store), []);
+    assert.ok(r.fm.byUuid('u1')!.fields.Photo);
+  } finally { cleanup(r); }
+});
+
+test('a Scan forgotten unsent while the Photo upload failed stays a change for a pull after the Photo goes', async () => {
+  const r = await forgottenScan();
+  try {
+    await again(r, { pull: true, containers: { maxBytes: 5 } });
+    await again(r, { pull: true });
+    assert.equal(r.store.container(Number(rows(r.store)[0].Scan))?.data.length, 'their scan'.length);
+    assert.ok(!sentFields(r).includes('u1:Scan'));
+  } finally { cleanup(r); }
+});
+
+test('an ordinary update that leaves a file unsent is recorded at the version after its own write, not the one read', async () => {
+  const r = rig(true);
+  try {
+    const known = r.store.create('Contacts', { uuid: 'u1', Name: 'Ann' });
+    r.fm.seed('u1', { Name: 'Ann' });
+    r.fm.enableFetch();
+    await r.run({ containers });
+    r.store.update('Contacts', known.recordId, { Name: 'Annie' });
+    r.store.setContainer('Contacts', known.recordId, 'Scan', 1, bytes('scan bytes long'));
+    r.fm.hold('container-theirs', Buffer.from('their scan'));
+    r.fm.byUuid('u1')!.fields.Scan = 'container-theirs';
+    r.store.sql.prepare('INSERT INTO _fm_sync_container_pending (table_key, uuid, field) VALUES (?, ?, ?)').run('Local\u0000Contacts', 'u1', 'Scan');
+    await again(r, { containers: { maxBytes: 5 } });
+    assert.equal(r.fm.byUuid('u1')!.fields.Name, 'Annie');
+    const next = await again(r);
+    assert.equal(next.tables[0].pendingPulls, 0);
+  } finally { cleanup(r); }
+});
+
 test('a retry through a connection that cannot fetch files says the file was sent without comparing', async () => {
   const r = rig();
   try {
