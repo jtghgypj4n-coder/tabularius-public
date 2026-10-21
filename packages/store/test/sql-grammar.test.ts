@@ -23,8 +23,12 @@ before(() => {
     { op: 'createTable', name: 'Q', fields: [{ name: 'Last', type: 'text' }, { name: 'Note', type: 'text' }] },
     { op: 'createTable', name: 'C', fields: [{ name: 'Code', type: 'text' }] },
     { op: 'createTable', name: 'W', fields: [{ name: 'Name', type: 'text' }, { name: 'N', type: 'number' }] },
+    { op: 'createTable', name: 'K', fields: ['Grp', 'First', 'Last', 'Range', 'Current', 'Match', 'Rows'].map((name) => ({ name, type: 'text' })) },
+    { op: 'createTable', name: 'T2', fields: [{ name: 'k', type: 'number' }, { name: 'v', type: 'number' }] },
   ] as never);
   for (const [Name, N] of [['a', 1], ['b', 2], ['c', 2], ['d', 2], ['e', 3]]) store.create('W', { Name, N: String(N) });
+  for (const Grp of ['a', 'b', 'b', 'b']) store.create('K', { Grp, First: 'x', Last: 'x', Range: 'x', Current: 'x', Match: 'x', Rows: 'x' });
+  for (const [k, v] of [[1, 5], [2, 6], [3, 7]]) store.create('T2', { k: String(k), v: String(v) });
   store.create('C', { Code: '5' });
   store.create('C', { Code: '7' });
   store.create('P', { First: 'Ann', Last: 'Lee', Born: '3/15/2000', Pay: '10' }, { dateOrder: 'MDY' });
@@ -90,6 +94,32 @@ test('aggregates of expressions with no column are left alone, and aggregates th
   for (const operand of ['COUNT(N)', 'COUNT("N")', 'SUM(ABS(N))', 'COUNT(DISTINCT N)', 'COUNT(CASE WHEN N > 1 THEN 1 END)', 'MAX((SELECT 1) + N)']) {
     const query = `SELECT N FROM W GROUP BY N HAVING ${operand} > ALL (SELECT 0)`;
     assert.notEqual(anyAllToIn(query), query, operand);
+  }
+});
+
+test('an aggregate over a column named like a clause or window word is moved', () => {
+  for (const operand of ['First', 'Last', 'Range', 'Current', 'Match', 'Rows', 'COALESCE(First, 1)', 'First IS NOT NULL', 'Last + 0', 'Current COLLATE NOCASE', 'CAST(Range AS TEXT)']) {
+    const query = `SELECT Grp FROM K GROUP BY Grp HAVING COUNT(${operand}) > ALL (SELECT 2 UNION ALL SELECT 1)`;
+    assert.notEqual(anyAllToIn(query), query, operand);
+    assert.deepEqual(rows(query), [['b']], operand);
+  }
+});
+
+test('an aggregate over a subquery is moved when the subquery reaches a column outside it, and left alone when it does not', () => {
+  const all = '> ALL (SELECT 2 UNION ALL SELECT 1)';
+  for (const [operand, expected] of [
+    ['SUM((SELECT v FROM T2 WHERE k = W.N))', [[1], [2], [3]]],
+    ['SUM((SELECT v FROM T2 WHERE T2.k = N))', [[1], [2], [3]]],
+    ['COUNT((SELECT N))', [[2]]],
+    ['COUNT((SELECT 1 FROM T2 WHERE k = W.N))', [[2]]],
+  ] as const) {
+    const query = `SELECT N FROM W GROUP BY N HAVING ${operand} ${all}`;
+    assert.notEqual(anyAllToIn(query), query, operand);
+    assert.deepEqual(rows(query), expected, operand);
+  }
+  for (const operand of ['COUNT((SELECT 1))', 'COUNT((SELECT 1 FROM T2))', 'COUNT((SELECT 1 FROM T2 AS x WHERE 1 = 1))']) {
+    const query = `SELECT N FROM W GROUP BY N HAVING ${operand} ${all}`;
+    assert.equal(anyAllToIn(query), query, operand);
   }
 });
 
@@ -294,7 +324,7 @@ test('a date, time or timestamp constant that is not one is an error when the qu
 });
 
 test('FileMaker_BaseTables and FileMaker_BaseTableFields describe the tables, once each', () => {
-  assert.deepEqual(rows('SELECT BaseTableName FROM FileMaker_BaseTables ORDER BY BaseTableName'), [['C'], ['P'], ['Q'], ['W']]);
+  assert.deepEqual(rows('SELECT BaseTableName FROM FileMaker_BaseTables ORDER BY BaseTableName'), [['C'], ['K'], ['P'], ['Q'], ['T2'], ['W']]);
   assert.deepEqual(rows("SELECT FieldName FROM FileMaker_BaseTableFields WHERE BaseTableName = 'Q' ORDER BY FieldId"), [['Last'], ['Note']]);
 });
 

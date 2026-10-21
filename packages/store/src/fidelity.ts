@@ -67,15 +67,27 @@ export function queryShape(sql: string): string {
   // A query with an unterminated quote or comment has no shape; it is still reported (as its problem), not thrown.
   try { tokens = sqlTokens(sql); } catch { return '(unparsed)'; }
   const operand = (t: (typeof tokens)[number] | undefined) => !!t && (t.kind === 'identifier' || t.kind === 'string' || (t.kind === 'word' && !SQL_WORDS.test(t.text)));
+  const number = (t: (typeof tokens)[number] | undefined) => t?.kind === 'word' && /^\d/.test(t.text);
+  // A number such as 1.5e-3 is split by the tokenizer at the dot and at the sign after the exponent.
+  const signedExponent = (at: number) => number(tokens[at]) && /^\d[\d_]*e$/i.test(tokens[at].text) && /^[-+]$/.test(tokens[at + 1]?.text ?? '') && number(tokens[at + 2]);
   const shape: string[] = [];
   for (let i = 0; i < tokens.length; i++) {
     const t = tokens[i];
-    // A dotted name (a.b, "a"."b", t.*) or a decimal number (1.5) is one name or one value.
-    if (t.kind === 'symbol' && t.text === '.' && i > 0 && operand(tokens[i - 1])) {
+    // A dotted name (a.b, "a"."b", t.*) or a decimal number (1.5, 1., .5) is one name or one value.
+    if (t.kind === 'symbol' && t.text === '.') {
+      const prev = tokens[i - 1];
       const next = tokens[i + 1];
-      if (operand(next) || (next?.kind === 'word' && /^\d/.test(next.text))) { i++; continue; }
-      if (next?.text === '*') continue;
+      if (number(next) && !number(prev) && !operand(prev)) { shape.push(' v '); i++; if (signedExponent(i)) i += 2; continue; }
+      if (number(prev)) {
+        if (number(next)) { i++; if (signedExponent(i)) i += 2; }
+        continue;
+      }
+      if (operand(prev)) {
+        if (operand(next) || number(next)) { i++; continue; }
+        if (next?.text === '*') continue;
+      }
     }
+    if (signedExponent(i)) { shape.push(' v '); i += 2; continue; }
     if (t.kind === 'comment') shape.push(' ');
     else if (t.kind === 'string' || /^\d/.test(t.text)) shape.push(' v ');
     else if (t.kind === 'identifier') shape.push(' x ');
