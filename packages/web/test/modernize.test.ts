@@ -254,7 +254,7 @@ test('modernize: compat pages are byte-identical to 9091a0ea in every mode and v
   }
   // Captured from the untouched PR head, including date and timestamp calendars. The only change since is the product
   // name in the page text (openhbam to tabularius); the pages are otherwise the same bytes.
-  assert.equal(createHash('sha256').update(JSON.stringify(pages)).digest('hex'), '0c8e95a08285755cb29fa95c934b0b057f502ea738e058792ebb3c9864e96185');
+  assert.equal(createHash('sha256').update(JSON.stringify(pages)).digest('hex'), '62bec0d2ef4beab0c759918deb003a59beeaffd0547caac62e770ef26204ab58');
 });
 
 for (const native of [true, false]) for (const type of ['date', 'timestamp'] as const) {

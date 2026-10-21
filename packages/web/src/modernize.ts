@@ -235,8 +235,18 @@ function hue(name: string): number {
 }
 
 const CSS = String.raw`
-  :root { color-scheme: light dark; --h: 200; --bg: #f4f6f8; --panel: #fff; --sunken: #eef1f4; --text: #18212b; --muted: #5c6773; --line: #dde3e9; --a: hsl(var(--h) 62% 26%); --on-a: #fff; --a-soft: hsl(var(--h) 60% 94%); --bad: #b42318; }
+  :root { color-scheme: light dark; --h: 200; --bg: #f4f6f8; --panel: #fff; --sunken: #eef1f4; --text: #18212b; --muted: #5c6773; --line: #e3e8ee; --a: hsl(var(--h) 62% 26%); --on-a: #fff; --a-soft: hsl(var(--h) 60% 94%); --bad: #b42318; }
+  /*<float>*/
+  :root { --shadow: 0 1px 2px rgb(16 24 40 / 6%), 0 4px 14px rgb(16 24 40 / 6%); }
+  /*</float>*/
   @media (prefers-color-scheme: dark) { :root { --bg: #11161b; --panel: #1a2128; --sunken: #151b21; --text: #e7edf2; --muted: #9aa7b3; --line: #29323b; --a: hsl(var(--h) 70% 74%); --on-a: #0b1217; --a-soft: hsl(var(--h) 35% 20%); --bad: #ff8a7a; } }
+  /*<float>*/
+  @media (prefers-color-scheme: dark) { :root { --shadow: 0 1px 2px rgb(0 0 0 / 40%), 0 6px 18px rgb(0 0 0 / 30%); } }
+  /*</float>*/
+  /*<chips>*/
+  :root { --ok: #067647; --ok-soft: #dcfae6; --info: #175cd3; --info-soft: #e0ecff; --bad-soft: #fee4e2; --warn: #b54708; --warn-soft: #fef0c7; }
+  @media (prefers-color-scheme: dark) { :root { --ok: #75e0a7; --ok-soft: #0b3a26; --info: #84adff; --info-soft: #11264d; --bad-soft: #4a1712; --warn: #fec84b; --warn-soft: #43300b; } }
+  /*</chips>*/
   * { box-sizing: border-box; }
   body { margin: 0; height: 100vh; display: flex; flex-direction: column; font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--text); background: var(--bg); }
   header { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 14px 20px; background: var(--panel); border-bottom: 1px solid var(--line); }
@@ -254,54 +264,131 @@ const CSS = String.raw`
   button:disabled { opacity: .5; cursor: default; }
   :focus-visible { outline: 2px solid var(--a); outline-offset: 2px; }
   input[type=search] { width: min(280px, 100%); min-height: 34px; padding: 0 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
+  /*<float>*/
+  main { flex: 1; min-height: 0; display: flex; gap: 16px; padding: 16px 20px 20px; }
+  /*</float>*/
+  /*<flat>*/
   main { flex: 1; min-height: 0; display: flex; }
+  /*</flat>*/
+  /*<float>*/
+  .listpane { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--panel); border-radius: 14px; box-shadow: var(--shadow); overflow: hidden; }
+  /*</float>*/
+  /*<flat>*/
   .listpane { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  /*</flat>*/
   .scroll { flex: 1; overflow: auto; }
   table { width: 100%; border-collapse: collapse; }
+  /*<float>*/
+  th, td { padding: 13px 16px; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+  /*</float>*/
+  /*<flat>*/
   th, td { padding: 9px 14px; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+  /*</flat>*/
+  /*<float>*/
+  th { position: sticky; top: 0; background: var(--panel); font-size: 11.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; z-index: 1; border-bottom: 1px solid var(--line); }
+  /*</float>*/
+  /*<flat>*/
   th { position: sticky; top: 0; background: var(--sunken); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 600; z-index: 1; }
+  /*</flat>*/
+  /*<float>*/
+  tbody td { border-bottom-color: var(--sunken); }
+  /*</float>*/
+  /*<chips>*/
+  .who { display: inline-flex; align-items: center; gap: 10px; font-weight: 600; max-width: 100%; }
+  .who::before { content: attr(data-i); flex: none; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 700; letter-spacing: .02em; color: var(--a); background: var(--a-soft); }
+  .pill { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; background: var(--sunken); color: var(--muted); }
+  .pill.ok { background: var(--ok-soft); color: var(--ok); } .pill.info { background: var(--info-soft); color: var(--info); } .pill.bad { background: var(--bad-soft); color: var(--bad); } .pill.warn { background: var(--warn-soft); color: var(--warn); }
+  .title { display: flex; align-items: center; gap: 12px; margin: 0 0 14px; font-size: 20px; letter-spacing: -.01em; }
+  .title .who { font-size: 20px; }
+  .title .who::before { width: 40px; height: 40px; font-size: 15px; }
+  /*</chips>*/
   th button { all: unset; cursor: pointer; text-transform: inherit; letter-spacing: inherit; }
   th button:focus-visible { outline: 2px solid var(--a); }
   td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
   tbody tr { cursor: pointer; }
+  /*<float>*/
+  tbody tr:hover { background: var(--sunken); }
+  /*</float>*/
+  /*<flat>*/
   tbody tr:hover { background: var(--a-soft); }
+  /*</flat>*/
   tbody tr[aria-selected=true] { background: var(--a-soft); box-shadow: inset 3px 0 var(--a); }
   .seg { display: inline-flex; } .seg button { border-radius: 0; margin-left: -1px; } .seg button:first-child { border-radius: 8px 0 0 8px; margin: 0; } .seg button:last-child { border-radius: 0 8px 8px 0; }
   .seg button[aria-pressed=true] { background: var(--a-soft); border-color: var(--a); color: var(--a); position: relative; font-weight: 600; }
   /*<cards>*/
   .cardbar { padding: 10px 20px 0; } .cardbar select { min-height: 34px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
-  .cards { list-style: none; margin: 0; padding: 14px 20px 20px; display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 12px; }
+  .cards { list-style: none; margin: 0; padding: 14px 20px 20px; display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 16px; }
   /*</cards>*/
+  /*<float>*/
+  .card { all: unset; box-sizing: border-box; display: grid; gap: 4px; align-content: start; width: 100%; height: 100%; padding: 16px 18px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); box-shadow: var(--shadow); cursor: pointer; transition: transform .12s, box-shadow .12s; }
+  /*</float>*/
+  /*<flat>*/
   .card { all: unset; box-sizing: border-box; display: grid; gap: 4px; align-content: start; width: 100%; height: 100%; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); cursor: pointer; }
+  /*</flat>*/
+  /*<float>*/
+  .card:hover { border-color: var(--a); transform: translateY(-1px); }
+  /*</float>*/
+  /*<flat>*/
   .card:hover { border-color: var(--a); } .card:focus-visible { outline: 2px solid var(--a); outline-offset: 2px; }
+  /*</flat>*/
+  /*<chips>*/
+  .card .head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+  /*</chips>*/
+  .card:focus-visible { outline: 2px solid var(--a); outline-offset: 2px; }
   .card[aria-pressed=true] { border-color: var(--a); background: var(--a-soft); box-shadow: inset 3px 0 var(--a); }
   .card strong { font-size: 15px; overflow-wrap: anywhere; } .fact { display: flex; gap: 8px; font-size: 13px; min-width: 0; } .fact .lab { flex: 0 0 38%; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .fact span:last-child { overflow-wrap: anywhere; }
   .pager { display: flex; align-items: center; gap: 10px; padding: 8px 20px; border-top: 1px solid var(--line); background: var(--panel); }
+  /*<float>*/
+  .formpane { background: var(--panel); overflow: auto; border-radius: 14px; box-shadow: var(--shadow); }
+  /*</float>*/
+  /*<flat>*/
   .formpane { background: var(--panel); overflow: auto; }
+  /*</flat>*/
+  /*<float>*/
+  .split .listpane { flex: 0 0 min(56%, 800px); }
+  /*</float>*/
+  /*<flat>*/
   .split .listpane { flex: 0 0 min(46%, 640px); border-right: 1px solid var(--line); }
+  /*</flat>*/
   .split .formpane { flex: 1; min-width: 0; }
   .drawer .formpane { position: fixed; inset: var(--head, 62px) 0 0 auto; width: min(560px, 100%); box-shadow: -12px 0 30px rgb(0 0 0 / 22%); border-left: 1px solid var(--line); z-index: 5; }
   .detail .formpane { flex: 1; }
+  /*<float>*/
+  .detail main, .list main { padding-left: 20px; }
+  /*</float>*/
+  /*<flat>*/
+
+  /*</flat>*/
+  /*<float>*/
+  form { padding: 22px 26px 30px; max-width: 760px; }
+  /*</float>*/
+  /*<flat>*/
   form { padding: 18px 22px 26px; max-width: 760px; }
+  /*</flat>*/
   .bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 14px; }
   .fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 230px), 1fr)); gap: 14px 18px; }
   .field { display: grid; gap: 4px; min-width: 0; align-content: start; }
   .field.long { grid-column: 1 / -1; }
   label, .lab { font-size: 12px; font-weight: 600; color: var(--muted); }
-  .field input, .field select, .field textarea { width: 100%; min-height: 36px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
+  .field input, .field select, .field textarea { width: 100%; min-height: 36px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
   .field textarea { min-height: 84px; resize: vertical; }
   .pic img { display: block; max-width: 100%; max-height: 320px; border-radius: 6px; }
   .thumb { height: 120px; margin: -2px 0 4px; border-radius: 6px; background: var(--sunken); display: grid; place-items: center; overflow: hidden; font-size: 12px; color: var(--muted); }
   .thumb img { width: 100%; height: 100%; object-fit: cover; }
   .ro { min-height: 36px; padding: 6px 10px; border-radius: 8px; background: var(--sunken); overflow-wrap: anywhere; }
   details { margin-top: 18px; } summary { cursor: pointer; color: var(--muted); font-weight: 600; margin-bottom: 12px; }
+  /*<float>*/
+  .rel { padding: 0 26px 30px; } .rel h2 { font-size: 13px; margin: 18px 0 6px; } .rel table { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  /*</float>*/
+  /*<flat>*/
   .rel { padding: 0 22px 26px; } .rel h2 { font-size: 13px; margin: 18px 0 6px; } .rel table { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  /*</flat>*/
   .empty, .err { padding: 22px; color: var(--muted); } .err { color: var(--bad); }
   #status { padding: 6px 20px; font-size: 13px; color: var(--muted); } #status:empty { display: none; } #status.bad { color: var(--bad); }
   .choices { display: flex; flex-wrap: wrap; gap: 6px 16px; } .choice { display: inline-flex; gap: 6px; align-items: center; }
   .fielderr { margin: 4px 0 0; font-size: 13px; color: var(--bad); } [aria-invalid="true"] { border-color: var(--bad); outline-color: var(--bad); }
   .split #back { display: none; }
-  @media (max-width: 760px) { .split #back { display: inline-flex; align-items: center; } .split .listpane { flex-basis: auto; border: 0; } .split.has-sel .listpane, .split:not(.has-sel) .formpane { display: none; } th, td { padding: 9px 10px; } form { padding: 14px; } }
+  @media (max-width: 760px) { main { padding: 10px; } .split #back { display: inline-flex; align-items: center; } .split .listpane { flex-basis: auto; border: 0; } .split.has-sel .listpane, .split:not(.has-sel) .formpane { display: none; } th, td { padding: 9px 10px; } form { padding: 14px; } }
   @media (prefers-reduced-motion: no-preference) { .drawer .formpane { animation: in .18s ease-out; } @keyframes in { from { transform: translateX(24px); opacity: 0; } } }
 `;
 
@@ -352,6 +439,18 @@ const RUNTIME = String.raw`
     c.parentNode.append(m); c.setAttribute('aria-invalid', 'true'); c.setAttribute('aria-describedby', m.id); (c.querySelector('input') || c).focus();
     status('Not saved: ' + hit.label + ' needs attention.', true);
   }
+  /*<chips>*/
+  // Names get an initials badge; state-like columns (Status, Stage, Priority...) get a coloured pill. Both are CSS only, so cell text stays the value.
+  var TONES = { paid: 'ok', done: 'ok', complete: 'ok', completed: 'ok', active: 'ok', won: 'ok', approved: 'ok', open: 'info', sent: 'info', new: 'info', draft: 'warn', pending: 'warn', 'in progress': 'info', overdue: 'bad', late: 'bad', lost: 'bad', cancelled: 'bad', void: 'bad', high: 'bad', medium: 'warn', low: 'ok' };
+  function isState(c) { return c.control !== 'number' && c.control !== 'longtext' && /^(status|stage|state|priority)$|(^| )(status|stage|priority)$/i.test(c.name); }
+  function pill(v) { return el('span', { class: 'pill ' + (TONES[String(v).toLowerCase()] || ''), text: v }); }
+  function avatar(v) { var w = String(v).trim().split(/\s+/).filter(Boolean); return el('span', { class: 'who', 'data-i': ((w[0] || '?')[0] + (w.length > 1 ? w[w.length - 1][0] : '')).toUpperCase(), text: v }); }
+  function nameCol(c) { return c === P.columns[0] && c.control !== 'number' && c.control !== 'date' && c.control !== 'timestamp' && c.control !== 'time' && !/^(id|no|number|#)$|(^| )(id|no|number)$/i.test(c.name); }
+  function recHead(rec, isNew) { var n = val(rec, P.columns[0].name); return [el('h2', { class: 'title' }, [isNew ? el('span', { text: 'New ' + P.title.replace(/s$/, '') }) : (n && !/\d{3}/.test(n) ? avatar(n) : el('span', { text: n || P.title }))])]; }
+  /*</chips>*/
+  /*<nochips>*/
+  function recHead() { return []; }
+  /*</nochips>*/
   var val = function (rec, f) { var v = rec && rec.fieldData ? rec.fieldData[f] : ''; return v == null ? '' : String(v); };
 
   // ---- the list
@@ -376,9 +475,10 @@ const RUNTIME = String.raw`
     pick.value = S.sort ? S.sort.fieldName : '';
     var list = el('ul', { class: 'cards' });
     S.rows.forEach(function (rec) {
-      var facts = P.columns.slice(1).map(function (c) { return val(rec, c.name) ? el('div', { class: 'fact' }, [el('span', { class: 'lab', text: c.label }), el('span', { text: val(rec, c.name) })]) : null; }).filter(Boolean);
+      var stateCol = P.columns.slice(1).filter(function (c) { return isState(c) && val(rec, c.name); })[0];
+      var facts = P.columns.slice(1).map(function (c) { return val(rec, c.name) && c !== stateCol ? el('div', { class: 'fact' }, [el('span', { class: 'lab', text: c.label }), el('span', { text: val(rec, c.name) })]) : null; }).filter(Boolean);
       list.append(el('li', {}, [el('button', { type: 'button', class: 'card', 'data-id': rec.recordId, 'aria-pressed': S.cur && S.cur.recordId === rec.recordId ? 'true' : 'false', onclick: function () { openRec(rec); } },
-        (P.picture && val(rec, P.picture) ? [thumb(val(rec, P.picture))] : []).concat([el('strong', { text: val(rec, P.columns[0].name) || '(blank)' })], facts))]));
+        (P.picture && val(rec, P.picture) ? [thumb(val(rec, P.picture))] : []).concat([el('div', { class: 'head' }, [el('strong', { text: val(rec, P.columns[0].name) || '(blank)' })].concat(stateCol ? [pill(val(rec, stateCol.name))] : []))], facts))]));
     });
     return el('div', {}, [el('div', { class: 'cardbar' }, [pick]), list]);
   }
@@ -388,7 +488,16 @@ const RUNTIME = String.raw`
     S.rows.forEach(function (rec) {
       var tr = el('tr', { tabindex: 0, 'data-id': rec.recordId, 'aria-selected': S.cur && S.cur.recordId === rec.recordId ? 'true' : 'false', onclick: function () { openRec(rec); },
         onkeydown: function (e) { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openRec(rec); } } });
+      /*<chips>*/
+      P.columns.forEach(function (c) {
+        var v = val(rec, c.name), td = el('td', { class: c.control === 'number' ? 'num' : false });
+        if (v && isState(c)) td.append(pill(v)); else if (v && nameCol(c) && !/\d{3}/.test(v)) td.append(avatar(v)); else td.textContent = v;
+        tr.append(td);
+      });
+      /*</chips>*/
+      /*<nochips>*/
       P.columns.forEach(function (c) { tr.append(el('td', { class: c.control === 'number' ? 'num' : false, text: val(rec, c.name) })); });
+      /*</nochips>*/
       body.append(tr);
     });
     var box = $('#rows');
@@ -477,7 +586,7 @@ const RUNTIME = String.raw`
     // The page's frame is sandboxed without forms, so Save is a button and Enter in a field presses it.
     var form = el('form', { novalidate: true, oninput: edited, onchange: edited, onsubmit: function (e) { e.preventDefault(); }, onkeydown: function (e) {
       if (e.key === 'Enter' && e.target.tagName === 'INPUT') { e.preventDefault(); save(rec, isNew); }
-    } }, [bar, group(main, rec)]);
+    } }, [bar].concat(recHead(rec, isNew), [group(main, rec)]));
     if (sys.length) form.append(el('details', {}, [el('summary', { text: 'System fields' }), group(sys, rec)]));
     box.replaceChildren(form);
     rel.replaceChildren();
@@ -577,12 +686,14 @@ const RUNTIME = String.raw`
 /* The board and calendar views are put into a page only when it is made to open on them, so the other pages stay as small as they were. */
 const BOARD_CSS = String.raw`
   .board { display: flex; gap: 12px; padding: 14px 20px 20px; align-items: flex-start; overflow-x: auto; }
-  .bcol { flex: 0 0 260px; background: var(--sunken); border-radius: 10px; padding: 10px; display: grid; gap: 8px; }
-  .bcol h2 { margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); display: flex; justify-content: space-between; gap: 8px; }
+  .bcol { flex: 0 0 280px; background: var(--sunken); border-radius: 14px; padding: 12px; display: grid; gap: 10px; }
+  .bcol h2 { margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .bcol h2 span:last-child { min-width: 24px; padding: 1px 8px; border-radius: 999px; background: var(--panel); text-align: center; letter-spacing: 0; box-shadow: var(--shadow); }
   .bcards { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; min-height: 44px; align-content: start; }
   .bcards.over { outline: 2px dashed var(--a); outline-offset: 2px; border-radius: 8px; }
   .bcards li { display: grid; gap: 4px; cursor: grab; }
-  .mv { min-height: 30px; font-size: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); padding: 0 6px; color: var(--muted); }
+  .mv { min-height: 28px; font-size: 12px; border: 0; border-radius: 8px; background: transparent; padding: 0 4px; color: var(--muted); cursor: pointer; }
+  .mv:hover { background: var(--panel); }
 `;
 /** The checkbox and radio sets of a page, which only a page with one carries (an `else if` of the form's control()). */
 /* Put into a native file's pages only: its dates are the date input's own, and a timestamp gets the seconds the browser leaves off. */
@@ -714,7 +825,9 @@ function calendarJs(native = false): string {
  * account; a field the account may not see or change reports the server's reason in the status line.
  */
 /** A page's CSS or script without its indentation and whole-line comments: a page has 30,000 characters to fit in. */
-const noCards = (code: string, keep: boolean): string => code.replace(keep ? /^[ \t]*\/\*<\/?cards>\*\/\n/gm : /^[ \t]*\/\*<cards>\*\/\n[\s\S]*?^[ \t]*\/\*<\/cards>\*\/\n/gm, '');
+const gate = (code: string, name: string, keep: boolean): string => code.replace(keep ? new RegExp(`^[ \\t]*\\/\\*<\\/?${name}>\\*\\/\\n`, 'gm') : new RegExp(`^[ \\t]*\\/\\*<${name}>\\*\\/\\n[\\s\\S]*?^[ \\t]*\\/\\*<\\/${name}>\\*\\/\\n`, 'gm'), '');
+/** The page's code with the parts for `view` kept: cards only in a plain table page; the badges, pills and record title there too, and the floating panels everywhere but the calendar, which has no room left under FileMaker Pro's formula limit. */
+const forView = (code: string, view: View): string => ['cards', 'chips'].reduce((c, n) => gate(c, n, view === 'table'), gate(gate(gate(code, 'nochips', view !== 'table'), 'float', view !== 'calendar'), 'flat', view === 'calendar'));
 const squeeze = (code: string): string => code.replace(/^[ \t]+/gm, '').replace(/^\/\/.*\n/gm, '').replace(/^\/\*(?!__).*\*\/\n/gm, '').replace(/\n[ \t]*\n/g, '\n');
 
 export function interfacePage(layout: string, plan: InterfacePlan, mode: Mode, view: View = 'table'): string {
@@ -741,11 +854,11 @@ ${list ? `<section class="listpane" aria-label="${text(plan.title)}"><div class=
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${text(plan.title)}</title>
-<style>${squeeze(noCards(CSS.replace('--h: 200', `--h: ${hue(plan.table)}`), view === 'table') + (view === 'board' ? BOARD_CSS : view === 'calendar' ? CALENDAR_CSS : '') + drawer).replace(/([;{}])\n/g, '$1').replace(/: |, | \{|\} /g, (s) => s.trim())}</style>
+<style>${squeeze(forView(CSS.replace('--h: 200', `--h: ${hue(plan.table)}`), view) + (view === 'board' ? BOARD_CSS : view === 'calendar' ? CALENDAR_CSS : '') + drawer).replace(/([;{}])\n/g, '$1').replace(/: |, | \{|\} /g, (s) => s.trim())}</style>
 </head>
 <body>
 ${body}
-<script>${squeeze(noCards(RUNTIME, view === 'table').replace('/*__VIEWS__*/', () => (view === 'board' ? BOARD_JS : view === 'calendar' ? calendarJs(plan.native) : '')).replace('/*__CHOICES__*/', () => (plan.fields.some((f) => f.control === 'checkbox' || f.control === 'radio') ? CHOICES_JS : '')).replace('/*__NATIVE__*/', () => (plan.native ? NATIVE_JS : ''))).replace('__PLAN__', () => js(embed))}</script>
+<script>${squeeze(forView(RUNTIME, view).replace('/*__VIEWS__*/', () => (view === 'board' ? BOARD_JS : view === 'calendar' ? calendarJs(plan.native) : '')).replace('/*__CHOICES__*/', () => (plan.fields.some((f) => f.control === 'checkbox' || f.control === 'radio') ? CHOICES_JS : '')).replace('/*__NATIVE__*/', () => (plan.native ? NATIVE_JS : ''))).replace('__PLAN__', () => js(embed))}</script>
 </body>
 </html>
 `;
