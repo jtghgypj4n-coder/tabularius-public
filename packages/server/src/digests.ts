@@ -334,12 +334,15 @@ export class DigestRunner {
     };
     this.running.add(d.id);
     try {
-      // Includes related hosted files: a summary can read through the relationship graph.
+      // Includes related hosted files: a summary can read through the relationship graph. A change of accounts or
+      // privileges always voids the run; a record write only does for an account whose view of records can depend on
+      // them (an account that reads everything is shown the same records whatever is written meanwhile).
+      let writes = true;
       const stamp = () => JSON.stringify(this.host.names().map((name) => {
         const file = this.host.get(name);
-        return [name, file?.securityToken(), file?.writeToken()];
+        return [name, file?.securityToken(), writes ? file?.writeToken() : undefined];
       }));
-      const before = stamp();
+      let before = stamp();
       const recheck = () => {
         if (stamp() === before) return;
         const clean = withoutRecordData(run);
@@ -351,6 +354,9 @@ export class DigestRunner {
         if (account?.inactive) throw new DigestError(`The account "${d.account}" it runs as is inactive`);
         const privileges = store.privileges(account?.name ?? d.account);
         if (!privileges.name) throw new DigestError(`The account "${d.account}" it runs as is gone`);
+        // Nothing has been awaited since the stamp above, so it still describes what these privileges were read from.
+        writes = !privileges.readsEverything;
+        before = stamp();
         const dashboard = new Dashboards(store).get(d.dashboard);
         if (!dashboard) throw new DigestError('Its dashboard has been deleted');
         run.data = computeDashboard(store, dashboard.widgets, privileges);

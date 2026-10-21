@@ -44,3 +44,16 @@ test('unlisted aliases, bracket readers and raw SQL transfers are discovered fro
   assert.ok(found.some((s) => s.api === 'Store.get'));
   assert.ok(unclassified(changed, allow).length >= 5);
 });
+
+test('a read API reached through an untyped receiver is discovered by its name', () => {
+  const file = 'packages/server/src/calendar.ts';
+  const source = readFileSync(resolve(root, file), 'utf8');
+  const added = `\nfunction untypedProbe(store: Store, anything: any) {
+    (store as any).recordAsOf('Synthetic', 1);
+    const loose = store as any;
+    loose.foundSetRows('Synthetic');
+    Object.getPrototypeOf(anything).executeSQL.call(anything, 'SELECT 1', []);
+  }\n`;
+  const found = collectReadSites(root, new Map([[file, source + added]])).filter((s) => s.fn === 'untypedProbe').map((s) => s.api).sort();
+  assert.deepEqual(found, ['Untyped.executeSQL', 'Untyped.foundSetRows', 'Untyped.recordAsOf']);
+});

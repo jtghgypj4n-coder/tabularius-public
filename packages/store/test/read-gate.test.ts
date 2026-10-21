@@ -133,6 +133,18 @@ test('portalCounts reuses account-free snapshots without SQL and rechecks accoun
   denied(() => store.portalCounts('Items', own, noLayout, read));
 });
 
+test('group summaries and sorting by id are refused through a layout the account may not use', (t) => {
+  const { store, own } = setup(t);
+  store.savePrivilegeSet({ name: 'NoLayout', records: { view: true, edit: false, create: false, delete: false },
+    layouts: 'none', valueLists: 'none', scripts: 'none', extendedPrivileges: [] });
+  store.setPassword('no-layout', 'synthetic-password', 'NoLayout');
+  const noLayout = store.privileges('no-layout');
+  assert.equal(noLayout.readsEverything, true);
+  denied(() => store.groupSummaries('Items', [own], ['Name'], 'us', noLayout));
+  denied(() => store.sortIds('Items', [own], [{ fieldName: 'Name', sortOrder: 'ascend' }], { privileges: noLayout }));
+  assert.deepEqual(store.sortIds('Items', [own], [{ fieldName: 'Name', sortOrder: 'ascend' }]), [own]);
+});
+
 test('classified account-aware store readers exclude hidden rows, fields, totals and tables', (t) => {
   const { store, own, hidden, p } = setup(t);
   const found = store.find('Items', { privileges: p });
