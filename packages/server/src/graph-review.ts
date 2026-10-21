@@ -9,10 +9,10 @@
 
 import type { Field, Relationship, TableOccurrence } from '../../fmp12/src/index.ts';
 import type { DesignOp, Store } from '../../store/src/index.ts';
-import { solutionIndex } from './insight.ts';
+import { canVerifyUnused, solutionIndex } from './insight.ts';
 
 export interface GraphIssue {
-  rule: 'unused' | 'duplicate' | 'unindexed' | 'noAutoIndex' | 'missing';
+  rule: 'unused' | 'unverified' | 'duplicate' | 'unindexed' | 'noAutoIndex' | 'missing';
   severity: 'warning' | 'info';
   message: string;
   occurrences: number[];
@@ -235,7 +235,9 @@ export function reviewGraph(store: Store): GraphReview {
   // are dropped: unused occurrences with one link or none, repeatedly, as a chain of them unwinds.
   const used = new Set<number>(layoutCount.keys());
   const lowerId = new Map(tos.map((t) => [t.name.toLowerCase(), t.id]));
-  for (const site of solutionIndex(store).sites) {
+  const index = solutionIndex(store);
+  const incompleteReferences = !index.referenceComplete;
+  for (const site of index.sites) {
     if (site.kind === 'relationship') continue;
     for (const o of site.refs.occurrences) { const id = lowerId.get(o); if (id !== undefined) used.add(id); }
   }
@@ -252,7 +254,9 @@ export function reviewGraph(store: Store): GraphReview {
       if (links <= 1) live.delete(id), loose.push(id), changed = true;
     }
   }
+  if (incompleteReferences) issues.push({ rule: 'unverified', severity: 'info', message: 'Cannot verify unused table occurrences because some calculations could not be indexed.', occurrences: [] });
   for (const id of loose) {
+    if (!canVerifyUnused(index, name(id))) continue;
     const links = near.get(id)?.size ?? 0;
     issues.push({ rule: 'unused', severity: 'info', message: `Nothing uses ${name(id)}: no layout, portal, field, script, value list or formula${links ? ', and nothing used reaches anything through it' : ', and it isn\'t related to anything'}. Deleting it would tidy the graph.`, occurrences: [id] });
   }

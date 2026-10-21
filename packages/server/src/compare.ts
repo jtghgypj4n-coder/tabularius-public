@@ -46,6 +46,8 @@ export interface Comparison {
   /** Left out without `security`. */
   accounts?: Section;
   privilegeSets?: Section;
+  /** Other file-level design and behavior settings. */
+  settings: Section;
   records: { table: string; from: number; to: number }[];
 }
 
@@ -94,12 +96,12 @@ const merge = (sections: Section[]): Section => ({
   changed: sections.flatMap((s) => s.changed),
 });
 
-const squash = (s: string | undefined) => (s ?? '').replace(/\s+/g, ' ').trim();
+const exact = (s: string | undefined) => s ?? '';
 
 function fieldShape(f: Field): Record<string, string> {
   const o = f.options;
-  const shape: Record<string, string> = { type: f.type, kind: f.kind };
-  if (f.calculation !== undefined) shape[f.kind === 'calculation' ? 'formula' : 'auto-enter calculation'] = squash(f.calculation);
+  const shape: Record<string, string> = { type: f.type, kind: f.kind, 'has calculation': String(f.hasCalculation), 'calculation context': String(f.calculationContextId) };
+  if (f.calculation !== undefined) shape[f.kind === 'calculation' ? 'formula' : 'auto-enter calculation'] = exact(f.calculation);
   if (f.comment) shape.comment = f.comment;
   if (o?.global) shape.storage = 'global';
   if (o?.unstored) shape.storage = 'unstored';
@@ -110,10 +112,11 @@ function fieldShape(f: Field): Record<string, string> {
   const v = o?.validation;
   if (v) {
     const rules = [v.notEmpty && 'not empty', v.unique && 'unique', v.range && `range ${v.range.min}..${v.range.max}`,
-      v.maxLength && `max length ${v.maxLength}`, v.calculation && `calculation ${squash(v.calculation)}`].filter(Boolean);
+      v.maxLength && `max length ${v.maxLength}`, v.calculation && `calculation ${exact(v.calculation)}`].filter(Boolean);
     if (rules.length) shape.validation = rules.join(', ');
   }
-  if (f.summary) shape.summary = `${f.summary.type} of ${f.summary.field ?? f.summary.fieldId}`;
+  if (f.summary) shape.summary = JSON.stringify(f.summary);
+  if (o) shape['field options'] = JSON.stringify(o);
   return shape;
 }
 
@@ -227,13 +230,27 @@ export function compareSolutions(a: Store, b: Store, opts: { scriptDiffLines?: n
   const tableOccurrences = section(sa.tableOccurrences, sb.tableOccurrences, byId, (x, y) => {
     const ta = a.calc.occurrenceTable(x.id)?.table.name;
     const tb = b.calc.occurrenceTable(y.id)?.table.name;
-    return ta !== tb ? { details: [`base table: ${ta ?? '?'} → ${tb ?? '?'}`] } : undefined;
+    const details = [
+      ...(ta !== tb ? [`base table: ${ta ?? '?'} → ${tb ?? '?'}`] : []),
+      ...(x.dataSourceId !== y.dataSourceId ? ['data source changed'] : []),
+      ...(JSON.stringify(x.graph) !== JSON.stringify(y.graph) || x.color !== y.color ? ['graph appearance changed'] : []),
+    ];
+    return details.length ? { details } : undefined;
   });
 
   const fieldNameIn = (store: Store) => (toId: number, id: number) => store.calc.occurrenceTable(toId)?.table.fields.find((f) => f.id === id)?.name;
-  const relItems = (s: Schema, store: Store) => s.relationships.map((r) => ({ id: r.id, name: relText(s, r, fieldNameIn(store)) }));
+  const relItems = (s: Schema, store: Store) => s.relationships.map((r) => ({
+    id: r.id, name: relText(s, r, fieldNameIn(store)),
+    leftCreate: !!r.leftCreate, rightCreate: !!r.rightCreate, leftDelete: !!r.leftDelete, rightDelete: !!r.rightDelete, sorted: !!r.sorted,
+  }));
   // Relationships have no names: matched by id within one file's versions, else by their join text.
-  const relationships = section(relItems(sa, a), relItems(sb, b), byId, () => undefined);
+  const relationships = section(relItems(sa, a), relItems(sb, b), byId, (x, y) => {
+    const details = shapeDiff(
+      { 'left create': String(x.leftCreate), 'right create': String(x.rightCreate), 'left delete': String(x.leftDelete), 'right delete': String(x.rightDelete), sort: String(x.sorted) },
+      { 'left create': String(y.leftCreate), 'right create': String(y.rightCreate), 'left delete': String(y.leftDelete), 'right delete': String(y.rightDelete), sort: String(y.sorted) },
+    );
+    return details && { details };
+  });
   if (byId) {
     // A changed join keeps its id: report it as a change, not a rename.
     for (const r of relationships.renamed) relationships.changed.push({ name: r.name, details: [`was ${r.was}`] });
@@ -249,33 +266,65 @@ export function compareSolutions(a: Store, b: Store, opts: { scriptDiffLines?: n
       ...setDiff('script buttons', la.scripts, lb.scripts),
       ...(la.objects !== lb.objects && !la.fields.size && !lb.fields.size ? [`objects: ${la.objects} → ${lb.objects}`] : []),
     ];
+    if ((JSON.stringify(a.design(x.id)) !== JSON.stringify(b.design(y.id)) || JSON.stringify(x.labels) !== JSON.stringify(y.labels)) && !details.length) details.push('layout behavior or formatting changed');
     return details.length ? { details } : undefined;
   });
 
   const lines = (steps: Schema['scripts'][number]['steps']) => steps.map((s) => (s.enabled ? '' : '// ') + (s.line ?? stepLine(s.name, s.params, s.text)));
   const scripts = section(sa.scripts, sb.scripts, byId, (x, y) => {
-    if (scriptText(x.steps) === scriptText(y.steps)) return undefined;
-    const diff = lineDiff(lines(x.steps), lines(y.steps), opts.scriptDiffLines ?? 40);
-    return { details: [`${x.steps.length} → ${y.steps.length} steps`], diff };
+    const bodyChanged = scriptText(x.steps) !== scriptText(y.steps);
+    const stepSettingsChanged = !bodyChanged && JSON.stringify(x.steps) !== JSON.stringify(y.steps);
+    const details = [
+      ...(bodyChanged ? [`${x.steps.length} → ${y.steps.length} steps`] : []),
+      ...(stepSettingsChanged ? ['script step settings changed'] : []),
+      ...(!!x.fullAccess !== !!y.fullAccess ? ['run with full access changed'] : []),
+      ...(JSON.stringify(x.limits) !== JSON.stringify(y.limits) ? ['execution limits changed'] : []),
+    ];
+    return details.length ? { details, ...(bodyChanged ? { diff: lineDiff(lines(x.steps), lines(y.steps), opts.scriptDiffLines ?? 40) } : {}) } : undefined;
   });
 
   const valueLists = section(sa.valueLists, sb.valueLists, byId, (x, y) => {
     const d = setDiff('values', new Set(x.values ?? []), new Set(y.values ?? []));
+    if (JSON.stringify(x.values) !== JSON.stringify(y.values) && !d.length) d.push('value order changed');
+    if (JSON.stringify(x.field) !== JSON.stringify(y.field)) d.push('field source or display settings changed');
+    if (JSON.stringify(x.external) !== JSON.stringify(y.external)) d.push('external source changed');
     return d.length ? { details: d } : undefined;
   });
   const customFunctions = section(sa.customFunctions, sb.customFunctions, byId, (x, y) => {
     const details = shapeDiff(
-      { parameters: x.parameters.join(' ; '), formula: squash(x.formula), language: x.language ?? 'calculation' },
-      { parameters: y.parameters.join(' ; '), formula: squash(y.formula), language: y.language ?? 'calculation' },
+      { parameters: x.parameters.join(' ; '), formula: exact(x.formula), language: x.language ?? 'calculation' },
+      { parameters: y.parameters.join(' ; '), formula: exact(y.formula), language: y.language ?? 'calculation' },
     );
     return details && { details };
   });
-  const accounts = section(sa.accounts, sb.accounts, byId, (x, y) => {
-    const pa = sa.privilegeSets.find((p) => p.id === x.privilegeSetId)?.name;
-    const pb = sb.privilegeSets.find((p) => p.id === y.privilegeSetId)?.name;
-    return pa !== pb ? { details: [`privilege set: ${pa ?? 'none'} → ${pb ?? 'none'}`] } : undefined;
+  const accountItems = (store: Store) => store.accounts().map((account, i) => ({
+    ...account,
+    id: store.schema.accounts.find((x) => lower(x.name) === lower(account.name))?.id ?? -i - 1,
+    passwordVerifier: store.schema.accounts.find((x) => lower(x.name) === lower(account.name))?.passwordVerifier,
+  }));
+  const aAccounts = accountItems(a);
+  const bAccounts = accountItems(b);
+  const accounts = section(aAccounts, bAccounts, byId && [...aAccounts, ...bAccounts].every((x) => x.id > 0), (x, y) => {
+    const details = shapeDiff(
+      Object.fromEntries(Object.entries(x).filter(([key]) => !['id', 'name'].includes(key)).map(([key, value]) => [key, String(value)])),
+      Object.fromEntries(Object.entries(y).filter(([key]) => !['id', 'name'].includes(key)).map(([key, value]) => [key, String(value)])),
+    );
+    return details && { details: details.map((detail) => detail.startsWith('passwordVerifier') ? 'password verifier changed' : detail) };
   });
-  const privilegeSets = section(sa.privilegeSets, sb.privilegeSets, byId, () => undefined);
+  const privilegeItems = (store: Store) => store.privilegeSets().map((set, i) => ({ ...set, id: set.id ?? -i - 1 }));
+  const aPrivilegeSets = privilegeItems(a);
+  const bPrivilegeSets = privilegeItems(b);
+  const privilegeSets = section(aPrivilegeSets, bPrivilegeSets, byId && [...aPrivilegeSets, ...bPrivilegeSets].every((x) => x.id > 0), (x, y) => {
+    const withoutIdentity = (set: typeof x) => Object.fromEntries(Object.entries(set).filter(([key]) => key !== 'id' && key !== 'name'));
+    return JSON.stringify(withoutIdentity(x)) !== JSON.stringify(withoutIdentity(y)) ? { details: ['permissions or set options changed'] } : undefined;
+  });
+  const settings: Section = { added: [], removed: [], renamed: [], changed: [] };
+  for (const key of ['layoutOrder', 'scriptOrder', 'dataSources', 'containerDirectories', 'themes', 'fonts', 'customMenus', 'customMenuSets', 'defaultMenuSetId', 'fileOptions', 'pageSetup', 'retiredIds'] as const) {
+    if (JSON.stringify(sa[key]) !== JSON.stringify(sb[key])) settings.changed.push({ name: key, details: ['settings changed'] });
+  }
+  if (opts.security !== false && JSON.stringify(sa.extendedPrivileges) !== JSON.stringify(sb.extendedPrivileges)) {
+    settings.changed.push({ name: 'extendedPrivileges', details: ['settings changed'] });
+  }
 
   const records: Comparison['records'] = [];
   for (const [ta, tb] of pair(sa.tables, sb.tables, byId).both) {
@@ -285,7 +334,7 @@ export function compareSolutions(a: Store, b: Store, opts: { scriptDiffLines?: n
   }
 
   const sections = {
-    tables, fields, tableOccurrences, relationships, layouts, scripts, valueLists, customFunctions,
+    tables, fields, tableOccurrences, relationships, layouts, scripts, valueLists, customFunctions, settings,
     ...(opts.security === false ? {} : { accounts, privilegeSets }),
   };
   const parts: string[] = [];

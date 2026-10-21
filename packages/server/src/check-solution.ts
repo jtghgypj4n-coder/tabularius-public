@@ -9,7 +9,7 @@ import { FUNCTIONS, pluginNotInstalled } from '../../calc/src/functions.ts';
 import type { LayoutObject } from '../../fmp12/src/index.ts';
 import { lintScript, isFullAccess, type Store } from '../../store/src/index.ts';
 import { ERROR_3_STEPS, ERROR_3_UNLESS_CONFIGURED } from '../../scripts/src/unavailable-steps.ts';
-import { checkFormula, didYouMean, solutionIndex, unhostedFileOf, type Site } from './insight.ts';
+import { canVerifyUnused, checkFormula, didYouMean, solutionIndex, unhostedFileOf, type Site } from './insight.ts';
 
 export type Severity = 'error' | 'warning' | 'info';
 
@@ -20,7 +20,7 @@ export type FindingKind =
   | 'script-lint' | 'step-unavailable' | 'step-needs-setup'
   | 'privilege-set-missing-object' | 'privilege-set-grants-nothing' | 'account-no-privilege-set'
   | 'account-cannot-run-script' | 'account-cannot-open-layout'
-  | 'unused-script' | 'unused-value-list' | 'unused-custom-function';
+  | 'unused-script' | 'unused-value-list' | 'unused-custom-function' | 'reference-coverage';
 
 export interface Finding {
   kind: FindingKind;
@@ -228,17 +228,21 @@ export function checkSolution(store: Store, opts: { account?: string } = {}): So
   }
 
   // --- things nothing uses (information only) ----------------------------------------------------------------
+  const incompleteReferences = !index.referenceComplete;
+  if (incompleteReferences) {
+    add({ kind: 'reference-coverage', severity: 'info', where: 'Reference index', message: 'Cannot verify which scripts, value lists or custom functions are unused because some calculations could not be indexed.', hint: 'Review unreadable or invalid calculations before deleting referenced items.' });
+  }
   for (const script of s.scripts) {
     const key = lower(script.name);
-    if (index.callers.has(key) || index.buttons.has(key) || index.starters.has(key)) continue;
+    if (index.callers.has(key) || index.buttons.has(key) || index.starters.has(key) || !canVerifyUnused(index, script.name)) continue;
     add({ kind: 'unused-script', severity: 'info', where: `Script ${quoted(script.name)}`, message: 'No script, button, trigger or menu runs it (it may still be run through the Data API, a schedule or by hand).', hint: 'Delete it if it is not needed.' });
   }
   for (const vl of s.valueLists) {
-    if (usedValueLists.has(lower(vl.name))) continue;
+    if (usedValueLists.has(lower(vl.name)) || !canVerifyUnused(index, vl.name)) continue;
     add({ kind: 'unused-value-list', severity: 'info', where: `Value list ${quoted(vl.name)}`, message: 'No field or layout object uses it.', hint: 'Delete it if it is not needed.' });
   }
   for (const cf of s.customFunctions) {
-    if (usedFunctions.has(lower(cf.name))) continue;
+    if (usedFunctions.has(lower(cf.name)) || !canVerifyUnused(index, cf.name)) continue;
     add({ kind: 'unused-custom-function', severity: 'info', where: `Custom function ${cf.name}`, message: 'No calculation calls it.', hint: 'Delete it if it is not needed.' });
   }
 
