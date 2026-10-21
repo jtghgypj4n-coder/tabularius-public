@@ -13,6 +13,7 @@ import type { Field, Table } from '../../fmp12/src/index.ts';
 import type { Store } from '../../store/src/index.ts';
 import { q } from '../../store/src/import.ts';
 import { EXTERNAL, VOLATILE } from '../../store/src/fidelity.ts';
+import { FUNCTIONS } from '../../calc/src/functions.ts';
 import { redactSecrets } from './ai-output.ts';
 import { canVerifyUnused, solutionIndex } from './insight.ts';
 import { imageInfo } from '../../calc/src/image-info.ts';
@@ -395,10 +396,39 @@ const VERB: Record<KeyUse['by'], string> = { sort: 'sort', find: 'find', relatio
 
 /** Whether a calculation reads only its own table's fields and nothing that changes by itself: then it could be stored. */
 export function storable(store: Store, t: Table, f: Field): boolean {
-  const site = solutionIndex(store).sites.find((x) => x.kind === 'field' && x.where === `Field ${key(t, f)} (calculation)`);
-  if (!site || site.refs.unparsed) return false;
-  if (VOLATILE.test(site.text) || EXTERNAL.test(site.text) || [...site.refs.functions].some((fn) => RISKY.has(fn))) return false;
-  return [...site.refs.fields].every((k) => k.startsWith(`${t.name}::`)) && ![...site.refs.occurrences].some((o) => store.schema.tableOccurrences.some((to) => lower(to.name) === o && to.baseTableId !== t.id));
+  const sites = solutionIndex(store).sites;
+  const fields = new Map(t.fields.map((field) => [lower(field.name), field]));
+  const custom = new Map(store.schema.customFunctions.map((fn) => [lower(fn.name), fn]));
+  const visiting = new Set<string>();
+  const checked = new Map<string, boolean>();
+  const fieldSite = (field: Field) => sites.find((x) => x.kind === 'field' && x.where === `Field ${key(t, field)} (calculation)`);
+  const safe = (id: string, site: typeof sites[number] | undefined): boolean => {
+    if (!site || site.refs.unparsed || site.refs.unknownTokens?.length) return false;
+    if (checked.has(id)) return checked.get(id)!;
+    if (visiting.has(id)) return false;
+    visiting.add(id);
+    let ok = !VOLATILE.test(site.text) && !EXTERNAL.test(site.text);
+    if (ok) for (const occurrence of site.refs.occurrences) {
+      const to = store.schema.tableOccurrences.find((x) => lower(x.name) === occurrence);
+      if (!to || to.dataSourceId || to.baseTableId !== t.id) { ok = false; break; }
+    }
+    if (ok) for (const name of site.refs.fields) {
+      const prefix = `${t.name}::`;
+      const dep = lower(name).startsWith(lower(prefix)) ? fields.get(lower(name.slice(prefix.length))) : undefined;
+      if (!dep || dep.options?.global || dep.kind === 'summary' || (dep.kind === 'calculation' && !safe(`field:${dep.id}`, fieldSite(dep)))) { ok = false; break; }
+    }
+    if (ok) for (const name of site.refs.functions) {
+      if (RISKY.has(name)) { ok = false; break; }
+      const fn = custom.get(name);
+      if (fn) {
+        if (fn.language === 'javascript' || !safe(`function:${fn.id}`, sites.find((x) => x.kind === 'customFunction' && x.where.startsWith(`Custom function ${fn.name} (`)))) { ok = false; break; }
+      } else if (!FUNCTIONS.has(name)) { ok = false; break; }
+    }
+    visiting.delete(id);
+    checked.set(id, ok);
+    return ok;
+  };
+  return safe(`field:${f.id}`, fieldSite(f));
 }
 
 function speedFindings(store: Store): Finding[] {

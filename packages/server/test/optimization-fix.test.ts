@@ -163,6 +163,27 @@ test('a fix is refused when the file is not as the person was shown it', () => {
   }
 });
 
+test('AR-server-backup-ops-07 case 4', () => {
+  const { store, done } = made();
+  try {
+    store.sql.exec("CREATE TRIGGER reject_fix BEFORE INSERT ON _fm_meta WHEN NEW.key = 'optimizationFixes' BEGIN SELECT RAISE(FAIL, 'injected'); END");
+    assert.throws(() => applyFix(store, 'remove-scripts', { items: ['Forgotten'] }), /injected/);
+    assert.ok(store.schema.scripts.some((s) => s.name === 'Forgotten'));
+    assert.deepEqual(store.sql.prepare("SELECT json FROM _fm_meta WHERE key = 'optimizationFixes'").all(), []);
+  } finally { done(); }
+});
+
+test('AR-server-backup-ops-07 case 7', () => {
+  const { store, done } = made();
+  try {
+    const result = applyFix(store, 'remove-scripts', { items: ['Forgotten'] });
+    store.sql.exec("CREATE TRIGGER reject_fix_undo BEFORE UPDATE ON _fm_meta WHEN NEW.key = 'optimizationFixes' BEGIN SELECT RAISE(FAIL, 'injected'); END");
+    assert.throws(() => undoFix(store, result.undo), /injected/);
+    assert.ok(!store.schema.scripts.some((s) => s.name === 'Forgotten'));
+    assert.equal(JSON.parse((store.sql.prepare("SELECT json FROM _fm_meta WHERE key = 'optimizationFixes'").get() as { json: string }).json).changes[0].undone, undefined);
+  } finally { done(); }
+});
+
 // --- the admin API and MCP ---------------------------------------------------------------------
 
 test('the admin API and MCP preview first, change only when told to, and undo', async (t) => {
