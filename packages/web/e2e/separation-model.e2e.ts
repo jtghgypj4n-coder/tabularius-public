@@ -37,7 +37,7 @@ before(async () => {
     { op: 'createOccurrence', name: 'Contacts', file: 'Data', externalTable: contacts.id },
     { op: 'createValueList', name: 'Cities', external: { file: 'Data', valueList: cities.id } },
     { op: 'createLayout', name: 'Contacts', occurrence: 'Contacts' },
-  ] as DesignOp[]);
+  ] as DesignOp[], { readOtherFile: () => true }); // built here by the file's owner, who designs both files
   // The City field becomes a pop-up menu of the data file's list.
   const listId = ui.schema.valueLists.find((v) => v.name === 'Cities')!.id;
   const design = ui.design('Contacts')!;

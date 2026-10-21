@@ -211,11 +211,12 @@ export interface DesignState {
    */
   privileges?: PrivilegeDefinition[];
   /**
-   * The tables of the hosted file a data source points at, when there is one. Design can't change another file, but
-   * it reads that file's tables so a layout or value list can use the fields of a table occurrence from another file.
-   * Not cloned with the state (a function), and left undefined by callers that can't reach other files.
+   * The tables and value lists of the hosted file a data source points at, when the caller may read that file. Design
+   * can't change another file, but it reads these so a layout or value list can use a table occurrence from another
+   * file. Not cloned with the state (a function). Left undefined, nothing of another file is read: the caller sets it
+   * only for accounts that may design that file too.
    */
-  externalTables?: (source: DataSource) => Table[] | undefined;
+  externalFile?: (source: DataSource) => { tables: Table[]; valueLists: Schema['valueLists'] } | undefined;
 }
 
 /** A deleted table or field the store still has the data for. */
@@ -417,7 +418,7 @@ const localTable = (s: Schema, to: TableOccurrence) => (to.dataSourceId ? undefi
 function tableOf(st: DesignState, to: TableOccurrence): Table | undefined {
   if (!to.dataSourceId) return localTable(st.schema, to);
   const source = st.schema.dataSources.find((d) => d.id === to.dataSourceId);
-  return source && st.externalTables?.(source)?.find((t) => t.id === to.baseTableId);
+  return source && st.externalFile?.(source)?.tables.find((t) => t.id === to.baseTableId);
 }
 
 /** Where a value list takes its values: a field (and a second field to show) of an occurrence, optionally only related values. */
@@ -436,7 +437,8 @@ function valueListField(st: DesignState, spec: ValueListFieldSpec): ValueListFie
   if (!spec || typeof spec !== 'object') throw invalid('A value list field needs an occurrence and a field');
   const to = find(s.tableOccurrences, spec.occurrence, 'Table occurrence', 106);
   const table = tableOf(st, to);
-  if (!table) throw invalid(to.dataSourceId ? `${to.name} is in another file that isn't hosted here, so its fields can't be read to make a value list` : `${to.name} has no table`);
+  // One message for every reason the other file can't be read (not hosted, not designable by this account, AI closed to it), so it says nothing about what that file holds.
+  if (!table) throw invalid(to.dataSourceId ? `${to.name} is in another file that isn't hosted here or that this account can't design, so its fields can't be read to make a value list` : `${to.name} has no table`);
   const field = find(table.fields, spec.field, `Field ${to.name}::`, 102);
   const out: ValueListField = { occurrenceId: to.id, fieldId: field.id };
   if (spec.second !== undefined && spec.second !== null) out.secondFieldId = find(table.fields, spec.second, `Field ${to.name}::`, 102).id;
@@ -1737,6 +1739,9 @@ function applyOneOp(st: DesignState, op: DesignOp, deleted?: DeletedLookup): { o
         const ds = find(s.dataSources, op.external?.file as Ref, 'Data source', 106);
         if (typeof op.external.valueList !== 'number') throw invalid('A value list from another file needs the list\'s id in that file');
         if (ds.paths[0]?.startsWith('odbc:')) throw invalid(`${ds.name} is an ODBC source, which has no value lists`);
+        const other = st.externalFile?.(ds);
+        if (!other) throw invalid(`${ds.name} is not hosted here or this account can't design it, so its value lists can't be read`);
+        if (!other.valueLists.some((v) => v.id === op.external!.valueList)) throw invalid(`${ds.name} has no value list ${op.external.valueList}`);
         s.valueLists.push({ id, name, external: { dataSourceId: ds.id, valueListId: op.external.valueList } });
         return { op: { op: 'createValueList', id, name, external: { file: ds.id, valueList: op.external.valueList } }, effects };
       }
@@ -2324,13 +2329,13 @@ function deleteOccurrence(st: DesignState, to: TableOccurrence): void {
   s.tableOccurrences.splice(s.tableOccurrences.indexOf(to), 1);
 }
 
-/** Apply ops to a copy of the design; the original is untouched if any op fails. */
-/** A copy of the state to change; the reader of other files' tables is shared (a function can't be cloned). */
+/** A copy of the state to change; the reader of other files is shared (a function can't be cloned). */
 function cloneState(st: DesignState): DesignState {
-  const { externalTables, ...cloneable } = st;
-  return { ...structuredClone(cloneable), externalTables };
+  const { externalFile, ...cloneable } = st;
+  return { ...structuredClone(cloneable), externalFile };
 }
 
+/** Apply ops to a copy of the design; the original is untouched if any op fails. */
 export function applyOps(st: DesignState, ops: DesignOp[], deleted?: DeletedLookup): { state: DesignState; ops: DesignOp[]; effects: Effect[] } {
   if (!Array.isArray(ops) || !ops.length) throw invalid('Send a list of changes');
   const state = cloneState(st);

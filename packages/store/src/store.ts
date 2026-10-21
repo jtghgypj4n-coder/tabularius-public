@@ -494,6 +494,8 @@ export interface WriteOptions {
   performAutoEnter?: boolean;
   /** Whose privileges apply: writes they are not allowed fail with error 200 or 201. */
   privileges?: Privileges;
+  /** applyDesign: whether the caller may design that other hosted file too, so a layout or value list can use its tables. Unset, none is read. */
+  readOtherFile?: (file: Store) => boolean;
   /** A person typing (Data API, web client), not a script: fields that prohibit modification refuse it. */
   dataEntry?: boolean;
   /** create: the record the window was on, for fields with "value from last visited record". */
@@ -881,10 +883,16 @@ export class Store {
   /** Finds another hosted file by name, for layouts whose table lives there (set by the host). */
   resolveFile: (name: string) => Store | undefined = () => undefined;
 
-  /** The tables of the hosted file a data source points at, if it is hosted (design reads them to lay out an occurrence from another file). */
-  externalTables(source: { name: string; paths: string[] }): Table[] | undefined {
+  /**
+   * The tables and value lists of the hosted file a data source points at, for a design change that uses an occurrence
+   * or value list from it. Only when `mayRead` says the caller may design that file too: without it nothing is read,
+   * so a caller that forgets it gets no fields rather than another file's schema.
+   */
+  otherFileDesign(source: { name: string; paths: string[] }, mayRead?: (file: Store) => boolean): { tables: Table[]; valueLists: Schema['valueLists'] } | undefined {
+    if (!mayRead) return undefined;
     try {
-      return this.resolvedFile(dataSourceFile(source.paths) ?? source.name)?.schema.tables;
+      const file = this.resolvedFile(dataSourceFile(source.paths) ?? source.name);
+      return file && mayRead(file) ? { tables: file.schema.tables, valueLists: file.schema.valueLists } : undefined;
     } catch {
       return undefined; // a file that is busy or closed is not readable now
     }
@@ -1645,9 +1653,9 @@ export class Store {
    * none do. Returns the changes as logged, with names resolved to ids.
    */
   /** Checks design changes without making them: the changes as they would apply, or the error applyDesign would give. */
-  checkDesign(ops: DesignOp[]): { applied: DesignOp[]; schema: Schema; designs: LayoutDesigns; privileges: PrivilegeDefinition[] } {
+  checkDesign(ops: DesignOp[], opts: { readOtherFile?: (file: Store) => boolean } = {}): { applied: DesignOp[]; schema: Schema; designs: LayoutDesigns; privileges: PrivilegeDefinition[] } {
     try {
-      const r = applyOps({ schema: this.schema, designs: this.designs(), privileges: this.privilegeSets(), fileMode: this.fileMode, externalTables: (d) => this.externalTables(d) }, ops, (id) => this.deletedDesign(id));
+      const r = applyOps({ schema: this.schema, designs: this.designs(), privileges: this.privilegeSets(), fileMode: this.fileMode, externalFile: (d) => this.otherFileDesign(d, opts.readOtherFile) }, ops, (id) => this.deletedDesign(id));
       return { applied: r.ops, schema: r.state.schema, designs: r.state.designs, privileges: r.state.privileges ?? this.privilegeSets() };
     } catch (e) {
       if (e instanceof DesignError) throw new StoreError(e.code, e.message);
@@ -1664,7 +1672,7 @@ export class Store {
     // so applyOps can rewrite them, and remember each set's state to spot which changed.
     const privBefore = new Map(this.privilegeSets().map((p) => [p.name, JSON.stringify(p)]));
     try {
-      result = applyOps({ schema: this.schema, designs: this.designs(), privileges: [...privBefore.keys()].map((n) => JSON.parse(privBefore.get(n)!) as PrivilegeDefinition), fileMode: this.fileMode, externalTables: (d) => this.externalTables(d) }, ops, (id) => this.deletedDesign(id) ?? (opts.recordedRestore ? this.recordedRestore(ops, id) : undefined));
+      result = applyOps({ schema: this.schema, designs: this.designs(), privileges: [...privBefore.keys()].map((n) => JSON.parse(privBefore.get(n)!) as PrivilegeDefinition), fileMode: this.fileMode, externalFile: (d) => this.otherFileDesign(d, opts.readOtherFile) }, ops, (id) => this.deletedDesign(id) ?? (opts.recordedRestore ? this.recordedRestore(ops, id) : undefined));
     } catch (e) {
       if (e instanceof DesignError) throw new StoreError(e.code, e.message);
       throw e;

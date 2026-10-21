@@ -85,7 +85,7 @@ export const DATA_PATTERNS: Pattern[] = [
         ui.applyDesign([
           { op: 'createOccurrence', name: 'Contacts', file: 'Data', externalTable: table(data, 'Contacts').id },
           { op: 'createLayout', name: 'Generated', occurrence: 'Contacts' },
-        ]);
+        ], { readOtherFile: () => true }); // the account designing the interface file may design the data file too
         const occurrence = ui.schema.tableOccurrences.find((o) => o.name === 'Contacts')!;
         ui.applyDesign([{ op: 'createLayout', name: 'Placed', occurrence: 'Contacts', design: { objects: [{
           id: 1, kind: 'field', type: 1, bounds: { top: 10, left: 10, bottom: 30, right: 200 }, anchors: { left: true, top: true, right: false, bottom: false }, style: {},
