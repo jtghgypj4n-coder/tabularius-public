@@ -92,3 +92,13 @@ test('the plain-HTTP warning treats every spelling of this computer as this comp
   for (const h of ['localhost', '127.0.0.1', '127.1.2.3', '::1', '[::1]', '0:0:0:0:0:0:0:1', '0000:0000:0000:0000:0000:0000:0000:0001', '::ffff:127.0.0.1']) assert.equal(isLoopbackHost(h), true, h);
   for (const h of ['0.0.0.0', '::', '192.168.1.20', '::ffff:192.168.1.20', '1270.0.0.1', 'example.com']) assert.equal(isLoopbackHost(h), false, h);
 });
+
+test('plainHttpRefusal: this computer, HTTPS and an explicit allowance pass; every other address does not', async () => {
+  const { plainHttpRefusal } = await import('../src/loopback.ts');
+  for (const host of ['127.0.0.1', 'localhost', '::1', '127.1.2.3']) assert.equal(plainHttpRefusal({ host, secure: false, allowed: false }), undefined, host);
+  for (const host of ['0.0.0.0', '::', '192.168.1.20', 'files.example.com']) {
+    assert.match(plainHttpRefusal({ host, secure: false, allowed: false }) ?? '', /over plain HTTP.*--https.*--allow-plain-http/s, host);
+    assert.equal(plainHttpRefusal({ host, secure: true, allowed: false }), undefined, `${host} with HTTPS`);
+    assert.equal(plainHttpRefusal({ host, secure: false, allowed: true }), undefined, `${host} allowed`);
+  }
+});

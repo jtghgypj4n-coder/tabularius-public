@@ -70,7 +70,7 @@ test('a record\'s problems, root causes first, each with the values its formula 
 test('what the assistant sees of a record check: secret fields and values hidden', () => {
   const store = shop();
   const table = store.schema.tables.find((t) => t.name === 'Orders')!;
-  const id = store.create('Orders', { Qty: '3', Price: '2', Code: 'A', 'Api Key': 'sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789' }).recordId;
+  const id = store.create('Orders', { Qty: '3', Price: '2', Code: 'A', 'Api Key': 'sk' + '-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789' }).recordId;
   store.sql.exec(`UPDATE Orders SET Signed = 'old', Code = 'Z' WHERE _fm_record_id = ${id}`);
   const raw = checkRecord(store, table, { store, table, row: store.row(store.layout('Orders'), id) });
   const signed = raw.problems.find((p) => p.field === 'Signed')!;

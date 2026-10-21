@@ -97,8 +97,8 @@ client and an AI tool over MCP make the same changes (see [docs/design-mode.md](
 
 ## 4. Share it
 
-- **With people on your network:** run `tabularius serve ~/tabularius --host 0.0.0.0`.
-  They open `http://<this computer>:8080/app/`. Set an admin password first
+- **With people on your network:** run `tabularius serve ~/tabularius --host 0.0.0.0 --https local`.
+  They open `https://<this computer>:8080/app/` (each device trusts the server's certificate once from `/tabularius/tls/`). Set an admin password first
   with `tabularius admin-password ~/tabularius`.
 - **All the time, as a service:** run `tabularius service install ~/tabularius`.
   It starts at sign-in, or at boot with `--system`. `tabularius upgrade`

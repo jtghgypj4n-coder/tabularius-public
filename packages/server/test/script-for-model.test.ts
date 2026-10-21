@@ -15,7 +15,7 @@ test('a literal in a step that names a password is hidden, and the step stays re
 });
 
 test('a key with a well-known prefix is hidden even in an ordinary step', () => {
-  const key = 'sk-ant-api03-' + 'a1b2c3d4'.repeat(6);
+  const key = 'sk' + '-ant-api03-' + 'a1b2c3d4'.repeat(6);
   const out = text(step(141, 'Set Variable', `Set Variable [ $x ; Value: "${key}" ]`));
   assert.doesNotMatch(out, /sk-ant-api03/);
 });

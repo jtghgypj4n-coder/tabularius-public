@@ -220,7 +220,7 @@ folder:
 export TABULARIUS_FMS_KEY_PASSPHRASE='...'      # the passphrase the certificate was imported with
 tabularius migrate-fms /srv/Databases --fms-dir "/Library/FileMaker Server" --from https://localhost --insecure --dry-run
 tabularius migrate-fms /srv/Databases --fms-dir "/Library/FileMaker Server" --from https://localhost --insecure
-tabularius serve /srv/Databases --host 0.0.0.0 --port 443
+tabularius serve /srv/Databases --https files.example.com --port 443
 ```
 
 - `--fms-dir` is FileMaker Server's own folder:
@@ -782,7 +782,7 @@ containers, the settings files above) is in
 
 ## Certificates (TLS)
 
-A server that listens beyond this computer (`--host 0.0.0.0` or an address) over plain HTTP prints a warning when it starts, because passwords and sign-in tokens would cross the network unencrypted. It does not print one when HTTPS is on, or when a proxy that does HTTPS is named with `--public-url https://...`. [Security defaults](docs/security-defaults.md) lists this and every other default.
+A server that would listen beyond this computer (`--host 0.0.0.0` or an address) over plain HTTP **refuses to start**, because passwords and sign-in tokens would cross the network unencrypted. HTTPS (`--https`, `--https local`, `--tls-cert` with `--tls-key`) lifts the refusal. So does `--allow-plain-http` (or `TABULARIUS_ALLOW_PLAIN_HTTP=1`), for a server behind a proxy or network you control that does the HTTPS; it still prints a warning unless the proxy is named with `--public-url https://...`. `service install` listens on this computer only unless `--host` says otherwise, and applies the same rule. [Security defaults](docs/security-defaults.md) lists this and every other default.
 
 Pick one:
 

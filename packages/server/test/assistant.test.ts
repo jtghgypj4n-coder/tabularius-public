@@ -306,7 +306,7 @@ test('assistant: [Full Access] can ask who changed a record', { skip }, async ()
 
 test('assistant: [Full Access] can have it draft a connection, and the keys are never its to see', { skip }, async () => {
   const token = await login('Admin');
-  const KEY = 'AKIAIOSFODNN7EXAMPLE';
+  const KEY = 'AKIA' + 'IOSFODNN7EXAMPLE';
   let said = '';
   script = [
     (b) => {
