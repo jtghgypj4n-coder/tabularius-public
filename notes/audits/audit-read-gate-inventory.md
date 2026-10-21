@@ -204,7 +204,7 @@ The following reasons apply to the exact enumerated expressions in each named fu
 | [packages/scripts/src/engine.ts:8475](../../packages/scripts/src/engine.ts#L8475) `ScriptEngine/performFind` | `Store.findIds` (8475) | SCRIPT |
 | [packages/scripts/src/engine.ts:8500](../../packages/scripts/src/engine.ts#L8500) `ScriptEngine/findRelated` | `Store.findIds` (8500, 8510, 8513) | SCRIPT |
 | [packages/scripts/src/engine.ts:8532](../../packages/scripts/src/engine.ts#L8532) `ScriptEngine/quickFind` | `Store.findIds` (8532, 8533, 8536) | SCRIPT |
-| [packages/scripts/src/engine.ts:8901](../../packages/scripts/src/engine.ts#L8901) `clearRecords` | `SQLite.all` (8901); `SQLite.prepare` (8901) | SCRIPT |
+| [packages/scripts/src/engine.ts:8904](../../packages/scripts/src/engine.ts#L8904) `clearRecords` | `SQLite.all` (8904); `SQLite.prepare` (8904) | SCRIPT |
 | [packages/scripts/src/recorder.ts:72](../../packages/scripts/src/recorder.ts#L72) `lastSeq` | `Store.auditLog` (72) | DESIGN |
 | [packages/scripts/src/recorder.ts:104](../../packages/scripts/src/recorder.ts#L104) `recordRun` | `Store.auditLog` (104) | DESIGN |
 | [packages/scripts/src/script-tests.ts:211](../../packages/scripts/src/script-tests.ts#L211) `runCase` | `Store.findIds` (211); `Store.auditLog` (218, 219, 261); `Store.evaluateEach` (245) | DESIGN |
