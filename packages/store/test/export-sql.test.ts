@@ -106,7 +106,7 @@ test('a SQLite script loads into SQLite with the same rows, types and values', (
   }
 });
 
-test('AR-store-design-io-12', () => {
+test('a value list entry with a NUL character is stored without it, and the report counts it', () => {
   store.applyDesign([{ op: 'createValueList', name: 'Choices', values: ['A', 'A\u0000'] }] as never);
   const { script, report } = run(store, { dialect: 'sqlite' });
   const db = load(script);

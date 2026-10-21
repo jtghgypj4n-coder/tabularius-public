@@ -16,12 +16,12 @@ test('CSV fields neutralize formula prefixes after whitespace and controls', () 
   for (const prefix of [' ', '\u00a0', '\ufeff']) assert.equal(csvField(`${prefix}=1`), `'${prefix}=1`);
 });
 
-test('AR-store-design-io-13', () => {
+test('a formula-like value in a typed field is neutralised, and what is stored for a date field stays text', () => {
   for (const type of ['number', 'date', 'time', 'timestamp', 'boolean', 'integer', 'decimal']) {
     assert.equal(csvField('=1+1', { type }), "'=1+1");
   }
   assert.equal(csvField('-42', { type: 'number' }), '-42');
-  assert.equal(csvField('-2024-01-01', { type: 'date' }), "'-2024-01-01");
+  assert.equal(csvField('-1+1', { type: 'date' }), "'-1+1");
   const dir = mkdtempSync(join(tmpdir(), 'tabularius-csv-'));
   const path = join(dir, 'typed.sqlite');
   let store: Store | undefined;
@@ -35,6 +35,16 @@ test('AR-store-design-io-13', () => {
   } finally {
     store?.close();
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a legitimate negative time, date or timestamp keeps its minus sign, and anything else that starts with one does not', () => {
+  assert.equal(csvField('-01:30:00', { type: 'time' }), '-01:30:00');
+  assert.equal(csvField('-0:05', { type: 'time' }), '-0:05');
+  assert.equal(csvField('-0001-01-01', { type: 'date' }), '-0001-01-01');
+  assert.equal(csvField('-0001-01-01 12:00:00.5', { type: 'timestamp' }), '-0001-01-01 12:00:00.5');
+  for (const [text, type] of [['-01:30:00', 'number'], ['-0001-01-01', 'time'], ['-01:30:00', 'text'], ['-1+1', 'time'], ['-1+1', 'date'], ['-cmd|calc', 'timestamp'], ['-01:30:00 x', 'time'], ['=1+1', 'time'], ['@SUM(1)', 'number']]) {
+    assert.equal(csvField(text, { type }), `'${text}`, `${type} ${text}`);
   }
 });
 

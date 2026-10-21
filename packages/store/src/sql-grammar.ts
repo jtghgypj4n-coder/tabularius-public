@@ -2,7 +2,7 @@
 // does not have, = ANY and <> ALL, and the star in a select list (fields only, never the record's internal columns).
 // Each works on the text outside strings, quoted names and comments, found by blanking those out (same length, so
 // positions carry over to the original).
-import { maskSql, sqlTokens } from './sql-tokens.ts';
+import { maskSql, sqlTokens, type SqlToken } from './sql-tokens.ts';
 import { CalcError, ERR } from '../../calc/src/values.ts';
 import { closing, operandStart } from './sql-dates.ts';
 
@@ -68,11 +68,41 @@ function numberPlainParameters(sql: string): string {
 const MAX_QUANTIFIED = 500;
 const MAX_QUANTIFIED_DEPTH = 20;
 
+/** Words that are syntax, operators, types, constants or clauses, never the name of a column. */
+const NOT_COLUMN = new Set(('DISTINCT ALL NULL TRUE FALSE CASE WHEN THEN ELSE END AS CAST INTEGER INT REAL TEXT NUMERIC BLOB VARCHAR CHAR '
+  + 'DECIMAL FLOAT DOUBLE PRECISION IS NOT AND OR BETWEEN IN LIKE GLOB REGEXP MATCH ESCAPE COLLATE NOCASE BINARY RTRIM ISNULL NOTNULL '
+  + 'CURRENT_DATE CURRENT_TIME CURRENT_TIMESTAMP SELECT FROM WHERE EXISTS UNION INTERSECT EXCEPT ORDER BY LIMIT OFFSET GROUP HAVING WITH '
+  + 'VALUES ON USING NATURAL JOIN INNER LEFT CROSS OUTER FILTER OVER PARTITION ROWS RANGE GROUPS UNBOUNDED PRECEDING FOLLOWING CURRENT ROW '
+  + 'ASC DESC NULLS FIRST LAST TIES NO OTHERS EXCLUDE DEFAULT').split(' '));
+
+/** Whether the arguments of an aggregate name an outer column: a quoted name, or a bare word that is not syntax, a call or a parameter. */
+function namesColumn(args: SqlToken[]): boolean {
+  for (let at = 0; at < args.length; at++) {
+    const t = args[at];
+    // A subquery binds its own columns.
+    if (t.text === '(' && /^(?:SELECT|WITH|VALUES)$/i.test(args[at + 1]?.text ?? '')) {
+      let depth = 1;
+      while (++at < args.length && depth > 0) {
+        if (args[at].text === '(') depth++;
+        else if (args[at].text === ')') depth--;
+      }
+      at--;
+      continue;
+    }
+    if (t.kind === 'identifier') return true;
+    if (t.kind !== 'word') continue;
+    // Numbers, hexadecimal numbers, $name parameters, a blob literal X'..', a call, and :name or @name parameters.
+    if (/^(?:\d|\$)/.test(t.text) || (/^x$/i.test(t.text) && args[at + 1]?.kind === 'string')) continue;
+    if (args[at + 1]?.text === '(' || /^[:@]$/.test(args[at - 1]?.text ?? '') || NOT_COLUMN.has(t.text.toUpperCase())) continue;
+    return true;
+  }
+  return false;
+}
+
 /** A column-free aggregate moved under fm_q would count its rows instead of the outer query's rows. */
 function aggregateWithoutColumn(operand: string): boolean {
   const tokens = sqlTokens(operand).filter((t) => t.kind !== 'space' && t.kind !== 'comment');
   const aggregate = /^(?:COUNT|SUM|AVG|MIN|MAX|TOTAL|GROUP_CONCAT|STRING_AGG|JSON_GROUP_ARRAY|JSON_GROUP_OBJECT)$/i;
-  const syntax = /^(?:DISTINCT|ALL|NULL|TRUE|FALSE|CASE|WHEN|THEN|ELSE|END|AS|CAST|INTEGER|INT|REAL|TEXT|NUMERIC|BLOB|VARCHAR|CHAR|DECIMAL|FLOAT|DOUBLE|PRECISION)$/i;
   for (let i = 0; i < tokens.length - 1; i++) {
     if (tokens[i].kind !== 'word' || !aggregate.test(tokens[i].text) || tokens[i + 1].text !== '(') continue;
     let depth = 1;
@@ -83,11 +113,7 @@ function aggregateWithoutColumn(operand: string): boolean {
       end++;
     }
     if (depth !== 0) continue;
-    const args = tokens.slice(i + 2, end - 1);
-    const hasColumn = args.some((t, at) => t.kind === 'identifier'
-      || (t.kind === 'word' && !/^(?:\d|0x[0-9a-f]+$)/i.test(t.text)
-        && !syntax.test(t.text) && args[at + 1]?.text !== '('));
-    if (!hasColumn) return true;
+    if (!namesColumn(tokens.slice(i + 2, end - 1))) return true;
   }
   return false;
 }
