@@ -536,9 +536,9 @@ The following reasons apply to the exact enumerated expressions in each named fu
 | [packages/store/src/export-sql.ts:229](../../packages/store/src/export-sql.ts#L229) `exportSql` | `Store.scopedTableSql` (229); `Store.select` (230, 363); `Store.container` (429) | OPERATOR |
 | [packages/store/src/export-sql.ts:255](../../packages/store/src/export-sql.ts#L255) `exportSql/page` | `Store.select` (255) | OPERATOR |
 | [packages/store/src/export-sql.ts:305](../../packages/store/src/export-sql.ts#L305) `exportSql/duplicates` | `Store.select` (305) | OPERATOR |
-| [packages/store/src/fidelity.ts:162](../../packages/store/src/fidelity.ts#L162) `changedAfter` | `Untyped.executeSQL` (162) | DESIGN |
-| [packages/store/src/fidelity.ts:182](../../packages/store/src/fidelity.ts#L182) `queryProblem` | `Calculations.translateSQL` (182); `Store.describe` (183) | DESIGN |
-| [packages/store/src/fidelity.ts:200](../../packages/store/src/fidelity.ts#L200) `calcFidelity` | `Calculations.executeSQL` (200, 201, 287); `Store.sql` (205, 213, 286); `SQLite.all` (213); `SQLite.prepare` (213); `Calculations.computeStored` (249) | DESIGN |
+| [packages/store/src/fidelity.ts:174](../../packages/store/src/fidelity.ts#L174) `changedAfter` | `Untyped.executeSQL` (174) | DESIGN |
+| [packages/store/src/fidelity.ts:194](../../packages/store/src/fidelity.ts#L194) `queryProblem` | `Calculations.translateSQL` (194); `Store.describe` (195) | DESIGN |
+| [packages/store/src/fidelity.ts:212](../../packages/store/src/fidelity.ts#L212) `calcFidelity` | `Calculations.executeSQL` (212, 213, 299); `Store.sql` (217, 225, 298); `SQLite.all` (225); `SQLite.prepare` (225); `Calculations.computeStored` (261) | DESIGN |
 | [packages/store/src/fmexport.ts:226](../../packages/store/src/fmexport.ts#L226) `fmExport` | `Store.recordCount` (226); `Store.query` (227); `Store.containerInfo` (242); `Store.container` (249) | OPERATOR |
 | [packages/store/src/import.ts:91](../../packages/store/src/import.ts#L91) `addExternalSizeColumn` | `SQLite.all` (91); `SQLite.prepare` (91) | OPERATOR |
 | [packages/store/src/import.ts:103](../../packages/store/src/import.ts#L103) `writeDesign` | `SQLite.prepare` (103, 107) | OPERATOR |

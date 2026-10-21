@@ -68,33 +68,69 @@ function numberPlainParameters(sql: string): string {
 const MAX_QUANTIFIED = 500;
 const MAX_QUANTIFIED_DEPTH = 20;
 
-/** Words that are syntax, operators, types, constants or clauses, never the name of a column. */
-const NOT_COLUMN = new Set(('DISTINCT ALL NULL TRUE FALSE CASE WHEN THEN ELSE END AS CAST INTEGER INT REAL TEXT NUMERIC BLOB VARCHAR CHAR '
-  + 'DECIMAL FLOAT DOUBLE PRECISION IS NOT AND OR BETWEEN IN LIKE GLOB REGEXP MATCH ESCAPE COLLATE NOCASE BINARY RTRIM ISNULL NOTNULL '
-  + 'CURRENT_DATE CURRENT_TIME CURRENT_TIMESTAMP SELECT FROM WHERE EXISTS UNION INTERSECT EXCEPT ORDER BY LIMIT OFFSET GROUP HAVING WITH '
-  + 'VALUES ON USING NATURAL JOIN INNER LEFT CROSS OUTER FILTER OVER PARTITION ROWS RANGE GROUPS UNBOUNDED PRECEDING FOLLOWING CURRENT ROW '
-  + 'ASC DESC NULLS FIRST LAST TIES NO OTHERS EXCLUDE DEFAULT').split(' '));
+/** Words SQLite never accepts as a bare column name. Clause and window words (FIRST, LAST, ROW, RANGE, CURRENT, ...) are not here: they can name columns. */
+const RESERVED = new Set(('ALL AND AS BETWEEN CASE COLLATE DISTINCT ELSE END ESCAPE EXCEPT EXISTS FROM GLOB GROUP HAVING IN INTERSECT IS ISNULL JOIN LIKE LIMIT '
+  + 'NOT NOTNULL NULL ON OR ORDER SELECT THEN UNION USING VALUES WHEN WHERE CURRENT_DATE CURRENT_TIME CURRENT_TIMESTAMP').split(' '));
 
-/** Whether the arguments of an aggregate name an outer column: a quoted name, or a bare word that is not syntax, a call or a parameter. */
-function namesColumn(args: SqlToken[]): boolean {
+type Words = SqlToken[];
+
+const nameOf = (t: SqlToken): string => (t.kind === 'identifier' ? t.text.slice(1, -1) : t.text).toLowerCase();
+
+/** Whether a word is a constant, a call, a parameter, an operator or a type or collation after AS or COLLATE rather than a column name. */
+function notColumn(args: Words, at: number): boolean {
+  const t = args[at];
+  const next = args[at + 1];
+  const prev = args[at - 1];
+  if (/^(?:\d|\$)/.test(t.text) || (/^x$/i.test(t.text) && next?.kind === 'string')) return true;
+  if (next?.text === '(' || (prev && /^[:@]$/.test(prev.text))) return true;
+  if (prev && prev.kind === 'word' && /^(?:AS|COLLATE)$/i.test(prev.text)) return true;
+  if (RESERVED.has(t.text.toUpperCase())) return true;
+  // REGEXP and MATCH are operators between two operands, and columns anywhere else.
+  return /^(?:REGEXP|MATCH)$/i.test(t.text) && !!prev && !!next && !/^[-+*/%<>=!|&~(,]$/.test(prev.text) && !/^[,)]$/.test(next.text);
+}
+
+/** Whether a subquery refers to a column that it does not take from a table of its own FROM: any word that is not syntax and not a table or alias it declares. */
+function subqueryNamesColumn(sub: Words): boolean {
+  const own = new Set<string>();
+  for (let i = 0; i < sub.length; i++) {
+    if (sub[i].kind !== 'word' || !/^(?:FROM|JOIN)$/i.test(sub[i].text)) continue;
+    let at = i + 1;
+    while (at < sub.length && (sub[at].kind === 'word' || sub[at].kind === 'identifier') && !RESERVED.has(sub[at].text.toUpperCase())) {
+      own.add(nameOf(sub[at]));
+      if (sub[at + 1]?.text === '.') { at += 2; continue; }
+      at++;
+      if (/^AS$/i.test(sub[at]?.text ?? '')) at++;
+      if (sub[at] && (sub[at].kind === 'word' || sub[at].kind === 'identifier') && !RESERVED.has(sub[at].text.toUpperCase()) && !/^(?:LEFT|RIGHT|INNER|CROSS|NATURAL|OUTER|FULL|WHERE|GROUP|ORDER|LIMIT|HAVING|WINDOW|OFFSET|UNION|ON|USING)$/i.test(sub[at].text)) own.add(nameOf(sub[at++]));
+      break;
+    }
+  }
+  for (let i = 0; i < sub.length; i++) {
+    const t = sub[i];
+    if (t.kind !== 'word' && t.kind !== 'identifier') continue;
+    if (t.kind === 'word' && (notColumn(sub, i) || /^(?:SELECT|WITH|VALUES|RECURSIVE|FROM|JOIN|LEFT|RIGHT|INNER|CROSS|NATURAL|OUTER|FULL|ASC|DESC|BY|WINDOW|OFFSET)$/i.test(t.text))) continue;
+    if (own.has(nameOf(t))) continue;
+    return true;
+  }
+  return false;
+}
+
+/** Whether the arguments of an aggregate name an outer column: a quoted name, a bare word that is not syntax, a call or a parameter, or a subquery that reaches one. */
+function namesColumn(args: Words): boolean {
   for (let at = 0; at < args.length; at++) {
     const t = args[at];
-    // A subquery binds its own columns.
     if (t.text === '(' && /^(?:SELECT|WITH|VALUES)$/i.test(args[at + 1]?.text ?? '')) {
+      const start = at + 1;
       let depth = 1;
       while (++at < args.length && depth > 0) {
         if (args[at].text === '(') depth++;
         else if (args[at].text === ')') depth--;
       }
+      if (subqueryNamesColumn(args.slice(start, at - 1))) return true;
       at--;
       continue;
     }
     if (t.kind === 'identifier') return true;
-    if (t.kind !== 'word') continue;
-    // Numbers, hexadecimal numbers, $name parameters, a blob literal X'..', a call, and :name or @name parameters.
-    if (/^(?:\d|\$)/.test(t.text) || (/^x$/i.test(t.text) && args[at + 1]?.kind === 'string')) continue;
-    if (args[at + 1]?.text === '(' || /^[:@]$/.test(args[at - 1]?.text ?? '') || NOT_COLUMN.has(t.text.toUpperCase())) continue;
-    return true;
+    if (t.kind === 'word' && !notColumn(args, at)) return true;
   }
   return false;
 }

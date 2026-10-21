@@ -29,6 +29,12 @@ test('a decimal number or a dotted name is one value or one name in a query shap
   assert.equal(queryShape('SELECT t.*, x.y.z FROM q WHERE a.b = ?'), 'SELECT x*, x FROM x WHERE x = ?');
 });
 
+test('a number written as 1., .5 or 1.5e-3 is one value in a query shape', () => {
+  assert.equal(queryShape('SELECT 1. FROM t WHERE a = .5e3'), 'SELECT v FROM x WHERE x = v');
+  assert.equal(queryShape('SELECT 1.5e-3, 2e+4, 0x1e-3 FROM t'), 'SELECT v , v , v - v FROM x');
+  assert.equal(queryShape('SELECT a - 3 FROM t'), 'SELECT x - v FROM x');
+});
+
 test('a query with an unterminated quote or comment has no shape, and does not stop the report', () => {
   assert.equal(queryShape("SELECT 'abc FROM O"), '(unparsed)');
   assert.equal(queryShape('SELECT 1 /* never closed'), '(unparsed)');
