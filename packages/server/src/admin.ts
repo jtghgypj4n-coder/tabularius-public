@@ -1174,7 +1174,7 @@ export class Admin {
           else {
             const before = store.webViewerHosts;
             // A page of this server's own host would run beside the app with scripts and same-origin together.
-            const ownNames = [String(req.headers.host ?? '').replace(/:\d+$/, ''), this.host.publicUrl ? new URL(this.host.publicUrl).hostname : ''].map((n) => n.replace(/^\[|\]$/g, '').toLowerCase()).filter(Boolean);
+            const ownNames = [String(req.headers.host ?? '').replace(/:\d+$/, ''), this.host.publicUrl ? new URL(this.host.publicUrl).hostname : ''].map((n) => n.replace(/^\[|\]$/g, '').replace(/\.$/, '').toLowerCase()).filter(Boolean);
             const ownHost = (body.hosts as unknown[]).find((h) => {
               const t = typeof h === 'string' ? h.trim().toLowerCase() : '';
               return ownNames.some((n) => t === n || (t.startsWith('*.') && n.endsWith(t.slice(1))));
