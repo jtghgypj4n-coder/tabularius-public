@@ -23,11 +23,11 @@ before(() => {
     { op: 'createTable', name: 'Q', fields: [{ name: 'Last', type: 'text' }, { name: 'Note', type: 'text' }] },
     { op: 'createTable', name: 'C', fields: [{ name: 'Code', type: 'text' }] },
     { op: 'createTable', name: 'W', fields: [{ name: 'Name', type: 'text' }, { name: 'N', type: 'number' }] },
-    { op: 'createTable', name: 'K', fields: ['Grp', 'First', 'Last', 'Range', 'Current', 'Match', 'Rows', 'End', 'Like', 'Glob', 'With', 'True', 'Regexp'].map((name) => ({ name, type: 'text' })) },
+    { op: 'createTable', name: 'K', fields: ['Grp', 'First', 'Last', 'Range', 'Current', 'Match', 'Rows', 'End', 'Like', 'Glob', 'With', 'True', 'Regexp', 'User', 'UserName', 'Current_User'].map((name) => ({ name, type: 'text' })) },
     { op: 'createTable', name: 'T2', fields: [{ name: 'k', type: 'number' }, { name: 'v', type: 'number' }] },
   ] as never);
   for (const [Name, N] of [['a', 1], ['b', 2], ['c', 2], ['d', 2], ['e', 3]]) store.create('W', { Name, N: String(N) });
-  for (const Grp of ['a', 'b', 'b', 'b']) store.create('K', { Grp, First: 'x', Last: 'x', Range: 'x', Current: 'x', Match: 'x', Rows: 'x', End: 'x', Like: 'x', Glob: 'x', With: 'x', True: 'x', Regexp: 'x' });
+  for (const Grp of ['a', 'b', 'b', 'b']) store.create('K', { Grp, First: 'x', Last: 'x', Range: 'x', Current: 'x', Match: 'x', Rows: 'x', End: 'x', Like: 'x', Glob: 'x', With: 'x', True: 'x', Regexp: 'x', User: 'x', UserName: 'x', Current_User: 'x' });
   for (const [k, v] of [[1, 5], [2, 6], [3, 7]]) store.create('T2', { k: String(k), v: String(v) });
   store.create('C', { Code: '5' });
   store.create('C', { Code: '7' });
@@ -106,7 +106,9 @@ const havingW = (operand: string) => `SELECT N FROM W GROUP BY N HAVING ${operan
 
 test('an aggregate over a column named like a clause, window or operator word is moved', () => {
   const operands = ['First', 'Last', 'Range', 'Current', 'Match', 'Rows', 'End', 'Like', 'Glob', 'With', 'True', 'Regexp', 'COALESCE(First, 1)', 'First IS NOT NULL',
-    'Last + 0', 'Current COLLATE NOCASE', 'CAST(Range AS TEXT)', 'Match IS NOT NULL', 'Like = 1', '1 + Regexp', 'End IS NOT NULL', 'CASE WHEN End IS NULL THEN 0 ELSE 1 END'];
+    'Last + 0', 'Current COLLATE NOCASE', 'CAST(Range AS TEXT)', 'Match IS NOT NULL', 'Like = 1', '1 + Regexp', 'End IS NOT NULL', 'CASE WHEN End IS NULL THEN 0 ELSE 1 END',
+    // The account names are constants unless a table of the select has a column of that name.
+    'User', 'user', 'UserName', 'Current_User', 'CURRENT_USER', "User || 'x'", 'CASE WHEN User IS NULL THEN 0 ELSE 1 END'];
   for (const operand of operands) {
     assert.notEqual(rewrite(havingK(operand)), havingK(operand), operand);
     assert.deepEqual(run(havingK(operand)).rows, [['b']], operand);
