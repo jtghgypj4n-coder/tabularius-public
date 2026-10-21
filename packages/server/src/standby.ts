@@ -27,6 +27,9 @@ import { writeDurable } from '../../store/src/durable.ts';
 
 export const STANDBY_STATE = '.openhbam-standby.json';
 
+/** The longest hosted file name taken from the main server, in bytes: with the extension it must fit in a file name. */
+const MAX_NAME = 200;
+
 /** A file as it stood: its size and time, or null for no file. */
 export type Seen = { size: number; mtimeMs: number } | null;
 
@@ -96,6 +99,8 @@ export class Standby {
   private readonly clientId = randomBytes(8).toString('hex');
   private readonly following = new Map<string, Promise<void>>();
   private readonly resync = new Set<string>();
+  /** Files whose unfinished notes have been said, so that a copy tried again does not say it again. */
+  private readonly warned = new Set<string>();
   private release?: () => void;
   private lister?: Promise<void>;
   private flushTimer?: NodeJS.Timeout;
@@ -106,7 +111,12 @@ export class Standby {
     this.opts = { ...opts, primary: opts.primary.replace(/\/+$/, '') };
     this.log = opts.log ?? console.warn;
     const old = standbyState(opts.folder, this.log);
-    this.state = old?.primary === this.opts.primary ? old : { primary: this.opts.primary, files: {} };
+    // No prototype: a file named __proto__ or toString is a name like any other, not the object's own.
+    const files: Record<string, StandbyFile> = Object.create(null);
+    if (old?.primary === this.opts.primary) {
+      for (const [name, f] of Object.entries(old.files)) Object.defineProperty(files, name, { value: f, enumerable: true, writable: true, configurable: true });
+    }
+    this.state = { primary: this.opts.primary, files };
   }
 
   /** Starts following the main server; throws when the folder holds files this standby didn't make. */
@@ -197,7 +207,7 @@ export class Standby {
         const { files } = await res.json() as { files: { name: string }[] };
         for (const { name } of files) {
           // A name from the main server becomes a path in this folder: it must be a file name and nothing else.
-          if (typeof name !== 'string' || !name || name === '.' || name === '..' || /[\\/\0]/.test(name)) {
+          if (typeof name !== 'string' || !name || name === '.' || name === '..' || /[\\/\0]/.test(name) || Buffer.byteLength(name) > MAX_NAME) {
             this.trouble(`the main server listed a name that is not a file name: ${JSON.stringify(name)}`);
             continue;
           }
@@ -331,6 +341,11 @@ export class Standby {
 
   private async copy(name: string): Promise<void> {
     this.assertCopyAllowed(name);
+    const noted = this.state.files[name];
+    if (noted && (noted.pending || noted.size < 0) && !this.warned.has(name)) {
+      this.warned.add(name);
+      this.log(`${name}: its notes say a copy or a change did not finish; copying it again${noted.pending ? '' : ' (notes from an older version cannot tell this from a local write, so local writes to it are lost)'}`);
+    }
     const res = await this.get(`/tabularius/replication/v1/files/${encodeURIComponent(name)}/copy`, 3600);
     if (!res.ok || !res.body) throw new Error(`copying it: the main server answered ${res.status}`);
     // Each position must be present and plain digits: a missing or blank one would read as zero, and "0x10" or "1e3" as other numbers.
@@ -372,6 +387,7 @@ export class Standby {
     }
     this.mark(name, { run, seq, wholeAfter, size: 0, mtimeMs: 0, at: Date.now() });
     this.resync.delete(name);
+    this.warned.delete(name);
     this.log(`copied ${name}`);
   }
 
