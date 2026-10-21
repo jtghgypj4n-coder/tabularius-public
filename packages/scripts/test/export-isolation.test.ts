@@ -1,11 +1,12 @@
 import { test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createStore, Store } from '../../store/src/index.ts';
 import { runScript, ScriptError } from '../src/index.ts';
 import type { ScriptStep } from '../../fmp12/src/index.ts';
+import { validateSavedExcel } from './xlsx-opc-validator.ts';
 
 const step = (stepId: number, name: string, params: ScriptStep['params'] = {}): ScriptStep => ({ stepId, name, enabled: true, params });
 
@@ -43,6 +44,7 @@ for (const [id, name] of [[144, 'Save Records as PDF'], [143, 'Save Records as E
     assert.equal(reads, 0);
     assert.equal(existsSync(documents), !isolated);
     assert.equal(existsSync(join(documents, 'out')), !isolated);
+    if (id === 143 && !isolated) validateSavedExcel(readFileSync(join(documents, 'out')));
   });
 }
 
