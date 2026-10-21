@@ -30,6 +30,14 @@ export const STANDBY_STATE = '.openhbam-standby.json';
 /** The longest hosted file name taken from the main server, in bytes: with the extension it must fit in a file name. */
 const MAX_NAME = 200;
 
+const VISIBLE = /^[\p{L}\p{N}\p{M}\p{S}\p{P}]+(?: [\p{L}\p{N}\p{M}\p{S}\p{P}]+)*$/u;
+
+/** A name or other text from the main server, fit for one line of the log: as it is when it holds only visible characters, otherwise quoted with every other character escaped. Cut at `max` characters. */
+function shown(text: string, max = 200): string {
+  const cut = text.length > max ? `${text.slice(0, max)}…` : text;
+  return VISIBLE.test(cut) ? cut : JSON.stringify(cut).replace(/[^\x20-\x7e]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
+}
+
 /** A file as it stood: its size and time, or null for no file. */
 export type Seen = { size: number; mtimeMs: number } | null;
 
@@ -101,6 +109,8 @@ export class Standby {
   private readonly resync = new Set<string>();
   /** Files whose unfinished notes have been said, so that a copy tried again does not say it again. */
   private readonly warned = new Set<string>();
+  /** Names the main server listed that are not file names, as reported, so that each is said once. */
+  private readonly badNames = new Set<string>();
   private release?: () => void;
   private lister?: Promise<void>;
   private flushTimer?: NodeJS.Timeout;
@@ -191,6 +201,16 @@ export class Standby {
     if (this.abort.signal.aborted) throw new Stop();
   }
 
+  /** Says once, per name, that the main server listed something that is not a file name; what is said is cut short. */
+  private refuseName(name: unknown): void {
+    const what = `the main server listed a name that is not a file name: ${shown(typeof name === 'string' ? name : JSON.stringify(name) ?? String(name), 80)}`;
+    if (!this.badNames.has(what) && this.badNames.size < 100) {
+      this.badNames.add(what);
+      this.log(what);
+    }
+    this.problem = what;
+  }
+
   private trouble(what: string): void {
     if (this.problem !== what) this.log(what);
     this.problem = what;
@@ -208,7 +228,7 @@ export class Standby {
         for (const { name } of files) {
           // A name from the main server becomes a path in this folder: it must be a file name and nothing else.
           if (typeof name !== 'string' || !name || name === '.' || name === '..' || /[\\/\0]/.test(name) || Buffer.byteLength(name) > MAX_NAME) {
-            this.trouble(`the main server listed a name that is not a file name: ${JSON.stringify(name)}`);
+            this.refuseName(name);
             continue;
           }
           if (!this.following.has(name)) this.following.set(name, this.follow(name));
@@ -291,7 +311,7 @@ export class Standby {
   /** Check again after network I/O, before a copy can replace local bytes or sidecars. */
   private assertCopyAllowed(name: string): void {
     if (this.opts.overwrite) return;
-    if (this.changedHere(name)) throw new Error(`${name} changed here since it was last updated: use --overwrite to replace it`);
+    if (this.changedHere(name)) throw new Error(`${shown(name)} changed here since it was last updated: use --overwrite to replace it`);
   }
 
   /** Notes what is about to be done to the file, and saves at once: the file is not touched until it is on disk. */
@@ -328,7 +348,7 @@ export class Standby {
         delay = 1000;
       } catch (e) {
         if (e instanceof Stop) return;
-        this.trouble(`following ${name}: ${(e as Error).message}`);
+        this.trouble(`following ${shown(name)}: ${(e as Error).message}`);
         try {
           await this.pause(delay);
         } catch {
@@ -344,7 +364,7 @@ export class Standby {
     const noted = this.state.files[name];
     if (noted && (noted.pending || noted.size < 0) && !this.warned.has(name)) {
       this.warned.add(name);
-      this.log(`${name}: its notes say a copy or a change did not finish; copying it again${noted.pending ? '' : ' (notes from an older version cannot tell this from a local write, so local writes to it are lost)'}`);
+      this.log(`${shown(name)}: its notes say a copy or a change did not finish; copying it again${noted.pending ? '' : ' (notes from an older version cannot tell this from a local write, so local writes to it are lost)'}`);
     }
     const res = await this.get(`/tabularius/replication/v1/files/${encodeURIComponent(name)}/copy`, 3600);
     if (!res.ok || !res.body) throw new Error(`copying it: the main server answered ${res.status}`);
@@ -388,7 +408,7 @@ export class Standby {
     this.mark(name, { run, seq, wholeAfter, size: 0, mtimeMs: 0, at: Date.now() });
     this.resync.delete(name);
     this.warned.delete(name);
-    this.log(`copied ${name}`);
+    this.log(`copied ${shown(name)}`);
   }
 
   /** Applies changes as they come, until the copy has to be made again. */
@@ -399,7 +419,7 @@ export class Standby {
       const res = await this.get(`/tabularius/replication/v1/files/${encodeURIComponent(name)}/changes?run=${f.run}&after=${f.seq}&wait=${wait}`, wait + 30);
       if (res.status === 409 || res.status === 410) {
         // The main server restarted, or this fell too far behind: start again from a fresh copy.
-        this.log(`${name}: ${((await res.json()) as { error: string }).error}`);
+        this.log(`${shown(name)}: ${shown(String(((await res.json()) as { error: unknown }).error))}`);
         this.resync.add(name);
         return;
       }
@@ -408,7 +428,11 @@ export class Standby {
       if (!this.untouched(name)) return;
       let seq = f.seq;
       for (const r of records) {
-        if (r.seq !== ++seq) throw new Error(`change ${seq} is missing`);
+        if (r.seq !== ++seq) {
+          // Nothing is applied, and the file is copied again rather than waiting for a change the main server may not have.
+          this.resync.add(name);
+          throw new Error(`change ${seq} is missing`);
+        }
       }
       seq = f.seq;
       if (records.length) {
@@ -425,7 +449,7 @@ export class Standby {
         }
         this.mark(name, { ...f, seq, at: Date.now() }, true);
       }
-      if (this.problem?.startsWith(`following ${name}:`)) this.problem = undefined;
+      if (this.problem?.startsWith(`following ${shown(name)}:`)) this.problem = undefined;
     }
   }
 }

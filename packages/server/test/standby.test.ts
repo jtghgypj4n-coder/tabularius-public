@@ -459,6 +459,8 @@ test('a batch with a change missing is not applied at all, and leaves no note of
     assert.equal(existsSync(file + '-wal'), false, 'change 2 was not applied: no log was written');
     assert.equal(statSync(file).mtimeMs, before.mtimeMs);
     assert.equal(seen.copies, 0);
+    // The change may never come: the file is copied again.
+    await until('the file is copied again', () => seen.copies === 1 && tinyValue(file) === 'primary copy', 10_000);
   } finally {
     await standby?.stop();
     rmSync(root, { recursive: true, force: true });
@@ -503,6 +505,109 @@ test('files named like the properties of an object are followed, noted and found
   }
 });
 
+/** A standby that is told by the main server which files it has, whatever their names, and copies each from the same source. */
+function standbyOfNames(folder: string, source: string, names: string[], lines: string[], seen: { copies: number; changes: number }, primary = 'http://primary.invalid'): Standby {
+  const s = new Standby({ folder, primary, token: TOKEN, log: (m) => void lines.push(m), wait: 0 });
+  fakePrimary(s, source, seen);
+  const reach = (s as unknown as { get: (path: string) => Promise<Response> }).get;
+  Object.assign(s, { get: async (path: string) => path.endsWith('/files') ? Response.json({ files: names.map((name) => ({ name })) }) : reach.call(s, path) });
+  return s;
+}
+
+test('a file name is taken by its bytes, not its characters, and 200 bytes is allowed', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'tabularius-standby-limit-'));
+  const folder = join(root, 'spare');
+  mkdirSync(folder);
+  const source = join(root, 'source.sqlite');
+  const seen = { copies: 0, changes: 0 };
+  const lines: string[] = [];
+  const fits = ['é'.repeat(100), 'x'.repeat(200)];
+  const too = ['é'.repeat(101), 'x'.repeat(201)];
+  let standby: Standby | undefined;
+  try {
+    tinyDb(source, 'primary copy');
+    standby = standbyOfNames(folder, source, [...too, ...fits], lines, seen);
+    standby.start();
+    await until('the names that fit are copied', () => fits.every((n) => lines.includes(`copied ${n}`)), 5000);
+    assert.deepEqual(readdirSync(folder).filter((f) => f.endsWith(STORE_EXT)).sort(), fits.map((n) => n + STORE_EXT).sort());
+    assert.equal(lines.filter((m) => m.includes('not a file name')).length, 2, lines.join('\n'));
+  } finally {
+    await standby?.stop();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('names that would fill the log or break a line of it are shortened, escaped, and said once', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'tabularius-standby-log-'));
+  const folder = join(root, 'spare');
+  mkdirSync(folder);
+  const source = join(root, 'source.sqlite');
+  const seen = { copies: 0, changes: 0 };
+  const lines: string[] = [];
+  const odd = ['evil\nforged: copied Local', 'tab\tand\u2028separator', 'esc\u001b[31m'];
+  let standby: Standby | undefined;
+  try {
+    tinyDb(source, 'primary copy');
+    standby = standbyOfNames(folder, source, odd, lines, seen);
+    standby.start();
+    await until('they are copied', () => lines.filter((m) => m.startsWith('copied ')).length === odd.length, 5000);
+    for (const m of lines) assert.doesNotMatch(m, /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/, `a line of the log holds a raw control character: ${JSON.stringify(m)}`);
+    assert.ok(lines.includes('copied "evil\\nforged: copied Local"'), lines.join(' | '));
+    await standby.stop();
+    standby = undefined;
+
+    // Names that are not file names: a huge one is cut, and each is said once however often the list is read.
+    const flood = new Standby({ folder, primary: 'http://primary.invalid', token: TOKEN, log: (m) => void lines.push(m) });
+    lines.length = 0;
+    const refuse = (name: unknown): void => (flood as unknown as { refuseName: (n: unknown) => void }).refuseName(name);
+    const huge = `a/${'b'.repeat(100_000)}`;
+    for (let i = 0; i < 4; i++) { refuse(huge); refuse('../x'); refuse({ not: 'a string' }); }
+    assert.equal(lines.length, 3, lines.join('\n'));
+    assert.ok(lines.every((m) => m.length < 200), 'each is cut short');
+  } finally {
+    await standby?.stop();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('notes of unfinished work are said once for a file until it is copied, and again when new ones appear', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'tabularius-standby-warned-'));
+  const file = join(root, 'Local' + STORE_EXT);
+  const source = join(root, 'source.sqlite');
+  const primary = 'http://primary.invalid';
+  const seen = { copies: 0, changes: 0 };
+  const lines: string[] = [];
+  const said = () => lines.filter((m) => m.includes('its notes say a copy or a change did not finish')).length;
+  let standby: Standby | undefined;
+  try {
+    tinyDb(source, 'primary copy');
+    tinyDb(file, 'replicated');
+    writeFileSync(join(root, STANDBY_STATE), JSON.stringify({ primary, files: { Local: { run: 'old-run', seq: 1, wholeAfter: 2, size: -1, mtimeMs: -1, at: 0 } } }));
+    standby = new Standby({ folder: root, primary, token: TOKEN, log: (m) => void lines.push(m), wait: 0 });
+    fakePrimary(standby, source, seen);
+    // The first copy fails and is tried again: the notes are still unfinished, and are said once.
+    const reach = (standby as unknown as { get: (path: string) => Promise<Response> }).get;
+    let failed = false;
+    Object.assign(standby, { get: async (path: string) => {
+      if (path.endsWith('/copy') && !failed) { failed = true; return new Response('no', { status: 500 }); }
+      return reach.call(standby, path);
+    } });
+    standby.start();
+    await until('the file is copied', () => lines.includes('copied Local'), 10_000);
+    assert.equal(failed, true);
+    assert.equal(said(), 1, lines.join('\n'));
+
+    // Notes of unfinished work appear again (as after a failed apply): the file is copied again, and it is said again.
+    const now = statSync(file);
+    Object.assign(standby.state.files.Local, { size: -1, mtimeMs: -1, pending: { states: [{ size: now.size, mtimeMs: now.mtimeMs }] } });
+    await until('the file is copied a second time', () => lines.filter((m) => m === 'copied Local').length === 2, 10_000);
+    assert.equal(said(), 2, lines.join('\n'));
+  } finally {
+    await standby?.stop();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('a name from the main server that is not a file name is never followed', async () => {
   const root = mkdtempSync(join(tmpdir(), 'tabularius-standby-names-'));
   const folder = join(root, 'spare');
@@ -525,7 +630,8 @@ test('a name from the main server that is not a file name is never followed', as
     standby.start();
     await until('Local is copied', () => lines.includes('copied Local'), 5000);
     assert.ok(lines.some((m) => m.includes('not a file name')), lines.join('\n'));
-    assert.ok(lines.some((m) => m.includes('not a file name') && m.includes('x'.repeat(300))), 'a name too long for a file name is reported too');
+    const long = lines.find((m) => m.includes('not a file name') && m.includes('x'.repeat(80)));
+    assert.ok(long && !long.includes('x'.repeat(81)) && long.length < 200, `a name too long for a file name is reported, cut short: ${long}`);
     assert.deepEqual(readdirSync(folder).filter((f) => f.endsWith(STORE_EXT)), ['Local' + STORE_EXT]);
     assert.equal(existsSync(join(root, 'escape' + STORE_EXT)), false);
   } finally {
