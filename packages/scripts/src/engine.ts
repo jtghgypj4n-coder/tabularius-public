@@ -2735,6 +2735,9 @@ export class ScriptEngine {
       fetch: (via, req) => {
         const held = this.callStackFiles(f).find((x) => captureOnly(x));
         if (held !== undefined) throw new CalcError(ERR.calculation, `${via} can't reach the web: "${held}" is a capture-only file, and its scripts never reach the network`);
+        // Checked at every request: this closure outlives the step that made it, and a file may have joined the call stack since.
+        const refused = this.networkRefusal(f);
+        if (refused) throw new CalcError(ERR.calculation, `${via} can't reach the web: ${refused}`);
         const key = JSON.stringify([via, req.method, req.url, req.headers, req.body]);
         const done = this.pluginFetched.get(key);
         if (done) return done;
@@ -8669,9 +8672,9 @@ export class ScriptEngine {
 
   /** The file whose scripts can't make web requests here: the one that started a run with no network, or one on the call stack that hasn't been allowed it. */
   private networkBlocker(f: Frame): string | undefined {
-    if (!this.opts.network) return f.store.name;
     const check = this.opts.networkFiles;
-    return check ? this.callStackFiles(f).find((x) => !check(x)) : undefined;
+    const blocked = check ? this.callStackFiles(f).find((x) => !check(x)) : undefined;
+    return this.opts.network ? blocked : blocked ?? f.store.name;
   }
 
   /** Why web requests can't be made from here, or undefined when they can. Test mode records requests instead, so it is never asked. */

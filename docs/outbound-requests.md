@@ -55,15 +55,17 @@ accident. When this copy is the live one:
 
 - **For one file:** open the admin console, find the file under Hosted files and
   choose **Turn on** in its Script network column. The choice is kept in the file
-  (and in its security log), so it survives a restart and a backup restore, and
-  it applies at once to the next script that runs. A script that performs a
+  (and in its security log), so it survives a restart, applies at once to the
+  next script that runs, and stays when the file is converted again from its
+  `.fmp12`. Restoring a backup brings back the setting the backup had. A script that performs a
   script in another file needs both files to have it on.
 - **For every file:** start the server with `--allow-script-network`.
 
 A schedule, an automation or an inbound hook needs the file's switch and its own
 network option. Scripts an AI app runs, debug runs on a scratch copy and dry runs
 stay offline whatever the switch says, and a capture-only file never reaches the
-network. In outbound test mode requests are recorded instead (see below).
+network. Outbound test mode does not consult the switch: requests are recorded,
+and only the hosts it allows are really contacted (see below).
 
 ## What an administrator can allow
 

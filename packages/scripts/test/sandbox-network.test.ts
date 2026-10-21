@@ -57,6 +57,9 @@ test('a file whose network access is off refuses web requests in the words it wa
     assert.match(JSON.stringify(run.trace), /Network access is off for/);
   }
   assert.match(JSON.stringify((await insert(url, { network, networkFiles: (file: string) => file !== 'Elsewhere', networkOff, callerFiles: ['Elsewhere'] })).trace), /\\"Elsewhere\\"/);
+  // A run that starts in a file with no network and reaches an allowed one names the file that is off.
+  const started = await insert(url, { network: false, networkFiles: (file: string) => file !== 'Elsewhere', networkOff, callerFiles: ['Elsewhere'] });
+  assert.match(JSON.stringify(started.trace), /\\"Elsewhere\\"/);
   assert.deepEqual(sent, []);
   // Every file allowed: the request goes out.
   assert.equal((await insert(url, { network, networkFiles: () => true, networkOff })).result, '0|sent');
