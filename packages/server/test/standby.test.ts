@@ -181,6 +181,182 @@ test('a resync copy never replaces a file or sidecar changed here, unless it is 
   }
 });
 
+/** A main server that has one tiny file, as far as the standby can tell: it answers the three requests it makes. */
+function fakePrimary(standby: Standby, source: string, seen: { copies: number; changes: number }, changes: (path: string) => Promise<Response> | Response = async () => {
+  await sleep(100);
+  return new Response(new Uint8Array());
+}): void {
+  Object.assign(standby, { get: async (path: string): Promise<Response> => {
+    if (path.endsWith('/files')) return Response.json({ files: [{ name: 'Local' }] });
+    if (path.endsWith('/copy')) {
+      seen.copies++;
+      return new Response(new Uint8Array(readFileSync(source)), { headers: { 'x-tabularius-run': 'new-run', 'x-tabularius-seq': '0', 'x-tabularius-whole-after': '0' } });
+    }
+    if (path.includes('/changes?')) {
+      seen.changes++;
+      return changes(path);
+    }
+    throw new Error(`unexpected request: ${path}`);
+  } });
+}
+
+test('what a crash of the standby itself leaves is its own, and is copied again', async () => {
+  // The notes carry a size of -1 from before a copy or a batch of changes is applied until it is done, so a file in either
+  // state, with the log the standby itself left beside it, or no file at all, is not a change made here.
+  for (const left of ['the old file', 'the old file and its log', 'no file']) {
+    const root = mkdtempSync(join(tmpdir(), 'tabularius-standby-crashed-'));
+    const file = join(root, 'Local' + STORE_EXT);
+    const source = join(root, 'source.sqlite');
+    const primary = 'http://primary.invalid';
+    const seen = { copies: 0, changes: 0 };
+    let standby: Standby | undefined;
+    try {
+      tinyDb(source, 'primary copy');
+      tinyDb(file, 'replicated');
+      writeFileSync(join(root, STANDBY_STATE), JSON.stringify({ primary, files: {
+        Local: { run: 'old-run', seq: 1, wholeAfter: 2, size: -1, mtimeMs: -1, at: 0 },
+      } }));
+      if (left === 'the old file and its log') writeFileSync(file + '-wal', 'half of a batch of changes');
+      if (left === 'no file') rmSync(file);
+      standby = new Standby({ folder: root, primary, token: TOKEN, log: () => {}, wait: 0 });
+      fakePrimary(standby, source, seen);
+      standby.start();
+      await until(`the file is copied again (${left})`, () => existsSync(file) && tinyValue(file) === 'primary copy', 5000);
+      assert.equal(existsSync(file + '-wal'), false, 'the log left by the crash is gone');
+    } finally {
+      await standby?.stop();
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+});
+
+test('opening a file read-only, or deleting it, is not a change that --overwrite would save', async () => {
+  // A read-only open of a file in WAL mode leaves an empty log and a shared-memory index beside it; a file that is gone
+  // has nothing in it to lose.
+  const root = mkdtempSync(join(tmpdir(), 'tabularius-standby-quiet-'));
+  const file = join(root, 'Local' + STORE_EXT);
+  const source = join(root, 'source.sqlite');
+  const primary = 'http://primary.invalid';
+  const seen = { copies: 0, changes: 0 };
+  let standby: Standby | undefined;
+  try {
+    tinyDb(source, 'primary copy');
+    tinyDb(file, 'replicated');
+    savedTinyState(root, primary);
+    writeFileSync(file + '-wal', '');
+    writeFileSync(file + '-shm', '');
+    standby = new Standby({ folder: root, primary, token: TOKEN, log: () => {}, wait: 0 });
+    fakePrimary(standby, source, seen);
+    standby.start();
+    await until('the file is followed', () => seen.changes > 0, 5000);
+    assert.equal(seen.copies, 0, 'a file that only has an empty log beside it is not copied again');
+    assert.equal(tinyValue(file), 'replicated');
+    await standby.stop();
+    standby = undefined;
+
+    rmSync(file);
+    rmSync(file + '-wal');
+    rmSync(file + '-shm');
+    seen.copies = 0;
+    standby = new Standby({ folder: root, primary, token: TOKEN, log: () => {}, wait: 0 });
+    fakePrimary(standby, source, seen);
+    standby.start();
+    await until('the deleted file is copied again', () => existsSync(file) && tinyValue(file) === 'primary copy', 5000);
+  } finally {
+    await standby?.stop();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a rollback journal left beside a file is a change made here, and is never left to be rolled back into a new copy', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'tabularius-standby-journal-'));
+  const file = join(root, 'Local' + STORE_EXT);
+  const source = join(root, 'source.sqlite');
+  const primary = 'http://primary.invalid';
+  const seen = { copies: 0, changes: 0 };
+  let standby: Standby | undefined;
+  try {
+    tinyDb(source, 'primary copy');
+    tinyDb(file, 'replicated');
+    savedTinyState(root, primary);
+    writeFileSync(file + '-journal', 'a write that did not finish');
+    standby = new Standby({ folder: root, primary, token: TOKEN, log: () => {} });
+    assert.throws(() => standby!.start(), /Local.*changed|changed.*Local/);
+    assert.equal(readFileSync(file + '-journal', 'utf8'), 'a write that did not finish');
+
+    // With --overwrite it is replaced with the file, and the journal and a shared-memory index go with it.
+    writeFileSync(file + '-shm', 'index');
+    standby = new Standby({ folder: root, primary, token: TOKEN, log: () => {}, overwrite: true, wait: 0 });
+    fakePrimary(standby, source, seen);
+    standby.start();
+    await until('the copy replaces the file', () => seen.copies > 0 && standby!.state.files.Local.size >= 0, 5000);
+    assert.equal(tinyValue(file), 'primary copy');
+    assert.equal(existsSync(file + '-journal'), false);
+    assert.equal(existsSync(file + '-shm'), false);
+  } finally {
+    await standby?.stop();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a main server restart does not copy over a file changed here, and the file is not copied twice', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'tabularius-standby-restart-'));
+  const file = join(root, 'Local' + STORE_EXT);
+  const source = join(root, 'source.sqlite');
+  const primary = 'http://primary.invalid';
+  const seen = { copies: 0, changes: 0 };
+  let standby: Standby | undefined;
+  try {
+    tinyDb(source, 'primary copy');
+    tinyDb(file, 'replicated');
+    savedTinyState(root, primary);
+    standby = new Standby({ folder: root, primary, token: TOKEN, log: () => {}, wait: 0 });
+    // The first answer says the run has changed; then the file is edited here, after the standby has looked at it.
+    fakePrimary(standby, source, seen, async () => {
+      if (seen.changes === 1) {
+        const db = new DatabaseSync(file);
+        try { db.exec("UPDATE rows SET value = 'local edit'"); } finally { db.close(); }
+        return Response.json({ error: 'new run' }, { status: 409 });
+      }
+      await sleep(100);
+      return new Response(new Uint8Array());
+    });
+    standby.start();
+    await until('the refusal is reported', () => !!standby!.problem?.includes('changed here'), 5000);
+    assert.equal(seen.copies, 0, 'the main server was not asked for a copy');
+    assert.equal(tinyValue(file), 'local edit');
+  } finally {
+    await standby?.stop();
+    rmSync(root, { recursive: true, force: true });
+  }
+
+  // After a copy, a failure to follow the changes must not copy the file again.
+  const root2 = mkdtempSync(join(tmpdir(), 'tabularius-standby-once-'));
+  const file2 = join(root2, 'Local' + STORE_EXT);
+  const source2 = join(root2, 'source.sqlite');
+  const seen2 = { copies: 0, changes: 0 };
+  let standby2: Standby | undefined;
+  try {
+    tinyDb(source2, 'primary copy');
+    tinyDb(file2, 'replicated');
+    savedTinyState(root2, primary);
+    standby2 = new Standby({ folder: root2, primary, token: TOKEN, log: () => {}, wait: 0 });
+    fakePrimary(standby2, source2, seen2, async () => {
+      if (seen2.changes === 1) return Response.json({ error: 'new run' }, { status: 409 });
+      if (seen2.changes === 2) return new Response('no', { status: 500 });
+      await sleep(100);
+      return new Response(new Uint8Array());
+    });
+    standby2.start();
+    await until('the changes are asked for again after the failure', () => seen2.changes >= 3, 10_000);
+    assert.equal(seen2.copies, 1);
+    assert.equal(tinyValue(file2), 'primary copy');
+  } finally {
+    await standby2?.stop();
+    rmSync(root2, { recursive: true, force: true });
+  }
+});
+
 test('a standby follows the main server, survives restarts on both sides, and takes over', { skip }, async () => {
   const root = mkdtempSync(join(tmpdir(), 'tabularius-standby-'));
   const main = join(root, 'main');

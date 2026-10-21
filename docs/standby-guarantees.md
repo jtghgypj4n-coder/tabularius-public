@@ -77,6 +77,15 @@ the writes you keep to the one that does not; it never merges two histories and 
   writes were taken on the old side, because it does not compare contents.
 - **`--overwrite` is the decision to keep the other side.** The folder's files are replaced by copies and what they held that
   the other side did not is gone; nothing records what it was. Keep the old folder (copy it aside) first if you may need it.
+- **A file changed here is never replaced without `--overwrite`**, at start, after the main server restarts, and again
+  just before a copy replaces anything. A file counts as changed here when its size or time differs from what the standby
+  wrote down, or a write-ahead log or rollback journal that holds something is left beside it. A file that is missing is
+  copied again unless such a log is left, an empty log or a shared-memory index left by opening the file read-only is not a
+  change, and a rollback journal is removed with the old file so that it cannot be rolled back into the new copy. While a
+  copy or a batch of changes is being applied the standby's notes say so (a size of -1), saved before the file is touched, so
+  what a crash of the standby itself leaves, the file in either state and its log, is its own and is copied again. What a
+  person writes to the file in that short window cannot be told from it. The model test "a standby does not silently discard
+  writes made on its own folder" holds this.
 - The same rule means a standby whose `--primary` address changed (a new name, a new port) treats its own folder as foreign
   and refuses, because the note of what it copied is for the address it followed.
 - After `--overwrite` the old primary's folder is a standby of the promoted server and follows it exactly (the model
@@ -116,5 +125,5 @@ These are listed rather than guessed. Each is behaviour the code has today, with
 | Encryption at rest with a standby | Not offered ([ADMIN.md](../ADMIN.md)); `serve` does not refuse the combination and no test runs it |
 | Standby disk full, or a copy cut off | The error is logged and retried with a growing delay; the half copy is a `.standby-partial` file that the next `serve` on the folder sweeps |
 | How long a takeover takes, how many seconds behind a standby may be | Not measured: lag is reported in changes, and a copy of a large file takes as long as the copy |
-| A standby's own edits to its file (a command line change such as `passwd` while the standby is stopped) | The standby copies the file again over them and logs one line; this is the audit's first finding |
+| A standby's own edits to its file (a command line change such as `passwd` while the standby is stopped) | The standby refuses to start or to follow the file, names it and points to `--overwrite`; see Failback below |
 | What FileMaker Server does in any of these cases | Unverified: no FileMaker behaviour was consulted <!-- known-difference: Standby servers ;; Which of the standby behaviours listed on this page match FileMaker Server's own failover or cluster features is unverified; the feature is Tabularius's own ;; Someone expecting FileMaker's behaviour in a failover may see a different one ;; A FileMaker Server run or a Claris page on its failover --> |

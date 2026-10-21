@@ -203,20 +203,38 @@ export class Standby {
     return join(this.opts.folder, name + STORE_EXT);
   }
 
-  /** Whether the file is as this left it. */
+  /** Whether a sidecar of the file holds something: a write-ahead log or a rollback journal that is not empty is a local change that is not in the file itself. An empty one, or a shared-memory index (which holds nothing that is not in the log), is only what opening the file leaves behind. */
+  private sidecarHolds(name: string): boolean {
+    return ['-wal', '-journal'].some((x) => {
+      try { return statSync(this.path(name) + x).size > 0; } catch { return false; }
+    });
+  }
+
+  /** Whether the file is as this left it, whole and with nothing noted as being done to it. */
   private untouched(name: string): boolean {
     const f = this.state.files[name];
-    if (!f || !existsSync(this.path(name))) return false;
+    if (!f || f.size < 0 || !existsSync(this.path(name))) return false;
     const s = statSync(this.path(name));
-    return s.size === f.size && s.mtimeMs === f.mtimeMs && !existsSync(this.path(name) + '-wal');
+    return s.size === f.size && s.mtimeMs === f.mtimeMs && !this.sidecarHolds(name);
+  }
+
+  /**
+   * Whether something other than this standby changed the file, or left changes beside it, since it was last updated.
+   * A size of -1 in the notes means this was in the middle of a copy or of applying changes (the notes are saved with
+   * that before the file is touched), so whatever is in the folder, the file in either state and the log this left
+   * beside it, is its own. A file that is gone has nothing to lose, unless a log or journal is left that might.
+   */
+  private changedHere(name: string): boolean {
+    const f = this.state.files[name];
+    if (f && f.size < 0) return false;
+    if (!existsSync(this.path(name))) return this.sidecarHolds(name);
+    return !this.untouched(name);
   }
 
   /** Check again after network I/O, before a copy can replace local bytes or sidecars. */
   private assertCopyAllowed(name: string): void {
     if (this.opts.overwrite) return;
-    const target = this.path(name);
-    if (!existsSync(target) && !this.state.files[name] && !existsSync(target + '-wal') && !existsSync(target + '-shm')) return;
-    if (!this.untouched(name)) throw new Error(`${name} changed here since it was last updated: use --overwrite to replace it`);
+    if (this.changedHere(name)) throw new Error(`${name} changed here since it was last updated: use --overwrite to replace it`);
   }
 
   private mark(name: string, f: StandbyFile): void {
@@ -229,7 +247,6 @@ export class Standby {
     let delay = 1000;
     while (!this.abort.signal.aborted) {
       try {
-        this.assertCopyAllowed(name);
         if (this.resync.has(name) || !this.untouched(name)) {
           await this.copy(name);
         }
@@ -274,8 +291,9 @@ export class Standby {
         db.close();
       }
       this.assertCopyAllowed(name);
-      for (const x of ['-wal', '-shm']) rmSync(partial + x, { force: true });
-      for (const x of ['-wal', '-shm']) rmSync(target + x, { force: true });
+      // A journal left beside the old file would be rolled back into the new one when it is opened.
+      for (const x of ['-wal', '-shm', '-journal']) rmSync(partial + x, { force: true });
+      for (const x of ['-wal', '-shm', '-journal']) rmSync(target + x, { force: true });
       // Noted before the file appears, and saved now rather than in a moment: a crash between the two must not leave a
       // file in the folder that the next start takes for someone else's (a size and time that match nothing make it copy
       // this one again, as for any copy the note of which is older than the file).
@@ -300,7 +318,6 @@ export class Standby {
       if (res.status === 409 || res.status === 410) {
         // The main server restarted, or this fell too far behind: start again from a fresh copy.
         this.log(`${name}: ${((await res.json()) as { error: string }).error}`);
-        this.assertCopyAllowed(name);
         this.resync.add(name);
         return;
       }
