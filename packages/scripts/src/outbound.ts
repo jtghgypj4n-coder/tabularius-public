@@ -114,6 +114,7 @@ export interface RedirectedMessage {
  */
 export interface OutgoingMail {
   signal?: AbortSignal;
+  /** Mailboxes may include RFC 5322 display names; the envelope address is parsed by the SMTP transport. */
   to: string[];
   cc: string[];
   bcc: string[];
@@ -123,7 +124,9 @@ export interface OutgoingMail {
   fromName: string;
   /** The script's From address: replies go there. */
   replyTo?: string;
-  attachments: { name: string; data: Uint8Array }[];
+  attachments: { name: string; data: Uint8Array; mime?: string; contentId?: string }[];
+  /** Optional HTML alternative for callers that explicitly provide one. FileMaker's native Send Mail step has no HTML option. */
+  html?: string;
   /** The files on the call stack of the script that sent it (the transport refuses any that are capture-only). */
   files: string[];
 }
@@ -228,7 +231,27 @@ export const OUTBOX_ATTACHMENT_LIMIT = 10 * 1024 * 1024;
 
 /** Addresses in a FileMaker recipient list: separated by semicolons, commas or returns. */
 export function addresses(list: string): string[] {
-  return list.split(/[;,\r\n]+/).map((x) => x.trim()).filter(Boolean);
+  const out: string[] = [];
+  let start = 0;
+  let quoted = false;
+  let escaped = false;
+  let angle = 0;
+  for (let i = 0; i < list.length; i++) {
+    const c = list[i]!;
+    if (escaped) { escaped = false; continue; }
+    if (quoted && c === '\\') { escaped = true; continue; }
+    if (c === '"') { quoted = !quoted; continue; }
+    if (!quoted && c === '<') angle++;
+    if (!quoted && c === '>' && angle) angle--;
+    if (!quoted && !angle && (c === ';' || c === ',' || c === '\r' || c === '\n')) {
+      const entry = list.slice(start, i).trim();
+      if (entry) out.push(entry);
+      start = i + 1;
+    }
+  }
+  const last = list.slice(start).trim();
+  if (last) out.push(last);
+  return out;
 }
 
 /**
