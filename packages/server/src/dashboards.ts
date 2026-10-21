@@ -217,6 +217,32 @@ function describeGrouping(w: Widget): string {
 }
 
 const text = (v: unknown) => (v === null || v === undefined || v === '' ? '(empty)' : String(v).slice(0, 80));
+const groupKey = (v: unknown) => JSON.stringify([typeof v, v]);
+function displayLabels(values: unknown[]): Map<string, string> {
+  const byKey = new Map<string, unknown>();
+  for (const value of values) byKey.set(groupKey(value), value);
+  const collisions = new Map<string, number>();
+  for (const value of byKey.values()) collisions.set(text(value), (collisions.get(text(value)) ?? 0) + 1);
+  const seen = new Map<string, number>();
+  const occupied = new Set(collisions.keys());
+  const labels = new Map<string, string>();
+  for (const [key, value] of byKey) {
+    const label = text(value);
+    if (collisions.get(label) === 1) labels.set(key, label);
+    else {
+      let n = seen.get(label) ?? 0;
+      let candidate: string;
+      do {
+        n++;
+        candidate = `${label.slice(0, 72)} (${n})`;
+      } while (occupied.has(candidate));
+      seen.set(label, n);
+      occupied.add(candidate);
+      labels.set(key, candidate);
+    }
+  }
+  return labels;
+}
 const num = (v: unknown): number | null => (typeof v === 'number' ? v : v === null || v === undefined || v === '' ? null : Number.isFinite(Number(v)) ? Number(v) : null);
 
 /** A widget's numbers, worked out now as the account. Errors come back on the widget, so one broken widget doesn't hide the rest. */
@@ -264,36 +290,42 @@ export function computeWidget(store: Store, w: Widget, privileges?: Privileges, 
     }
     // A chart: categories from the first field; one series, or one per value of the second.
     const [cat, ser] = keys;
-    let categories = [...new Set(groups.map((g) => text(g.values[cat])))];
-    if (ordered) categories.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+    const categoryLabels = displayLabels(groups.map((g) => g.values[cat]));
+    const seriesLabels = ser === undefined ? undefined : displayLabels(groups.map((g) => g.values[ser]));
+    let categoryKeys = [...categoryLabels.keys()];
+    if (ordered) categoryKeys.sort((a, b) => categoryLabels.get(a)!.localeCompare(categoryLabels.get(b)!, undefined, { numeric: true }));
     let groupCount: number | undefined;
-    if (categories.length > limit) {
-      groupCount = categories.length;
-      if (ordered) categories = categories.slice(-limit);
+    if (categoryKeys.length > limit) {
+      groupCount = categoryKeys.length;
+      if (ordered) categoryKeys = categoryKeys.slice(-limit);
       else {
         // The largest categories, over all series.
         const totals = new Map<string, number>();
-        for (const g of groups) totals.set(text(g.values[cat]), (totals.get(text(g.values[cat])) ?? 0) + (valueOf(g) ?? 0));
-        categories = categories.sort((a, b) => totals.get(b)! - totals.get(a)!).slice(0, limit);
+        for (const g of groups) {
+          const key = groupKey(g.values[cat]);
+          totals.set(key, (totals.get(key) ?? 0) + (valueOf(g) ?? 0));
+        }
+        categoryKeys = categoryKeys.sort((a, b) => totals.get(b)! - totals.get(a)!).slice(0, limit);
       }
     } else if (s.groupCount && groupBy.length === 1) groupCount = s.groupCount;
-    const at = new Map(categories.map((c, i) => [c, i]));
+    const categories = categoryKeys.map((key) => categoryLabels.get(key)!);
+    const at = new Map(categoryKeys.map((key, i) => [key, i]));
     let series: { name: string; values: (number | null)[] }[];
     if (ser === undefined) {
       const values: (number | null)[] = categories.map(() => null);
-      for (const g of groups) if (at.has(text(g.values[cat]))) values[at.get(text(g.values[cat]))!] = valueOf(g);
+      for (const g of groups) if (at.has(groupKey(g.values[cat]))) values[at.get(groupKey(g.values[cat]))!] = valueOf(g);
       series = [{ name: label, values }];
     } else {
       const bySeries = new Map<string, (number | null)[]>();
       for (const g of groups) {
-        const i = at.get(text(g.values[cat]));
+        const i = at.get(groupKey(g.values[cat]));
         if (i === undefined) continue;
-        const name = text(g.values[ser]);
-        if (!bySeries.has(name)) bySeries.set(name, categories.map(() => null));
-        bySeries.get(name)![i] = valueOf(g);
+        const key = groupKey(g.values[ser]);
+        if (!bySeries.has(key)) bySeries.set(key, categories.map(() => null));
+        bySeries.get(key)![i] = valueOf(g);
       }
       // At most 10 series, the largest; a chart with more can't be read.
-      series = [...bySeries].map(([name, values]) => ({ name, values }))
+      series = [...bySeries].map(([key, values]) => ({ name: seriesLabels!.get(key)!, values }))
         .sort((a, b) => b.values.reduce<number>((t, v) => t + (v ?? 0), 0) - a.values.reduce<number>((t, v) => t + (v ?? 0), 0)).slice(0, 10);
     }
     return { ...base, foundCount: s.foundCount, xTitle: cat ?? groupBy[0], yTitle: label, categories, series, ...(groupCount && groupCount > categories.length ? { groupCount } : {}) };

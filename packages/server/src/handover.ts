@@ -7,7 +7,7 @@ import type { Store } from '../../store/src/index.ts';
 import { conversionReport } from './conversion.ts';
 import { conversionGuide, guideText } from './conversion-guide.ts';
 import { reviewGraph } from './graph-review.ts';
-import { solutionIndex, solutionOverview } from './insight.ts';
+import { canVerifyUnused, solutionIndex, solutionOverview } from './insight.ts';
 import { reviewPrivileges } from './privilege-review.ts';
 import { scriptForModel } from './script-for-model.ts';
 
@@ -32,9 +32,9 @@ export function unusedObjects(store: Store): { layouts: string[]; valueLists: st
   const unusedTo = new Set(graph.issues.filter((i) => i.rule === 'unused').flatMap((i) => i.occurrences));
   return {
     // Folders and separators are not layouts anyone opens.
-    layouts: s.layouts.filter((l) => l.name && l.tableOccurrenceId !== undefined && !used.layouts.has(lower(l.name))).map((l) => l.name),
-    valueLists: s.valueLists.filter((v) => !used.valueLists.has(lower(v.name))).map((v) => v.name),
-    functions: s.customFunctions.filter((f) => !used.functions.has(lower(f.name))).map((f) => f.name),
+    layouts: s.layouts.filter((l) => l.name && l.tableOccurrenceId !== undefined && !used.layouts.has(lower(l.name)) && canVerifyUnused(index, l.name)).map((l) => l.name),
+    valueLists: s.valueLists.filter((v) => !used.valueLists.has(lower(v.name)) && canVerifyUnused(index, v.name)).map((v) => v.name),
+    functions: s.customFunctions.filter((f) => !used.functions.has(lower(f.name)) && canVerifyUnused(index, f.name)).map((f) => f.name),
     occurrences: s.tableOccurrences.filter((t) => unusedTo.has(t.id)).map((t) => t.name),
   };
 }
@@ -53,6 +53,7 @@ export function handoverFacts(store: Store, hosted: string[] = []): string {
   const security = reviewPrivileges(store).findings.filter((f) => f.severity !== 'low' && f.kind !== 'unused-extended');
   if (security.length) out.push('', '## Security setups to look at', ...security.slice(0, 15).map((f) => `- (${f.severity}) ${f.title}`));
   const unused = unusedObjects(store);
+  if (!solutionIndex(store).referenceComplete) out.push('', '## Unused objects', 'Cannot verify some unused objects because some calculations could not be indexed; names those calculations may contain are excluded below.');
   const parts = [
     unused.layouts.length ? `Layouts no script or button goes to (people may still pick them from the Layouts menu): ${list(unused.layouts, 40)}.` : '',
     unused.valueLists.length ? `Value lists no field or layout uses: ${list(unused.valueLists, 30)}.` : '',
