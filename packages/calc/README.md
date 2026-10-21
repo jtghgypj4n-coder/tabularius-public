@@ -94,3 +94,33 @@ it builds the context from a record, follows the relationship graph for
 `TO::Field` (multikey `=`, `≠`, `<`…, `×`), keeps globals once per file, and
 applies FileMaker's rule that a calculation whose referenced fields are all
 empty is empty unless the field says otherwise.
+
+XML/XPath queries, XSLT transforms, jq filters and PDF text extraction use a shared
+synchronous work budget for nested helpers. The implementation permits 4,000,000
+charged work units and 2,500,000 intermediate nodes/entries per operation. XML
+operations allow 32,000,000 work units and 8,000,000 node/entry charges to accommodate
+repeated traversal of documents within the parser's 8 MB limit. XSLT retains a
+separate 4,000,000-unit allowance for instruction and template-matching work.
+Nested helpers always consume the caller's remaining budget.
+
+Allocated text is limited to 32,000,000 characters per operation. jq concatenation
+charges appended text, and shallow copies check their size and charge copy work
+in blocks of 64 entries; retained snapshots also charge their copied entries.
+String comparison scans code points without allocating character arrays, and
+builtin inputs charge work rather than repeated text allocation. Each string and
+the cumulative serialized result are limited to 8,000,000 characters; XSLT also
+limits accumulated result-tree text (including temporary trees) to that size.
+Recursive evaluation is limited to 128 levels; XPath XML serialization supports
+the parser's 256 element levels. XPath source is limited to 20,000 characters,
+64 nested groups and 256 operators. These are implementation limits, not
+compatibility claims.
+
+A refusal contains `Calculation resource limit:`. Shared checks throw
+`ResourceLimitError` (a marked `ComplexityError`); XPath, XSLT and jq preserve their
+public error classes when adapting it, and mark the adapted error too. It propagates
+through plug-in wrappers and calculation
+fallbacks so a caller can unwind writes. Ordinary parse/type errors retain their
+existing behavior. Independent operations receive fresh budgets, including after
+failure. CID width endpoints must be safe integers in the supported 0–65535 domain.
+Non-numeric or truncated PDF width entries stop width parsing tolerantly; unsafe
+numeric endpoints and oversized ranges still cause resource refusals.
