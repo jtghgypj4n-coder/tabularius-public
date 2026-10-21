@@ -21,6 +21,7 @@
 import { cancellationScope } from '../../scripts/src/cancellation.ts';
 import { crashPoint } from '../../store/src/crash-point.ts';
 import { isDamageError } from '../../store/src/damage.ts';
+import { accountKey } from '../../store/src/account-provisioning.ts';
 import { refuseNewer, storedFormat } from '../../store/src/store-format.ts';
 import { DatabaseSync, backup } from 'node:sqlite';
 import { accessSync, chmodSync, constants, copyFileSync, existsSync, linkSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -966,7 +967,7 @@ export function accountDifferences(file: string, current: string, staged: string
       const columns = (db.prepare('PRAGMA table_info("_fm_accounts")').all() as { name: string }[]).map((c) => c.name);
       if (!columns.includes('name')) return undefined;
       const rows = db.prepare(`SELECT name, ${columns.includes('inactive') ? 'inactive' : '0 AS inactive'}, ${columns.includes('privilege_set') ? 'privilege_set' : 'NULL AS privilege_set'} FROM _fm_accounts`).all() as { name: string; inactive: number; privilege_set: string | null }[];
-      return new Map(rows.map((r) => [r.name.toLowerCase(), { inactive: r.inactive ? 1 : 0, set: r.privilege_set }]));
+      return new Map(rows.map((r) => [accountKey(r.name), { inactive: r.inactive ? 1 : 0, set: r.privilege_set }]));
     } finally { db.close(); }
   };
   const now = read(current);
@@ -990,7 +991,7 @@ export function accountDifferences(file: string, current: string, staged: string
 function readNames(path: string): [string, string][] {
   const db = new DatabaseSync(path, { readOnly: true });
   try {
-    return (db.prepare('SELECT name FROM _fm_accounts').all() as { name: string }[]).map((r) => [r.name.toLowerCase(), r.name]);
+    return (db.prepare('SELECT name FROM _fm_accounts').all() as { name: string }[]).map((r) => [accountKey(r.name), r.name]);
   } catch { return []; } finally { db.close(); }
 }
 
@@ -1284,6 +1285,8 @@ export function restoreRange(dest: string, file: string): { from: number; to: nu
 
 /** Puts databases back as they were at a moment (the latest point backed up at or before it). The server must be stopped. */
 export async function restoreAt(folder: string, dest: string, at: number, only?: string, passphrase = backupKey(), options: RestoreOptions = {}): Promise<{ file: string; time: number }[]> {
+  const { signal } = options;
+  signal?.throwIfAborted();
   const pid = hostingProcess(folder);
   if (pid !== undefined) throw new Error(`stop the server first (process ${pid} is hosting ${folder})`);
   const files = new Set<string>();
@@ -1299,6 +1302,7 @@ export async function restoreAt(folder: string, dest: string, at: number, only?:
   const release = claimFolder(folder, 'restore');
   try {
     for (const f of wanted) {
+      signal?.throwIfAborted();
       const point = restorePoint(dest, f, at);
       if (!point) {
         if (only) throw new Error(`no backup of ${only} from before ${new Date(at).toLocaleString()}`);
@@ -1311,12 +1315,14 @@ export async function restoreAt(folder: string, dest: string, at: number, only?:
       const time = staged.logs.length === point.logs.length ? point.time : staged.logs.at(-1)?.at ?? point.finished;
       const newer = changedSince(join(folder, f), time);
       if (newer) options.newerThanBackup?.push({ file: f, ...newer });
+      signal?.throwIfAborted();
       crashPoint('restore-at:after-file');
       out.push({ file: f, time });
     }
     const differences = out.flatMap(({ file }) => accountDifferences(file, join(folder, file), join(folder, file) + '.restoring'));
     options.differences?.push(...differences);
     if (differences.length && options.refuseAccountChanges) throw new AccountChangesError(differences);
+    signal?.throwIfAborted();
     commitRestore(folder, [...out.flatMap(({ file }) => restorePointFiles(join(folder, file))), ...external.flatMap((stage) => stage.files)]);
     crashPoint('restore-at:after-commit');
   } finally {
