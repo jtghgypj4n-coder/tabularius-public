@@ -239,6 +239,10 @@ export class ContainerFiles {
     } else {
       let making = this.making.get(key);
       if (!making) {
+        if (this.making.size >= 64) {
+          res.writeHead(503, { 'retry-after': '1' }).end('Too many thumbnails are being made; try again shortly');
+          return;
+        }
         const controller = new AbortController();
         making = { promise: this.make(store, id, size, controller.signal), controller, users: 0 };
         this.making.set(key, making);
@@ -497,7 +501,7 @@ export class ContainerFiles {
     this.cache.set(key, thumb);
     this.cached += thumb.data.length;
     for (const [k, v] of this.cache) {
-      if (this.cached <= CACHE_BYTES) break;
+      if (this.cached <= CACHE_BYTES && this.cache.size <= 1024) break;
       this.cache.delete(k);
       this.cached -= v.data.length;
     }

@@ -30,3 +30,28 @@ test('a masker made after the account\'s stand-ins were deleted does not remembe
     rmSync(dir, { recursive: true });
   }
 });
+
+test('account and value cache eviction preserves masking and stable stand-ins from SQLite', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'tabularius-pii-bounds-'));
+  const path = join(dir, 'Scratch.sqlite');
+  createStore(path);
+  const store = new Store(path, 'Scratch');
+  const vault = (masker: PiiMasker) => (masker as unknown as { vault: { byId: Map<number, unknown>; byValue: Map<string, string>; words: Map<string, unknown[]> } }).vault;
+  try {
+    const first = new PiiMasker(store, 'first');
+    const old = vault(first);
+    const token = first.token('Early Person', 'PERSON');
+    for (let i = 0; i < 1100; i++) first.token(`Person ${i}`, 'PERSON');
+    assert.ok(vault(first).byId.size <= 1024);
+    assert.ok(vault(first).byValue.size <= 1024);
+    assert.ok([...vault(first).words.values()].reduce((n, list) => n + list.length, 0) <= 1024);
+    assert.equal(first.token('Early Person', 'PERSON'), token, 'eviction never changes a persistent stand-in');
+    assert.equal(first.text('Ask Early Person today'), `Ask ${token} today`, 'an evicted name must never be exposed to a model');
+    assert.equal(first.unmask(token), 'Early Person');
+    for (let i = 0; i < 65; i++) new PiiMasker(store, `other-${i}`);
+    const again = new PiiMasker(store, 'first');
+    assert.notEqual(vault(again), old, 'account churn evicts the oldest account cache');
+    assert.equal(again.text('Ask Early Person today'), `Ask ${token} today`);
+    assert.equal(again.unmask(token), 'Early Person');
+  } finally { store.close(); rmSync(dir, { recursive: true, force: true }); }
+});

@@ -128,6 +128,7 @@ import { IdentityInFlight, busyHeaders } from './in-flight.ts';
 import { directFromThisComputer, hasTrustedClientAddress, UNKNOWN_CLIENT } from './client-address.ts';
 import { isIP } from 'node:net';
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { BoundedMap } from './bounded-map.ts';
 import { createHash, randomBytes } from 'node:crypto';
 import { copyFileSync, existsSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, extname, join, resolve, sep } from 'node:path';
@@ -392,15 +393,17 @@ export class Admin {
   readonly securityAudit: SecurityAuditVerifier;
   private readonly started = Date.now();
   /** Basic credentials already checked (by hash), so each poll doesn't re-run scrypt. */
-  private readonly verified = new Map<string, number>();
+  private readonly verified = new BoundedMap<string, number>(1024);
   // Brute-force guard: wrong passwords from one address lock it out for a
   // cooldown, so the single admin password cannot be guessed at speed. The
   // lockout is checked before scrypt runs, so repeated misses can't burn CPU.
   private readonly MAX_FAILS = 5;
   private readonly LOCK_MS = 15 * 60_000;
   private readonly failures = new Map<string, { count: number; first: number; until: number }>();
+  /** A saturated lock table blocks new guesses too, without evicting another address's lock. */
+  private failureOverflowUntil = 0;
   /** Console sign-ins (the tabularius_admin cookie), until when; renewed as they are used. */
-  private readonly signedIn = new Map<string, number>();
+  private readonly signedIn = new BoundedMap<string, number>(1024);
   /** A fingerprint of the password the sign-ins above were made with. */
   private signedInWith?: string;
   /** One-time passkey challenges issued to the console (registration and sign-in alike), until when. */
@@ -522,8 +525,8 @@ export class Admin {
     const now = performance.now();
     const ip = clientAddress(req);
     const locked = this.failures.get(addressBucket(ip));
-    if (locked && locked.until > now) {
-      const secs = Math.ceil((locked.until - now) / 1000);
+    if (Math.max(locked?.until ?? 0, this.failureOverflowUntil) > now) {
+      const secs = Math.ceil((Math.max(locked?.until ?? 0, this.failureOverflowUntil) - now) / 1000);
       return { status: 429, message: `Too many failed attempts. Try again in ${secs} seconds.`, retryAfter: secs };
     }
     const basic = /^Basic\s+(.+)$/i.exec(req.headers.authorization ?? '')?.[1];
@@ -575,6 +578,10 @@ export class Admin {
       if (this.failures.size <= 5000) break;
       if (r.until <= now) this.failures.delete(k);
     }
+    if (this.failures.size > 5000) {
+      this.failures.delete(ip);
+      this.failureOverflowUntil = Math.max(this.failureOverflowUntil, rec.until);
+    }
   }
 
   /** Checks the admin password, counting misses per address: null when right. */
@@ -582,8 +589,8 @@ export class Admin {
     const now = performance.now();
     const ip = addressBucket(from);
     const locked = this.failures.get(ip);
-    if (locked && locked.until > now) {
-      const secs = Math.ceil((locked.until - now) / 1000);
+    if (Math.max(locked?.until ?? 0, this.failureOverflowUntil) > now) {
+      const secs = Math.ceil((Math.max(locked?.until ?? 0, this.failureOverflowUntil) - now) / 1000);
       return { status: 429, message: `Too many failed attempts. Try again in ${secs} seconds.`, retryAfter: secs };
     }
     if (!checkPassword(password, hash)) {
@@ -766,8 +773,8 @@ export class Admin {
       }
       const ip = addressBucket(clientAddress(req));
       const locked = this.failures.get(ip);
-      if (locked && locked.until > performance.now()) {
-        const secs = Math.ceil((locked.until - performance.now()) / 1000);
+      if (Math.max(locked?.until ?? 0, this.failureOverflowUntil) > performance.now()) {
+        const secs = Math.ceil((Math.max(locked?.until ?? 0, this.failureOverflowUntil) - performance.now()) / 1000);
         return json(429, { error: `Too many failed attempts. Try again in ${secs} seconds.` }, { 'retry-after': String(secs) }), true;
       }
       const r = body.response as { credentialId: string; clientDataJSON: string; authenticatorData: string; signature: string; challenge: string };

@@ -209,6 +209,8 @@ export class Uploads {
       throw new UploadError(413, `${name}.fmp12 is ${sizes[0]}, more than the ${sizes[1]} this server takes in one upload. Copy it into the hosted folder (${this.host.dir}) instead, or start the server with TABULARIUS_MAX_UPLOAD set to a larger number of bytes.`);
     }
     this.sweep();
+    this.prune();
+    if (this.uploads.size >= 128) throw new UploadError(429, 'Too many uploads are in progress; finish or remove one first');
     if (this.taken(name)) throw new UploadError(409, `A file named ${name} is already hosted or being uploaded. Remove it from Hosted files first to host this copy instead, or rename this file.`);
     if (size > MAX_UPLOAD_IN_PROGRESS) throw new UploadError(413, quota());
     mkdirSync(this.dir, { recursive: true, mode: 0o700 });

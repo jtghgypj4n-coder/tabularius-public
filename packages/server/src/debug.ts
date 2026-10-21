@@ -40,6 +40,7 @@ import { asText, num, text } from '../../calc/src/index.ts';
 import { OFFLINE_RUN_NOTICE, RunProfile, ScriptDebugger, ScriptSession, recordRun, type DebugCommand, type DebugState } from '../../scripts/src/index.ts';
 import { ApiError, badPathError, readJson, sessionPrivileges, type DataApi, type Session } from './dataapi.ts';
 import type { Host } from './host.ts';
+import { BoundedMap } from './bounded-map.ts';
 import { said } from './said.ts';
 
 const IDLE_MS = 10 * 60_000;
@@ -224,7 +225,7 @@ function breakpoints(v: unknown): Breakpoint[] {
 export class DebugApi {
   private readonly host: Host;
   private readonly api: DataApi;
-  private readonly runs = new Map<string, Run>();
+  private readonly runs = new BoundedMap<string, Run>(128, (run) => this.end(run));
   private readonly sweep: NodeJS.Timeout;
   /** The largest file a scratch run copies. */
   scratchMaxBytes = SCRATCH_MAX_BYTES;
@@ -232,6 +233,9 @@ export class DebugApi {
   constructor(host: Host, api: DataApi) {
     this.host = host;
     this.api = api;
+    api.endListeners.add((token) => {
+      for (const [id, run] of this.runs) if (run.token === token) { this.runs.delete(id); this.end(run); }
+    });
     this.sweep = setInterval(() => this.expire(), 60_000);
     this.sweep.unref();
   }

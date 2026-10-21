@@ -34,6 +34,7 @@ import { installPackage, readPackage, trustedPublishers } from '../../plugins/sr
 import { ServerConfig } from './server-config.ts';
 import { Notifier } from './notifications.ts';
 import { compactInWorker, compactionDue, fileBytes, type CompactionReport } from './compaction.ts';
+import { BoundedMap } from './bounded-map.ts';
 
 export const STORE_EXT = '.openhbam.sqlite';
 
@@ -506,18 +507,18 @@ export class Host {
   }
 
   /** Files seen but not hosted yet, by name: size last seen, so a file still being copied waits. */
-  private readonly arriving = new Map<string, number>();
+  private readonly arriving = new BoundedMap<string, number>(1024);
   /** Files dropped into the folder being converted now, and how far each has got. */
   readonly converted = new Map<string, ImportProgress>();
   /**
    * Files dropped into the folder that use Encryption at Rest, by file name:
    * shown as "Needs passphrase" until someone enters it (see unlock).
    */
-  readonly locked = new Map<string, { size: number; hint?: string; error?: string; uploaded?: boolean }>();
+  readonly locked = new BoundedMap<string, { size: number; hint?: string; error?: string; uploaded?: boolean }>(1024);
   /** Files whose conversion failed, by name and size; tried again only when the file changes. */
-  private readonly failed = new Map<string, number>();
+  private readonly failed = new BoundedMap<string, number>(1024);
   /** Why each failed file failed, for the admin status. */
-  readonly failures = new Map<string, string>();
+  readonly failures = new BoundedMap<string, string>(1024);
   private converting = false;
   private readonly shutdown = new AbortController();
   private readonly conversionTasks = new Set<Promise<unknown>>();
@@ -570,6 +571,10 @@ export class Host {
       } catch {
         return undefined;
       }
+      const present = new Set(files);
+      for (const map of [this.arriving, this.failed, this.failures]) {
+        for (const name of map.keys()) if (!present.has(name)) map.delete(name);
+      }
       // A waiting encrypted file that was removed, or replaced by a readable one, waits no longer.
       for (const f of [...this.locked.keys()]) {
         if (!files.includes(f) || !sourceEncryption(join(this.dir, f)).encrypted) this.locked.delete(f);
@@ -588,6 +593,8 @@ export class Host {
         }
         if (this.failed.get(f) === size || this.locked.has(f)) continue;
         if (this.arriving.get(f) !== size) {
+          // Keep admitted arrivals across scans: cycling through more than the cap must not starve every conversion.
+          if (!this.arriving.has(f) && this.arriving.size >= this.arriving.limit) continue;
           this.arriving.set(f, size); // still copying, or just seen: look again next pass
           continue;
         }
@@ -939,6 +946,8 @@ export class Host {
     this.compactionClosing.add(key);
     await this.compactionJobs.get(key)?.then(() => {}, () => {});
   }
+  /** Actual file/session teardown, including paused files and shutdown; pausing alone preserves session state. */
+  readonly onClose: ((store: Store) => void)[] = [];
 
   /** Stops serving a file, like closing it in FileMaker Server's console. Its sessions end with it. */
   closeFile(name: string): boolean {
@@ -950,6 +959,7 @@ export class Host {
     store.checkpoint();
     crashPoint('host-close:after-checkpoint');
     for (const f of this.beforeFileClose) f(store);
+    for (const f of this.onClose) f(store);
     store.close();
     this.stores.delete(key);
     this.paused.delete(key);
@@ -1320,7 +1330,10 @@ export class Host {
   private warmStop?: Promise<void>;
 
   private closeStores(lock: boolean): void {
-    for (const s of [...this.stores.values(), ...this.paused.values()]) {
+    const stores = [...this.stores.values(), ...this.paused.values()];
+    // Session cleanup may inspect every store; finish it while all connections are still open.
+    for (const s of stores) for (const f of this.onClose) f(s);
+    for (const s of stores) {
       const path = s.path;
       let whole = true;
       if (this.encryptionKey) {
@@ -1344,6 +1357,9 @@ export class Host {
         } catch (e) { this.log(`${name} was left unencrypted: ${(e as Error).message}`); }
       }
     }
+    this.stores.clear();
+    this.paused.clear();
+    this.closed.clear();
   }
 
   /** Encrypts a store's working file back to <path>.enc and removes the plaintext (and its WAL sidecars). */
