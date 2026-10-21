@@ -1258,7 +1258,8 @@ export class WebClient {
     let batch = nextBatch();
     res.writeHead(200, {
       'content-type': `${format === 'tab' ? 'text/tab-separated-values' : 'text/csv'}; charset=utf-8`,
-      'cache-control': 'no-store',
+      // Not compressed: the compressing wrapper takes every write at once, so a slow client could not hold the export back.
+      'cache-control': 'no-store, no-transform',
       'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent(`${base}.${format}`)}`,
     });
     const write = async (chunk: string): Promise<boolean> => {
@@ -1279,6 +1280,8 @@ export class WebClient {
       if (await write((body.bom === true ? '\ufeff' : '') + header)) {
         while (batch !== undefined && !res.destroyed) {
           if (batch && !(await write(batch))) break;
+          // Other requests get their turn between batches, whatever the client's speed.
+          await new Promise<void>((resolve) => setImmediate(resolve));
           batch = nextBatch();
         }
       }

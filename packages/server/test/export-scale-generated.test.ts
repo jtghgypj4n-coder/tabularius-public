@@ -11,6 +11,7 @@ import { serve } from '../src/index.ts';
 import { STORE_EXT } from '../src/host.ts';
 
 const RECORDS = 200_000;
+const SMALL = 1200;
 let dir: string;
 let server: Server;
 let base: string;
@@ -30,6 +31,9 @@ before(async () => {
     { op: 'createField', table: 'Rows', name: 'Total Id', kind: 'summary', summary: { type: 'total', field: 'Id' } },
     { op: 'createField', table: 'Rows', name: 'Running Id', kind: 'summary', summary: { type: 'total', field: 'Id', running: true } },
     { op: 'createField', table: 'Rows', name: 'Share Id', kind: 'summary', summary: { type: 'fractionOfTotal', field: 'Id' } },
+    { op: 'createTable', name: 'Small', fields: [{ name: 'Id', type: 'number' }] },
+    { op: 'createField', table: 'Small', name: 'Running Id', kind: 'summary', summary: { type: 'total', field: 'Id', running: true } },
+    { op: 'createField', table: 'Small', name: 'Share Id', kind: 'summary', summary: { type: 'fractionOfTotal', field: 'Id' } },
   ] as DesignOp[]);
   store.setPassword('Admin', 'pw', '[Full Access]');
   const db = new DatabaseSync(path);
@@ -37,6 +41,8 @@ before(async () => {
     db.exec('BEGIN');
     const insert = db.prepare('INSERT INTO Rows (Id, Label) VALUES (?, ?)');
     for (let i = 1; i <= RECORDS; i++) insert.run(i, `Row ${i}`);
+    const small = db.prepare('INSERT INTO Small (Id) VALUES (?)');
+    for (let i = 1; i <= SMALL; i++) small.run(i);
     db.exec('COMMIT');
   } finally { db.close(); }
   const login = await fetch(`${base}/fmi/data/vLatest/databases/Scale/sessions`, { method: 'POST', headers: { authorization: 'Basic ' + btoa('Admin:pw') } });
@@ -141,5 +147,39 @@ test('a download the client cuts off is still logged as a read of the records al
   }
   const entry = store.auditLog({ kind: 'read' })[0];
   const records = Number(/"records":\s*(\d+)/.exec(JSON.stringify(entry))?.[1]);
-  assert.ok(records >= 1 && records < RECORDS, `logged ${records} records of ${RECORDS}: ${JSON.stringify(entry)}`);
+  assert.ok(records > 100 && records <= RECORDS, `logged ${records} records of ${RECORDS}: ${JSON.stringify(entry)}`);
+});
+
+test('an export of all records with summary fields works them out in the found set\'s order, not a batch at a time', async () => {
+  const res = await fetch(`${base}/tabularius/app/v1/databases/Scale/layouts/Small/export`, {
+    method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ fields: ['Id', 'Running Id', 'Share Id'], format: 'csv' }),
+  });
+  assert.equal(res.status, 200);
+  const rows = rowsOf(await res.text());
+  assert.equal(rows.length, SMALL);
+  const total = (SMALL * (SMALL + 1)) / 2;
+  for (const n of [1, 500, 501, 1000, SMALL]) {
+    assert.equal(rows[n - 1][1], String((n * (n + 1)) / 2), `running total at row ${n}`);
+    assert.ok(Math.abs(Number(rows[n - 1][2]) - n / total) < 1e-9, `fraction of the total at row ${n}`);
+  }
+});
+
+test('a client that accepts gzip gets an uncompressed stream, and other requests are served while it is written', async () => {
+  let ticks = 0;
+  let running = true;
+  const tick = () => { ticks++; if (running) setImmediate(tick); };
+  setImmediate(tick);
+  const res = await fetch(`${base}/tabularius/app/v1/databases/Scale/layouts/Rows/export`, {
+    method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', 'accept-encoding': 'gzip, br' },
+    body: JSON.stringify({ fields: ['Id', 'Label'], format: 'csv' }),
+  });
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get('content-encoding'), null);
+  assert.match(res.headers.get('cache-control') ?? '', /no-transform/);
+  const size = (await res.arrayBuffer()).byteLength;
+  running = false;
+  assert.ok(size > RECORDS * 10, `the export is ${size} bytes`);
+  // About 400 batches: the loop must have turned between them, not only after the last.
+  assert.ok(ticks > 100, `the event loop turned ${ticks} times while the export was written`);
 });
