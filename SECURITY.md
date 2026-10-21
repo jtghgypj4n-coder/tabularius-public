@@ -245,15 +245,19 @@ engine runs in a **no-network, no-mail sandbox** by default:
   would make network or mail requests, external SQL/ODBC sources, Perform Script
   on Server to another host — do nothing (or report that they're offline)
   instead of reaching the network.
-- The server only lets ordinary interactive scripts reach the network when it is
-  started with `--allow-script-network` (off by default), and even then:
-  - **scheduled scripts stay offline** unless the schedule itself opts in, and
+- Scripts reach the network only for a file whose **Script network** switch an
+  administrator turned on in the admin console (off by default for every new or
+  converted file and for `tabularius demo`), or on every file when the server is
+  started with `--allow-script-network`. A script that runs in, or performs a
+  script of, a file whose switch is off gets error 3. Even then:
+  - **scheduled scripts, automations and inbound hooks stay offline** unless the
+    item itself opts in, and
   - **scripts an AI runs** (the `run_script` MCP tool, and the test-run tooling)
     are **always offline**, with no way to opt in.
 - `Import Records` in a server-side script reads only from the hosting folder's
   `Documents`, never an arbitrary path.
 
-This means an administrator must make a conscious, server-level choice before
+This means an administrator must make a conscious choice, file by file, before
 any hosted automation can touch the outside world, and the two most autonomous
 callers — the scheduler and the AI — never can by that choice alone.
 

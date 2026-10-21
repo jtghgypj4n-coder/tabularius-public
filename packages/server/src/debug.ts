@@ -37,7 +37,7 @@ import { join } from 'node:path';
 import { Store, StoreError, occurrence, type EvaluateOptions } from '../../store/src/index.ts';
 import { q } from '../../store/src/import.ts';
 import { asText, num, text } from '../../calc/src/index.ts';
-import { RunProfile, ScriptDebugger, ScriptSession, recordRun, type DebugCommand, type DebugState } from '../../scripts/src/index.ts';
+import { OFFLINE_RUN_NOTICE, RunProfile, ScriptDebugger, ScriptSession, recordRun, type DebugCommand, type DebugState } from '../../scripts/src/index.ts';
 import { ApiError, badPathError, readJson, sessionPrivileges, type DataApi, type Session } from './dataapi.ts';
 import type { Host } from './host.ts';
 import { said } from './said.ts';
@@ -360,9 +360,9 @@ export class DebugApi {
             ...(ids ? { foundSet: ids } : {}),
             ...(Number.isInteger(body.recordId) ? { recordId: Number(body.recordId) } : {}),
             account: session.account, privileges: sessionPrivileges(copy.store, session),
-            ...this.host.scriptOptions(), executionAccount: session.account, executionVia: session.via, executionStore: store,
+            ...this.host.scriptOptions(store.name), executionAccount: session.account, executionVia: session.via, executionStore: store,
             // Always on the copy and offline; the session's globals are copied, not changed.
-            network: false, outbound: undefined, mail: undefined, documents: join(copy.dir, 'Documents'), serverQueue: undefined,
+            network: false, networkFiles: undefined, networkOff: () => OFFLINE_RUN_NOTICE, outbound: undefined, mail: undefined, documents: join(copy.dir, 'Documents'), serverQueue: undefined,
             session: scripts,
           });
           return send(200, recording), true;
@@ -394,9 +394,9 @@ export class DebugApi {
           ...(ids ? { foundSet: ids } : {}),
           ...(Number.isInteger(body.recordId) ? { recordId: Number(body.recordId) } : {}),
           account: session.account, session: session.scripts, privileges: run.scratch ? sessionPrivileges(run.scratch.store, session) : privileges,
-          ...this.host.scriptOptions(), executionAccount: session.account, executionVia: session.via, executionStore: store,
+          ...this.host.scriptOptions(store.name), executionAccount: session.account, executionVia: session.via, executionStore: store,
           // A scratch run is always offline, and its files go in its own folder.
-          ...(run.scratch ? { network: false, outbound: undefined, mail: undefined, documents: join(run.scratch.dir, 'Documents') } : {}),
+          ...(run.scratch ? { network: false, networkFiles: undefined, networkOff: () => OFFLINE_RUN_NOTICE, outbound: undefined, mail: undefined, documents: join(run.scratch.dir, 'Documents') } : {}),
           // Debugger runs stay out of the server's profile; the run has its own, counting each step's own time (never a pause here).
           profile: run.profile, stop: run.stop.signal,
         });

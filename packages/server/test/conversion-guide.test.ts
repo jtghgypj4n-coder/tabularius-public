@@ -68,7 +68,7 @@ test('what won\'t work, what works differently, and what to use instead, with no
   assert.match(plugIn.instead!, /Send Mail \[ Send via SMTP Server/);
   assert.deepEqual(plugIn.where.map((w) => w.replace(/, line \d+/, '')), ['Script "Send invoice"', 'Script "Send invoice"'].slice(0, plugIn.where.length));
   assert.match(g.differs.find((i) => i.title === 'Send Mail')!.what, /sends only when the server's administrator switches sending on/);
-  assert.match(g.differs.find((i) => i.title === 'Insert from URL')!.what, /--allow-script-network/);
+  assert.match(g.differs.find((i) => i.title === 'Insert from URL')!.what, /Script network/);
   assert.ok(g.todo.some((t) => /plug-ins one script at a time/.test(t)));
   assert.match(g.text, /^# Charts: what to know after converting/);
   assert.match(g.text, /## Won't work until changed\n- \*\*360Works Email plug-in\*\*/);

@@ -306,8 +306,8 @@ export const ROWS: Row[] = [
   },
   {
     id: 'script-network', section: 'What can reach outside', setting: 'Network access for scripts (Insert from URL, plug-in requests)',
-    default: 'Off. When on, loopback and the machine\'s own network are still refused unless listed; metadata and link-local addresses are always refused',
-    changedBy: '`--allow-script-network`; `--allow-script-network-to <hosts or ranges>`',
+    default: 'Off for every file, including a new or converted one and the demo, until an administrator turns it on. When on, loopback and the machine\'s own network are still refused unless listed; metadata and link-local addresses are always refused',
+    changedBy: 'The admin console\'s Script network switch for one file (Hosted files); `--allow-script-network` for every file; `--allow-script-network-to <hosts or ranges>`',
     risk: 'A script can reach whatever the server can: mail, SMS and payment services, other machines on the network',
     how: 'probed', expect: 'off',
     observe: async (c) => {

@@ -45,6 +45,26 @@ server makes such a connection and what proves it is guarded.
 - **Refuses credentials in the address** (`http://user:pass@host/`) and any
   scheme but http and https.
 
+## Turning network access on
+
+Scripts reach the network when an administrator switches it on; until then a
+web request from a script gives error 3, and the message says how to turn it on.
+A converted file, a new file and the `tabularius demo` app all start with it off,
+so a copy you are only trying out cannot call a payment, SMS or mail service by
+accident. When this copy is the live one:
+
+- **For one file:** open the admin console, find the file under Hosted files and
+  choose **Turn on** in its Script network column. The choice is kept in the file
+  (and in its security log), so it survives a restart and a backup restore, and
+  it applies at once to the next script that runs. A script that performs a
+  script in another file needs both files to have it on.
+- **For every file:** start the server with `--allow-script-network`.
+
+A schedule, an automation or an inbound hook needs the file's switch and its own
+network option. Scripts an AI app runs, debug runs on a scratch copy and dry runs
+stay offline whatever the switch says, and a capture-only file never reaches the
+network. In outbound test mode requests are recorded instead (see below).
+
 ## What an administrator can allow
 
 By default a script's request to the own network is refused. `tabularius serve`
@@ -66,8 +86,9 @@ This is a change from earlier versions, where `--allow-script-network` let a
 script reach any address, loopback and the metadata range included. Scripts that
 call a service on the own network now need that service listed.
 
-`--allow-script-network` itself still decides whether scripts reach the network at
-all: it is off by default, and never on for scripts an AI app runs.
+The switch (a file's Script network setting, or `--allow-script-network`) still
+decides whether scripts reach the network at all: it is off by default, and never
+on for scripts an AI app runs.
 
 ## Every place the server connects out
 

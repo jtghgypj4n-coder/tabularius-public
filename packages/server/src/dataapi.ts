@@ -1577,7 +1577,7 @@ export class DataApi {
           ...(e.denial ? { 'tabularius:denial': explainAccessDenial(e.denial) } : {}) };
       }
       const files = new Map<Store, () => void>();
-      const r = await runScript(store, script, { parameter, layout, foundSet, account: session.account, session: session.scripts, ...this.host.scriptOptions(), executionAccount: session.account, executionVia: session.via, privileges,
+      const r = await runScript(store, script, { parameter, layout, foundSet, account: session.account, session: session.scripts, ...this.host.scriptOptions(store.name), executionAccount: session.account, executionVia: session.via, privileges,
         beforeFile: (file) => {
           checkCurrent(true);
           if (!files.has(file)) files.set(file, this.fileGuard(file));

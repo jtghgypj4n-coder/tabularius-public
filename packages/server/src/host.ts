@@ -68,7 +68,7 @@ export class Host {
   publicUrl?: string;
   /** Whether the file lists (the Data API's, OData's and the root's) show every hosted file to callers who haven't signed in (file-list.ts). */
   listFilesPublicly = false;
-  /** Whether scripts may reach the network (Insert from URL). Off unless the server is started with it. */
+  /** Whether scripts may reach the network (Insert from URL) in every hosted file (--allow-script-network). Otherwise each file has its own switch (Store.scriptNetwork), off until an administrator turns it on. */
   scriptNetwork = false;
   /** Hosts, addresses and ranges on the machine's own network that scripts' web requests may reach (--allow-script-network-to). */
   scriptNetworkAllow: string[] = [];
@@ -257,11 +257,35 @@ export class Host {
   /** Tabularius's AI for FileMaker's AI script steps, set when the server runs with --ai (scripts/src/ai.ts). */
   scriptAi?: ScriptAi;
 
-  /** Run options every script gets: network access, the Documents folder Import Records reads from, the profiler, and AI. */
-  scriptOptions(): { network: boolean; networkAllow?: readonly string[]; outbound?: OutboundTest; connections?: ScriptConnections; mail?: (m: OutgoingMail) => Promise<void | string>; installPlugin?: (bytes: Uint8Array) => { id: string; version: string; signer: string }; documents: string; profile?: ScriptProfile; serverQueue: ScriptQueue; ai?: ScriptAi } {
+  /** Whether scripts may reach the network in a hosted file: the server's flag allows every file, else the file's own switch. */
+  scriptNetworkOn(file: string): boolean {
+    return this.scriptNetwork || this.get(file)?.scriptNetwork === true;
+  }
+
+  private networkRefused = new Map<string, number>();
+
+  /** What a script is told, and the server log says once in a while, when its file's network access is off: where to turn it on. */
+  private networkOffNotice(file: string): string {
+    const message = `Network access is off for "${file}". Turn it on in the admin console (Files, "Script network", Turn on), or start the server with --allow-script-network to allow it for every file.`;
+    const last = this.networkRefused.get(file.toLowerCase());
+    const now = Date.now();
+    if (last === undefined || now - last > 10 * 60_000) {
+      this.networkRefused.set(file.toLowerCase(), now);
+      this.logs?.write('ScriptEvent', 'Warning', file, `A script was refused network access. ${message}`);
+    }
+    return message;
+  }
+
+  /**
+   * Run options every script gets: network access (for `solution`'s scripts, when the run is in one), the Documents folder
+   * Import Records reads from, the profiler, and AI. Without a solution only the server-wide flag can allow the network.
+   */
+  scriptOptions(solution?: string): { network: boolean; networkAllow?: readonly string[]; networkFiles: (file: string) => boolean; networkOff: (file: string) => string; outbound?: OutboundTest; connections?: ScriptConnections; mail?: (m: OutgoingMail) => Promise<void | string>; installPlugin?: (bytes: Uint8Array) => { id: string; version: string; signer: string }; documents: string; profile?: ScriptProfile; serverQueue: ScriptQueue; ai?: ScriptAi } {
     return {
       ...(this.config.scriptPluginInstall() ? { installPlugin: (bytes: Uint8Array) => this.installScriptPlugin(bytes) } : {}),
-      network: this.scriptNetwork, ...(this.scriptNetworkAllow.length ? { networkAllow: this.scriptNetworkAllow } : {}), ...(this.outbound ? { outbound: this.outbound } : {}), ...(this.scriptConnections ? { connections: this.scriptConnections } : {}), ...(this.mail && !this.outbound ? { mail: this.mail } : {}), ...(this.scriptAi ? { ai: this.scriptAi } : {}),
+      network: solution !== undefined ? this.scriptNetworkOn(solution) : this.scriptNetwork,
+      networkFiles: (file) => this.scriptNetworkOn(file), networkOff: (file) => this.networkOffNotice(file),
+      ...(this.scriptNetworkAllow.length ? { networkAllow: this.scriptNetworkAllow } : {}), ...(this.outbound ? { outbound: this.outbound } : {}), ...(this.scriptConnections ? { connections: this.scriptConnections } : {}), ...(this.mail && !this.outbound ? { mail: this.mail } : {}), ...(this.scriptAi ? { ai: this.scriptAi } : {}),
       documents: join(this.dir, 'Documents'), ...(this.profiler ? { profile: this.profiler } : {}), serverQueue: this.serverScripts,
     };
   }

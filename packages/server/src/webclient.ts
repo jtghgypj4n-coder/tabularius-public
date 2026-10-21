@@ -778,6 +778,7 @@ export class WebClient {
       database: store.name,
       layout: { name, id: design.id, occurrence: info.occurrence, table: info.table, file: info.owner.name },
       fileMode: store.fileMode,
+      scriptNetwork: this.host.scriptNetworkOn(store.name),
       design: this.resolveDesign(store, design),
       // The width below which a layout with no breakpoint of its own stacks in one column (0: never).
       stackBelowDefault: this.host.config.responsiveStackBelow(),
@@ -1752,7 +1753,7 @@ export class WebClient {
       // Only when the event's own trigger chose the script: a timer, menu item or one-step command naming an event
       // mustn't switch that trigger off for its run.
       ...(byEvent ? { startedBy: { event: event!, ...(Number.isInteger(body.objectId) ? { objectId: Number(body.objectId) } : {}) } } : {}),
-      ...(activeObject !== undefined && Number.isInteger(body.activeRow) ? { activeRow: Number(body.activeRow) } : {}), ...(openWindows?.length ? { openWindows } : {}), ...(trigger ? { trigger } : {}), ...(w.mode === 'find' ? { mode: 'find' as const, ...(findRequests(body.requests) ? { requests: inFileDateOrder(store, layout, findRequests(body.requests)) } : {}) } : {}), recordId, preview: body.preview === true, ...(body.view === 'form' || body.view === 'list' || body.view === 'table' ? { view: body.view } : {}), account: session.account, session: session.scripts, ...this.host.scriptOptions(), executionAccount: session.account, executionVia: session.via, privileges,
+      ...(activeObject !== undefined && Number.isInteger(body.activeRow) ? { activeRow: Number(body.activeRow) } : {}), ...(openWindows?.length ? { openWindows } : {}), ...(trigger ? { trigger } : {}), ...(w.mode === 'find' ? { mode: 'find' as const, ...(findRequests(body.requests) ? { requests: inFileDateOrder(store, layout, findRequests(body.requests)) } : {}) } : {}), recordId, preview: body.preview === true, ...(body.view === 'form' || body.view === 'list' || body.view === 'table' ? { view: body.view } : {}), account: session.account, session: session.scripts, ...this.host.scriptOptions(store.name), executionAccount: session.account, executionVia: session.via, privileges,
       onAccessDenial: (denial, code) => collector.observe(denial, code),
       ...(lastVisited ? { lastVisited } : {}),
       ...(session.window ? { window: session.window } : {}),
