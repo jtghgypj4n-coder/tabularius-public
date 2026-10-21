@@ -81,14 +81,14 @@ test('S3 progress merges a concurrent mirror entry and retains files added durin
   const s3 = new S3({ url: 's3://bucket', accessKey: 'test', secretKey: 'test' });
   t.mock.method(s3, 'put', async () => {
     writeFileSync(join(dir, set, 'second'), 'two');
-    writeFileSync(f, JSON.stringify({ [join(set, 'second')]: 'concurrent-upload' }));
+    writeFileSync(f, JSON.stringify({ destinations: { [s3.destinationId()]: { [join(set, 'second')]: 'concurrent-upload' } } }));
   });
   t.mock.method(s3, 'list', async () => [{ key: `${set}/second`, size: 3 }]);
   t.mock.method(s3, 'delete', async () => { assert.fail('must retain the concurrent upload'); });
   await mirrorUp(dir, s3);
   const saved = JSON.parse(readFileSync(f, 'utf8'));
-  assert.equal(saved[join(set, 'second')], 'concurrent-upload');
-  assert.ok(saved[join(set, 'first')]);
+  assert.equal(saved.destinations[s3.destinationId()][join(set, 'second')], 'concurrent-upload');
+  assert.ok(saved.destinations[s3.destinationId()][join(set, 'first')]);
 });
 
 test('S3 mirrors do not upload local SQLite state lock sidecars', async (t) => {

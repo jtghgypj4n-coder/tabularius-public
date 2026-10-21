@@ -300,8 +300,31 @@ export function conversionGuide(store: Store, hosted: string[] = [], report: Con
   breaks.sort((a, b) => rank(a) - rank(b));
   differs.sort((a, b) => rank(a) - rank(b));
   const guide: ConversionGuide = { database: store.name, ...(convertedAt(store) ? { convertedAt: convertedAt(store) } : {}), made: new Date().toISOString(), breaks, differs, todo, text: '' };
-  guide.text = guideText(guide);
-  return guide;
+  return sanitizedGuide(guide);
+}
+
+function sanitizedGuide(g: ConversionGuide): ConversionGuide {
+  const item = (i: GuideItem): GuideItem => {
+    let title = redactSecrets(i.title);
+    let what = redactSecrets(i.what);
+    // The heading and explanation share one Markdown line, so their context can mask a literal in either field.
+    if (redactSecrets(`${title}: ${what}`) !== `${title}: ${what}`) {
+      title = redactSecrets(title, true);
+      what = redactSecrets(what, true);
+    }
+    return {
+      ...i, title, what,
+      ...(i.instead === undefined ? {} : { instead: redactSecrets(i.instead) }),
+      where: i.where.map((where) => redactSecrets(where)),
+    };
+  };
+  const clean: ConversionGuide = {
+    ...g, database: redactSecrets(g.database), breaks: g.breaks.map(item), differs: g.differs.map(item),
+    todo: g.todo.map((todo) => redactSecrets(todo)),
+    ...(g.overview === undefined ? {} : { overview: redactSecrets(g.overview) }), text: '',
+  };
+  clean.text = guideText(clean);
+  return clean;
 }
 
 /** The guide as Markdown, secrets hidden. */
@@ -345,7 +368,10 @@ export class ConversionGuides {
   saved(store: Store): ConversionGuide | undefined {
     if (!this.table(store)) return undefined;
     const row = store.sql.prepare('SELECT spec FROM _fm_conversion_guide WHERE id = 1').get() as { spec: string } | undefined;
-    return row ? JSON.parse(row.spec) as ConversionGuide : undefined;
+    if (!row) return undefined;
+    const guide = sanitizedGuide(JSON.parse(row.spec) as ConversionGuide);
+    if (JSON.stringify(guide) !== row.spec) this.save(store, guide);
+    return guide;
   }
 
   private save(store: Store, g: ConversionGuide): void {
