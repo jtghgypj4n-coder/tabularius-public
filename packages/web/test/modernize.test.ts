@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createStore, Store } from '../../store/src/index.ts';
 import { estimatePolish, interfacePage, labelOf, planFromLayout, planInterface, previewPage, samplesOf, whyNot, type ModernField, type ModernTable } from '../src/modernize.ts';
-import { modernDesign, modernPage } from '../src/page-source.ts';
+import { FORMULA_LIMIT, modernDesign, modernPage, pageFormula } from '../src/page-source.ts';
 
 const f = (name: string, type = 'text', extra: Partial<ModernField> = {}): ModernField => ({ name, type, kind: 'normal', ...extra });
 const customers: ModernTable = { name: 'Customers', fields: [
@@ -244,7 +244,7 @@ test('modernize: saving a record with no edits changes no date field, in a nativ
   }
 });
 
-test('modernize: compat pages are byte-identical to 9091a0ea in every mode and view', () => {
+test('modernize: the pages of a small table keep their bytes in every mode and view', () => {
   const pages: string[] = [];
   for (const type of ['date', 'timestamp']) {
     const plan = planInterface({ name: 'Events', fields: [f('Title'), f('Status', 'text', { values: ['New', 'Done'] }), f('Due', type)] });
@@ -252,9 +252,8 @@ test('modernize: compat pages are byte-identical to 9091a0ea in every mode and v
       for (const view of ['table', 'board', 'calendar'] as const) pages.push(interfacePage('Events', plan, mode, view));
     }
   }
-  // Captured from the untouched PR head, including date and timestamp calendars. The only change since is the product
-  // name in the page text (openhbam to tabularius); the pages are otherwise the same bytes.
-  assert.equal(createHash('sha256').update(JSON.stringify(pages)).digest('hex'), '62bec0d2ef4beab0c759918deb003a59beeaffd0547caac62e770ef26204ab58');
+  // Pins the pages as the restyle (pills, initials badges, floating panels) made them; re-pin when the templates change on purpose.
+  assert.equal(createHash('sha256').update(JSON.stringify(pages)).digest('hex'), '9920e3a20995b9836e5179f32d23bd699afb45a334d8c41c4cba3000b531c9e8');
 });
 
 for (const native of [true, false]) for (const type of ['date', 'timestamp'] as const) {
@@ -344,3 +343,65 @@ for (const native of [true, false]) for (const type of ['date', 'timestamp'] as 
     }
   });
 }
+
+test('modernize: a page keeps under FileMaker Pro\'s formula limit however many fields and portals the table has, and a big table drops the badges before it drops the panels', () => {
+  const related = (n: number) => Array.from({ length: n }, (_, i) => ({ label: `Rel${i}`, layout: `Rel${i} list`, local: 'ID', remote: 'ID', columns: ['A', 'B', 'C'] }));
+  const table = (n: number): ModernTable => ({ name: 'Customers', fields: [f('Full_Name'), f('Status', 'text', { values: ['New', 'Done'] }), f('Due', 'date'), ...Array.from({ length: n - 3 }, (_, i) => f(`Field_${i}`))] });
+  const looks: Record<number, string[]> = {};
+  for (const [n, portals] of [[3, 0], [4, 0], [10, 3], [20, 3], [30, 0], [30, 3]]) {
+    const plan = planInterface(table(n), related(portals));
+    for (const mode of ['list', 'split', 'detail'] as const) {
+      const page = interfacePage('Customers - Modern list', plan, mode);
+      assert.ok(pageFormula(page).length <= FORMULA_LIMIT, `${n} fields, ${portals} portals, ${mode}: ${pageFormula(page).length} characters`);
+    }
+    // The board and the calendar were already close; the restyle must not push a board past where it was or a calendar anywhere.
+    for (const view of ['board', 'calendar'] as const) {
+      const page = interfacePage('Customers - Modern list', plan, 'list', view);
+      assert.ok(pageFormula(page).length <= (view === 'board' ? FORMULA_LIMIT : 31_500), `${n} fields, ${portals} portals, ${view}: ${pageFormula(page).length} characters`);
+    }
+    const page = interfacePage('Customers - Modern list', plan, 'list');
+    (looks[n * 10 + portals] ??= []).push(page.includes('.pill{') ? 'full' : page.includes('--shadow') ? 'soft' : 'plain');
+  }
+  assert.equal(looks[30][0], 'full', 'a small table gets the badges and pills');
+  assert.equal(looks[203][0], 'soft', 'a big one keeps the floating panels');
+  assert.equal(looks[303][0], 'soft');
+});
+
+test('modernize: the status pill, the initials badge and the record title read the field, not the page', () => {
+  const plan = planInterface({ name: 'Business Status', fields: [f('Full_Name'), f('Status', 'text', { values: ['New'] })] });
+  const script = interfacePage('Customers', plan, 'list').replace(/^[\s\S]*<script>|<\/script>[\s\S]*$/g, '');
+  const helpers = script.slice(script.indexOf('var TONES'), script.indexOf('var val = '));
+  assert.ok(helpers.includes('function recHead'), 'a small page carries the helpers');
+  const el = (tag: string, attrs: Record<string, unknown> = {}, kids: unknown[] = []) => ({ tag, ...attrs, kids });
+  const make = (P: object) => new Function('P', 'el', `${helpers}\n${script.slice(script.indexOf('var val = ')).split('\n')[0]}\nreturn { isState: isState, pill: pill, avatar: avatar, nameCol: nameCol, recHead: recHead };`)(P, el) as {
+    isState: (c: object) => boolean; pill: (v: string) => { class: string }; avatar: (v: string) => { 'data-i': string }; nameCol: (c: object) => boolean; recHead: (rec: object, isNew: boolean) => { kids: { text?: string; 'data-i'?: string }[] }[];
+  };
+  const col = (name: string, control = 'text') => ({ name, control });
+  const h = make({ title: 'Business Status', columns: [col('Full_Name')] });
+  // A value that is also a name on Object's prototype is no tone.
+  for (const v of ['constructor', '__proto__', 'toString', 'hasOwnProperty']) assert.equal(h.pill(v).class, 'pill ', v);
+  assert.equal(h.pill('Paid').class, 'pill ok');
+  assert.equal(h.pill('In Progress').class, 'pill info');
+  for (const name of ['Status', 'stage', 'Order_Status', 'OrderStatus', 'Order Status', 'Status_Code', 'Priority', 'State']) assert.ok(h.isState(col(name)), name);
+  for (const name of ['Hostage', 'Statement', 'Balance']) assert.ok(!h.isState(col(name)), name);
+  assert.ok(!h.isState(col('Status', 'number')) && !h.isState(col('Stage', 'longtext')));
+  const names = make({ columns: [col('Full_Name')] });
+  assert.ok(!names.nameCol(col('Company')), 'only the first column is a name');
+  const first = (name: string, control = 'text') => { const c = col(name, control); return make({ columns: [c] }).nameCol(c); };
+  assert.ok(first('Full_Name') && first('Company'));
+  for (const name of ['ID', 'CustomerID', 'Customer_ID', 'Customer ID', 'Order No', '#']) assert.ok(!first(name), name);
+  assert.ok(!first('Joined', 'date') && !first('Total', 'number'));
+  assert.equal(h.avatar('Ada Lovelace')['data-i'], 'AL');
+  assert.equal(h.avatar('ada lovelace')['data-i'], 'AL');
+  assert.equal(h.avatar('Prince')['data-i'], 'P');
+  assert.equal(h.avatar('  ')['data-i'], '?');
+  // A first letter outside the basic plane is one character, not half a surrogate pair.
+  assert.equal(Array.from(h.avatar('\u{1D4D0}da Lovelace')['data-i']).length, 2);
+  // The form's title: the name with its badge, "New" and the singular on a new record, the plain title when the name is blank.
+  assert.equal(h.recHead({ fieldData: { Full_Name: 'Ada Lovelace' } }, false)[0].kids[0]['data-i'], 'AL');
+  assert.equal(h.recHead({ fieldData: {} }, true)[0].kids[0].text, 'New Business Status');
+  assert.equal(h.recHead({ fieldData: {} }, false)[0].kids[0].text, 'Business Status');
+  assert.equal(make({ title: 'Customers', columns: [col('Name')] }).recHead({ fieldData: {} }, true)[0].kids[0].text, 'New Customer');
+  // A table whose list has no columns (only a container field on the layout) still opens a record.
+  assert.deepEqual(make({ title: 'Pictures', columns: [] }).recHead({ fieldData: {} }, true), []);
+});
