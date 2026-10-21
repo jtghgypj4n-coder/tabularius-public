@@ -26,7 +26,7 @@ import { accessDenialContext, type AccessDenial } from '../../store/src/access-d
 import { PASSKEY_SECOND_FACTOR_REQUIRED } from '../../store/src/error-codes.ts';
 import { explainAccessDenial, PrivilegeError, StoreError, PendingApprovalError, checkRecord, explainField, explainRelated, ExplainRelatedError, lintFormula, findStaleCalcs, refreshStaleCalcs, undoStaleRefresh, staleRefreshHistory, type FieldExplanation, type RecordCheck, type RelatedExplanation, type Privileges, Store } from '../../store/src/index.ts';
 import { scriptText } from '../../fmp12/src/index.ts';
-import { PORTAL_ROWS, auditForModel, compactPortals, containsSecret, dashboardForModel, fieldValueForModel, recordForModel, redactSecrets, redactStep, rowsForModel, secretName, secretText, secretValues, sqlMayReadSecret, storedSecretValues, summaryForModel } from './ai-output.ts';
+import { PORTAL_ROWS, auditForModel, compactPortals, containsSecret, dashboardForModel, fieldValueForModel, recordForModel, redactSecrets, redactStep, rowsForModel, secretName, secretText, secretValues, scriptOutputForModel, storedSecretValues, summaryForModel } from './ai-output.ts';
 import { ScriptDebugger, ScriptError, ScriptSession, captureOnly, runScript, scriptDenial, offlineScriptOptions } from '../../scripts/src/index.ts';
 import { registerDesignTools } from './mcp-design.ts';
 import { registerSyncTools } from './mcp-sync.ts';
@@ -93,16 +93,6 @@ export function sessionFor(host: Host, database: string, who: McpIdentity): Scri
 }
 
 const json = (value: unknown) => ({ content: [{ type: 'text' as const, text: JSON.stringify(value) }] });
-
-/** Remove field values observed during a script run from every returned string, including actions and warnings. */
-function redactScriptValues(value: unknown, secrets: readonly string[]): unknown {
-  const hide = (input: string) => secrets.reduce((out, secret) => out.split(secret).join(HIDDEN_VALUE), input);
-  if (typeof value === 'string') return hide(value);
-  if (Array.isArray(value)) return value.map((item) => redactScriptValues(item, secrets));
-  if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([key, item]) =>
-    [hide(key), redactScriptValues(item, secrets)]));
-  return value;
-}
 
 /** The shape of a record in find_records and get_record answers; other keys (a stale-value list, portal totals) pass through. */
 const recordOut = z.looseObject({
@@ -804,6 +794,7 @@ export function createMcpServer(host: Host, who: McpIdentity = { admin: true }, 
     const store = host.get(database);
     if (!store) return fail(`No hosted database named "${database}". Hosted: ${aiHostedNames(host, canSee(who))}`);
     const privacy = scriptPrivacy('run_script');
+    const output = scriptOutputForModel();
     try {
       const p = privilegesIn(store, who);
       if (p) {
@@ -823,30 +814,25 @@ export function createMcpServer(host: Host, who: McpIdentity = { admin: true }, 
       // --allow-script-network: that switch is for people's own scripts.
       // Outbound test mode is left out too: an AI's runs never send anything, even to the outbox's redirect address,
       // and mail sending with it. So are FileMaker's AI steps: scripts an AI runs stay offline.
-      const secretValues = new Set<string>();
-      let usedSQL = false;
       const run = await runScript(store, script, offlineScriptOptions({ parameter, layout, trace: traceAllowed, session, account: p?.account ?? 'AI', ...host.scriptOptions(), executionAccount: 'admin' in who ? undefined : who.account, executionVia: 'via' in who ? who.via : undefined, ...(maxSeconds === undefined ? {} : { timeoutMs: maxSeconds * 1000 }), privileges: p,
         // Export Field Contents is a client action for MCP callers; other
         // file steps retain their server-side Documents behavior.
         clientFieldExports: true, beforeFile: privacy.beforeFile, onAccessDenial: privacy.onAccessDenial,
-        onFieldRead: (name, value) => { if (secretName(name) && value) secretValues.add(value); },
-        onExecuteSQL: (query) => { if (sqlMayReadSecret(query)) usedSQL = true; } }));
+        onFieldRead: output.onFieldRead, onExecuteSQL: output.onExecuteSQL }));
       const denial = scriptDenial(run);
-      // A secret can leave transformed (Upper, Middle, Base64Encode), so matching its value is not enough: a run
-      // that read a secret field returns no output. ExecuteSQL reads rows below the engine's field hook, so a run
-      // whose query names a secret-looking field or selects every column is withheld too. Actions and diagnostics may carry the value as well as Exit Script.
-      if (usedSQL || secretValues.size) return privacy.result(json({ error: run.error, halted: run.halted, steps: run.steps,
-        note: usedSQL ? 'Script output withheld: an ExecuteSQL query may have read a secret field.' : 'Script output withheld: the script read a secret field.' }));
-      const safe = redactScriptValues({ ...run,
-        trace: traceAllowed ? run.trace?.map((line) => ({ ...line, line: redactSecrets(line.line),
-          ...(line.message ? { message: redactSecrets(line.message) } : {}) })) : undefined,
+      const withheld = output.withheld(run);
+      if (withheld) return privacy.result(json(withheld));
+      const safe = redactStep({ ...run,
+        trace: traceAllowed ? run.trace : undefined,
         ...(traceRefusal ? { traceRefusal } : {}),
-        ...(denial ? { denial: explainAccessDenial(denial) } : {}) }, [...secretValues].sort((a, b) => b.length - a.length));
+        ...(denial ? { denial: explainAccessDenial(denial) } : {}) });
       const result = json(safe);
       const context = denial && accessDenialContext(denial);
       if (context) denialContexts.set(result, { ...context, denial: denial!, code: run.error });
       return privacy.result(result);
     } catch (e) {
+      const withheld = output.withheld();
+      if (withheld) return privacy.result(json(withheld));
       if (e instanceof ScriptError || (e instanceof StoreError && !e.denial)) return privacy.result(fail(`Error ${e.code}: ${e.message}`));
       return privacy.result(failError(e));
     }
@@ -876,6 +862,7 @@ export function createMcpServer(host: Host, who: McpIdentity = { admin: true }, 
     if (!store) return fail(`No hosted database named "${database}". Hosted: ${aiHostedNames(host, canSee(who))}`);
     let copy: Awaited<ReturnType<typeof scratchCopy>> | undefined;
     const privacy = scriptPrivacy('debug_script', !scratch);
+    const output = scriptOutputForModel();
     try {
       const p = privilegesIn(store, who);
       if (p && !p.full) throw new Error(`Insufficient privileges: debugging needs [Full Access], as in FileMaker; "${p.account}" has "${p.name}"`);
@@ -886,6 +873,7 @@ export function createMcpServer(host: Host, who: McpIdentity = { admin: true }, 
         // Offline, as run_script: no network and no outbound mail, not even to the outbox's test redirect.
         account: p?.account ?? 'AI', privileges: p, ...host.scriptOptions(), executionAccount: 'admin' in who ? undefined : who.account, executionVia: 'via' in who ? who.via : undefined, executionStore: store, profile: undefined,
         beforeFile: privacy.beforeFile, onAccessDenial: privacy.onAccessDenial,
+        onFieldRead: output.onFieldRead, onExecuteSQL: output.onExecuteSQL,
       }));
       const stops: unknown[] = [];
       // What a stop shows a model: a variable named for a secret, or holding a copy of a stored one, is hidden.
@@ -906,8 +894,10 @@ export function createMcpServer(host: Host, who: McpIdentity = { admin: true }, 
         });
         state = await d.resume('continue');
       }
-      return privacy.result(json({ stops, scratch, ...(state.done ? { result: state.done } : {}), ...(state.error ? { error: state.error } : {}) }));
+      return privacy.result(json(output.withheld(state.done) ?? redactStep({ stops, scratch, ...(state.done ? { result: state.done } : {}), ...(state.error ? { error: state.error } : {}) })));
     } catch (e) {
+      const withheld = output.withheld();
+      if (withheld) return privacy.result(json(withheld));
       if (e instanceof ScriptError) return privacy.result(fail(`Error ${e.code}: ${e.message}`));
       return privacy.result(failError(e));
     } finally {
@@ -2061,6 +2051,7 @@ export function createMcpServer(host: Host, who: McpIdentity = { admin: true }, 
   registerDesignTools(server, host, (s) => {
     const p = privilegesIn(s, who);
     if (p && !p.full) throw new Error(`Insufficient privileges: design changes need [Full Access]; "${p.account}" has "${p.name}"`);
+    return p;
   }, 'admin' in who, canSee(who), readOtherFile);
   // Sync status is the administrator's: a file's account never sees another file's connection to FileMaker Server.
   if ('admin' in who && extras.sync && extras.schedules) {

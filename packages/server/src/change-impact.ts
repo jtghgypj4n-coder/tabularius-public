@@ -301,7 +301,7 @@ export function crossFileImpact(store: Store, others: Store[], target: Target, c
   return out;
 }
 
-export async function changeImpact(store: Store, logs: ServerLogs | undefined, kind: ImpactKind, name: string, change: ChangeKind, opts: { days?: number; limit?: number; others?: Store[]; hiddenOthers?: Store[] } = {}): Promise<ChangeImpact> {
+export async function changeImpact(store: Store, logs: ServerLogs | undefined, kind: ImpactKind, name: string, change: ChangeKind, opts: { days?: number; limit?: number; others?: Store[]; hiddenOthers?: Store[]; canRead?: (store: Store) => boolean } = {}): Promise<ChangeImpact> {
   const target = resolveTargets(store, name, kind)[0];
   if (!target) throw new Error(`No ${kind === 'valueList' ? 'value list' : kind} named "${name}"`);
   const days = opts.days ?? 30;
@@ -345,10 +345,13 @@ export async function changeImpact(store: Store, logs: ServerLogs | undefined, k
   if (broken) summary.push(`${n(broken, 'place')} in the file would break${change === 'rename' ? ' (they name it in text: GetField, ExecuteSQL, Evaluate or a step "by name")' : ''}.`);
   const follow = used.count + extra - broken;
   if (change === 'rename' && follow > 0) summary.push(`${n(follow, 'other use')} in the file follow${follow === 1 ? 's' : ''} the rename.`);
-  // Other hosted files that reach into this target.
-  const crossFile = crossFileImpact(store, opts.others ?? [], target, change);
+  // Each contributing file requires explicit authorization, including files counted without names.
+  const readable = (other: Store) => {
+    try { return opts.canRead?.(other) === true; } catch { return false; }
+  };
+  const crossFile = crossFileImpact(store, (opts.others ?? []).filter(readable), target, change);
   // Files whose names are kept from AI (for an AI client): counted, not named.
-  const crossFileHidden = opts.hiddenOthers?.length ? new Set(crossFileImpact(store, opts.hiddenOthers, target, change).map((c) => c.file)).size : 0;
+  const crossFileHidden = opts.hiddenOthers?.length ? new Set(crossFileImpact(store, opts.hiddenOthers.filter(readable), target, change).map((c) => c.file)).size : 0;
   if (crossFile.length) {
     const files = [...new Set(crossFile.map((c) => c.file))];
     summary.push(`${n(files.length, 'other hosted file')} (${files.join(', ')}) ${change === 'delete' ? `reach${files.length === 1 ? 'es' : ''} into it and would break` : `reach${files.length === 1 ? 'es' : ''} into it by id and follow${files.length === 1 ? 's' : ''} the rename`}.`);
