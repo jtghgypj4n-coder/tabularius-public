@@ -10,6 +10,9 @@ export const READ_APIS = {
   related: new Set(['relatedRows', 'relatedIdList', 'firstRelatedEach', 'keyValue']),
   calc: new Set(['rowsById', 'rowsOf']),
 };
+/** The names of read APIs that are not also everyday method names (get, all, prepare), for members of untyped receivers. */
+const NAMED = new Set([...READ_APIS.Store, ...READ_APIS.Calculations, ...READ_APIS.related, ...READ_APIS.calc]);
+for (const common of ['get', 'find', 'select', 'query', 'value', 'row', 'context', 'collect', 'related', 'summary', 'statement', 'describe', 'container', 'sql']) NAMED.delete(common);
 export interface ReadSite { file: string; line: number; fn: string; api: string; hash: string }
 export interface AllowedReader { file: string; fn: string; gate: string; sites: { api: string; hash: string }[] }
 const digest = (text: string) => createHash('sha256').update(text).digest('hex').slice(0, 20);
@@ -21,7 +24,7 @@ function sources(root: string): string[] {
     for (const e of readdirSync(dir, { withFileTypes: true })) {
       if (e.name === 'node_modules') continue;
       if (e.isDirectory()) walk(join(dir, e.name));
-      else if (e.isFile() && /\.tsx?$/.test(e.name)) out.push(join(dir, e.name));
+      else if (e.isFile() && /\.[cm]?[jt]sx?$/.test(e.name) && !/\.d\.[cm]?ts$/.test(e.name)) out.push(join(dir, e.name));
     }
   };
   for (const e of readdirSync(join(root, 'packages'), { withFileTypes: true })) {
@@ -49,7 +52,7 @@ function scope(node: ts.Node): string {
 /** Resolve declarations, rather than matching Map.get/Array.find by spelling. Also catches aliases and bracket calls. */
 export function collectReadSites(root = resolve(import.meta.dirname, '..'), overrides = new Map<string, string>()): ReadSite[] {
   const roots = sources(root);
-  const options: ts.CompilerOptions = { target: ts.ScriptTarget.ESNext, module: ts.ModuleKind.NodeNext, allowImportingTsExtensions: true, skipLibCheck: true };
+  const options: ts.CompilerOptions = { target: ts.ScriptTarget.ESNext, module: ts.ModuleKind.NodeNext, allowImportingTsExtensions: true, allowJs: true, skipLibCheck: true };
   const host = ts.createCompilerHost(options);
   const read = host.readFile.bind(host);
   host.readFile = (path) => overrides.get(relative(root, path)) ?? read(path);
@@ -77,11 +80,19 @@ export function collectReadSites(root = resolve(import.meta.dirname, '..'), over
       if (file.endsWith('/store/src/calc.ts') && READ_APIS.calc.has(name)) return name;
       if (file.endsWith('/store/src/related.ts') && READ_APIS.related.has(name)) return name;
     };
+    // A receiver the compiler cannot type (any, unknown, an unresolved import) hides which declaration is called, so a
+    // member with a read-API name on it is reported by its name. A computed key on one (`(s as any)[key]()`) is not:
+    // such keys are everywhere in code that has nothing to do with the store, so that case stays a known gap.
+    const untyped = (e: ts.Expression) => (checker.getTypeAtLocation(e).flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) !== 0;
+    const unresolved = (receiver: ts.Expression, name: ts.Node): string | undefined => {
+      if (!untyped(receiver)) return;
+      if (ts.isStringLiteral(name) || ts.isIdentifier(name)) return NAMED.has(name.text) ? `Untyped.${name.text}` : undefined;
+    };
     const visit = (node: ts.Node) => {
       if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
         const name = ts.isPropertyAccessExpression(node) ? node.name : node.argumentExpression;
         const symbol = checker.getSymbolAtLocation(name) ?? (ts.isStringLiteral(name) ? checker.getTypeAtLocation(node.expression).getProperty(name.text) : undefined);
-        const api = symbol?.declarations?.map(classify).find(Boolean);
+        const api = symbol?.declarations?.map(classify).find(Boolean) ?? unresolved(node.expression, name);
         if (api) add(node, api);
       } else if (ts.isCallExpression(node) && !ts.isPropertyAccessExpression(node.expression) && !ts.isElementAccessExpression(node.expression)) {
         const api = classify(checker.getResolvedSignature(node)?.declaration);

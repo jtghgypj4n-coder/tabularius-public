@@ -120,6 +120,25 @@ test('digest rechecks record visibility after an asynchronous summary before web
   assert.ok(result.data.length === 0 || result.data[0].value === 0);
 });
 
+test('a digest of an account that reads everything survives record writes made while its summary is written', async (t) => {
+  const { m } = await setup(t);
+  const board = new Dashboards(m.store).create({ name: 'Count', widgets: [{ title: 'Count', kind: 'number', layout: 'Items' }] }, 'Caller');
+  const digest = new Digests(m.store).create({ name: 'Writes', dashboard: board.id, days: [1], at: '09:00', enabled: false, account: 'Caller', webhook: 'synthetic' });
+  m.store.savePrivilegeSet(SHAPES[0].definition);
+  const posted: unknown[] = [];
+  const runner = new DigestRunner(m.host);
+  runner.writer = { summarize: async () => {
+    m.store.update('Items', m.own, { Owner: 'someone else' });
+    return { summary: 'Counted' };
+  } };
+  runner.poster = { allowed: true, post: async (_id, _db, payload) => { posted.push(payload); } };
+  const result = await runner.run(m.store, digest);
+  assert.equal(result.outcome, 'ok', result.error);
+  assert.equal(result.summary, 'Counted');
+  assert.ok(result.data.length > 0);
+  assert.equal(posted.length, 1);
+});
+
 test('RAG spaces containing copied record data require unrestricted reads on every call', async (t) => {
   const { m } = await setup(t);
   const { Assistant } = await import('../src/assistant.ts');
