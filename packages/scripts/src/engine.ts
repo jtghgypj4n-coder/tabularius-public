@@ -958,7 +958,7 @@ const PLUGIN_FETCH_MS = 30_000;
 const FORBIDDEN_HEADERS = new Set(['host', 'content-length', 'connection', 'transfer-encoding', 'upgrade']);
 /** Formulas that may call GetEmbedding (or build a call with Evaluate): their step's variables are kept to put back. */
 const EMBEDS = /GetEmbedding\s*\(|Evaluate\s*\(/i;
-const CURL_PERFORM = /CURL\.Perform/i;
+const CURL_PERFORM = /CURL\.Perform|BE_HTTP_|BE_SMTPSend|BE_SMTP_Send/i;
 const filesEmbedding = new WeakMap<object, boolean>();
 /** Whether any of a file's custom functions may call GetEmbedding. */
 function functionsEmbed(store: Store): boolean {
@@ -969,7 +969,7 @@ function functionsEmbed(store: Store): boolean {
 }
 const callsEmbedding = new WeakMap<ScriptStep, boolean>();
 const CANT_EMBED_HERE = 'GetEmbedding was reached where this step can\'t safely run again; work the embedding out in a Set Variable step first';
-const CANT_FETCH_HERE = 'A web request (such as CURL.Perform) was reached where this step can\'t safely run again; make the request in a Set Variable step first';
+const CANT_FETCH_HERE = 'A web request (such as CURL.Perform or BE_HTTP_GET) was reached where this step can\'t safely run again; make the request in a Set Variable step first';
 const cantRunAgain = (e: unknown) => (e instanceof NeedFetch ? CANT_FETCH_HERE : CANT_EMBED_HERE);
 /** Embeddings a run keeps for GetEmbedding, by account, model and text. */
 const EMBEDDINGS_KEPT = 500;
@@ -2749,14 +2749,14 @@ export class ScriptEngine {
   /** MBS CURL uses the same offline switch and bounded host fetch as script URL steps. */
   private curlFetch(f: Frame, request: MbsCurlRequest): PluginResponse {
     const refused = this.networkRefusal(f);
-    if (refused) throw new CalcError(ERR.calculation, `CURL.Perform can't reach the web: ${refused}`);
+    if (refused) throw new CalcError(ERR.calculation, `${request.via ?? 'CURL.Perform'} can't reach the web: ${refused}`);
     const held = this.callStackFiles(f).find((x) => captureOnly(x));
-    if (held !== undefined) throw new CalcError(ERR.calculation, `CURL.Perform can't reach the web: "${held}" is a capture-only file`);
-    const key = JSON.stringify(['CURL.Perform', request]);
+    if (held !== undefined) throw new CalcError(ERR.calculation, `${request.via ?? 'CURL.Perform'} can't reach the web: "${held}" is a capture-only file`);
+    const key = JSON.stringify([request.via ?? 'CURL.Perform', request]);
     const done = this.pluginFetched.get(key);
     if (done) return done;
     // Only an explicitly authorized test fetch may serve local addresses. Real requests use the strict guard and pinned transport.
-    throw new NeedFetch({ key, via: 'CURL.Perform', method: request.method, url: request.url, headers: request.headers,
+    throw new NeedFetch({ key, via: request.via ?? 'CURL.Perform', method: request.method, url: request.url, headers: request.headers,
       body: request.body ?? '', allows: (url) => curlAddressAllowed(url, typeof this.opts.network === 'function' && this.opts[TEST_ONLY_CUSTOM_FETCH] === true), curl: request });
   }
 
@@ -2768,9 +2768,14 @@ export class ScriptEngine {
     return !this.opts.outbound && !!this.opts.mail && f.store.pluginsUseMail();
   }
 
+  /** Whether a built-in function (BE_SMTPSend) could send real mail here: sending is set up, and every file on the call stack may use the network. */
+  private mayMailBuiltin(f: Frame): boolean {
+    return !this.opts.outbound && !!this.opts.mail && !!this.opts.network && this.networkBlocker(f) === undefined;
+  }
+
   /** Plug-ins' mail where sending is on: a message not sent yet ends the step's run (NeedMail) and is sent before it runs again. */
-  private pluginMailer(f: Frame): PluginMailer | undefined {
-    if (!this.mayMail(f)) return undefined;
+  private pluginMailer(f: Frame, builtin = false): PluginMailer | undefined {
+    if (!(builtin ? this.mayMailBuiltin(f) : this.mayMail(f))) return undefined;
     return {
       send: (via, m) => {
         // The same message twice in one step is sent once.
@@ -2780,6 +2785,9 @@ export class ScriptEngine {
         if (done !== undefined) throw new CalcError(ERR.calculation, `${via}: the message wasn't sent (${done})`);
         const held = this.callStackFiles(f).find((x) => captureOnly(x));
         if (held !== undefined) throw new CalcError(ERR.calculation, `${via} can't send mail: "${held}" is a capture-only file, and its scripts never send email`);
+        // A built-in function's mail follows the network switch, checked at every message (this closure outlives the step that made it).
+        const refused = builtin ? this.networkRefusal(f) : undefined;
+        if (refused) throw new CalcError(ERR.calculation, `${via} can't send mail: ${refused}`);
         // "Name <address>" gives the address; the operator's account is always the sender.
         const bare = (list: string) => addresses(list).map((a) => /<([^<>]*)>\s*$/.exec(a)?.[1].trim() ?? a);
         const from = addresses(m.from)[0] ?? '';
@@ -5173,6 +5181,7 @@ export class ScriptEngine {
       ...(this.opts.outbound ? { outbound: this.pluginOutbound(f, this.opts.outbound) } : {}),
       ...(this.mayFetch(f) ? { network: this.pluginNetwork(f) } : {}),
       ...(this.mayMail(f) ? { mailer: this.pluginMailer(f) } : {}),
+      ...(this.mayMailBuiltin(f) ? { builtinMailer: this.pluginMailer(f, true) } : {}),
     };
   }
 

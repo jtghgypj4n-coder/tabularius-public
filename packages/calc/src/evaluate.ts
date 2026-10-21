@@ -144,6 +144,8 @@ export interface CalcContext {
   curlScope?: object;
   /** Real mail for plug-in functions, where the operator switched sending on (see PluginMailer). Outbound test mode takes its place when set. */
   mailer?: PluginMailer;
+  /** Mail for the built-in BaseElements functions (BE_SMTPSend), where the operator set up sending and scripts may use the network. Outbound test mode takes its place when set. */
+  builtinMailer?: PluginMailer;
   /**
    * Called after each part of the formula is worked out, innermost first,
    * with its nesting depth (1 for the whole formula): the result, or the
@@ -183,6 +185,8 @@ export interface MbsCurlRequest {
   follow: boolean;
   maxRedirs: number;
   aws?: { spec: string; user: string };
+  /** The function asking, for messages (CURL.Perform when absent). */
+  via?: string;
 }
 
 /**

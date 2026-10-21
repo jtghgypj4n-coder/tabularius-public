@@ -608,11 +608,15 @@ reaches the Outbox. No file is capture-only unless you name it.
 The full list of what runs and what gives "?" is in [plugin-compatibility.md](plugin-compatibility.md), generated from the code.
 
 Safe, local BaseElements functions (JSON, regular expressions, stacks, text
-files in `<folder>/Documents`) run natively. BaseElements web, mail and FTP
-calls, and its shell and clipboard calls, are not built in yet and give "?" and
-error 3 (with `--test-outbound`, BaseElements web and mail calls go to the
-Outbox instead). MBS `CURL.Perform` does reach the network, following the same
-Script network switch as Insert from URL. Of MBS, the `Text.*`
+files in `<folder>/Documents`) run natively. BaseElements' web calls
+(`BE_HTTP_GET`, `POST`, `PUTData`, `PATCH`, `DELETE`, with `SetCustomHeader`,
+`ResponseCode` and `ResponseHeaders`) and `BE_SMTPSend` work once **Script
+network** is turned on for the file, through the same guarded transport as
+Insert from URL (and, for mail, once the server is set up to send it); with the
+switch off they give "?" and error 3, and with `--test-outbound` they go to the
+Outbox instead. MBS `CURL.Perform` follows the same switch. The file variants
+(`BE_HTTP_GETFile`, `PUTFile`), FTP, shell and clipboard calls are not built in
+and give "?" and error 3. <!-- known-difference: Vendor plug-ins ;; BaseElements' web calls answer with the body as text (BaseElements answers with a container), and the error number a failed request sets (7) is inferred ;; A script that reads the container or tests for another error number can behave differently ;; A run of the real plug-in against a failing address --> Of MBS, the `Text.*`
 functions run natively, following MBS's own documentation: case, trimming,
 lists and words, Base64, hex, URL, quoted-printable, HTML and XML encoding in
 the text encoding you name (UTF-8, UTF-16, Latin-1, Windows, Mac, Hex,
