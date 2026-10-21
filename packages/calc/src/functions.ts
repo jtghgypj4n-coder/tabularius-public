@@ -1885,14 +1885,16 @@ const beRequest = (name: string, v: Value[], env: Env): Value | undefined => {
       return beResult(env, BE_NO_FILE, num(BE_NO_FILE));
     }
     if (at.read !== undefined) {
+      // The size is asked first, so a file over the limit is never read into memory.
+      const size = env.ctx.files?.size(file);
+      if (size !== undefined && size > BE_MAX_UPLOAD) {
+        beErrors.set(env.ctx, `${name}: ${file} is over ${BE_MAX_UPLOAD / 1024 / 1024} MB`);
+        return beResult(env, 7, num(7));
+      }
       bodyBytes = env.ctx.files?.read(file);
       if (!bodyBytes) {
         beErrors.set(env.ctx, `${name}: no file at ${file} (paths are inside the Documents folder)`);
         return beResult(env, BE_NO_FILE, num(BE_NO_FILE));
-      }
-      if (bodyBytes.length > BE_MAX_UPLOAD) {
-        beErrors.set(env.ctx, `${name}: ${file} is over ${BE_MAX_UPLOAD / 1024 / 1024} MB`);
-        return beResult(env, 7, num(7));
       }
     }
   }

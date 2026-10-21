@@ -2,7 +2,7 @@
 // same guarded transport as Insert from URL, and give ? and error 3 where they may not.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, truncateSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createStore, Store } from '../../store/src/index.ts';
@@ -123,4 +123,15 @@ test('the file variants say what is wrong: a missing file, a path outside the do
   // Where scripts may not reach the network they give ? and send nothing.
   script('FileOff', 'Set Variable [ $r ; Value: BE_HTTP_GET_File ( "https://files.example.com/p" ; Get ( DocumentsPath ) & "y" ) & "|" & BE_GetLastError ]\nExit Script [ Text Result: $r ]');
   assert.equal((await runScript(store, 'FileOff', { network: false, documents: docs })).result, '?|3');
+});
+
+test('BE_HTTP_PUTFile refuses a file over 10 MB without sending it', async () => {
+  const docs = join(dir, 'Documents');
+  mkdirSync(docs, { recursive: true });
+  writeFileSync(join(docs, 'big.bin'), '');
+  truncateSync(join(docs, 'big.bin'), 10 * 1024 * 1024 + 1); // sparse
+  script('PutBig', 'Set Variable [ $r ; Value: BE_HTTP_PUTFile ( "https://files.example.com/up" ; Get ( DocumentsPath ) & "big.bin" ) & "|" & BE_GetLastError ]\nExit Script [ Text Result: $r ]');
+  const { seen, fetch } = net();
+  assert.equal((await runScript(store, 'PutBig', { [TEST_ONLY_CUSTOM_FETCH]: true, network: fetch, documents: docs })).result, '7|7');
+  assert.deepEqual(seen, []);
 });
