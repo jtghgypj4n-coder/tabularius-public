@@ -410,12 +410,25 @@ export const MBS_XML: Record<string, MbsXml> = {
   'xml.itemrefs': ([xml = '', flags], scope) => {
     let doc = input(scope, xml).doc;
     if (flagsOf(flags) & FLAG.noNamespaces) doc = withoutNamespaces(doc);
-    return root(doc).children.filter((c) => c.kind === 'element').map((c) => {
+    const s = sessionOf(scope);
+    const children = root(doc).children.filter((c) => c.kind === 'element');
+    if (s.refs.size + children.length > MAX_LIVE)
+      throw new MbsError(`Too many XML references are open (${MAX_LIVE}); release them with XML.Release`);
+    const docs = children.map((c) => {
       const d = makeNode('document', null, 0);
       d.children = [asRoot(c, d)];
       renumber(d);
-      return keep(scope, d);
-    }).join('\r');
+      return d;
+    });
+    const first = s.next;
+    try {
+      for (const d of docs) s.refs.set(s.next++, d);
+    } catch (e) {
+      for (let ref = first; ref < s.next; ref++) s.refs.delete(ref);
+      s.next = first;
+      throw e;
+    }
+    return docs.map((_, i) => first + i).join('\r');
   },
   // MBS: one setting for all XML functions; Tabularius keeps it for the session (inferred).
   'xml.setsavenoemptytags': ([flag = ''], scope) => {

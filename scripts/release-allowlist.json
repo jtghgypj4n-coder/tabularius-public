@@ -54,6 +54,10 @@
         "why": "the commit the release was built from, written by the build"
       },
       {
+        "glob": "packages/web/next/*",
+        "why": "the alternative web client's page, scripts and styles, served at /next/"
+      },
+      {
         "glob": "packages/web/*.html",
         "why": "the web client's pages"
       },

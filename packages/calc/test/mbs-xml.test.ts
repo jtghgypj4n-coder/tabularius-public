@@ -12,6 +12,16 @@ const session = () => {
   return (name: string, ...args: (string | number)[]) => MBS_XML[name.toLowerCase()](args.map(String), scope);
 };
 
+test('AR-calc-extensions-09 ItemRefs refuses a full batch without consuming handles', () => {
+  const x = session();
+  const refs = Array.from({ length: 9999 }, () => x('XML.Parse', '<r/>'));
+  const before = String(x('XML.List'));
+  assert.equal(before.split('\r').length, 9999);
+  assert.throws(() => x('XML.ItemRefs', '<r><a/><b/></r>'), /Too many XML references/);
+  assert.equal(x('XML.List'), before);
+  assert.equal(x('XML.Parse', '<r/>'), Number(refs[9998]) + 1);
+});
+
 test('MBS XML: GetPathValue reads nodes and attributes by path', () => {
   const x = session();
   assert.equal(x('XML.GetPathValue', '<test>Hello</test>', 'test', 0), 'Hello');

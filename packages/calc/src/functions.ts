@@ -15,6 +15,7 @@ import type { Env } from './evaluate.ts';
 import { compare } from './evaluate.ts';
 import { knownJavaScript } from './bejs.ts';
 import { mbsHashFunctions } from './mbs-hash.ts';
+import { replayMbsCall } from './mbs-replay.ts';
 import { evaluateXPath, parseXmlDocument, xpathText, xpathValues, xpathXml, type XNode } from './xpath.ts';
 import { canonicalXml, stripInvalidUtf16, tidyXml } from './xmltools.ts';
 import { applyXslt } from './xslt.ts';
@@ -1414,28 +1415,33 @@ function mbsFunction(name: string, env: Env): (typeof MBS)[string] | undefined {
 def('MBS', 1, undefined, (a, env) => {
   const name = env.text(a[0]);
   const scope = env.ctx.pluginSession ?? env.ctx;
-  if (name.toLowerCase() === 'iserror') return num(mbsErrors.get(scope) ? 1 : 0);
+  if (name.toLowerCase() === 'iserror')
+    return replayMbsCall(scope, name, [], () => num(mbsErrors.get(scope) ? 1 : 0),
+      () => !!mbsErrors.get(scope), (value) => mbsErrors.set(scope, value));
   const f = mbsFunction(name, env);
+  // Arguments can themselves call MBS, so evaluate them before recording the outer call.
+  const args = a.slice(1).map((x) => env.v(x));
+  const unavailable = () => text(`[MBS] ERROR: ${name} is not available in Tabularius`);
   if (!f) {
-    if (name.toLowerCase().startsWith('dynapdf.') && env.ctx.mbsCall) {
-      const provided = env.ctx.mbsCall(name, a.slice(1).map((x) => env.v(x)));
-      if (provided !== undefined) {
-        mbsErrors.set(scope, provided.type === 'text' && provided.value.startsWith('[MBS] ERROR:'));
-        return provided;
-      }
+    // A host-provided function (DynaPDF) is a plug-in call like any other: recorded, so a replay does not run it twice.
+    return replayMbsCall(scope, name, args, () => {
+      const provided = name.toLowerCase().startsWith('dynapdf.') && env.ctx.mbsCall ? env.ctx.mbsCall(name, args) : undefined;
+      if (provided === undefined) return unavailable();
+      mbsErrors.set(scope, provided.type === 'text' && provided.value.startsWith('[MBS] ERROR:'));
+      return provided;
+    }, () => !!mbsErrors.get(scope), (value) => mbsErrors.set(scope, value));
+  }
+  return replayMbsCall(scope, name, args, () => {
+    try {
+      // The regular expressions in one call share a time limit, so a pattern that backtracks without end can't hold the server.
+      return withRegexBudget(() => f(args, env));
+    } catch (e) {
+      // Too large or too deep for JavaScript (a string past its length limit, a stack too deep) is an MBS error too.
+      if (!(e instanceof MbsError) && !(e instanceof RangeError) && !(e instanceof RegexTimeout)) throw e;
+      mbsErrors.set(scope, true);
+      return text(`[MBS] ERROR: ${e instanceof RegexTimeout ? e.message : e instanceof MbsError ? e.message : 'the result is too large'}`);
     }
-    return text(`[MBS] ERROR: ${name} is not available in Tabularius`);
-  }
-  try {
-    // The regular expressions in one call share a time limit, so a pattern that backtracks without end can't hold the server.
-    const args = a.slice(1).map((x) => env.v(x));
-    return withRegexBudget(() => f(args, env));
-  } catch (e) {
-    // Too large or too deep for JavaScript (a string past its length limit, a stack too deep) is an MBS error too.
-    if (!(e instanceof MbsError) && !(e instanceof RangeError) && !(e instanceof RegexTimeout)) throw e;
-    mbsErrors.set(scope, true);
-    return text(`[MBS] ERROR: ${e instanceof RegexTimeout ? e.message : e instanceof MbsError ? e.message : 'the result is too large'}`);
-  }
+  }, () => !!mbsErrors.get(scope), (value) => mbsErrors.set(scope, value));
 });
 
 

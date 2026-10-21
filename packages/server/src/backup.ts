@@ -655,7 +655,9 @@ export async function scheduleProgressive(host: Host, opts: { every: number; des
   const shipper = opts.shipper ?? new LogShipper(host, log);
   // From now on a file's log only empties once its changes are saved.
   for (const n of host.names()) shipper.follow(host.get(n)!);
-  const base = await backupFolder(host.dir, dest, opts.keep ?? 7);
+  let base: Awaited<ReturnType<typeof backupFolder>>;
+  try { base = await backupFolder(host.dir, dest, opts.keep ?? 7); }
+  catch (e) { shipper.releaseIfIdle(); throw e; }
   let set = base.dir;
   log(`point-in-time backups every ${Math.round(opts.every / 60_000)} min, after ${set}`);
   /** Files whose copy is in the set, so their logs can follow it. */

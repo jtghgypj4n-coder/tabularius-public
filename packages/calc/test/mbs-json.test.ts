@@ -15,6 +15,17 @@ const direct = (scope: object) => (name: string, ...args: (string | number)[]) =
   MBS_JSON[name.toLowerCase()](args.map((a) => ({ text: String(a), number: typeof a === 'number' })), scope);
 const same = (got: string | number, want: string) => assert.equal(compact(parseJson(String(got))), compact(parseJson(want)));
 
+test('AR-calc-extensions-08 JSON reference bulk and depth failures preserve the reference', () => {
+  const j = direct({});
+  const ref = j('JSON.Parse', '[]');
+  assert.throws(() => j('JSON.AddNumberToArray', ref, 1, 'not-a-number'), MbsError);
+  assert.equal(j('JSON.Compact', ref), '[]');
+  const deep = '['.repeat(510) + '0' + ']'.repeat(510);
+  const nested = j('JSON.Parse', '[[0]]');
+  assert.throws(() => j('JSON.SetPathItem', nested, '0\r0', deep), /nested too deeply/);
+  assert.equal(j('JSON.Compact', nested), '[[0]]');
+});
+
 test('MBS JSON: building objects and arrays, as the pages show', () => {
   const j = direct({});
   same(j('JSON.AddStringToObject', '{}', 'hello', 'world', 'test', 'entry'), '{"hello":"world","test":"entry"}');

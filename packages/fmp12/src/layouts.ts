@@ -23,11 +23,12 @@ import { readRules, readTheme, styleScope, type FontTable, type StyleRule, type 
 import { scriptStepName } from './script-steps.ts';
 import { decodeStepParams, type ParamContext, type StepParams } from './script-params.ts';
 import { calcTokens, decodeCalc, schemaFieldNamer } from './calc.ts';
-import type { FmpFile } from './file.ts';
+import { FmpError, type FmpFile } from './file.ts';
 import type { Schema } from './schema.ts';
 
 /** Table occurrence ids (128 + n) are stored offset by this in layout data. */
 const TO_BASE = 0x104000;
+const MAX_OBJECT_DEPTH = 128;
 
 export interface Bounds {
   top: number;
@@ -676,6 +677,7 @@ function schemaIndex(schema: Schema) {
 type SchemaIndex = ReturnType<typeof schemaIndex>;
 
 interface Ctx {
+  layoutId: number;
   schema?: Schema;
   index?: SchemaIndex;
   fonts: FontTable;
@@ -984,10 +986,13 @@ function resolveRef(ctx: Pick<Ctx, 'schema' | 'index'>, r: { tableOccurrenceId: 
   return ref;
 }
 
-function readObject(ctx: Ctx, m: Pb, origin: { top: number; left: number }): LayoutObject | undefined {
+function readObject(ctx: Ctx, m: Pb, origin: { top: number; left: number }, depth = 1): LayoutObject | undefined {
   const id = m.num(2);
   const type = m.num(1) ?? 0;
   if (id === undefined || ctx.seen.has(id)) return undefined;
+  if (depth > MAX_OBJECT_DEPTH) {
+    throw new FmpError(`layout ${ctx.layoutId}: object ${id} exceeds nesting depth ${MAX_OBJECT_DEPTH}`);
+  }
   ctx.seen.add(id);
   const rel = readBounds(m.msg(4));
   const bounds = {
@@ -1192,7 +1197,7 @@ function readObject(ctx: Ctx, m: Pb, origin: { top: number; left: number }): Lay
   const kids: LayoutObject[] = [];
   for (const c of m.nums(6)) {
     const cm = ctx.byId.get(c);
-    const child = cm && readObject(ctx, cm, { top: bounds.top + inset, left: bounds.left + inset });
+    const child = cm && readObject(ctx, cm, { top: bounds.top + inset, left: bounds.left + inset }, depth + 1);
     if (child) kids.push(child);
   }
   if (kids.length) obj.children = kids;
@@ -1257,7 +1262,7 @@ export function readActiveSegment(m: Pb | undefined, segments: number[]): number
   return m?.num(1) === 0 && id !== undefined && segments.includes(id) ? id : undefined;
 }
 
-function readObjects(design: Node, schema: Schema | undefined, fonts: FontTable, formula = formulaReader(schema), index = schema && schemaIndex(schema)): LayoutObject[] {
+function readObjects(design: Node, schema: Schema | undefined, fonts: FontTable, layoutId: number, formula = formulaReader(schema), index = schema && schemaIndex(schema)): LayoutObject[] {
   const m = Pb.parse(blob(design, 7));
   if (!m) return [];
   const byId = new Map<number, Pb>();
@@ -1265,7 +1270,7 @@ function readObjects(design: Node, schema: Schema | undefined, fonts: FontTable,
     const id = o.num(2);
     if (id !== undefined) byId.set(id, o);
   }
-  const ctx: Ctx = { schema, index, fonts, nodes: design.child(5), byId, seen: new Set(), formula };
+  const ctx: Ctx = { layoutId, schema, index, fonts, nodes: design.child(5), byId, seen: new Set(), formula };
   const out: LayoutObject[] = [];
   const top = m.nums(1);
   for (const id of top.length ? top : [...byId.keys()]) {
@@ -1276,7 +1281,7 @@ function readObjects(design: Node, schema: Schema | undefined, fonts: FontTable,
   return out;
 }
 
-function readTableView(design: Node | undefined, schema: Schema | undefined, fonts: FontTable, formula = formulaReader(schema), index = schema && schemaIndex(schema)): LayoutDesign['tableView'] {
+function readTableView(design: Node | undefined, schema: Schema | undefined, fonts: FontTable, layoutId: number, formula = formulaReader(schema), index = schema && schemaIndex(schema)): LayoutDesign['tableView'] {
   if (!design) return undefined;
   const cols: { field: FieldRef; width: number; left: number }[] = [];
   const walk = (objs: LayoutObject[]) => {
@@ -1288,7 +1293,7 @@ function readTableView(design: Node | undefined, schema: Schema | undefined, fon
       if (o.children && o.kind !== 'portal') walk(o.children);
     }
   };
-  walk(readObjects(design, schema, fonts, formula, index));
+  walk(readObjects(design, schema, fonts, layoutId, formula, index));
   if (!cols.length) return undefined;
   return cols.sort((a, b) => a.left - b.left).map(({ field, width }) => ({ field, width }));
 }
@@ -1331,7 +1336,7 @@ export function readLayoutDesigns(file: FmpFile, schema?: Schema, only?: Set<num
       id, name: l.name ?? '',
       style: readStyle(settings?.msg(7), fonts),
       parts: readParts(l.child(3), fonts, schema),
-      objects: readObjects(l, schema, fonts, formula, index),
+      objects: readObjects(l, schema, fonts, id, formula, index),
     };
     const to = settings?.num(2);
     if (to !== undefined) design.tableOccurrenceId = to - TO_BASE;
@@ -1342,7 +1347,7 @@ export function readLayoutDesigns(file: FmpFile, schema?: Schema, only?: Set<num
     if (menuSet) design.menuSetId = menuSet;
     const theme = lpIds(l.kv.get(11))[0];
     if (theme !== undefined) design.themeId = theme;
-    const table = readTableView(l.child(13), schema, fonts, formula, index);
+    const table = readTableView(l.child(13), schema, fonts, id, formula, index);
     if (table) design.tableView = table;
     const view = readLayoutView(l.kv.get(241));
     if (view) design.view = view;

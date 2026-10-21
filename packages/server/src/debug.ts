@@ -58,6 +58,8 @@ interface Run {
   scratch?: { store: Store; dir: string };
   /** Where the run's time goes, step by step and script by script (time paused here not counted). */
   profile: RunProfile;
+  stop: AbortController;
+  ending?: Promise<void>;
 }
 
 /** A throwaway copy of the file for a scratch run. */
@@ -94,8 +96,8 @@ function copySession(from: ScriptSession): ScriptSession {
 
 /** Closes a scratch copy and deletes its folder. */
 export function dropScratch(copy: { store: Store; dir: string }): void {
-  copy.store.close();
-  rmSync(copy.dir, { recursive: true, force: true });
+  try { copy.store.close(); }
+  finally { rmSync(copy.dir, { recursive: true, force: true }); }
 }
 
 function discard(r: Run): void {
@@ -234,10 +236,11 @@ export class DebugApi {
     this.sweep.unref();
   }
 
-  stop(): void {
+  stop(): Promise<void> {
     clearInterval(this.sweep);
-    for (const r of this.runs.values()) this.end(r);
+    const ending = [...this.runs.values()].map((r) => this.end(r));
     this.runs.clear();
+    return Promise.allSettled(ending).then(() => {});
   }
 
   private expire(): void {
@@ -249,9 +252,15 @@ export class DebugApi {
   }
 
   /** Halts a run and throws its scratch copy away. */
-  private end(r: Run): void {
-    if (!r.debugger.running) return discard(r);
-    void r.debugger.resume('halt').catch(() => {}).finally(() => discard(r));
+  private end(r: Run): Promise<void> {
+    if (r.ending) return r.ending;
+    r.stop.abort();
+    if (r.debugger.state().paused) {
+      try { void r.debugger.resume('halt').catch(() => {}); }
+      catch { /* The step may have resumed between the state check and the call. */ }
+    }
+    r.ending = r.debugger.whenFinished().then(() => discard(r), () => discard(r));
+    return r.ending;
   }
 
   private view(r: Run, state: DebugState) {
@@ -374,7 +383,7 @@ export class DebugApi {
         const run: Run = {
           id: randomBytes(8).toString('hex'), db: store.name, token: session.token, script,
           debugger: new ScriptDebugger({ pauseAtStart: body.pauseAtStart !== false, pauseOnError: body.pauseOnError === true, breakpoints: breakpoints(body.breakpoints) }),
-          touched: performance.now(), profile: new RunProfile(),
+          touched: performance.now(), profile: new RunProfile(), stop: new AbortController(),
         };
         if (body.scratch !== false) run.scratch = await scratchCopy(store, this.scratchMaxBytes);
         this.runs.set(run.id, run);
@@ -389,7 +398,7 @@ export class DebugApi {
           // A scratch run is always offline, and its files go in its own folder.
           ...(run.scratch ? { network: false, outbound: undefined, mail: undefined, documents: join(run.scratch.dir, 'Documents') } : {}),
           // Debugger runs stay out of the server's profile; the run has its own, counting each step's own time (never a pause here).
-          profile: run.profile,
+          profile: run.profile, stop: run.stop.signal,
         });
         return send(201, this.view(run, state)), true;
       }

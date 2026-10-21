@@ -233,16 +233,17 @@ export class FmpFile {
       const b = this.block(id);
       if (b.level === 0 && b.prev === 0) return id;
     }
-    return 2;
+    throw new FmpError('no leaf chain root within declared blocks');
   }
 
   /** Leaf blocks in logical order, following the next-pointers. */
   *leaves(): Generator<Block> {
     const seen = new Set<number>();
     let id = this.firstLeaf();
-    while (id !== 0 && id <= this.blockCount && !seen.has(id)) {
+    while (id !== 0) {
       seen.add(id);
       const b = this.block(id);
+      this.checkLeafLink(id, b.next, seen.has(b.next));
       yield b;
       id = b.next;
     }
@@ -267,18 +268,35 @@ export class FmpFile {
     const ids: number[] = [];
     const seen = new Uint8Array(this.blockCount + 1);
     let id = this.firstLeaf();
-    while (id !== 0 && id <= this.blockCount && !seen[id]) {
+    while (id !== 0) {
       seen[id] = 1;
       ids.push(id);
-      id = be32(this.source.read(id * BLOCK_SIZE, BLOCK_HEADER), 8);
+      const next = be32(this.source.read(id * BLOCK_SIZE, BLOCK_HEADER), 8);
+      this.checkLeafLink(id, next, !!seen[next]);
+      id = next;
     }
     return (this.leafOrderCache = Uint32Array.from(ids));
+  }
+
+  private checkLeafLink(id: number, next: number, seen: boolean): void {
+    if (next !== 0 && (!Number.isInteger(next) || next < 2 || next > this.blockCount || seen)) {
+      throw new FmpError(`block ${id}: ${seen ? 'cyclic' : 'invalid'} next leaf link ${next}`);
+    }
+  }
+
+  private decodeBlock(b: Block, onError?: (block: Block, err: ChunkError) => void): Chunk[] {
+    const { chunks, error } = decodePayload(b.payload);
+    if (error) {
+      onError?.(b, error);
+      throw new FmpError(`block ${b.id}, payload offset ${error.offset}, code ${error.code}: ${error.message}`, { cause: error });
+    }
+    return chunks;
   }
 
   /** Sort key (path plus value key) of the first value in a leaf block; undefined when it holds none. */
   firstPath(id: number): Uint8Array[] | undefined {
     const path: Uint8Array[] = [];
-    for (const chunk of decodePayload(this.block(id).payload).chunks) {
+    for (const chunk of this.decodeBlock(this.block(id))) {
       if (chunk.type === 'pop') path.pop();
       else if (chunk.type === 'push') path.push(chunk.key);
       else return sortKey(path, chunk);
@@ -310,6 +328,7 @@ export class FmpFile {
    * Every chunk in the file with the path it lives at. The path stack is reset
    * at each block, as each leaf block starts from the root. With `prefix` (path
    * integers, e.g. [129, 5] for a table's records) only that subtree is read.
+   * Corruption is fatal; onError observes a payload error before it is thrown.
    */
   *chunks(
     onError?: (block: Block, err: ChunkError) => void,
@@ -320,7 +339,7 @@ export class FmpFile {
       return;
     }
     for (const b of this.leaves()) {
-      const { chunks, error } = decodePayload(b.payload);
+      const chunks = this.decodeBlock(b, onError);
       const path: Uint8Array[] = [];
       for (const chunk of chunks) {
         if (chunk.type === 'pop') {
@@ -331,7 +350,6 @@ export class FmpFile {
           yield { path, chunk, block: b.id };
         }
       }
-      if (error && onError) onError(b, error);
     }
   }
 
@@ -363,7 +381,7 @@ export class FmpFile {
     for (let i = start; i < order.length; i++) {
       this.position = i;
       const b = this.block(order[i]);
-      const { chunks, error } = decodePayload(b.payload);
+      const chunks = this.decodeBlock(b, onError);
       const path: Uint8Array[] = [];
       for (const chunk of chunks) {
         if (chunk.type === 'pop') path.pop();
@@ -374,7 +392,6 @@ export class FmpFile {
           else if (t > 0) return;
         }
       }
-      if (error && onError) onError(b, error);
     }
   }
 }
