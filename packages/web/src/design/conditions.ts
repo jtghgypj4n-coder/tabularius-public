@@ -21,9 +21,37 @@ export function valueFormula(v: ValueIs): string {
 
 /** The "Value is" condition a formula on Self spells, if it is one. */
 export function valueIs(formula: string): ValueIs | undefined {
-  const f = formula.trim().replace(/\s+/g, ' ');
+  // FileMaker string literals use doubled quotes to escape a quote. Keep all
+  // their contents byte-for-byte; only make spacing predictable between tokens.
+  let f = '';
+  let quoted = false;
+  let pendingSpace = false;
+  for (let i = 0; i < formula.length; i++) {
+    const c = formula[i];
+    if (quoted) {
+      f += c;
+      if (c === '"') {
+        if (formula[i + 1] === '"') f += formula[++i];
+        else quoted = false;
+      }
+    } else if (c === '"') {
+      if (pendingSpace && f && !f.endsWith(' ')) f += ' ';
+      pendingSpace = false;
+      quoted = true;
+      f += c;
+    } else if (/\s/.test(c)) pendingSpace = true;
+    else {
+      if (pendingSpace && f && !f.endsWith(' ')) f += ' ';
+      pendingSpace = false;
+      f += c;
+    }
+  }
+  f = f.trim();
   // A value is any expression without a top-level and/or (those stay formulas).
-  const plain = (...terms: string[]) => terms.every((t) => t.trim() && !/ (and|or|xor|not) /i.test(` ${t} `) && !t.includes(';'));
+  const plain = (...terms: string[]) => terms.every((t) => {
+    const outsideLiterals = t.replace(/"(?:[^"]|"")*"/g, '""');
+    return !!t.trim() && !/ (and|or|xor|not) /i.test(` ${outsideLiterals} `) && !outsideLiterals.includes(';');
+  });
   let m: RegExpExecArray | null;
   if (f === 'IsEmpty ( Self )') return { op: 'empty', a: '', b: '' };
   if (f === 'not IsEmpty ( Self )') return { op: 'not-empty', a: '', b: '' };
