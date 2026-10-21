@@ -803,7 +803,7 @@ function renameItem(st: DesignState, kind: 'layout' | 'script', id: number, from
     for (const o of objs) {
       if (o.action) {
         if (kind === 'layout' && o.action.layoutId === id) o.action.layout = to;
-        if (kind === 'script' && o.action.scriptId === id) o.action.script = to;
+        if (kind === 'script' && o.action.scriptId === id && !o.action.file) o.action.script = to;
       }
       if (kind === 'script') for (const t of o.triggers ?? []) if (t.scriptId === id) t.script = to;
       if (o.children) walk(o.children);
@@ -1008,16 +1008,25 @@ function buttonSteps(s: Schema, d: Partial<LayoutDesign>): void {
     for (const o of objs) {
       const a = o.action as (LayoutObject['action'] & { text?: unknown; line?: string }) | undefined;
       if (a && typeof a.text === 'string') {
-        const specs = parseScriptText(a.text.trim(), s);
+        // The scripts of other files that this file's scripts already perform are the ones a button can name (From file: "…").
+        const performed = s.scripts.flatMap((x) => x.steps.filter((y) => y.params?.script?.file));
+        const specs = parseScriptText(a.text.trim(), s, performed);
         if (specs.length !== 1) throw invalid(`A button does one step: "${a.text.trim().split('\n')[0]}"`);
         const [step] = buildSteps(specs);
         if (step.stepId === 89 || step.name === '# (comment)') throw invalid('A button\'s step can\'t be a comment');
         if (step.stepId === 1) {
           // Perform Script keeps the script and parameter where buttons have them.
           const sc = step.params?.script;
-          const script = sc && !sc.file ? s.scripts.find((x) => x.id === sc.id) : undefined;
-          if (!script) throw invalid('Perform Script on a button needs a script of this file');
-          o.action = { stepId: 1, step: step.name, scriptId: script.id, script: script.name, ...(step.params?.parameter ? { parameter: step.params.parameter } : {}) } as never;
+          const parameter = step.params?.parameter ? { parameter: step.params.parameter } : {};
+          if (sc?.file) {
+            // A script in another file (one a script here already performs): kept by id with its data source, as a
+            // button of an imported file is; the script's name is the other file's to give.
+            o.action = { stepId: 1, step: step.name, scriptId: sc.id, file: sc.file, ...parameter } as never;
+          } else {
+            const script = sc ? s.scripts.find((x) => x.id === sc.id) : undefined;
+            if (!script) throw invalid('Perform Script on a button needs a script of this file, or one a script here already performs from another file');
+            o.action = { stepId: 1, step: step.name, scriptId: script.id, script: script.name, ...parameter } as never;
+          }
         } else {
           o.action = { stepId: step.stepId, step: step.name, ...(step.params ? { params: step.params } : {}), line: step.line } as never;
         }

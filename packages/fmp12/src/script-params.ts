@@ -403,7 +403,7 @@ function refAt(b: Uint8Array, at: number): number | undefined {
 }
 
 /** A reference stored as [length][path integer]. */
-function shortRef(b: Uint8Array | undefined): number | undefined {
+export function shortRef(b: Uint8Array | undefined): number | undefined {
   if (!b || b.length < 2 || b[0] < 1 || b[0] + 1 > b.length) return undefined;
   return pathValue(b.subarray(1, 1 + b[0]));
 }

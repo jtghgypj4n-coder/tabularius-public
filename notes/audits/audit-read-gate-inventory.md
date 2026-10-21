@@ -315,12 +315,12 @@ The following reasons apply to the exact enumerated expressions in each named fu
 | [packages/server/src/import-mapping.ts:784](../../packages/server/src/import-mapping.ts#L784) `journal` | `Store.sql` (784, 787, 787); `SQLite.all` (787); `SQLite.prepare` (787) | IMPORT |
 | [packages/server/src/import-mapping.ts:829](../../packages/server/src/import-mapping.ts#L829) `importHistory` | `SQLite.all` (829); `SQLite.prepare` (829); `Store.sql` (829) | IMPORT |
 | [packages/server/src/import-mapping.ts:836](../../packages/server/src/import-mapping.ts#L836) `undoImportRun` | `SQLite.get` (836, 859); `SQLite.prepare` (836, 859, 873); `Store.sql` (836, 859, 873) | IMPORT |
-| [packages/server/src/insight.ts:314](../../packages/server/src/insight.ts#L314) `webViewerScripts` | `Store.query` (314) | DESIGN |
-| [packages/server/src/insight.ts:755](../../packages/server/src/insight.ts#L755) `layoutProfile/viewableIds` | `Store.viewableIds` (755) | PROFILE |
-| [packages/server/src/insight.ts:759](../../packages/server/src/insight.ts#L759) `layoutProfile` | `Store.query` (759) | PROFILE |
-| [packages/server/src/insight.ts:835](../../packages/server/src/insight.ts#L835) `columnProfile` | `Store.query` (835, 842, 854, 857) | PROFILE |
-| [packages/server/src/insight.ts:914](../../packages/server/src/insight.ts#L914) `checkCalculation` | `Store.findIds` (914); `Store.evaluate` (918) | DESIGN |
-| [packages/server/src/insight.ts:1085](../../packages/server/src/insight.ts#L1085) `solutionOverview/counts` | `Store.query` (1085) | DESIGN |
+| [packages/server/src/insight.ts:316](../../packages/server/src/insight.ts#L316) `webViewerScripts` | `Store.query` (316) | DESIGN |
+| [packages/server/src/insight.ts:757](../../packages/server/src/insight.ts#L757) `layoutProfile/viewableIds` | `Store.viewableIds` (757) | PROFILE |
+| [packages/server/src/insight.ts:761](../../packages/server/src/insight.ts#L761) `layoutProfile` | `Store.query` (761) | PROFILE |
+| [packages/server/src/insight.ts:837](../../packages/server/src/insight.ts#L837) `columnProfile` | `Store.query` (837, 844, 856, 859) | PROFILE |
+| [packages/server/src/insight.ts:916](../../packages/server/src/insight.ts#L916) `checkCalculation` | `Store.findIds` (916); `Store.evaluate` (920) | DESIGN |
+| [packages/server/src/insight.ts:1087](../../packages/server/src/insight.ts#L1087) `solutionOverview/counts` | `Store.query` (1087) | DESIGN |
 | [packages/server/src/live.ts:137](../../packages/server/src/live.ts#L137) `Live/handle` | `Store.canViewRecord` (137, 144); `Store.canView` (189) | LIVE |
 | [packages/server/src/live.ts:276](../../packages/server/src/live.ts#L276) `Live/stream/listener` | `Store.canViewRecord` (276, 278) | LIVE |
 | [packages/server/src/logs.ts:76](../../packages/server/src/logs.ts#L76) `LogShipper/follow` | `SQLite.get` (76); `SQLite.prepare` (76); `Store.sql` (76, 77, 78, 79) | ADMIN |
@@ -450,9 +450,9 @@ The following reasons apply to the exact enumerated expressions in each named fu
 | [packages/server/src/webclient.ts:1244](../../packages/server/src/webclient.ts#L1244) `WebClient/exportText/nextBatch` | `Store.selectIds` (1244); `Store.getMany` (1249) | WEB |
 | [packages/server/src/webclient.ts:1492](../../packages/server/src/webclient.ts#L1492) `WebClient/aiReplace` | `Store.canView` (1492); `Store.getMany` (1508) | WEB |
 | [packages/server/src/webclient.ts:1568](../../packages/server/src/webclient.ts#L1568) `WebClient/groups` | `Store.findIds` (1568); `Store.groupSummaries` (1574) | WEB |
-| [packages/server/src/webclient.ts:1673](../../packages/server/src/webclient.ts#L1673) `WebClient/button` | `Store.findIds` (1673, 1723); `Store.evaluateEach` (1682, 1683) | WEB |
-| [packages/server/src/webclient.ts:2330](../../packages/server/src/webclient.ts#L2330) `listItems` | `Store.valueListItems` (2330) | WEB |
-| [packages/server/src/webclient.ts:2409](../../packages/server/src/webclient.ts#L2409) `foundIds` | `Store.findIds` (2409, 2411) | WEB |
+| [packages/server/src/webclient.ts:1676](../../packages/server/src/webclient.ts#L1676) `WebClient/button` | `Store.findIds` (1676, 1726); `Store.evaluateEach` (1685, 1686) | WEB |
+| [packages/server/src/webclient.ts:2333](../../packages/server/src/webclient.ts#L2333) `listItems` | `Store.valueListItems` (2333) | WEB |
+| [packages/server/src/webclient.ts:2412](../../packages/server/src/webclient.ts#L2412) `foundIds` | `Store.findIds` (2412, 2414) | WEB |
 | [packages/store/src/activity.ts:372](../../packages/store/src/activity.ts#L372) `SharedRecordLocks/constructor` | `SQLite.get` (372); `SQLite.prepare` (372) | CORE |
 | [packages/store/src/activity.ts:403](../../packages/store/src/activity.ts#L403) `SharedRecordLocks/count` | `SQLite.get` (403); `SQLite.prepare` (403) | CORE |
 | [packages/store/src/activity.ts:407](../../packages/store/src/activity.ts#L407) `SharedRecordLocks/sweep` | `SQLite.prepare` (407) | CORE |

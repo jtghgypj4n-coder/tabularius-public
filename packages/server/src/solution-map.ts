@@ -9,14 +9,15 @@
 
 import { dataSourceFile } from '../../store/src/import.ts';
 import type { Store } from '../../store/src/index.ts';
+import type { LayoutObject } from '../../fmp12/src/index.ts';
 import { aiBlocker } from './ai-access.ts';
 
 const lower = (s: string) => s.toLowerCase();
 
 /** One cross-file reference: a thing in `from` that reaches into another file. */
 export interface Reach {
-  via: 'occurrence' | 'valueList' | 'script';
-  /** The occurrence, value list or script in `from` that reaches out. */
+  via: 'occurrence' | 'valueList' | 'script' | 'button';
+  /** The occurrence, value list, script or layout (for a button) in `from` that reaches out. */
   item: string;
   /** The referenced file, named as the data source writes it. */
   file: string;
@@ -90,6 +91,19 @@ function reachesOf(store: Store, hosted: Set<string>): Reach[] {
       if (file && lower(file) !== lower(store.name)) files.set(lower(file), file);
     }
     for (const file of files.values()) add('script', script.name, file, undefined);
+  }
+  // Layouts with a button that runs a script in another file.
+  for (const layout of store.designs().layouts) {
+    const files = new Map<string, string>();
+    const walk = (objects: LayoutObject[] | undefined) => {
+      for (const o of objects ?? []) {
+        const file = o.action?.file && dataSourceName(store, o.action.file.id);
+        if (file && lower(file) !== lower(store.name)) files.set(lower(file), file);
+        walk(o.children);
+      }
+    };
+    walk(layout.objects);
+    for (const file of files.values()) add('button', layout.name, file, 'a button runs a script there');
   }
   return out;
 }
