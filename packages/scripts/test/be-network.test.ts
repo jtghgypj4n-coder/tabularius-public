@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { createStore, Store } from '../../store/src/index.ts';
 import { runScript, type OutgoingMail } from '../src/index.ts';
 import { TEST_ONLY_CUSTOM_FETCH } from '../src/test-only.ts';
+import { fakeFtp } from './fake-ftp.ts';
 
 let dir: string;
 let store: Store;
@@ -134,4 +135,55 @@ test('BE_HTTP_PUTFile refuses a file over 10 MB without sending it', async () =>
   const { seen, fetch } = net();
   assert.equal((await runScript(store, 'PutBig', { [TEST_ONLY_CUSTOM_FETCH]: true, network: fetch, documents: docs })).result, '7|7');
   assert.deepEqual(seen, []);
+});
+
+test('BE_FTP_UploadFile and BE_FTP_Delete go to an FTP server where scripts may reach the network, and give ? where they may not', async () => {
+  const docs = join(dir, 'Documents');
+  mkdirSync(docs, { recursive: true });
+  const bytes = Uint8Array.from([1, 2, 3, 0, 255]);
+  writeFileSync(join(docs, 'send.bin'), bytes);
+  const f = await fakeFtp();
+  try {
+    script('Ftp', [
+      `Set Variable [ $up ; Value: BE_FTP_UploadFile ( "ftp://127.0.0.1:${f.port}/in/send.bin" ; Get ( DocumentsPath ) & "send.bin" ; "ann" ; "pw" ) & "|" & BE_GetLastError ]`,
+      `Set Variable [ $del ; Value: BE_FTP_Delete ( "ftp://127.0.0.1:${f.port}/old/file.txt" ; "ann" ; "pw" ) & "|" & BE_GetLastError ]`,
+      `Set Variable [ $bad ; Value: BE_FTP_Delete ( "ftp://127.0.0.1:${f.port}/missing" ; "ann" ; "wrong" ) & "|" & BE_GetLastError ]`,
+      `Set Variable [ $sftp ; Value: BE_FTP_Delete ( "sftp://127.0.0.1/x" ; "ann" ; "pw" ) & "|" & BE_GetLastError ]`,
+      'Exit Script [ Text Result: $up & "," & $del & "," & $bad & "," & $sftp ]',
+    ].join('\n'));
+    const { fetch } = net();
+    const options = { [TEST_ONLY_CUSTOM_FETCH]: true as const, network: fetch, networkAllow: ['127.0.0.1'], documents: docs, trace: true };
+    const r = await runScript(store, 'Ftp', options);
+    assert.equal(r.result, '|0,|0,67|67,?|3', JSON.stringify(r.trace));
+    assert.deepEqual([...f.uploads.get('/in/send.bin')!], [...bytes]);
+    assert.ok(f.commands.includes('DELE old/file.txt'));
+    // Not allowed to reach the own network: the server is not spoken to.
+    f.commands.length = 0;
+    const closed = await runScript(store, 'Ftp', { [TEST_ONLY_CUSTOM_FETCH]: true, network: fetch, documents: docs });
+    assert.equal(closed.result, '7|7,7|7,7|7,?|3');
+    assert.deepEqual(f.commands, []);
+    // No network for the run: ? and error 3, nothing sent.
+    assert.equal((await runScript(store, 'Ftp', { network: false, documents: docs })).result, '?|3,?|3,?|3,?|3');
+    assert.deepEqual(f.commands, []);
+  } finally { await f.close(); }
+});
+
+test('in outbound test mode, the file variants and FTP calls go to the Outbox with their size, and nothing is sent', async () => {
+  const docs = join(dir, 'Documents');
+  mkdirSync(docs, { recursive: true });
+  writeFileSync(join(docs, 'five.bin'), Uint8Array.from([1, 2, 3, 4, 5]));
+  script('Boxed', [
+    'Set Variable [ $a ; Value: BE_HTTP_PUTFile ( "https://files.example.com/up" ; Get ( DocumentsPath ) & "five.bin" ) ]',
+    'Set Variable [ $b ; Value: BE_HTTP_GET_File ( "https://files.example.com/down" ; Get ( DocumentsPath ) & "got.bin" ) ]',
+    'Set Variable [ $c ; Value: BE_FTP_UploadFile ( "ftp://ftp.example.com/in/five.bin" ; Get ( DocumentsPath ) & "five.bin" ; "ann" ; "pw" ) ]',
+    'Set Variable [ $d ; Value: BE_FTP_Delete ( "ftp://ftp.example.com/in/five.bin" ; "ann" ; "pw" ) ]',
+    'Exit Script [ Text Result: "done" ]',
+  ].join('\n'));
+  const entries: { method?: string; url?: string; requestBytes?: number }[] = [];
+  const r = await runScript(store, 'Boxed', { documents: docs, outbound: { allowHosts: [], record: (e) => entries.push(e as never) } });
+  assert.equal(r.result, 'done');
+  assert.deepEqual(entries.map((e) => [e.method, e.url, e.requestBytes]), [
+    ['PUT', 'https://files.example.com/up', 5], ['GET', 'https://files.example.com/down', 0],
+    ['STOR', 'ftp://ftp.example.com/in/five.bin', 5], ['DELE', 'ftp://ftp.example.com/in/five.bin', 0],
+  ]);
 });

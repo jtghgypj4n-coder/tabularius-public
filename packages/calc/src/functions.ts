@@ -1820,6 +1820,11 @@ const recorded = (name: string, env: Env, v: Value[]): Value | undefined => {
     out.request(name, HTTP_METHODS[name], T(v[0], env), sent);
     return beResult(env, 0, text(''));
   }
+  if (FTP_NAMES[name]) {
+    const file = FTP_NAMES[name].file;
+    out.request(name, file ? 'STOR' : 'DELE', T(v[0], env), file === 'path' ? env.ctx.files?.size(T(v[1], env)) ?? 0 : file ? (v[1]?.type === 'container' ? v[1].data?.length ?? 0 : 0) : 0);
+    return beResult(env, 0, text(''));
+  }
   if (SMTP_NAMES[name] === 'server') return beResult(env, 0, text('')); // the server and account are never used
   if (SMTP_NAMES[name] === 'attach') {
     const list = smtpAttachments.get(env.ctx) ?? [];
@@ -1872,7 +1877,7 @@ const beRequest = (name: string, v: Value[], env: Env): Value | undefined => {
   const method = HTTP_METHODS[name];
   const url = T(v[0], env);
   if (!/^https?:\/\//i.test(url)) {
-    beErrors.set(env.ctx, `${name}: only http and https addresses are built in (FTP, FTPS and SFTP are not)`);
+    beErrors.set(env.ctx, `${name}: only http and https addresses are built in (FTP has BE_FTP_Upload and BE_FTP_Delete; SFTP is not built)`);
     return beResult(env, 3, text('?'));
   }
   const body = at.body !== undefined && at.body < v.length ? T(v[at.body], env) : undefined;
@@ -1932,13 +1937,53 @@ const beMail = (name: string, v: Value[], env: Env): Value | undefined => {
   smtpAttachments.delete(env.ctx);
   return beResult(env, 0, text(''));
 };
+// BE_FTP_Upload ( url ; container {; user ; password } ), BE_FTP_UploadFile ( url ; path {; user ; password } ) and
+// BE_FTP_Delete ( url {; user ; password } ) go over ftp:// and ftps:// (implicit TLS) through the same guarded transport; sftp://
+// is another protocol and is not built (a call gives "?" and error 3). As BaseElements documents, an upload's path is the one
+// the server sees from its root and a delete's is relative to the login folder. The error numbers are curl's, as BaseElements
+// passes them on, inferred here: 7 no connection, 35 TLS, 67 login refused, 25 upload failed, 21 delete failed.
+const FTP_NAMES: Record<string, { file?: 'container' | 'path'; user: number }> = {
+  BE_FTP_Upload: { file: 'container', user: 2 }, BE_FTP_UploadFile: { file: 'path', user: 2 }, BE_FTP_Delete: { user: 1 },
+};
+const beFtp = (name: string, v: Value[], env: Env): Value | undefined => {
+  const at = FTP_NAMES[name];
+  const ftp = env.ctx.ftpFetch;
+  if (!at || !ftp) return undefined;
+  const url = T(v[0], env);
+  if (!/^ftps?:\/\//i.test(url)) {
+    beErrors.set(env.ctx, `${name}: only ftp and ftps addresses are built in (SFTP, which runs over SSH, is not)`);
+    return beResult(env, 3, text('?'));
+  }
+  let bytes: Uint8Array | undefined;
+  if (at.file) {
+    const given = v[1];
+    bytes = at.file === 'container' ? (given?.type === 'container' ? given.data : undefined) : env.ctx.files?.read(T(given, env));
+    if (!bytes) {
+      beErrors.set(env.ctx, at.file === 'container' ? `${name} needs a container field with a file in it` : `${name}: no file at ${T(given, env)} (paths are inside the Documents folder)`);
+      return beResult(env, BE_NO_FILE, num(BE_NO_FILE));
+    }
+    if (bytes.length > BE_MAX_UPLOAD) {
+      beErrors.set(env.ctx, `${name}: the file is over ${BE_MAX_UPLOAD / 1024 / 1024} MB`);
+      return beResult(env, 25, num(25));
+    }
+  }
+  const user = at.user < v.length ? T(v[at.user], env) : '';
+  const password = at.user + 1 < v.length ? T(v[at.user + 1], env) : '';
+  const r = ftp({ op: at.file ? 'put' : 'delete', url, user, password, ...(bytes ? { bytes } : {}), via: name });
+  if (r.error || !r.status) {
+    beErrors.set(env.ctx, `${name}: ${r.error ?? 'the server gave no answer'}`);
+    const code = r.code ?? 7;
+    return beResult(env, code, code === 3 ? text('?') : num(code));
+  }
+  return beResult(env, 0, text(''));
+};
 const BE_OFF = (name: string, env: Env): Value => {
-  beErrors.set(env.ctx, `${name} is not available in Tabularius${BE_HTTP_NAMES.has(name) || SMTP_NAMES[name] ? ': network access is off for this file\'s scripts (turn on Script network in the admin console)' : ''}`);
+  beErrors.set(env.ctx, `${name} is not available in Tabularius${BE_HTTP_NAMES.has(name) || SMTP_NAMES[name] || FTP_NAMES[name] ? ': network access is off for this file\'s scripts (turn on Script network in the admin console)' : ''}`);
   return beResult(env, 3, text('?'));
 };
 const BE_HTTP_NAMES = new Set(Object.keys(HTTP_BODY_AT));
-for (const name of [...Object.keys(HTTP_METHODS), ...Object.keys(SMTP_NAMES)]) {
-  eager(name, 0, undefined, (v, env) => recorded(name, env, v) ?? beRequest(name, v, env) ?? beMail(name, v, env) ?? BE_OFF(name, env));
+for (const name of [...Object.keys(HTTP_METHODS), ...Object.keys(SMTP_NAMES), ...Object.keys(FTP_NAMES)]) {
+  eager(name, 0, undefined, (v, env) => recorded(name, env, v) ?? beRequest(name, v, env) ?? beMail(name, v, env) ?? beFtp(name, v, env) ?? BE_OFF(name, env));
 }
 // BE_SMTPSetHeader ( {header ; value} ) is the same for mail: where mail is only captured it answers empty text and the header is not kept.
 // BE_HTTP_SetCustomHeader ( header ; value ) prepares the next web call (an empty header clears them), BE_HTTP_SetProxy ( proxy {; port ;
@@ -1974,8 +2019,7 @@ for (const name of BE_WEB_COMPANIONS) {
 // network or sends mail: "?" with an error.
 const BE_REFUSED = ['BE_ClipboardFormats', 'BE_ClipboardGetText', 'BE_ClipboardSetText', 'BE_SelectFolder', 'BE_SelectFile', 'BE_ExecuteSystemCommand',
   'BE_FolderSelectDialog', 'BE_FileSelectDialog', 'BE_FileOpen',
-  'BE_OpenURL', 'BE_OpenFile',
-  'BE_FTP_Upload', 'BE_FTP_UploadFile', 'BE_FTP_Delete'];
+  'BE_OpenURL', 'BE_OpenFile'];
 def(BE_REFUSED, 0, undefined, (_a, env, name) => {
   beErrors.set(env.ctx, `${name} is not available in Tabularius`);
   beLastError.set(env.ctx, 3);
@@ -1990,7 +2034,7 @@ def(BE_REFUSED, 0, undefined, (_a, env, name) => {
  * cannot be found", rather than "?". An MBS name is judged by mbsSupports instead.
  */
 export type PluginBehaviour = 'runs' | 'outbox' | 'refused' | 'unavailable' | 'unrecognised';
-const OUTBOX_ONLY = new Set([...Object.keys(HTTP_METHODS), ...Object.keys(SMTP_NAMES), ...BE_WEB_COMPANIONS].map((n) => n.toLowerCase()));
+const OUTBOX_ONLY = new Set([...Object.keys(HTTP_METHODS), ...Object.keys(SMTP_NAMES), ...Object.keys(FTP_NAMES), ...BE_WEB_COMPANIONS].map((n) => n.toLowerCase()));
 const ALWAYS_REFUSED = new Set(BE_REFUSED.map((n) => n.toLowerCase()));
 export function pluginCallBehaviour(name: string): PluginBehaviour {
   const lower = name.toLowerCase();
