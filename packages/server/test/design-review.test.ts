@@ -174,3 +174,66 @@ test('staging needs a list of changes, each an object with an op', async () => {
   const notOps = await call('Ann', 'POST', '/pending', { changes: [3] });
   assert.equal(notOps.status, 400);
 });
+
+test('AR-server-mcp-ai-05 pending review includes cross-file impact only with full access to the contributing file', async () => {
+  await call('Ann', 'POST', '/pending/discard', {});
+  const store = host.get('Shop')!;
+  store.applyDesign([
+    { op: 'createTable', name: 'ReviewCustomers', fields: [{ name: 'Name' }] },
+  ]);
+  const table = store.schema.tables.find((t) => t.name === 'ReviewCustomers')!;
+  const field = table.fields.find((f) => f.name === 'Name')!;
+  for (const name of ['ReviewPermitted', 'ReviewRestricted', 'ReviewAbsent']) {
+    const other = host.create(name);
+    other.applyDesign([
+      { op: 'createDataSource', name: 'Shop', paths: ['file:Shop'] },
+      { op: 'createOccurrence', name: `${name}Reference`, file: 'Shop', externalTable: table.id },
+    ]);
+    const occurrence = other.schema.tableOccurrences.find((o) => o.name === `${name}Reference`)!;
+    other.applyDesign([{ op: 'createLayout', name: `${name}Card`, occurrence: occurrence.id, design: { objects: [
+      { id: 1, kind: 'field', type: 1, bounds: { top: 10, left: 10, bottom: 32, right: 200 },
+        anchors: { left: true, top: true, right: false, bottom: false }, style: {},
+        field: { tableOccurrenceId: occurrence.id, fieldId: field.id, tableOccurrence: occurrence.name,
+          field: field.name, display: 'edit', repetitions: 1 } },
+    ] } }]);
+    other.savePrivilegeSet({
+      name: 'ReviewReader', records: { view: true, edit: false, create: false, delete: false },
+      layouts: 'viewOnly', valueLists: 'viewOnly', scripts: 'viewOnly', extendedPrivileges: ['fmrest'],
+    });
+    if (name !== 'ReviewAbsent') {
+      other.setPassword('Ann', 'pw', name === 'ReviewPermitted' ? '[Full Access]' : 'ReviewReader');
+    }
+    other.setPassword('Sam', 'pw', 'ReviewReader');
+  }
+
+  for (const change of ['rename', 'delete'] as const) {
+    const staged = await call('Ann', 'POST', '/pending', { changes: [
+      change === 'rename'
+        ? { op: 'updateField', table: table.id, field: field.id, name: 'FullName' }
+        : { op: 'deleteTable', table: table.id },
+    ] });
+    const reviews = [
+      staged,
+      await call('Ann', 'GET', '/pending'),
+      await call('Ann', 'POST', '/pending/apply', { ids: [] }),
+      await call('Ann', 'POST', '/pending/discard', { ids: [] }),
+    ];
+    for (const review of reviews) {
+      assert.equal(review.status, 200);
+      assert.equal(review.changes.length, 1);
+      assert.equal(review.changes[0].status, 'ready');
+      assert.equal(review.changes[0].impact.change, change);
+      assert.ok(review.changes[0].impact.summary.includes(
+        `1 other hosted file (ReviewPermitted) reaches into it ${change === 'delete' ? 'and would break' : 'by id and follows the rename'}.`,
+      ), `pending review preserves the permitted cross-file warning: ${JSON.stringify(review.changes[0].impact)}`);
+      assert.doesNotMatch(JSON.stringify(review), /ReviewRestricted|ReviewAbsent/);
+    }
+    const restricted = await call('Sam', 'GET', '/pending');
+    assert.equal(restricted.status, 200);
+    assert.equal(restricted.changes.length, 1);
+    assert.doesNotMatch(JSON.stringify(restricted), /ReviewPermitted|ReviewRestricted|ReviewAbsent|other hosted file/);
+    assert.equal(store.schema.tables.find((t) => t.id === table.id)!.name, 'ReviewCustomers');
+    assert.equal(store.schema.tables.find((t) => t.id === table.id)!.fields.find((f) => f.id === field.id)!.name, 'Name');
+    await call('Ann', 'POST', '/pending/discard', {});
+  }
+});
