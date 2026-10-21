@@ -265,7 +265,7 @@ export async function writeFileHandle(handle: FileHandle, data: Uint8Array): Pro
   for (let at = 0; at < data.length;) {
     checkWritable(handle.fd);
     const { bytesWritten } = await handle.write(data, at, data.length - at);
-    if (!bytesWritten) throw Object.assign(new Error('File write made no progress'), { code: 'EIO' });
+    if (!Number.isInteger(bytesWritten) || bytesWritten <= 0 || bytesWritten > data.length - at) throw Object.assign(new Error('File write made no progress'), { code: 'EIO' });
     at += bytesWritten;
   }
 }
