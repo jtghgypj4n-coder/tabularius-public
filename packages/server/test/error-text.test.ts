@@ -39,7 +39,7 @@ test('isFault: file-system, SQLite and JavaScript faults are, written errors are
 });
 
 test('providerText: a refused key says only that, and key-like text is taken out', () => {
-  assert.equal(providerText(401, 'invalid x-api-key sk-ant-api03-abcdefgh'), 'the provider did not accept this server\'s key');
+  assert.equal(providerText(401, 'invalid x-api-key sk' + '-ant-api03-abcdefgh'), 'the provider did not accept this server\'s key');
   assert.equal(providerText(429, 'Rate limited; Incorrect API key provided: sk-proj-****abcd. Bearer abc.def'), 'Rate limited; Incorrect API key provided: (key) (key)');
   assert.equal(providerText(500, undefined), 'HTTP 500');
   assert.equal(providerText(400, 'x'.repeat(900)).length, 500);

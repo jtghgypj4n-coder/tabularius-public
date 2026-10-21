@@ -43,15 +43,17 @@ const EXTENDED_PRIVILEGE_OPS = new Set<string>(['createExtendedPrivilege', 'upda
  * below and the change_security MCP tool.
  */
 export function applySecurityChanges(store: Store, changes: (SecurityOp | ExtendedPrivilegeOp)[], account?: string): void {
-  if (account && store.isAgent(account)) assertAiSecurityChanges(store, changes as unknown as Record<string, unknown>[]);
+  if (account === 'AI' || (account && store.isAgent(account))) assertAiSecurityChanges(store, changes as unknown as Record<string, unknown>[]);
   const designOps: ExtendedPrivilegeOp[] = [];
   const securityOps: SecurityOp[] = [];
   for (const op of changes) {
     if (EXTENDED_PRIVILEGE_OPS.has(op.op)) designOps.push(op as ExtendedPrivilegeOp);
     else securityOps.push(op as SecurityOp);
   }
-  if (designOps.length) store.applyDesign(designOps, { account });
-  if (securityOps.length) store.applySecurity(securityOps);
+  store.securityChangeBatch(() => {
+    if (designOps.length) store.applyDesign(designOps, { account });
+    if (securityOps.length) store.applySecurity(securityOps);
+  });
 }
 
 /** The whole security picture, plus the schema lists the pickers need. */
@@ -174,11 +176,11 @@ export class SecurityApi {
         // An agent's creator is the signed-in full-access account, stamped by the
         // server — the client can't claim a different one.
         const changes: (SecurityOp | ExtendedPrivilegeOp)[] = (body.changes as (SecurityOp | ExtendedPrivilegeOp)[]).map((op) =>
-          op && op.op === 'setAgentAccount' ? { ...op, createdBy: session.account } : op);
+          op && (op.op === 'setAgentAccount' || (op.op === 'createAccount' && op.kind === 'agent')) ? { ...op, createdBy: session.account } : op);
         applySecurityChanges(store, changes, session.account);
         // A password set through Manage Security is a new secret: whoever was signed in on the old one is signed out.
         for (const op of changes) {
-          if (op.op === 'setAccount' && op.password !== undefined) this.api.endByAccount(store.name, op.name, session.token);
+          if ((op.op === 'setAccount' || (op.op === 'createAccount' && op.kind === 'password')) && op.password !== undefined) this.api.endByAccount(store.name, op.name, session.token);
         }
         send(200, securityOf(store));
       } else if (req.method === 'POST' && sub === 'tokens') {

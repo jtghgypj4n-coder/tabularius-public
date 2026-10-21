@@ -217,7 +217,7 @@ export function operandStart(sql: string, end: number): number {
   while (i > 0 && /\s/.test(sql[i - 1])) i--;
   if (i === 0) return -1;
   const last = sql[i - 1];
-  if (last === "'" || last === '"') {
+  if (last === "'") {
     for (let j = i - 2; j >= 0; j--) {
       if (sql[j] === last) {
         if (sql[j - 1] === last) j--;
@@ -238,9 +238,33 @@ export function operandStart(sql: string, end: number): number {
     }
     return -1;
   }
-  let k = i;
-  while (k > 0 && /[\w.?]/.test(sql[k - 1])) k--;
-  return k < i ? k : -1;
+  const component = (at: number): number => {
+    if (sql[at - 1] === '"') {
+      for (let j = at - 2; j >= 0; j--) {
+        if (sql[j] === '"') {
+          if (sql[j - 1] === '"') j--;
+          else return j;
+        }
+      }
+      return -1;
+    }
+    let j = at;
+    while (j > 0 && /[\w?\u0080-\uffff]/.test(sql[j - 1])) j--;
+    return j < at ? j : -1;
+  };
+  let start = component(i);
+  if (start < 0) return -1;
+  while (start > 0) {
+    let dot = start;
+    while (dot > 0 && /\s/.test(sql[dot - 1])) dot--;
+    if (sql[dot - 1] !== '.') break;
+    let before = dot - 1;
+    while (before > 0 && /\s/.test(sql[before - 1])) before--;
+    const previous = component(before);
+    if (previous < 0) break;
+    start = previous;
+  }
+  return start;
 }
 
 /** Length of the quoted run or comment starting at `i`, 0 when there is none. */
@@ -750,18 +774,17 @@ export const SQL_DATE_FUNCTIONS: Record<string, (...args: SQLOutputValue[]) => S
   UPPER: (v) => (v === null ? null : String(v).toUpperCase()),
 };
 
-/** How many values a query needs: the highest ?N, or the count of plain ?, outside strings and names. */
+/** How many positional slots SQLite allocates, outside strings, names and comments. */
 export function placeholders(sql: string): number {
-  let plain = 0;
-  let numbered = 0;
+  let highest = 0;
   for (const [text, isCode] of pieces(sql)) {
     if (!isCode) continue;
     for (const m of text.matchAll(/\?(\d*)/g)) {
-      if (m[1]) numbered = Math.max(numbered, +m[1]);
-      else plain++;
+      if (m[1]) highest = Math.max(highest, +m[1]);
+      else highest++;
     }
   }
-  return Math.max(plain, numbered);
+  return highest;
 }
 
 /** The statement alone: a query may end in a semicolon, but not carry a second statement after it. */

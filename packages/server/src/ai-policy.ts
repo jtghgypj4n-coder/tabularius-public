@@ -289,7 +289,7 @@ function secretFields(store: Store, schema: Schema, who?: Privileges): SecretDep
 
 /** Preview and apply share this check; refuse before stored calculations can copy any values.
  * A blanket human table exception is not permission for AI to manufacture new secret copies. */
-export function assertAiDesignChanges(store: Store, changes: readonly unknown[], who?: Privileges): void {
+export function assertAiDesignChanges(store: Store, changes: readonly unknown[], who?: Privileges, readOtherFile?: (file: Store) => boolean): void {
   assertNoAiVisibility(changes);
   if (!store.aiPolicy) return;
   const before = secretFields(store, store.schema, who);
@@ -297,7 +297,7 @@ export function assertAiDesignChanges(store: Store, changes: readonly unknown[],
   let previousSecrets = before;
   // Inspect each intermediate schema: create/copy/delete in one batch must not erase the evidence.
   for (let i = 1; i <= changes.length; i++) {
-    const { schema } = store.checkDesign(changes.slice(0, i) as DesignOp[]);
+    const { schema } = store.checkDesign(changes.slice(0, i) as DesignOp[], { readOtherFile });
     const secrets = secretFields(store, schema, who);
     for (const table of schema.tables) for (const field of table.fields) {
       const prior = previous.tables.find((t) => t.id === table.id)?.fields.find((f) => f.id === field.id);

@@ -36,6 +36,7 @@ and puts the old version back if it does not start (ADMIN.md, "Upgrade"). Two th
   `tabularius upgrade --from <an older copy>` from taking a folder out of service: the old install stays, the service is
   not restarted, and the message names the files. With no service installed there is no folder to look in, so run
   `tabularius doctor <folder>` first.
+- A service installed with `--host 0.0.0.0` and no HTTPS (what earlier builds installed by default) is **refused the same way**: the new version would not start it. The message says to install the service again with `--https local` (or a domain), or `--allow-plain-http` after `--` if a proxy you control does the HTTPS.
 - The health check says the server is up, not that every file is open. After an upgrade, open the admin console's file
   list or run `tabularius doctor <folder>`: a file that failed to open is listed with the reason.
 

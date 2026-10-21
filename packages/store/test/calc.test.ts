@@ -36,11 +36,11 @@ after(() => {
 test('create applies auto-enter values, constants and calculations', { skip }, () => {
   const before = store.find(MODULES, { limit: 1000 }).records;
   const maxIndex = Math.max(...before.map((r) => Number(r.fieldData.index) || 0));
-  const { recordId } = store.create(MODULES, { name: 'calc-test' }, { account: 'Jordan' });
+  const { recordId } = store.create(MODULES, { name: 'calc-test' }, { account: 'Casey' });
   const r = store.get(MODULES, recordId, 'iso').fieldData;
   assert.match(String(r.ID), /^LIBRARY_CODE-[0-9A-F-]{36}$/);
-  assert.equal(r.created_by, 'Jordan');
-  assert.equal(r.modified_by, 'Jordan');
+  assert.equal(r.created_by, 'Casey');
+  assert.equal(r.modified_by, 'Casey');
   assert.match(String(r.created), /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/);
   assert.equal(r.enabled, 1); // constant data
   assert.equal(r.index, maxIndex + 1); // Max ( LIBRARY_CODE__all::index ) + 1, through a × relationship
@@ -48,12 +48,12 @@ test('create applies auto-enter values, constants and calculations', { skip }, (
 });
 
 test('update re-runs what depends on the change', { skip }, () => {
-  const { recordId } = store.create(MODULES, { name: 'before-rename' }, { account: 'Jordan' });
+  const { recordId } = store.create(MODULES, { name: 'before-rename' }, { account: 'Casey' });
   const a = store.get(MODULES, recordId, 'iso').fieldData;
   store.update(MODULES, recordId, { name: 'after-rename' }, undefined, { account: 'Sam' });
   const b = store.get(MODULES, recordId, 'iso').fieldData;
   assert.equal(b.ID, a.ID); // its formula reads no fields, so it is not replaced
-  assert.equal(b.created_by, 'Jordan');
+  assert.equal(b.created_by, 'Casey');
   assert.equal(b.modified_by, 'Sam');
   assert.equal(b.index, a.index);
   assert.equal(b.file_name_ct, '-after-rename'); // unstored: FOCUS::••code_file_namespace & "-" & name

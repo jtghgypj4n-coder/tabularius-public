@@ -12,6 +12,7 @@ import { errorText } from './main.ts';
 
 /** A date/time as the rest of the UI shows them (ISO strings from the server). */
 const when = (iso?: string): string => (iso ? new Date(iso).toLocaleString() : '');
+let recoveryGenerationPending = false;
 
 export function signinTab(sec: Sec): HTMLElement {
   const db = sec.client.db, token = sec.client.token;
@@ -58,16 +59,35 @@ export function signinTab(sec: Sec): HTMLElement {
   };
 
   const codesOut = h('div', { class: 'signin-codes' });
-  const generate = async (): Promise<void> => {
+  // Keep one-time secrets only in this tab instance. Leaving the tab or a
+  // security-page redraw discards the DOM and this reference together.
+  let displayedRecoveryCodes: string[] | undefined;
+  const showCodes = (codes: string[]): void => {
+    codesOut.replaceChildren(
+      h('p', { class: 'd-hint' }, 'Save these somewhere safe. Each code works once, and they are shown only now.'),
+      h('ul', { class: 'signin-code-list' }, ...codes.map((c) => h('li', {}, h('code', {}, c)))),
+    );
+  };
+  if (displayedRecoveryCodes) showCodes(displayedRecoveryCodes);
+  const generate = async (generateButton: HTMLButtonElement): Promise<void> => {
+    if (recoveryGenerationPending) return;
     if (!confirm('Generate a new set of recovery codes? Any codes you had before will stop working.')) return;
+    recoveryGenerationPending = true;
+    generateButton.disabled = true;
+    displayedRecoveryCodes = undefined;
+    codesOut.replaceChildren();
     try {
       const { codes } = await generateMyRecoveryCodes(db, token);
-      codesOut.replaceChildren(
-        h('p', { class: 'd-hint' }, 'Save these somewhere safe. Each code works once, and they are shown only now.'),
-        h('ul', { class: 'signin-code-list' }, ...codes.map((c) => h('li', {}, h('code', {}, c)))),
-      );
+      displayedRecoveryCodes = codes;
+      showCodes(codes);
     } catch (e) { toast(errorText(e)); }
+    finally {
+      recoveryGenerationPending = false;
+      for (const control of document.querySelectorAll<HTMLButtonElement>('.signin-generate')) control.disabled = false;
+    }
   };
+  const generateButton = button('Generate recovery codes', () => void generate(generateButton), { class: 'signin-generate' });
+  generateButton.disabled = recoveryGenerationPending;
 
   wrap.append(
     h('h2', { class: 'd-h2' }, 'Passkeys'),
@@ -78,7 +98,7 @@ export function signinTab(sec: Sec): HTMLElement {
       : h('p', { class: 'd-hint' }, 'This browser can’t create passkeys here (they need a secure https connection).'),
     h('h2', { class: 'd-h2' }, 'Recovery codes'),
     h('p', { class: 'd-hint' }, 'One-time codes to sign in if you lose your passkey or authenticator. Generating a new set replaces the old one.'),
-    button('Generate recovery codes', () => void generate(), {}),
+    generateButton,
     codesOut,
   );
   void reload();

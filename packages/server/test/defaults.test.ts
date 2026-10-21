@@ -24,7 +24,7 @@ const freePort = () => new Promise<number>((resolve, reject) => {
 
 /** Nothing from the machine that would change a default: no key, no mail, no certificate, no settings of ours. */
 // A key in the environment is on purpose: it must not switch the assistant on without --ai.
-const cleanEnv = (home: string): NodeJS.ProcessEnv => ({ PATH: process.env.PATH, HOME: home, TMPDIR: home, ANTHROPIC_API_KEY: 'sk-ant-not-a-real-key' });
+const cleanEnv = (home: string): NodeJS.ProcessEnv => ({ PATH: process.env.PATH, HOME: home, TMPDIR: home, ANTHROPIC_API_KEY: 'sk' + '-ant-not-a-real-key' });
 
 interface Running { child: ChildProcess; output: () => string; stop(): Promise<void> }
 
@@ -42,6 +42,20 @@ function run(args: string[], home: string, extraEnv: NodeJS.ProcessEnv = {}): Pr
     child.once('error', reject);
     child.once('close', (code) => reject(new Error(`the server stopped (${code}) before it was serving:\n${text}`)));
     setTimeout(() => reject(new Error(`the server was not serving after 30 s:\n${text}`)), 30_000).unref();
+  });
+}
+
+/** A server expected to refuse to start: what it printed before it stopped (the test fails if it came up). */
+function runRefused(args: string[], home: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, ['--no-warnings', mainFile, ...args], { env: cleanEnv(home), stdio: ['ignore', 'pipe', 'pipe'] });
+    let text = '';
+    const take = (chunk: string) => { text += chunk; if (/Web client: /.test(text)) { child.kill('SIGTERM'); reject(new Error(`the server started when it should have refused:\n${text}`)); } };
+    child.stdout.setEncoding('utf8').on('data', take);
+    child.stderr.setEncoding('utf8').on('data', take);
+    child.once('error', reject);
+    child.once('close', (code) => (code === 0 ? reject(new Error(`the server exited cleanly instead of refusing:\n${text}`)) : resolve(text)));
+    setTimeout(() => { child.kill('SIGKILL'); reject(new Error(`no answer after 30 s:\n${text}`)); }, 30_000).unref();
   });
 }
 
@@ -104,6 +118,11 @@ test('every row of the table holds on a server started with no flags', async (t)
       const out = e.output();
       await e.stop();
       return out;
+    },
+    async refused(args) {
+      const folder = mkdtempSync(join(tmpdir(), 'tabularius-defaults-refused-'));
+      folders.push(folder);
+      return runRefused(['serve', folder, '--port', String(await freePort()), ...args], home);
     },
     source: (path) => readFileSync(join(root, path), 'utf8'),
     passwordPolicy() {
@@ -180,7 +199,7 @@ test('docs/security-defaults.md is what the table says', () => {
   assert.equal(readFileSync(join(root, 'docs', 'security-defaults.md'), 'utf8'), securityDefaultsPage(), 'run npm run docs:security-defaults');
 });
 
-test('serving beyond this computer over plain HTTP says so; the safe ways do not', async (t) => {
+test('serving beyond this computer over plain HTTP is refused; the safe ways start', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'tabularius-defaults-warn-'));
   const folders = [home];
   t.after(() => { for (const f of folders) rmSync(f, { recursive: true, force: true }); });
@@ -192,12 +211,21 @@ test('serving beyond this computer over plain HTTP says so; the safe ways do not
     await e.stop();
     return out;
   };
+  const refusal = /would listen on [^\s]+ over plain HTTP/;
   const warning = /Warning: this server listens on [^\s]+ over plain HTTP/;
-  assert.match(await attempt(['--host', '0.0.0.0']), warning);
-  assert.doesNotMatch(await attempt([]), warning);
-  assert.doesNotMatch(await attempt(['--host', '127.0.0.1']), warning);
-  assert.doesNotMatch(await attempt(['--host', 'localhost']), warning);
-  assert.doesNotMatch(await attempt(['--host', '0.0.0.0', '--public-url', 'https://files.example.com']), warning);
-  assert.match(await attempt(['--host', '0.0.0.0', '--public-url', 'http://files.example.com']), warning);
+  const refused = async (args: string[]) => {
+    const folder = mkdtempSync(join(tmpdir(), 'tabularius-defaults-warn-dir-'));
+    folders.push(folder);
+    return runRefused(['serve', folder, '--port', String(await freePort()), ...args], home);
+  };
+  assert.match(await refused(['--host', '0.0.0.0']), refusal);
+  assert.match(await refused(['--host', '192.168.1.20']), refusal);
+  assert.match(await refused(['--host', '0.0.0.0', '--public-url', 'https://files.example.com']), refusal, 'naming a proxy does not make plain HTTP on every address safe');
+  assert.match(await refused(['--host', '0.0.0.0', '--public-url', 'http://files.example.com']), refusal);
+  assert.doesNotMatch(await attempt([]), refusal);
+  assert.doesNotMatch(await attempt(['--host', '127.0.0.1']), refusal);
+  assert.doesNotMatch(await attempt(['--host', 'localhost']), refusal);
+  assert.match(await attempt(['--host', '0.0.0.0', '--allow-plain-http']), warning, 'allowed on purpose, and still said in the log');
+  assert.doesNotMatch(await attempt(['--host', '0.0.0.0', '--allow-plain-http', '--public-url', 'https://files.example.com']), warning, 'a proxy that does HTTPS, named');
   assert.doesNotMatch(await attempt(['--host', '0.0.0.0', '--https', 'local']), warning);
 });

@@ -3883,10 +3883,12 @@ export class ScriptEngine {
       }
       case 147: { // Set Field By Name
         const name = asText(calc(p.fieldName));
+        if (this.calcError) return undefined;
+        const value = calc(p.calculation);
         const m = /^(.*?)::(.*)$/.exec(name);
         const occurrence = m ? m[1] : this.layoutOf(win).occurrence;
         const field = m ? m[2] : name;
-        this.setField(f, { field: { tableOccurrence: { id: 0, name: occurrence }, field: { id: 0, name: field } } }, calc(p.calculation));
+        this.setField(f, { field: { tableOccurrence: { id: 0, name: occurrence }, field: { id: 0, name: field } } }, value);
         return undefined;
       }
       case 91: // Replace Field Contents
@@ -5979,6 +5981,8 @@ export class ScriptEngine {
   }
 
   private setField(f: Frame, p: Pick<StepParams, 'field' | 'repetitionCalculation'>, value: Value): void {
+    // A failed calculation yields "?" as a value; no caller may turn that placeholder into a field write.
+    if (this.calcError) return;
     if (p.field && this.diagnostics.sensitiveName(p.field.field.name)) this.diagnostics.remember(asText(value, this.current.store.dateOrder));
     const noted = this.modified?.length;
     try {
@@ -6226,6 +6230,7 @@ export class ScriptEngine {
     } else if (p.replaceWith === 'serial') {
       if (p.serial?.initial !== undefined) {
         serial = asText(this.eval(f, p.serial.initial));
+        if (this.calcError) throw new ScriptError(this.calcError, this.calcMessage ?? 'Replace Field Contents calculation failed');
         by = asNumber(this.eval(f, p.serial.increment ?? '1')) || 1;
       } else {
         serial = table && info.owner.calc.peekSerial(table, field);
@@ -6252,6 +6257,7 @@ export class ScriptEngine {
           await this.checkpoint(f);
           this.readCache.clear();
           value(i);
+          if (this.calcError) throw new ScriptError(this.calcError, this.calcMessage ?? 'Replace Field Contents calculation failed');
         }
       } finally {
         this.embeddingAsks = undefined;
@@ -6271,6 +6277,7 @@ export class ScriptEngine {
         let v: Value;
         try {
           v = value(i);
+          if (this.calcError) throw new ScriptError(this.calcError, this.calcMessage ?? 'Replace Field Contents calculation failed');
         } catch (e) {
           rethrowExecutionRefusal(e);
           // A text the first pass didn't need (the formula reads what earlier records were set to): stop rather than run again.

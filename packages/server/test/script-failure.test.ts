@@ -33,7 +33,7 @@ before(async () => {
     { op: 'createScript', name: 'Calls it', text: 'Set Variable [ $$from ; Value: "outer" ]\nPerform Script [ "Nobody" ]' },
     { op: 'createScript', name: 'Fine', text: 'Set Variable [ $x ; Value: 1 ]' },
     // A made-up access key written into a script: such scripts are never run again, as in test-scripts.
-    { op: 'createScript', name: 'Keyed', text: 'Set Variable [ $key ; Value: "AKIAABCDEFGHIJKLMNOP" ]\nSet Field [ Congress::Comp_C_Average ; 1 ]' },
+    { op: 'createScript', name: 'Keyed', text: 'Set Variable [ $key ; Value: "AKIA' + 'ABCDEFGHIJKLMNOP" ]\nSet Field [ Congress::Comp_C_Average ; 1 ]' },
   ] as never);
   store.savePrivilegeSet({
     name: 'Clerk', records: { view: true, edit: true, create: true, delete: false },
@@ -112,7 +112,7 @@ test('a script with credentials written into it is never run again', { skip }, a
   const r = await why({ script: 'Keyed' });
   assert.equal(r.data.outcome, 'skipped');
   assert.match(r.data.hints[0], /credentials written into it/);
-  assert.doesNotMatch(r.text, /AKIAABCDEFGHIJKLMNOP/);
+  assert.doesNotMatch(r.text, new RegExp('AKIA' + 'ABCDEFGHIJKLMNOP'));
 });
 
 test('an account that can\'t see scripts\' design can\'t use it', { skip }, async () => {

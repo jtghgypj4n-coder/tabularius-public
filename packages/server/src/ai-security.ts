@@ -1,5 +1,5 @@
 // AI callers may inspect security and edit ordinary grants, but AI visibility is a human decision.
-import { StoreError, type Store } from '../../store/src/index.ts';
+import { StoreError, foldSecurityName, type Store } from '../../store/src/index.ts';
 
 function refuse(): never {
   throw new StoreError(9, 'AI visibility can only be changed by a human in Manage Security, the admin console or the CLI; not through AI tools');
@@ -23,7 +23,7 @@ export function assertAiPrivilegeSet(store: Store, proposed: unknown, base?: str
   assertNoAiVisibility(proposed);
   const name = proposed && typeof proposed === 'object' && 'name' in proposed ? proposed.name : undefined;
   for (const target of [name, base]) {
-    if (typeof target === 'string' && store.privilegeSets().some((p) => p.name.toLowerCase() === target.toLowerCase() && p.aiVisible !== undefined)) refuse();
+    if (typeof target === 'string' && store.privilegeSets().some((p) => foldSecurityName(p.name) === foldSecurityName(target) && p.aiVisible !== undefined)) refuse();
   }
 }
 
@@ -32,11 +32,30 @@ export function assertAiSecurityChanges(store: Store, changes: readonly Record<s
   for (const change of changes) {
     if (change.op === 'savePrivilegeSet') assertAiPrivilegeSet(store, change.set);
     if (change.op === 'deletePrivilegeSet') assertAiPrivilegeSet(store, { name: change.name });
+    if (change.op === 'createPrivilegeSet') assertAiPrivilegeSet(store, change.set);
+    if (change.op === 'createAccount') {
+      if (typeof change.privilegeSet === 'string') assertAiPrivilegeSet(store, { name: change.privilegeSet });
+      if (change.kind === 'password' && !validAiPassword(change.password)) {
+        throw new StoreError(9, 'AI tools cannot create password accounts; create them in Manage Security or the CLI');
+      }
+    }
+    if (change.op === 'setAccount' && typeof change.privilegeSet === 'string') {
+      assertAiPrivilegeSet(store, { name: change.privilegeSet });
+    }
+    if (change.op === 'setAccount' &&
+        (change.password !== undefined || !store.accounts().some((a) => typeof change.name === 'string' && foldSecurityName(a.name) === foldSecurityName(change.name))) &&
+        !validAiPassword(change.password)) {
+      throw new StoreError(9, 'AI tools cannot create password accounts; create them in Manage Security or the CLI');
+    }
     // Rebinding an account to a pre-marked set would grant visibility without touching aiVisible itself.
     if (['setAccount', 'setExternalAccount', 'setAgentAccount'].includes(String(change.op)) && typeof change.privilegeSet === 'string') {
       assertAiPrivilegeSet(store, { name: change.privilegeSet });
     }
   }
+}
+
+function validAiPassword(password: unknown): boolean {
+  return typeof password === 'string' && password.trim().length > 0;
 }
 
 /**

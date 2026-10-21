@@ -39,6 +39,11 @@ export interface AutomationOut {
 
 const enc = encodeURIComponent;
 
+/** Confirm removal of an assistant-saved automation using its visible target name. */
+export function confirmAutomationRemoval(name: string, ask: (message: string) => boolean = (message) => confirm(message)): boolean {
+  return ask(`Delete the automation "${name}"? Its script stays.`);
+}
+
 /** How the dry run went, in a few lines. */
 export function dryRunLines(d: DryRun): { text: string; bad?: boolean }[] {
   const out: { text: string; bad?: boolean }[] = [];
@@ -97,7 +102,8 @@ export function automationCard(a: AutomationOut, db: string, token: string): HTM
     }
   });
   del.addEventListener('click', async () => {
-    if (!id) return;
+    if (!id || del.disabled || !confirmAutomationRemoval(a.automation.name)) return;
+    del.disabled = true;
     try {
       await call('DELETE', `/${id}`);
       off.hidden = del.hidden = true;
@@ -107,6 +113,7 @@ export function automationCard(a: AutomationOut, db: string, token: string): HTM
       id = undefined;
     } catch (e) {
       status.textContent = (e as Error).message;
+      del.disabled = false;
     }
   });
   card.append(h('div', { class: 'ai-actions' }, on, off, del, status));

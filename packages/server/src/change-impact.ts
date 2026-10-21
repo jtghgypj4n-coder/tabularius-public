@@ -12,6 +12,7 @@
 
 import { isFullAccess, type Store } from '../../store/src/index.ts';
 import { dataSourceFile } from '../../store/src/import.ts';
+import type { LayoutObject } from '../../fmp12/src/index.ts';
 import type { ServerLogs } from './server-logs.ts';
 import { resolveTargets, solutionIndex, whereUsed, type Target, type TargetKind } from './insight.ts';
 
@@ -263,9 +264,10 @@ export function crossFileImpact(store: Store, others: Store[], target: Target, c
         const sc = s.scripts.find((x) => x.name === target.name);
         if (!sc) break;
         // Cross-file script calls are the Perform Script (and kin) steps that carry an external script ref
-        // (`params.script.file`). The reader resolves a data source only for these; a script run from a
-        // layout/object trigger, a custom menu item, a button or File Options is resolved by id in the
-        // current file and carries no data-source ref, so it is never a cross-file reference here.
+        // (`params.script.file`), and a button that names a data source of its own (`action.file`). The reader
+        // resolves a data source only for these; a script run from a layout/object trigger, a custom menu item
+        // or File Options is resolved by id in the current file and carries no data-source ref, so it is never
+        // a cross-file reference here.
         const seen = new Set<string>();
         for (const script of a.schema.scripts) {
           for (const step of script.steps) {
@@ -275,6 +277,12 @@ export function crossFileImpact(store: Store, others: Store[], target: Target, c
               out.push({ file: a.name, where: `script "${script.name}" performs it`, breaks, why: why('script') });
             }
           }
+        }
+        // A button on a layout of file `a` that performs it: the button keeps the script's id and its data source.
+        for (const layout of a.designs().layouts) {
+          const hit = (objects: LayoutObject[] | undefined): boolean => (objects ?? []).some((o) =>
+            (o.action?.file && o.action.scriptId === sc.id && pointsHere(a, o.action.file.id)) || hit(o.children));
+          if (hit(layout.objects)) out.push({ file: a.name, where: `a button on layout "${layout.name}" performs it`, breaks, why: why('script') });
         }
         break;
       }

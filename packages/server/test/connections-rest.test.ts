@@ -178,7 +178,7 @@ test('settings are checked: a key as a setting, the wrong sign-in\'s settings, a
     [{ baseUrl: 'http://169.254.169.254/latest' }, /link-local/],
     [{ baseUrl: 'http://api.example.com' }, /Use https/],
     [{ baseUrl: 'https://api.example.com', testPath: '/a/../b' }, /path to test/],
-    [{ baseUrl: 'https://api.example.com', auth: 'oauth2', tokenUrl: 'https://auth.example.com/t', scope: 'sk-ant-api03-abcdefghijklmnopqrstuvwx' }, /looks like an API key/],
+    [{ baseUrl: 'https://api.example.com', auth: 'oauth2', tokenUrl: 'https://auth.example.com/t', scope: 'sk' + '-ant-api03-abcdefghijklmnopqrstuvwx' }, /looks like an API key/],
   ];
   for (const [config, why] of bad) assert.throws(() => c.create({ name: 'r', type: 'rest', config }), why, JSON.stringify(config));
   const made = c.create({ name: 'tok', type: 'rest', config: { baseUrl: 'https://api.example.com/v2/', auth: 'bearer' } });

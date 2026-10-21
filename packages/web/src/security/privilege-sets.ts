@@ -20,7 +20,9 @@ function isFull(p: PrivilegeSet): boolean {
 }
 
 /** A yes / no / limited(calc) control for a record rule (view, edit, delete). */
-function ruleControl(label: string, value: Rule, onChange: (r: Rule) => void): HTMLElement {
+type RuleControl = HTMLElement & { setRule(rule: Rule): void };
+
+function ruleControl(label: string, value: Rule, onChange: (r: Rule) => void): RuleControl {
   const kind = select([['true', 'Yes'], ['false', 'No'], ['limited', 'Limited…']], typeof value === 'string' ? 'limited' : String(value), { 'aria-label': label });
   const calc = h('input', { class: 'sec-calc', placeholder: 'Calculation, e.g. Owner = Get(AccountName)', 'aria-label': `${label} calculation`, value: typeof value === 'string' ? value : '' });
   calc.style.display = typeof value === 'string' ? '' : 'none';
@@ -30,7 +32,14 @@ function ruleControl(label: string, value: Rule, onChange: (r: Rule) => void): H
   };
   kind.addEventListener('change', emit);
   calc.addEventListener('input', emit);
-  return h('div', { class: 'sec-rule' }, h('span', { class: 'sec-rule-label' }, label), kind, calc);
+  const control = h('div', { class: 'sec-rule' }, h('span', { class: 'sec-rule-label' }, label), kind, calc) as unknown as RuleControl;
+  control.setRule = (rule) => {
+    kind.value = typeof rule === 'string' ? 'limited' : String(rule);
+    calc.value = typeof rule === 'string' ? rule : '';
+    calc.style.display = typeof rule === 'string' ? '' : 'none';
+    onChange(rule);
+  };
+  return control;
 }
 
 function levelSelect(value: Level | undefined, onChange: (l: Level) => void, label: string): HTMLSelectElement {
@@ -40,7 +49,7 @@ function levelSelect(value: Level | undefined, onChange: (l: Level) => void, lab
 }
 
 /** The view/edit/create/delete + per-field controls for one table's privileges. */
-function tableEditor(t: TablePrivileges, fields: string[], ctx?: { table: string; sec: Sec }): HTMLElement {
+export function tableEditor(t: TablePrivileges, fields: string[], ctx?: { table: string; sec: Sec }): HTMLElement {
   const fieldRows = fields.map((f) => {
     // Masked: the account sees a stand-in, never the value, and can't change, search or export the field.
     const maskKind = select(MASK_KINDS, t.masks?.[f]?.kind ?? 'last4', { 'aria-label': `How ${f} is masked` });
@@ -73,13 +82,14 @@ function tableEditor(t: TablePrivileges, fields: string[], ctx?: { table: string
   });
   const createBox = check('Create', t.create === true);
   createBox.input.addEventListener('change', () => { t.create = createBox.input.checked; });
+  const viewControl = ruleControl('View', t.view, (r) => { t.view = r; });
   return h('div', { class: 'sec-table-priv' },
-    ruleControl('View', t.view, (r) => { t.view = r; }),
+    viewControl,
     ruleControl('Edit', t.edit, (r) => { t.edit = r; }),
     h('div', { class: 'sec-rule' }, createBox.el),
     ruleControl('Delete', t.delete, (r) => { t.delete = r; }),
     fields.length ? h('details', { class: 'sec-fields' }, h('summary', {}, 'Field access'), ...fieldRows) : h('span', {}),
-    ctx ? rulePreview(t, ctx.table, ctx.sec) : h('span', {}),
+    ctx ? rulePreview(t, ctx.table, ctx.sec, (rule) => viewControl.setRule(rule)) : h('span', {}),
   );
 }
 
@@ -90,7 +100,7 @@ function tableEditor(t: TablePrivileges, fields: string[], ctx?: { table: string
  * of M", with each sample shown as allowed or not. Nothing is stored until the
  * rule is saved with the rest of the set.
  */
-function rulePreview(t: TablePrivileges, table: string, sec: Sec): HTMLElement {
+function rulePreview(t: TablePrivileges, table: string, sec: Sec, setViewRule: (rule: Rule) => void): HTMLElement {
   const english = h('input', { type: 'text', class: 'sec-english', placeholder: 'e.g. sales reps see only their own customers', 'aria-label': `Describe who may view ${table}` }) as HTMLInputElement;
   const calc = h('input', { type: 'text', class: 'sec-calc', placeholder: 'Calculation, e.g. Rep = Get(AccountName)', 'aria-label': `${table} view rule`, value: typeof t.view === 'string' ? t.view : '' }) as HTMLInputElement;
   const asWho = h('input', { type: 'text', class: 'sec-as', placeholder: 'preview as account (optional)', 'aria-label': 'Preview as account' }) as HTMLInputElement;
@@ -114,7 +124,7 @@ function rulePreview(t: TablePrivileges, table: string, sec: Sec): HTMLElement {
       out.replaceChildren(
         h('p', {}, `Allows ${r.allowed} of ${r.total} record${r.total === 1 ? '' : 's'}${r.account ? ` as "${r.account}"` : ''}. Sample:`),
         h('ul', { class: 'sec-preview-list' }, ...rows),
-        button('Use as the View rule', () => { t.view = rule; sec.render(); }, { title: 'Set this table’s View rule to this calculation' }),
+        button('Use as the View rule', () => { setViewRule(rule); calc.value = rule; }, { title: 'Set this table’s View rule to this calculation' }),
       );
     } catch (e) {
       out.replaceChildren(h('p', { class: 'sec-bad' }, `Couldn't preview: ${(e as Error).message}`));
@@ -149,7 +159,7 @@ export function privilegeSetsTab(sec: Sec): HTMLElement {
     const n = newName.value.trim();
     if (!n) return;
     const set: PrivilegeSet = { name: n, records: { view: false, edit: false, create: false, delete: false }, layouts: 'none', valueLists: 'none', scripts: 'none', extendedPrivileges: [] };
-    if (await sec.apply([{ op: 'savePrivilegeSet', set }], `Created "${n}"`)) { sec.selected.set = n; sec.render(); }
+    if (await sec.apply([{ op: 'createPrivilegeSet', set }], `Created "${n}"`)) { sec.selected.set = n; sec.render(); }
   });
 
   return h('div', { class: 'd-split' },

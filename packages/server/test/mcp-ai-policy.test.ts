@@ -386,6 +386,29 @@ test('design security tools read human exceptions but refuse to add or resubmit 
   assert.deepEqual(store.privileges('Admin').set.aiVisible, { Items: ['Password'] });
 });
 
+test('MCP security changes refuse missing, empty, whitespace and non-string AI passwords', async (t) => {
+  const { store, call } = await fixture(t);
+  store.savePrivilegeSet({ name: 'McpPasswordTarget', records: { view: false, edit: false, create: false, delete: false }, layouts: 'none', valueLists: 'none', scripts: 'none', extendedPrivileges: [] });
+  store.setPassword('ExistingMcpAccount', 'existing-password', 'McpPasswordTarget');
+  for (const [label, password, present] of [
+    ['missing', undefined, false], ['empty', '', true], ['whitespace', ' \t ', true], ['non-string', 42, true],
+  ] as const) {
+    const create = { op: 'createAccount', kind: 'password', name: `Mcp_${label}`, privilegeSet: 'McpPasswordTarget', ...(present ? { password } : {}) };
+    const set = { op: 'setAccount', name: `McpSet_${label}`, ...(present ? { password } : {}) };
+    for (const changes of [[create], [set]]) {
+      const result = await call('change_security', { changes });
+      assert.equal(result.isError, true, `${label} password was refused`);
+      assert.match(JSON.stringify(result), /cannot create password accounts/i);
+    }
+    if (present) {
+      const update = await call('change_security', { changes: [{ op: 'setAccount', name: 'ExistingMcpAccount', password }] });
+      assert.equal(update.isError, true, `${label} password update was refused`);
+      assert.match(JSON.stringify(update), /cannot create password accounts/i);
+    }
+  }
+  assert.equal(store.accounts().some((a) => a.name.startsWith('Mcp_') || a.name.startsWith('McpSet_')), false);
+});
+
 test('F1: MCP cannot clear existing visibility by omitting it from a replacement', async (t) => {
   const { store, call } = await fixture(t);
   const full = store.privileges('Admin').set;

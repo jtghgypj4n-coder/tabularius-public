@@ -221,8 +221,8 @@ async function start(): Promise<void> {
     const n = ++rendering;
     drawTabs();
     where.textContent = paused ? `Script “${paused.script}” paused at step ${paused.index + 1}${paused.layout ? ` · ${paused.layout}` : ''}${paused.recordId !== undefined ? ` · record ID ${paused.recordId} of ${paused.foundCount} found` : ' · no record'}`
-      : !win.layout ? 'Not following a window'
-      : `${win.layout}${win.mode === 'find' ? ' · Find mode' : win.recordId !== undefined ? ` · record ${win.number ?? '?'} of ${win.foundCount ?? '?'} (ID ${win.recordId})` : ' · no record'}`;
+      : !win.layout ? 'Web client window · Not following a window'
+      : `Web client window · ${win.layout}${win.mode === 'find' ? ' · Find mode' : win.recordId !== undefined ? ` · record ${win.number ?? '?'} of ${win.foundCount ?? '?'} (ID ${win.recordId})` : ' · no record'}`;
     let parts: HTMLElement[];
     if (tab === 'watch') {
       const results = await evaluate(watches);
@@ -252,8 +252,12 @@ async function start(): Promise<void> {
       if (at.layout) {
         try {
           const q = new URLSearchParams({ layout: at.layout, ...(at.recordId !== undefined ? { recordId: String(at.recordId) } : {}) });
-          current = await call<Current>('GET', `/current?${q}`);
+          current = await call<Current>('GET', `${paused ? `/runs/${paused.id}/current` : '/current'}?${q}`);
         } catch (e) {
+          if (paused && e instanceof ViewerError && e.code === 3) {
+            paused = undefined;
+            return void render();
+          }
           failure = (e as Error).message;
         }
       }

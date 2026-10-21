@@ -50,5 +50,47 @@ test('explicit agent accounts cannot bypass policy through Data API tokens; lega
     assert.equal((await read()).status, 401, 'the changed authority revoked the bot\'s token');
     token = store.createApiToken('bot', { surfaces: ['fmrest'] });
     assert.equal((await read()).status, 200);
+
+    // New create-only store ops must receive the same AI visibility checks as
+    // their update counterparts, and AI cannot provision an empty-password login.
+    await t.test('createAccount cannot bind an AI account to an AI-visible set', () => {
+      const accountsBefore = store.accounts();
+      assert.throws(
+        () => applySecurityChanges(store, [{ op: 'createAccount', kind: 'external', name: 'NewBot', privilegeSet: 'Bot' }], 'bot'),
+        /AI visibility can only be changed by a human/,
+      );
+      assert.deepEqual(store.accounts(), accountsBefore);
+    });
+    await t.test('createPrivilegeSet cannot target an existing AI-visible set', () => {
+      const accountsBefore = store.accounts();
+      assert.throws(
+        () => applySecurityChanges(store, [{ op: 'createPrivilegeSet', set: { name: 'Bot' } }], 'bot'),
+        /AI visibility can only be changed by a human/,
+      );
+      assert.deepEqual(store.accounts(), accountsBefore);
+    });
+    await t.test('AI cannot create a password account without an explicit password', () => {
+      const accountsBefore = store.accounts();
+      assert.throws(
+        () => applySecurityChanges(store, [{ op: 'createAccount', kind: 'password', name: 'NoPassword', privilegeSet: '[Full Access]' }], 'bot'),
+        /AI tools cannot create password accounts/,
+      );
+      assert.deepEqual(store.accounts(), accountsBefore);
+    });
+    store.savePrivilegeSet({ name: 'AgentPasswordTarget', records: { view: false, edit: false, create: false, delete: false }, layouts: 'none', valueLists: 'none', scripts: 'none', extendedPrivileges: [] });
+    store.setPassword('ExistingBotBound', 'existing-password', 'Bot');
+    for (const [label, password, present] of [
+      ['missing', undefined, false], ['empty', '', true], ['whitespace', ' \t ', true], ['non-string', 42, true],
+    ] as const) {
+      await t.test(`agent password policy refuses ${label} on create and set`, () => {
+        const accountsBefore = store.accounts();
+        const create = { op: 'createAccount', kind: 'password', name: `Agent_${label}`, privilegeSet: 'AgentPasswordTarget', ...(present ? { password } : {}) };
+        const set = { op: 'setAccount', name: `AgentSet_${label}`, ...(present ? { password } : {}) };
+        assert.throws(() => applySecurityChanges(store, [create as never], 'bot'), /cannot create password accounts/i);
+        assert.throws(() => applySecurityChanges(store, [set as never], 'bot'), /cannot create password accounts/i);
+        if (present) assert.throws(() => applySecurityChanges(store, [{ op: 'setAccount', name: 'ExistingBotBound', password } as never], 'bot'), /cannot create password accounts/i);
+        assert.deepEqual(store.accounts(), accountsBefore);
+      });
+    }
   } finally { await new Promise<void>((r) => hosted.server.close(() => r())); rmSync(dir, { recursive: true, force: true }); }
 });

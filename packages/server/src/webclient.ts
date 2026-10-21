@@ -372,6 +372,12 @@ export class WebClient {
           return true;
         }
         if (m[3] === 'export') {
+          // Text exports can be much larger than the server's heap. Send them a page at a
+          // time and respect socket backpressure; the other formats need their own encoders.
+          if (!['xlsx', 'xml', 'html'].includes(String(body.format))) {
+            await this.exportText(store, layout, body, privileges, res);
+            return true;
+          }
           const file = this.exportRecords(store, layout, body, privileges);
           res.writeHead(200, {
             'content-type': file.type, 'content-length': file.data.length, 'cache-control': 'no-store',
@@ -1200,6 +1206,97 @@ export class WebClient {
     return { records };
   }
 
+  /** Writes a CSV, tab or merge export in bounded record batches. */
+  private async exportText(store: Store, layout: string, body: Record<string, unknown>, privileges: Privileges, res: ServerResponse): Promise<void> {
+    if (!privileges.canExport) throw new ApiError(9, 'Insufficient privileges: this account may not export records', 403);
+    const format = body.format === 'tab' || body.format === 'mer' ? body.format : 'csv';
+    const info = store.layout(layout);
+    const fields = (Array.isArray(body.fields) ? body.fields : []).filter((f): f is string => typeof f === 'string' && !!f);
+    if (!fields.length) throw new ApiError(3, 'Choose the fields to export', 400);
+    const own = store.schema.tables.find((t) => t.name === info.table);
+    const def = (f: string) => {
+      const m = /^(.+?)::(.+)$/.exec(f);
+      if (!m) return own?.fields.find((x) => x.name === f);
+      const to = store.schema.tableOccurrences.find((t) => t.name === m[1]);
+      return store.schema.tables.find((t) => t.id === to?.baseTableId)?.fields.find((x) => x.name === m[2]);
+    };
+    const kinds = fields.map((f) => def(f)?.type);
+    const hasSummary = fields.some((f) => def(f)?.kind === 'summary');
+    // The common "all records" export walks the primary key in bounded pages.
+    // A supplied found set, query or sort still uses its exact order, and so does a summary: a running total or a
+    // fraction of the total differs from record to record, so each batch works its summaries out in the found set's order.
+    const allInIdOrder = !('ids' in body) && !('query' in body) && !('sort' in body) && !hasSummary;
+    const ids = allInIdOrder ? undefined : foundIds(store, layout, body, privileges);
+    const sort = sortOf(body.sort);
+    const cell = (v: string | number, i: number) => {
+      const one = String(v).replace(/\r\n|[\r\n]/g, '\v');
+      return format === 'tab' ? formulaGuard(one.replace(/\t/g, ' '), kinds[i]) : csvField(one, { quoteAll: true, type: kinds[i] });
+    };
+    const sepr = format === 'tab' ? '\t' : ',';
+    const base = String(typeof body.name === 'string' && body.name.trim() ? body.name.trim() : layout).replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_');
+    let offset = 0;
+    let lastId = 0;
+    let sent = 0;
+    const audited: number[] = [];
+    const nextBatch = (): string | undefined => {
+      const chunk = ids
+        ? ids.slice(offset, offset + 500)
+        : store.selectIds(layout, { where: '_fm_record_id > ?', params: [lastId], limit: 500, privileges });
+      if (!chunk.length) return undefined;
+      offset += chunk.length;
+      lastId = chunk[chunk.length - 1];
+      const lines: string[] = [];
+      for (const r of store.getMany(layout, chunk, ids ?? chunk, { privileges, sort, fields })) {
+        lines.push(fields.map((f, k) => cell(privileges.fieldAccess(info.table, f) === 'masked' ? '' : r.fieldData[f] ?? '', k)).join(sepr) + '\r\n');
+        sent++;
+        if (audited.length < 100) audited.push(Number(r.recordId));
+      }
+      return lines.join('');
+    };
+    // The first batch is read before any header goes out, so a record or field the account may not read is an
+    // ordinary error response, as it is for the other formats; a later failure can only end the download early.
+    let batch = nextBatch();
+    res.writeHead(200, {
+      'content-type': `${format === 'tab' ? 'text/tab-separated-values' : 'text/csv'}; charset=utf-8`,
+      // Not compressed: the compressing wrapper takes every write at once, so a slow client could not hold the export back.
+      'cache-control': 'no-store, no-transform',
+      'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent(`${base}.${format}`)}`,
+    });
+    const write = async (chunk: string): Promise<boolean> => {
+      if (res.destroyed) return false;
+      if (!res.write(chunk)) {
+        await new Promise<void>((resolve) => {
+          const done = () => { res.off('drain', done); res.off('close', done); resolve(); };
+          res.once('drain', done);
+          res.once('close', done);
+        });
+      }
+      return !res.destroyed;
+    };
+    // What was read is logged however the download ends: finished, cut off by the client, or stopped by a later batch failing.
+    let failure: Error | undefined;
+    try {
+      const header = body.fieldNames === true || format === 'mer' ? fields.map((name) => cell(name, -1)).join(sepr) + '\r\n' : '';
+      if (await write((body.bom === true ? '\ufeff' : '') + header)) {
+        while (batch !== undefined && !res.destroyed) {
+          if (batch && !(await write(batch))) break;
+          // Other requests get their turn between batches, whatever the client's speed.
+          await new Promise<void>((resolve) => setImmediate(resolve));
+          batch = nextBatch();
+        }
+      }
+    } catch (e) {
+      failure = e instanceof Error ? e : new Error(String(e));
+    }
+    try {
+      store.logRead(info.table, audited, { privileges }, sent);
+    } catch (e) {
+      failure ??= e instanceof Error ? e : new Error(String(e));
+    }
+    if (failure) res.destroy(failure);
+    else if (!res.destroyed) res.end();
+  }
+
   /**
    * Export Records from the web client: the found set (a find, all records,
    * or a script's record ids, in the client's order), with the fields chosen,
@@ -1554,9 +1651,12 @@ export class WebClient {
       // Compat clients show dates as MM/DD/YYYY; a script step reads text in the file's order.
       (key, typed) => { const type = fieldTypeOf(store, info, key); return type === 'date' || type === 'timestamp' ? inDateOrder(typed, store.dateOrder) : typed; }) : undefined;
     if (body.command !== undefined && !command) throw new ApiError(3, 'Command is unavailable', 400);
+    const buttonFile = event === undefined && !fromPage && !timer && !menuItem && !scriptsMenuItem && !fileTrigger && obj?.action?.stepId === 1 && obj.action.scriptId !== undefined ? obj.action.file : undefined;
     // A timer on another file's script runs it as Perform Script does there: its privileges in that file, and the
     // parameter worked out here, in the window that installed it.
-    const external = timer?.file ? { stepId: 1, step: 'Perform Script', params: { script: { id: timer.scriptId, name: '', file: timer.file }, ...(timer.parameter !== undefined ? { parameter: timer.parameter } : {}) } } : undefined;
+    const external = timer?.file ? { stepId: 1, step: 'Perform Script', params: { script: { id: timer.scriptId, name: '', file: timer.file }, ...(timer.parameter !== undefined ? { parameter: timer.parameter } : {}) } }
+      // A button on another file's script does the same, with the parameter worked out below passed on as the script's.
+      : buttonFile ? { stepId: 1, step: 'Perform Script', params: { script: { id: obj!.action!.scriptId!, name: '', file: buttonFile }, parameter: 'Get ( ScriptParameter )' } } : undefined;
     const single = external ?? command ?? (!action && event === undefined && !menuItem && obj?.action && obj.action.stepId !== 1 ? obj.action : undefined);
     if (!action && !single) throw new ApiError(3, event ? `No ${event} script trigger there` : 'That object does not run a script', 400);
     const byEvent = event !== undefined && !single && !timer && !menuItem && !scriptsMenuItem && !fileTrigger;
@@ -1576,7 +1676,7 @@ export class WebClient {
       : store.findIds(info, { query: queryOf(body.query), sort: sortOf(body.sort), privileges, dateOrder: store.fileMode === 'native' ? 'ISO' : 'MDY' });
     const w = { mode: String(body.mode ?? 'browse'), view: String(body.view ?? 'form'), foundCount: ids.length, totalCount: num0(body.totalCount), number: recordId === undefined ? undefined : ids.indexOf(recordId) + 1 };
     let parameter = fromPage ? said(body.parameter) : '';
-    if (action?.parameter && !external && !fromPage) {
+    if (action?.parameter && !timer?.file && !fromPage) {
       // A button in a portal row evaluates its parameter on that row's record.
       const row = body.row as { portal?: string; recordId?: unknown } | undefined;
       const p = row && info.plan?.portals.find((x) => x.name === row.portal);

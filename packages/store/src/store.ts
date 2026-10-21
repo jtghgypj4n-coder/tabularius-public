@@ -51,6 +51,11 @@ import { ensureTextStyles, repetitionText, TextStyles } from './text-styles.ts';
 import { checkFormat, storedFormat } from './store-format.ts';
 export { StoreError, PendingApprovalError };
 
+/** Name equality used by the existing case-insensitive account and privilege-set rules. */
+export function foldSecurityName(name: string): string {
+  return name.normalize('NFC').toLowerCase().normalize('NFC');
+}
+
 export interface AccountMutationAudit { account?: string; by?: string; detail?: Record<string, unknown> }
 
 export type DateFormat = 'us' | 'iso';
@@ -331,6 +336,8 @@ export interface PasswordPolicy {
 
 /** A security change, applied all-or-none by Store.applySecurity (see security.ts). */
 export type SecurityOp =
+  | { op: 'createAccount'; name: string; kind: 'password' | 'external' | 'agent'; password?: string; privilegeSet: string; mustChange?: boolean; needsApproval?: boolean; createdBy?: string }
+  | { op: 'createPrivilegeSet'; set: unknown }
   | { op: 'setAccount'; name: string; password?: string; privilegeSet?: string; mustChange?: boolean; localOnly?: boolean; require2fa?: boolean }
   | { op: 'setExternalAccount'; name: string; privilegeSet: string }
   | { op: 'setAgentAccount'; name: string; privilegeSet: string; createdBy?: string; needsApproval?: boolean }
@@ -494,6 +501,8 @@ export interface WriteOptions {
   performAutoEnter?: boolean;
   /** Whose privileges apply: writes they are not allowed fail with error 200 or 201. */
   privileges?: Privileges;
+  /** applyDesign: whether the caller may design that other hosted file too, so a layout or value list can use its tables. Unset, none is read. */
+  readOtherFile?: (file: Store) => boolean;
   /** A person typing (Data API, web client), not a script: fields that prohibit modification refuse it. */
   dataEntry?: boolean;
   /** create: the record the window was on, for fields with "value from last visited record". */
@@ -880,6 +889,21 @@ export class Store {
   private designCache = new PreparedCache<LayoutDesigns | undefined>(undefined);
   /** Finds another hosted file by name, for layouts whose table lives there (set by the host). */
   resolveFile: (name: string) => Store | undefined = () => undefined;
+
+  /**
+   * The tables and value lists of the hosted file a data source points at, for a design change that uses an occurrence
+   * or value list from it. Only when `mayRead` says the caller may design that file too: without it nothing is read,
+   * so a caller that forgets it gets no fields rather than another file's schema.
+   */
+  otherFileDesign(source: { name: string; paths: string[] }, mayRead?: (file: Store) => boolean): { tables: Table[]; valueLists: Schema['valueLists'] } | undefined {
+    if (!mayRead) return undefined;
+    try {
+      const file = this.resolvedFile(dataSourceFile(source.paths) ?? source.name);
+      return file && mayRead(file) ? { tables: file.schema.tables, valueLists: file.schema.valueLists } : undefined;
+    } catch {
+      return undefined; // a file that is busy or closed is not readable now
+    }
+  }
 
   /** Resolve an owning file under the current script's isolation boundary. */
   resolvedFile(name: string): Store | undefined {
@@ -1310,6 +1334,10 @@ export class Store {
 
   /** Publications belonging to the single-write transaction we own, never a caller's transaction. */
   private writePublications?: (() => void)[];
+  /** Design publications raised by a mixed security batch, which must wait for its rollback boundary. */
+  private securityBatchPublications?: (() => void)[];
+  /** Batch publications held until the caller-owned transaction reaches its outer boundary. */
+  private transactionSecurityPublications = new WeakMap<Transaction, (() => void)[]>();
 
   /** Keep the record id, serial allocation, validation and write under one file lock. */
   private withWriteTransaction<T>(run: () => T): T {
@@ -1349,6 +1377,8 @@ export class Store {
     this.heldFiles = [];
     const began = this.heldBegan;
     this.heldBegan = false;
+    const securityPublications = this.transactionSecurityPublications.get(tx);
+    this.transactionSecurityPublications.delete(tx);
     try {
       this.sql.exec(keep ? `RELEASE ${name}${began ? '; COMMIT' : ''}` : `ROLLBACK TO ${name}; RELEASE ${name}${began ? '; COMMIT' : ''}`);
     } catch (e) {
@@ -1357,6 +1387,7 @@ export class Store {
       this.resetCaches();
       throw e;
     }
+    if (keep) for (const publish of securityPublications ?? []) publish();
     if (!keep) {
       this.resetCaches();
       // No container names them any more: the files go too, as if they had never been put in.
@@ -1564,6 +1595,10 @@ export class Store {
 
   /** Tells live clients about a change. */
   notify(kind: ChangeKind, table: string, recordId?: number, modId?: number, by?: { owner?: string; account?: string }, fields?: string[], ids?: number[]): void {
+    if (this.securityBatchPublications) {
+      this.securityBatchPublications.push(() => this.notify(kind, table, recordId, modId, by, fields, ids));
+      return;
+    }
     if (this.writePublications) {
       this.writePublications.push(() => this.notify(kind, table, recordId, modId, by, fields, ids));
       return;
@@ -1636,9 +1671,9 @@ export class Store {
    * none do. Returns the changes as logged, with names resolved to ids.
    */
   /** Checks design changes without making them: the changes as they would apply, or the error applyDesign would give. */
-  checkDesign(ops: DesignOp[]): { applied: DesignOp[]; schema: Schema; designs: LayoutDesigns; privileges: PrivilegeDefinition[] } {
+  checkDesign(ops: DesignOp[], opts: { readOtherFile?: (file: Store) => boolean } = {}): { applied: DesignOp[]; schema: Schema; designs: LayoutDesigns; privileges: PrivilegeDefinition[] } {
     try {
-      const r = applyOps({ schema: this.schema, designs: this.designs(), privileges: this.privilegeSets(), fileMode: this.fileMode }, ops, (id) => this.deletedDesign(id));
+      const r = applyOps({ schema: this.schema, designs: this.designs(), privileges: this.privilegeSets(), fileMode: this.fileMode, externalFile: (d) => this.otherFileDesign(d, opts.readOtherFile) }, ops, (id) => this.deletedDesign(id));
       return { applied: r.ops, schema: r.state.schema, designs: r.state.designs, privileges: r.state.privileges ?? this.privilegeSets() };
     } catch (e) {
       if (e instanceof DesignError) throw new StoreError(e.code, e.message);
@@ -1655,7 +1690,7 @@ export class Store {
     // so applyOps can rewrite them, and remember each set's state to spot which changed.
     const privBefore = new Map(this.privilegeSets().map((p) => [p.name, JSON.stringify(p)]));
     try {
-      result = applyOps({ schema: this.schema, designs: this.designs(), privileges: [...privBefore.keys()].map((n) => JSON.parse(privBefore.get(n)!) as PrivilegeDefinition), fileMode: this.fileMode }, ops, (id) => this.deletedDesign(id) ?? (opts.recordedRestore ? this.recordedRestore(ops, id) : undefined));
+      result = applyOps({ schema: this.schema, designs: this.designs(), privileges: [...privBefore.keys()].map((n) => JSON.parse(privBefore.get(n)!) as PrivilegeDefinition), fileMode: this.fileMode, externalFile: (d) => this.otherFileDesign(d, opts.readOtherFile) }, ops, (id) => this.deletedDesign(id) ?? (opts.recordedRestore ? this.recordedRestore(ops, id) : undefined));
     } catch (e) {
       if (e instanceof DesignError) throw new StoreError(e.code, e.message);
       throw e;
@@ -1699,7 +1734,8 @@ export class Store {
       this.resetCaches();
       throw e instanceof DesignError ? new StoreError(e.code, e.message) : e;
     }
-    this.onDesignChange();
+    if (this.securityBatchPublications) this.securityBatchPublications.push(() => this.onDesignChange());
+    else this.onDesignChange();
     if (result.ops.length) {
       // Design mode in other windows reloads what changed (the layouts by id, so an open layout editor knows it's its own).
       const layoutId = (ref: unknown) => (typeof ref === 'number' ? ref : this.schema.layouts.find((l) => l.name === ref)?.id);
@@ -2038,9 +2074,9 @@ export class Store {
    * Logs that an account read records, when the file's audit settings ask for it (off by default): one entry per
    * request with the table and the ids it returned (the first 100 are listed). Never the values read.
    */
-  logRead(table: string, recordIds: number[], opts: WriteOptions = {}): void {
-    if (!recordIds.length || !this.auditSettings().logReads) return;
-    this.audit('read', table, recordIds.length === 1 ? recordIds[0] : undefined, { records: recordIds.length, ...(recordIds.length > 1 ? { ids: recordIds.slice(0, 100) } : {}) }, opts);
+  logRead(table: string, recordIds: number[], opts: WriteOptions = {}, total = recordIds.length): void {
+    if (!total || !this.auditSettings().logReads) return;
+    this.audit('read', table, total === 1 ? recordIds[0] : undefined, { records: total, ...(total > 1 ? { ids: recordIds.slice(0, 100) } : {}) }, opts);
   }
 
   /**
@@ -2195,6 +2231,31 @@ export class Store {
       this.privilegeCache.invalidate((cache) => cache.clear());
       throw e;
     }
+  }
+
+  /** Runs a mixed security and design-security batch under one rollback boundary. */
+  securityChangeBatch<T>(run: () => T): T {
+    const publications: (() => void)[] = [];
+    const parent = this.securityBatchPublications;
+    this.securityBatchPublications = publications;
+    let result: T;
+    try {
+      result = this.securityChange(run);
+    } catch (e) {
+      this.securityBatchPublications = parent;
+      throw e;
+    }
+    this.securityBatchPublications = parent;
+    if (parent) parent.push(...publications);
+    else {
+      const tx = writer.getStore()?.transaction?.open;
+      if (tx) {
+        const pending = this.transactionSecurityPublications.get(tx) ?? [];
+        pending.push(...publications);
+        this.transactionSecurityPublications.set(tx, pending);
+      } else for (const publish of publications) publish();
+    }
+    return result;
   }
 
   /**
@@ -4713,7 +4774,7 @@ export class Store {
   }
 
   privilegeSet(name: string): PrivilegeDefinition | undefined {
-    return this.privilegeSets().find((p) => p.name.toLowerCase() === name.toLowerCase());
+    return this.privilegeSets().find((p) => foldSecurityName(p.name) === foldSecurityName(name));
   }
 
   /** Adds or replaces a privilege set ([Full Access] can only change its extended privileges). */
@@ -4801,10 +4862,30 @@ export class Store {
     this.securityChange(() => {
       for (const op of ops) {
         switch (op.op) {
+          case 'createAccount': {
+            if (this.accounts().some((a) => foldSecurityName(a.name) === foldSecurityName(op.name))) throw new StoreError(960, `Account "${op.name}" already exists`);
+            if (op.kind === 'password') {
+              if (typeof op.password !== 'string') throw new StoreError(960, `Give "${op.name}" a password to create it`);
+              this.setPassword(op.name, op.password, op.privilegeSet, { mustChange: op.mustChange });
+            }
+            else if (op.kind === 'external') this.setExternalAccount(op.name, op.privilegeSet);
+            else if (op.kind === 'agent') this.setAgentAccount(op.name, op.privilegeSet, { createdBy: op.createdBy, needsApproval: op.needsApproval });
+            else throw new StoreError(960, 'Account creation kind is invalid');
+            break;
+          }
+          case 'createPrivilegeSet': {
+            const set = op.set as { name?: unknown };
+            const name = typeof set?.name === 'string' ? set.name : undefined;
+            if (name && this.privilegeSets().some((p) => foldSecurityName(p.name) === foldSecurityName(name))) {
+              throw new StoreError(960, `Privilege set "${name}" already exists`);
+            }
+            this.savePrivilegeSet(op.set);
+            break;
+          }
           case 'setAccount':
             if (op.password !== undefined) this.setPassword(op.name, op.password, op.privilegeSet, { mustChange: op.mustChange });
             else {
-              if (!this.accounts().some((a) => a.name.toLowerCase() === op.name.toLowerCase())) throw new StoreError(960, `No account "${op.name}" (give it a password to create it)`);
+              if (!this.accounts().some((a) => foldSecurityName(a.name) === foldSecurityName(op.name))) throw new StoreError(960, `No account "${op.name}" (give it a password to create it)`);
               if (op.privilegeSet !== undefined) this.setAccountPrivilegeSet(op.name, op.privilegeSet);
               if (op.mustChange !== undefined) this.setMustChangePassword(op.name, op.mustChange);
             }
@@ -7251,7 +7332,7 @@ export class Store {
     const offset = Math.max(1, opts.offset ?? 1) - 1;
     const order = this.orderBy(info, opts.sort, opts.privileges);
     const rows = opts.sort?.length && found >= SORTED_KEEP_MIN
-      ? this.sortedPage(t, where, params, order, offset, limit)
+      ? this.sortedPage(t, where, params, order, offset, limit, found)
       : this.sql.prepare(`SELECT * FROM ${t} WHERE ${where} ORDER BY ${order} LIMIT ? OFFSET ?`).all(...params, limit, offset) as Record<string, SqlValue>[];
     // Every record found (no find, no record-level limits): summaries over the whole table, kept while the data is the same.
     const table = this.table(info);
@@ -7287,13 +7368,20 @@ export class Store {
    * so the order is worked out once and kept while the data is the same: scrolling a sorted list of a million records
    * pays for the sort once, not on every page.
    */
-  private sortedPage(t: string, where: string, params: SqlValue[], order: string, offset: number, limit: number): Record<string, SqlValue>[] {
+  private sortedPage(t: string, where: string, params: SqlValue[], order: string, offset: number, limit: number, found: number): Record<string, SqlValue>[] {
     const key = `${t}\u0000${where}\u0000${JSON.stringify(params)}\u0000${order}`;
     const stamp = this.writeToken();
     let kept = this.sortedIds.value.get(key);
     if (!kept || kept.stamp !== stamp) {
-      const ids = (this.sql.prepare(`SELECT _fm_record_id AS id FROM ${t} WHERE ${where} ORDER BY ${order}`).all(...params) as { id: number }[]).map((r) => Number(r.id));
-      kept = { stamp, ids: Int32Array.from(ids) };
+      // The count is already known. Iterate straight into the final typed array so a 5M sort
+      // does not also hold 5M SQLite row objects and a second JS number array at its peak.
+      const ids = new Int32Array(found);
+      let n = 0;
+      for (const row of this.sql.prepare(`SELECT _fm_record_id AS id FROM ${t} WHERE ${where} ORDER BY ${order}`).iterate(...params) as Iterable<{ id: number }>) {
+        ids[n++] = Number(row.id);
+      }
+      if (n !== found) throw new Error('Sorted found set changed while it was read');
+      kept = { stamp, ids };
       this.sortedIds.value.delete(key);
       this.sortedIds.value.set(key, kept);
       // A few found sets at a time (windows, people): the oldest goes.
@@ -8650,8 +8738,10 @@ export class Store {
     const view = this.viewFilter(info, pv);
     // Unstored calculations and globals found or sorted on are computed first, as find does.
     const t = source();
-    return (this.sql.prepare(`SELECT _fm_record_id AS id FROM ${t} WHERE (${where}) AND ${view.where} ORDER BY ${this.orderBy(info, opts.sort, opts.privileges)}`)
-      .all(...params, ...view.params) as { id: number }[]).map((r) => Number(r.id));
+    const ids: number[] = [];
+    for (const row of this.sql.prepare(`SELECT _fm_record_id AS id FROM ${t} WHERE (${where}) AND ${view.where} ORDER BY ${this.orderBy(info, opts.sort, opts.privileges)}`)
+      .iterate(...params, ...view.params) as Iterable<{ id: number }>) ids.push(Number(row.id));
+    return ids;
   }
 
   /**

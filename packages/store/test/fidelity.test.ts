@@ -18,6 +18,43 @@ test('query shapes keep SQL keywords only', () => {
   assert.equal(queryShape('select sum(Amount) from Lines where Qty > 10 group by Code'), 'SELECT SUM(x) FROM x WHERE x > v GROUP BY x');
 });
 
+test('query shapes hide names and literals in any script, and in quoted names and comments', () => {
+  assert.equal(queryShape('SELECT 客户 FROM 表'), 'SELECT x FROM x');
+  assert.equal(queryShape('SELECT "客户" FROM "表" /* private */'), 'SELECT x FROM x');
+  assert.equal(queryShape('SELECT "A""客户" FROM [订单] -- secret\n WHERE `字段` = \'值\''), 'SELECT x FROM x WHERE x = v');
+});
+
+test('a decimal number or a dotted name is one value or one name in a query shape', () => {
+  assert.equal(queryShape('SELECT a.b FROM t WHERE x = 1.5 AND "a"."b" = 2e3'), 'SELECT x FROM x WHERE x = v AND x = v');
+  assert.equal(queryShape('SELECT t.*, x.y.z FROM q WHERE a.b = ?'), 'SELECT x*, x FROM x WHERE x = ?');
+});
+
+test('a number written as 1., .5 or 1.5e-3 is one value in a query shape', () => {
+  assert.equal(queryShape('SELECT 1. FROM t WHERE a = .5e3'), 'SELECT v FROM x WHERE x = v');
+  assert.equal(queryShape('SELECT 1.5e-3, 2e+4, 0x1e-3 FROM t'), 'SELECT v , v , v - v FROM x');
+  assert.equal(queryShape('SELECT a FROM t WHERE b = .5e-3 AND c > 1.5E+3 AND d < .25e-10'), 'SELECT x FROM x WHERE x = v AND x > v AND x < v');
+  assert.equal(queryShape('SELECT 1.e-3, 3.e+2, 4.e5 FROM t'), 'SELECT v , v , v FROM x');
+  assert.equal(queryShape('SELECT a - 3 FROM t'), 'SELECT x - v FROM x');
+});
+
+test('a query with an unterminated quote or comment has no shape, and does not stop the report', () => {
+  assert.equal(queryShape("SELECT 'abc FROM O"), '(unparsed)');
+  assert.equal(queryShape('SELECT 1 /* never closed'), '(unparsed)');
+  const path = join(dir, 'Unterminated.sqlite');
+  createStore(path);
+  const store = new Store(path, 'Unterminated');
+  store.applyDesign([
+    { op: 'createTable', name: 'O', fields: [{ name: 'Id', type: 'number' }] },
+    { op: 'createField', table: 'O', name: 'Bad', kind: 'calculation', type: 'text', calculation: 'ExecuteSQL ( "SELECT \'abc FROM O" ; "" ; "" )' },
+    { op: 'createField', table: 'O', name: 'Good', kind: 'calculation', type: 'number', calculation: 'Id * 2' },
+  ]);
+  store.create('O', { Id: '1' });
+  const report = calcFidelity(store);
+  assert.equal(report.fields, 2);
+  assert.deepEqual(report.queries.map((q) => q.shape), ['(unparsed)']);
+  store.close();
+});
+
 test('fidelity counts matches and differences by query shape, and changes nothing', () => {
   const path = join(dir, 'Shop.sqlite');
   createStore(path);

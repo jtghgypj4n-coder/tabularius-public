@@ -64,9 +64,11 @@ test('a standby follows the main server, survives restarts on both sides, and ta
     start();
     for (let i = 0; i < 50; i++) store().create('Congress', { Name: `While copying ${i}` });
     const caughtUp = async () => {
-      const seq = (await files()).find((f) => f.name === 'Charts')?.seq;
+      const theirs = (await files()).find((f) => f.name === 'Charts');
       const mine = standby!.state.files.Charts;
-      return seq !== undefined && !!mine && mine.seq === seq && mine.seq >= mine.wholeAfter;
+      // Changes are numbered within a run, and a restarted main server starts a new run from zero: the same number in another run
+      // is not the same state (a standby still on the old run can read as caught up for as long as it takes to notice).
+      return theirs !== undefined && !!mine && mine.run === theirs.run && mine.seq === theirs.seq && mine.seq >= mine.wholeAfter;
     };
     await until('the standby has caught up', caughtUp);
     // Design changes and many records come across too.

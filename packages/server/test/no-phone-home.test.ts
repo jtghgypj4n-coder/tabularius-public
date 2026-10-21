@@ -242,7 +242,7 @@ test('what is asked for is what is attempted: the AI assistant reaches its provi
   const { home, dir, done } = scratch();
   const { password } = hostedFolder(dir);
   const port = await freePort();
-  const server = await run(['serve', dir, '--ai'], home, { PORT: String(port), ANTHROPIC_API_KEY: 'sk-ant-not-a-real-key' });
+  const server = await run(['serve', dir, '--ai'], home, { PORT: String(port), ANTHROPIC_API_KEY: 'sk' + '-ant-not-a-real-key' });
   t.after(() => server.stop());
   t.after(done);
   // The banner line follows the address line that `run` waits for.

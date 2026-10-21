@@ -46,6 +46,7 @@ async function start(): Promise<void> {
 
   let list: Summary[] = [];
   let current: { dashboard: Dashboard; canChange: boolean; data: WidgetData[] } | undefined;
+  let openRequest = 0;
   /** The widgets being edited (a copy), while editing. */
   let editing: Widget[] | undefined;
   let editData: WidgetData[] | undefined;
@@ -78,7 +79,10 @@ async function start(): Promise<void> {
     if (!list.length) render();
   });
 
-  picker.addEventListener('change', () => void open(picker.value));
+  picker.addEventListener('change', () => {
+    if (editing) { picker.value = current?.dashboard.id ?? ''; return; }
+    void open(picker.value);
+  });
 
   async function loadList(): Promise<void> {
     list = (await call<{ dashboards: Summary[] }>('GET')).dashboards;
@@ -87,13 +91,23 @@ async function start(): Promise<void> {
   }
 
   async function open(id: string | undefined): Promise<void> {
+    const request = ++openRequest;
+    if (editing && id !== current?.dashboard.id) {
+      picker.value = current?.dashboard.id ?? '';
+      return;
+    }
     if (!id) {
       current = undefined;
       render();
       return;
     }
     try {
-      current = await call('GET', `/${id}`);
+      const next = await call<{ dashboard: Dashboard; canChange: boolean; data: WidgetData[] }>('GET', `/${id}`);
+      if (request !== openRequest || (editing && id !== current?.dashboard.id)) {
+        picker.value = current?.dashboard.id ?? '';
+        return;
+      }
+      current = next;
       picker.value = id;
       const url = new URL(location.href);
       url.searchParams.set('id', id);
@@ -101,6 +115,7 @@ async function start(): Promise<void> {
       updated.textContent = `Updated ${new Date().toLocaleTimeString()}`;
       updated.removeAttribute('role');
     } catch (e) {
+      if (request !== openRequest || editing) return;
       updated.textContent = `Couldn't update: ${(e as Error).message}`;
       updated.setAttribute('role', 'alert');
     }
@@ -108,6 +123,7 @@ async function start(): Promise<void> {
   }
 
   function render(): void {
+    picker.disabled = !!editing;
     editBtn.hidden = deleteBtn.hidden = !current?.canChange || !!editing;
     refreshBtn.hidden = !current || !!editing;
     if (!current) {

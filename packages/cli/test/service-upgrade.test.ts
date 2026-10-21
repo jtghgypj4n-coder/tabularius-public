@@ -328,6 +328,24 @@ test('upgrade refuses invalid persisted public URLs before fetching, backing up 
   }
 });
 
+test('upgrade refuses a service installed on every address over plain HTTP, before fetching, backing up or restarting', { skip: hasGit }, async () => {
+  const r = repos();
+  try {
+    const service: Installed = { platform: 'linux', folder: r.dir, port: 8080, host: '0.0.0.0', system: false, extra: [] };
+    writeFileSync(join(r.home, 'service.json'), JSON.stringify(service));
+    const head = r.head();
+    r.release('2');
+    let backups = 0;
+    let restarts = 0;
+    await assert.rejects(upgrade({ app: r.app, home: r.home, backup: async () => { backups++; return ''; }, restart: () => { restarts++; } }), /upgrade refused.*not restarted.*over plain HTTP.*--https local.*--allow-plain-http.*service install/s);
+    assert.equal(r.head(), head, 'the installed version stays unchanged');
+    assert.equal(backups, 0);
+    assert.equal(restarts, 0, 'the old service keeps running');
+  } finally {
+    rmSync(r.dir, { recursive: true, force: true });
+  }
+});
+
 test('an upgrade will not put in place a version that reads an older file format than the folder is in', { skip: hasGit }, async () => {
   const r = repos();
   try {

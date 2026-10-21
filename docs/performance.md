@@ -167,6 +167,52 @@ The benchmark above is run by hand. Two tests run on real files, the two Beezwax
 
 Both print their numbers. Set `TABULARIUS_PERF_OUT` to a file name and the server test writes them there as JSON (the web test writes `<name>-web.json` beside it), so a run's numbers can be kept and compared; without it the server test writes `tabularius-perf.json` in the temp folder.
 
+## Five-million-record scale probe
+
+Run `node --max-old-space-size=2048 scripts/scale-5m.ts` separately from the
+test suite. Its JSON output includes the machine, native file and CSV sizes,
+each operation's elapsed milliseconds, sampled `process.memoryUsage()` and
+peak resident memory. `--records 200000` runs the same path with fewer rows.
+Before it makes anything the script requires free space on the temporary
+volume in proportion to the rows (20 GiB for 5,000,000) and, from 1,000,000
+rows up, a one-minute load average below 20; it removes its temporary folder
+afterward, including on failure. It binds HTTP and pgwire only to `127.0.0.1`.
+
+The input is generated in code and bulk-loaded into a native SQLite store.
+The import timing includes all 5,000,000 inserts, index creation and `ANALYZE`.
+There is no synthetic `.fmp12` converter in this probe, so it does **not**
+measure Claris file conversion; conversion performance and Claris behavior at
+this size are unknown. The other timings cover an indexed Id find, a verified
+unindexed Notes scan, sort and list first pages, a whole-file summary and
+sub-summary, Data API `_find` with offset, OData `$top`/`$skip`, pgwire
+`SELECT ... LIMIT`, HTTP CSV export and a verified backup. The index and scan
+labels describe the actual SQLite query plan; the unindexed scan uses SQL
+`LIKE` because a FileMaker text find may build its own word index.
+
+The 5M results are pending: on 2026-10-17 the available space was 24 GiB but
+the one-minute load average remained above 20 (32–40 during checks). The
+guard therefore prevented the measurement. The generated 200k regression
+test exported all rows in 3.7 s on Apple M5 Max (18 logical CPUs, 128 GiB
+memory), macOS 26.4, Node v22.22.2, but that is a test result, not a 5M
+estimate. Do not extrapolate a 5M result from it.
+
+Exports with no summary field, with or without a find or sort, take time in
+proportion to their rows (200,000 rows in a few seconds). An export that
+includes a summary field recomputes it over the whole found set for every batch
+of 500 rows, as it did before, so its time grows with the square of the rows:
+tens of thousands of rows take seconds, and 200,000 take minutes. Its memory
+grows with the rows too (the server's heap measured about 90 MB at 15,000 rows,
+140 MB at 30,000 and 200 MB at 60,000). Export such a file in parts, or leave the
+summary field out.
+
+Upgrade impact: CSV, tab and merge exports from the web client are now sent a
+batch at a time, uncompressed (`cache-control: no-transform`) and with no
+`content-length`, so a download can no longer fail as a clean error after its
+first batch (it ends early instead). Only CSV and merge exports were compressed
+before; tab exports never were. The read-audit entry, when read logging is on,
+is written when the download ends. Summaries in such an export are worked out in
+the found set's order, as in the other formats.
+
 ## Drawing big layouts in the web client
 
 `packages/web/e2e/render-budgets.e2e.ts` (browser tests, `npm run test:e2e`) builds one synthetic file (10,000 Items with 42 fields, an Owner with 500 related Lines) and times the web client drawing six layouts that stress it. Each is timed inside the page, from the layout menu changing to the content on screen and a frame drawn (**paint**) and the main thread free again (**free**), with how long the page was blocked in long tasks (over 50 ms) and how many elements the page holds afterwards.
@@ -193,6 +239,41 @@ What the numbers show:
 - **The chart is the largest page**: a found-set column chart of 10,000 records builds a shape for each record (10,171 elements). Drawing it differently would change how it looks, so it is measured and budgeted, not changed.
 
 Set `TABULARIUS_PERF_OUT` and it writes `<name>-render.json` beside the other web numbers.
+
+## Web startup and bundle budget
+
+`packages/web/test/bundle-budget.test.ts` walks the static JavaScript import
+graph for the browse page and its two stylesheets. It records each source
+file's raw UTF-8 size and its gzip size, and fails if either exceeds the
+per-file limit in `scripts/web-bundle-budget.json`. Each limit is 120% of the
+measured file size. The budget names the eight largest JavaScript files so a
+growth has an obvious owner. Dynamic imports are outside the initial graph.
+
+The largest measured initial JavaScript contributors are `main.ts` (449,851
+raw bytes), `layout.ts` (83,655), `assistant.ts` (57,040), `api.ts` (45,333),
+and `menubar.ts` (24,412). The browse graph and its CSS total 1,015,604 raw
+bytes; compressing each source file with gzip level 9 totals 301,488 bytes.
+The test budget allows 1,218,745 raw bytes and 361,806 gzip bytes in total
+(individual files are checked, so a saving in one cannot hide growth in
+another).
+
+Before this change, the browse graph also statically included `chart.ts` and
+`dashboard-view.ts`, adding 24,989 raw bytes and 8,449 gzip bytes. Rebuilding
+the same graph from the sources before this change gives 1,039,985 raw bytes and
+309,777 gzip bytes. The changes remove those files from first load and load
+them only when a chart or assistant dashboard is drawn. Design mode,
+Dashboards, the debugger and the admin console keep their own page entry
+points; the browse page does not request those entry pages.
+
+`packages/web/e2e/bundle-startup.e2e.ts` signs in to a local synthetic file
+under a 150 ms latency and 1.5 Mbps download profile. On the run recorded when
+this was written (an earlier tree, so its byte counts are lower than the totals above), the
+first usable layout appeared in 4,338 ms after 49 JavaScript/CSS resources
+(966,477 raw bytes; 270,985 bytes when those resources are gzip-compressed for
+comparison). The assertion allows 45 seconds, over ten times the measured
+time to leave headroom on slower runners. The test also checks that browse
+does not fetch design, debugger, dashboard-view or chart modules. This is a
+machine-specific measurement, not a promise for every hosted file or device.
 
 ## Launch-day overload capacity
 

