@@ -620,7 +620,11 @@ functions from a script step (Set Variable, for example): inside a custom
 function they give an empty result and error 3 even with the switch on.
 `BE_HTTP_GET_File` (and `BE_HTTP_GETFile`, `BE_SaveURLToFile`) saves the answer,
 byte for byte, to a path in the Documents folder, and `BE_HTTP_PUTFile` sends a
-file from there (up to 10 MB); both take `http` and `https` addresses only. MBS
+file from there (up to 10 MB); both take `http` and `https` addresses only. A
+failing answer (a 4xx or 5xx status) is saved or returned like any other, with error
+0, so check `BE_HTTP_ResponseCode`. The Documents folder belongs to the server, not
+to one file: with Script network on, a file's scripts can send any file in it,
+including an export another file's script left there. MBS
 `CURL.Perform` follows the same switch. FTP (`BE_FTP_Upload`, `UploadFile`,
 `Delete`), and the `ftp`, `ftps` and `sftp` addresses `BE_HTTP_GET_File` takes in
 BaseElements, are not built in and give "?" and error 3. Shell and clipboard
