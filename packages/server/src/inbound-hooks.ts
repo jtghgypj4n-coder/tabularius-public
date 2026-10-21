@@ -261,11 +261,14 @@ export class InboundHooks {
   /** Whether `key` has had `limit` events in the last minute; counts this one when it hasn't. */
   private over(map: Map<string, number[]>, key: string, limit: number): boolean {
     const now = performance.now();
+    if (map === this.bad && !map.has(key) && map.size >= 10_000) {
+      for (const [k, ts] of map) if (ts.every((t) => now - t >= 60_000)) map.delete(k);
+      if (map.size >= 10_000) return true;
+    }
     const times = (map.get(key) ?? []).filter((t) => now - t < 60_000);
     const full = times.length >= limit;
     if (!full) times.push(now);
     map.set(key, times);
-    if (map.size > 10_000) for (const [k, v] of map) if (!v.some((t) => now - t < 60_000)) map.delete(k);
     return full;
   }
 
@@ -290,9 +293,8 @@ export class InboundHooks {
     const flooded = (this.bad.get(bucket) ?? []).filter((t) => performance.now() - t < 60_000).length >= BAD_PER_MINUTE;
     const refuse = (logged: boolean, status: number, message: string) => {
       // Kept to the limit, so a flood neither grows the list nor makes every call after it slower.
-      this.over(this.bad, bucket, BAD_PER_MINUTE);
-      // The server closes unread bodies after sending the refusal.
-      if (flooded) return send(429, { error: 'Too many bad calls from this address; try again in a minute' }), true;
+      const over = this.over(this.bad, bucket, BAD_PER_MINUTE);
+      if (flooded || over) return send(429, { error: 'Too many bad calls from this address; try again in a minute' }), true;
       // Over the limit, refusals aren't logged either: a flood can't push real calls out of the list.
       if (logged && hook) this.logCall(hook.id, { at: new Date(started).toISOString(), status, outcome: 'refused', message, from });
       if (status === 404) notFound();
@@ -324,6 +326,7 @@ export class InboundHooks {
     const now = performance.now();
     for (const [k, t] of this.seen) if (now - t > SKEW_S * 2000) this.seen.delete(k);
     if (this.seen.has(given)) return refuse(true, 409, 'This call was already received');
+    if (this.seen.size >= 10_000) return send(429, { error: 'Too many signed calls are awaiting replay expiry; try again later' }), true;
     this.seen.set(given, now);
     // Signed: a call over the hook's own limit isn't a bad call from its address.
     if (this.over(this.recent, hook.id, hook.perMinute)) {

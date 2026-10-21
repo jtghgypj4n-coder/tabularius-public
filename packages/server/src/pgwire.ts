@@ -952,7 +952,7 @@ export class PgServer {
   /** Counts a connection not yet signed in from a network; false when it has too many. */
   holdUnsigned(key: string): boolean {
     const n = this.unsigned.get(key) ?? 0;
-    if (n >= MAX_UNSIGNED_PER_ADDRESS) return false;
+    if (n >= MAX_UNSIGNED_PER_ADDRESS || (!n && this.unsigned.size >= 1024)) return false;
     this.unsigned.set(key, n + 1);
     return true;
   }
@@ -990,6 +990,7 @@ export class PgServer {
     this.opts = opts;
     this.log = opts.log ?? (() => {});
     this.server = createServer((socket) => {
+      if (this.sockets.size >= 1024) { socket.destroy(); return; }
       this.sockets.add(socket);
       socket.on('close', () => this.sockets.delete(socket));
       socket.setNoDelay(true);

@@ -28,6 +28,7 @@
 // there is no build step.
 
 import { parseRequestJson } from './request-json.ts';
+import { BoundedMap } from './bounded-map.ts';
 import type { SqlValue } from '../../store/src/find.ts';
 import { SERVER_VERSION, serverCommit } from './version.ts';
 import { ReadAudit } from './read-audit.ts';
@@ -207,9 +208,14 @@ const TYPES: Record<string, string> = {
 export class WebClient {
   private readonly host: Host;
   private readonly api: DataApi;
-  private readonly paused = new Map<string, Paused>();
+  private readonly paused = new BoundedMap<string, Paused>(256, (run) => {
+    clearTimeout(run.timer);
+    run.abandoned = true;
+    run.answer(run.waiting === 'Pause' ? false : undefined);
+  });
   /** Each session's running button scripts, by token and file, so the person can stop them (Allow User Abort). */
   private readonly running = new Map<string, Set<EventTarget>>();
+  private readonly aborts = new WeakMap<EventTarget, AbortController>();
   /**
    * The timer each web client session's window has (Install OnTimer Script),
    * by session token: the client fires it by id, and only the script the
@@ -226,6 +232,26 @@ export class WebClient {
   constructor(host: Host, api: DataApi) {
     this.host = host;
     this.api = api;
+    api.endListeners.add((token) => this.endSession(token));
+  }
+
+  private endSession(token: string): void {
+    this.timers.delete(token);
+    for (const [id, run] of this.paused) {
+      if (run.token !== token) continue;
+      this.paused.delete(id);
+      clearTimeout(run.timer);
+      run.abandoned = true;
+      run.answer(run.waiting === 'Pause' ? false : undefined);
+    }
+    for (const [key, runs] of this.running) {
+      if (!key.startsWith(token + '\0')) continue;
+      for (const stop of runs) {
+        this.aborts.get(stop)?.abort();
+        stop.dispatchEvent(new Event('stop'));
+      }
+      this.running.delete(key);
+    }
   }
 
   /** Returns false when the request is not for the web client. */
@@ -1740,8 +1766,15 @@ export class WebClient {
     const userStop = new EventTarget();
     const runningKey = `${session.token}\u0000${store.name}`;
     const mine = this.running.get(runningKey) ?? new Set<EventTarget>();
+    let active = 0;
+    for (const runs of this.running.values()) active += runs.size;
+    if (mine.size >= 64 || active >= 1024) throw new ApiError(3, 'Too many running scripts; server is busy', 503);
+    if (!this.api.alive(session.token)) throw new ApiError(952, 'Session has ended', 401);
+    const abort = new AbortController();
+    this.aborts.set(userStop, abort);
     this.running.set(runningKey, mine.add(userStop));
     const forget = () => {
+      this.aborts.delete(userStop);
       mine.delete(userStop);
       if (!mine.size && this.running.get(runningKey) === mine) this.running.delete(runningKey);
     };
@@ -1776,7 +1809,7 @@ export class WebClient {
         if (run.abandoned) throw new ScriptError(1, 'The client stopped acknowledging screen actions');
       },
       // The person can stop it (Esc), unless it turns Allow User Abort off.
-      userStop,
+      userStop, stop: abort.signal,
       insertFile: (request) => run.abandoned ? Promise.resolve(undefined) : new Promise<PickedFile>((resolve) => {
         run.answer = (v) => resolve(v && typeof v === 'object' && 'data' in v ? v : undefined);
         push({ ask: { ...(request.title !== undefined ? { title: request.title } : {}), actions: request.actions } });
@@ -1857,6 +1890,11 @@ export class WebClient {
 
   /** The response for what the script did next; a script waiting for a file is kept until the client answers. */
   private outcome(run: Paused, step: Step) {
+    if (!this.api.alive(run.token)) {
+      run.abandoned = true;
+      if (!('done' in step) && !('failed' in step)) run.answer('pause' in step ? false : undefined);
+      return { script: run.script, result: '', error: 952, message: 'Session has ended', actions: [] };
+    }
     if ('ask' in step || 'pause' in step || 'dialog' in step || 'sort' in step || 'index' in step || 'device' in step || 'locate' in step || 'checkpoint' in step || 'clipboard' in step) {
       const asked = 'ask' in step ? step.ask : 'pause' in step ? step.pause : 'dialog' in step ? step.dialog : 'sort' in step ? step.sort : 'index' in step ? step.index : 'device' in step ? step.device : 'checkpoint' in step ? step.checkpoint : 'clipboard' in step ? step.clipboard : step.locate;
       const actions = this.clientActions(run, asked.actions.slice(run.sent));
@@ -1916,7 +1954,7 @@ export class WebClient {
   private clientActions(run: Paused, actions: ClientAction[]): ClientAction[] {
     return actions.map((a) => {
       if (a.step !== 'Install OnTimer Script') return a;
-      if (typeof a.timerScriptId !== 'number' || !(Number(a.interval) > 0)) {
+      if (!this.api.alive(run.token) || typeof a.timerScriptId !== 'number' || !(Number(a.interval) > 0)) {
         this.timers.delete(run.token);
         return { step: a.step, script: a.script, interval: 0 };
       }
@@ -2156,6 +2194,9 @@ export class WebClient {
       run.answer(run.waiting === 'Pause' ? false : undefined);
     }
     this.paused.clear();
+    this.timers.clear();
+    for (const runs of this.running.values()) for (const run of runs) this.aborts.get(run)?.abort();
+    this.running.clear();
   }
 
   /** Fills in names of fields in other files' tables, which the design could not resolve on its own. */

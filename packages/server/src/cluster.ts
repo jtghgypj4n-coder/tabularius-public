@@ -150,6 +150,7 @@ type ToFront =
   | { t: 'log'; text: string }
   | { t: 'tell'; note: Note }
   | { t: 'ask'; rid: number; q: Question }
+  | { t: 'cancel'; rid: number }
   | { t: 'answer'; rid: number };
 type FromFront =
   | { t: 'start'; role: ClusterRole; opts: Omit<ServeOptions, 'log'>; blankFromNetwork: boolean }
@@ -164,7 +165,8 @@ export class ClusterLink {
   private readonly db: DatabaseSync;
   private readonly send: (m: ToFront) => void;
   private rid = 0;
-  private readonly waiting = new Map<number, () => void>();
+  private readonly waiting = new Map<number, (error?: Error) => void>();
+  private stopped = false;
   /** Changes that came from other workers: not passed on again. */
   private readonly remote = new WeakSet<Change>();
   /** Sessions in the other workers, by worker. */
@@ -283,10 +285,22 @@ export class ClusterLink {
   }
 
   private ask(q: Question): Promise<void> {
+    if (this.stopped) return Promise.reject(new Error('The cluster link is closed'));
+    if (this.waiting.size >= 1024) return Promise.reject(new Error('Too many cluster file operations are waiting'));
     const rid = ++this.rid;
-    return new Promise((done) => {
-      this.waiting.set(rid, done);
-      this.send({ t: 'ask', rid, q });
+    return new Promise((done, reject) => {
+      const finish = (error?: Error) => {
+        if (!this.waiting.delete(rid)) return;
+        clearTimeout(timer);
+        if (error) reject(error); else done();
+      };
+      const timer = setTimeout(() => {
+        finish(new Error('The cluster did not finish the file operation in time'));
+        this.send({ t: 'cancel', rid });
+      }, 30_000);
+      timer.unref();
+      this.waiting.set(rid, finish);
+      try { this.send({ t: 'ask', rid, q }); } catch (e) { finish(e as Error); }
     });
   }
 
@@ -378,6 +392,8 @@ export class ClusterLink {
   }
 
   close(): void {
+    this.stopped = true;
+    for (const finish of this.waiting.values()) finish(new Error('The cluster link is closed'));
     clearInterval(this.timer);
     this.db.close();
   }
@@ -646,6 +662,12 @@ export async function serveCluster(opts: ServeOptions, workers: number, blankFro
         log(workers > 1 ? `[${w.id}] ${m.text}` : m.text);
       }
       else if (m.t === 'tell') broadcast(w, { t: 'tell', note: m.note });
+      else if (m.t === 'cancel') {
+        for (const [key, p] of pending) if (p.from === w && p.rid === m.rid) {
+          pending.delete(key);
+          for (const other of pool) other.asked = other.asked.filter((q) => q.t !== 'ask' || q.rid !== key);
+        }
+      }
       else if (m.t === 'ask') {
         // Starting workers too: they opened the files before they were ready, so a file closed meanwhile (and with
         // encryption at rest, removed once locked) must wait for them to let go as well.

@@ -199,6 +199,7 @@ class Ids {
   id(key: string): string {
     let id = this.byKey.get(key);
     if (!id) {
+      if (this.byKey.size >= 4096) this.forget(this.byKey.keys().next().value!);
       id = String(this.next++);
       this.byKey.set(key, id);
       this.byId.set(id, key);
@@ -207,6 +208,15 @@ class Ids {
   }
   key(id: string): string | undefined {
     return this.byId.get(id);
+  }
+  private forget(key: string): void {
+    const id = this.byKey.get(key);
+    if (id !== undefined) this.byId.delete(id);
+    this.byKey.delete(key);
+  }
+  retain(keys: Iterable<string>): void {
+    const live = new Set(keys);
+    for (const key of this.byKey.keys()) if (!live.has(key)) this.forget(key);
   }
 }
 
@@ -621,6 +631,7 @@ export class AdminApi {
   private clients() {
     const now = Date.now();
     const list = this.api.list();
+    this.clientIds.retain(list.map((c) => c.id));
     const clients = list.map((c) => {
       const since = Date.parse(c.since);
       const dbId = this.dbIds.id(c.db.toLowerCase());

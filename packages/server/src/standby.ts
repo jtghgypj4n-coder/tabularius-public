@@ -81,7 +81,7 @@ export class Standby {
   private readonly log: (m: string) => void;
   private readonly abort = new AbortController();
   private readonly clientId = randomBytes(8).toString('hex');
-  private readonly following = new Map<string, Promise<void>>();
+  private readonly following = new Map<string, { stop: AbortController; done: Promise<void> }>();
   private release?: () => void;
   private lister?: Promise<void>;
   private flushTimer?: NodeJS.Timeout;
@@ -109,7 +109,7 @@ export class Standby {
   async stop(): Promise<void> {
     this.abort.abort();
     await this.lister;
-    await Promise.all(this.following.values());
+    await Promise.all([...this.following.values()].map((f) => f.done));
     if (this.flushTimer) {
       clearTimeout(this.flushTimer);
       this.flushTimer = undefined;
@@ -142,26 +142,29 @@ export class Standby {
     this.flushTimer.unref();
   }
 
-  private async get(path: string, timeoutS = 60): Promise<Response> {
-    if (this.abort.signal.aborted) throw new Stop();
-    const signal = AbortSignal.any([this.abort.signal, AbortSignal.timeout(timeoutS * 1000)]);
+  private async get(path: string, timeoutS = 60, stop = this.abort.signal): Promise<Response> {
+    if (this.abort.signal.aborted || stop.aborted) throw new Stop();
+    const signal = AbortSignal.any([this.abort.signal, stop, AbortSignal.timeout(timeoutS * 1000)]);
     try {
       return await guardedFetch(this.opts.primary + path, { headers: { authorization: `Bearer ${this.opts.token}`, 'x-tabularius-standby-id': this.clientId }, signal }, { policy: { private: true }, timeoutMs: Infinity, maxBytes: Infinity });
     } catch (e) {
-      if (this.abort.signal.aborted) throw new Stop();
+      if (this.abort.signal.aborted || stop.aborted) throw new Stop();
       throw e;
     }
   }
 
-  private async pause(ms: number): Promise<void> {
+  private async pause(ms: number, signal = this.abort.signal): Promise<void> {
+    if (signal.aborted) throw new Stop();
     await new Promise<void>((resolve) => {
-      const t = setTimeout(resolve, ms);
-      this.abort.signal.addEventListener('abort', () => {
+      const done = () => {
         clearTimeout(t);
+        signal.removeEventListener('abort', done);
         resolve();
-      }, { once: true });
+      };
+      const t = setTimeout(done, ms);
+      signal.addEventListener('abort', done, { once: true });
     });
-    if (this.abort.signal.aborted) throw new Stop();
+    if (signal.aborted) throw new Stop();
   }
 
   private trouble(what: string): void {
@@ -178,9 +181,26 @@ export class Standby {
         if (res.status === 404) throw new Error('the main server answered 404: it has no replication routes, because it was not started with --replication-token or because it is an older version (upgrade the main server first, then this standby)');
         if (!res.ok) throw new Error(`the main server answered ${res.status}`);
         const { files } = await res.json() as { files: { name: string }[] };
-        for (const { name } of files) {
-          if (!this.following.has(name)) this.following.set(name, this.follow(name));
+        if (this.abort.signal.aborted) return;
+        const names = new Set(files.map((f) => f.name));
+        const removed: Promise<void>[] = [];
+        for (const [name, task] of this.following) if (!names.has(name)) {
+          task.stop.abort();
+          this.following.delete(name);
+          removed.push(task.done);
         }
+        await Promise.all(removed);
+        for (const { name } of files) {
+          if (this.following.has(name)) continue;
+          if (this.following.size >= 1024) break;
+          const task = { stop: new AbortController(), done: Promise.resolve() };
+          this.following.set(name, task);
+          task.done = this.follow(name, AbortSignal.any([this.abort.signal, task.stop.signal])).finally(() => {
+            if (this.following.get(name) === task) this.following.delete(name);
+          });
+        }
+        if (names.size > 1024) this.trouble('standby file limit: at most 1024 files can be followed; additional files must wait for capacity');
+        else if (this.problem?.startsWith('standby file limit:')) this.problem = undefined;
         if (this.problem?.startsWith("can't reach")) this.problem = undefined;
         await this.pause(10_000);
       } catch (e) {
@@ -213,21 +233,21 @@ export class Standby {
     this.scheduleSave();
   }
 
-  private async follow(name: string): Promise<void> {
+  private async follow(name: string, signal: AbortSignal): Promise<void> {
     let delay = 1000;
-    while (!this.abort.signal.aborted) {
+    while (!signal.aborted) {
       try {
         if (!this.untouched(name)) {
           if (this.state.files[name]) this.log(`${name} changed here since it was last updated: copying it again`);
-          await this.copy(name);
+          await this.copy(name, signal);
         }
-        await this.catchUp(name);
+        await this.catchUp(name, signal);
         delay = 1000;
       } catch (e) {
         if (e instanceof Stop) return;
         this.trouble(`following ${name}: ${(e as Error).message}`);
         try {
-          await this.pause(delay);
+          await this.pause(delay, signal);
         } catch {
           return;
         }
@@ -236,8 +256,8 @@ export class Standby {
     }
   }
 
-  private async copy(name: string): Promise<void> {
-    const res = await this.get(`/tabularius/replication/v1/files/${encodeURIComponent(name)}/copy`, 3600);
+  private async copy(name: string, signal: AbortSignal): Promise<void> {
+    const res = await this.get(`/tabularius/replication/v1/files/${encodeURIComponent(name)}/copy`, 3600, signal);
     if (!res.ok || !res.body) throw new Error(`copying it: the main server answered ${res.status}`);
     // Each position must be present and plain digits: a missing or blank one would read as zero, and "0x10" or "1e3" as other numbers.
     const count = (raw: string | null): number => (raw !== null && /^\d+$/.test(raw.trim()) ? Number(raw) : NaN);
@@ -251,7 +271,7 @@ export class Standby {
     const target = this.path(name);
     const partial = target + '.standby-partial';
     try {
-      await pipeline(Readable.fromWeb(res.body as import('node:stream/web').ReadableStream), createWriteStream(partial));
+      await pipeline(Readable.fromWeb(res.body as import('node:stream/web').ReadableStream), createWriteStream(partial), { signal });
       const db = new DatabaseSync(partial, { readOnly: true });
       try {
         const r = Object.values(db.prepare('PRAGMA quick_check').get() as Record<string, string>)[0];
@@ -277,11 +297,11 @@ export class Standby {
   }
 
   /** Applies changes as they come, until the copy has to be made again. */
-  private async catchUp(name: string): Promise<void> {
+  private async catchUp(name: string, signal: AbortSignal): Promise<void> {
     const wait = this.opts.wait ?? 25;
-    while (!this.abort.signal.aborted) {
+    while (!signal.aborted) {
       const f = this.state.files[name];
-      const res = await this.get(`/tabularius/replication/v1/files/${encodeURIComponent(name)}/changes?run=${f.run}&after=${f.seq}&wait=${wait}`, wait + 30);
+      const res = await this.get(`/tabularius/replication/v1/files/${encodeURIComponent(name)}/changes?run=${f.run}&after=${f.seq}&wait=${wait}`, wait + 30, signal);
       if (res.status === 409 || res.status === 410) {
         // The main server restarted, or this fell too far behind: start again from a fresh copy.
         this.log(`${name}: ${((await res.json()) as { error: string }).error}`);

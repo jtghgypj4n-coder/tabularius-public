@@ -864,6 +864,8 @@ export class DataApi {
 
   private readonly host: Host;
   private readonly sessions = new Map<string, Session>();
+  /** Per-process ceiling also covers churning accounts and scoped API tokens. */
+  readonly maxSessions = 2048;
   private readonly containerUploads = new ContainerUploads();
   readonly endListeners = new Set<(token: string) => void>();
   private swept = performance.now();
@@ -894,6 +896,7 @@ export class DataApi {
 
   constructor(host: Host) {
     this.host = host;
+    host.onClose.push((store) => { this.endByDb(store.name); });
     this.directoryFault = faultLog((entry) => this.host.logs?.write('Access', 'Warning', '', String(entry)));
     host.beforeFileClose?.push((store) => this.endByDb(store.name));
   }
@@ -914,6 +917,7 @@ export class DataApi {
   private async acquireWrite(token: string, req: IncomingMessage, res: ServerResponse): Promise<void> {
     const active = this.inFlightWrites.get(token);
     if (!active) {
+      if (this.inFlightWrites.size >= 4096) throw new ApiError(301, 'Too many active write tokens; server is busy', 503, undefined, 1);
       this.inFlightWrites.set(token, { waiting: [] });
       return;
     }
@@ -1121,6 +1125,9 @@ export class DataApi {
       throw new ApiError(212, 'This account must change its password before continuing; change it, then sign in again', 403);
     }
     s.lastUsed = performance.now();
+    // Insertion order is the session LRU, including scoped-token sessions.
+    this.sessions.delete(s.token);
+    this.sessions.set(s.token, s);
     this.store(db).recordUsage(s.account, s.client);
     // Writes made for this request (and the scripts it runs) belong to the session: it may edit records it has locked.
     const w = writer.getStore();
@@ -1179,6 +1186,13 @@ export class DataApi {
   /** Sessions held in memory, timed-out ones not yet swept included. */
   get sessionCount(): number {
     return this.sessions.size;
+  }
+
+  private remember(session: Session): void {
+    if (!this.sessions.has(session.token)) {
+      while (this.sessions.size >= this.maxSessions) this.end(this.sessions.keys().next().value!, 'was signed out (server session capacity)');
+    }
+    this.sessions.set(session.token, session);
   }
 
   /**
@@ -1486,7 +1500,7 @@ export class DataApi {
     }
     const session: Session = { token, db: store.name, account: bound.account, started: Date.now(), lastUsed: performance.now(), scripts: new ScriptSession(), client: 'rest', readOnly: bound.readOnly, ...(bound.identity ? { via: bound.identity.mapping, externalIdentity: bound.identity } : {}), ...(bound.layouts ? { layoutScope: bound.layouts } : {}) };
     sessionPrivileges(store, session);
-    this.sessions.set(token, session);
+    this.remember(session);
     return session;
   }
 
@@ -1524,15 +1538,16 @@ export class DataApi {
       throw e;
     }
     // One account can't hold sessions without end (a script signing in again and again): past the cap, the one unused longest is ended.
-    const mine = [...this.sessions.values()].filter((o) => o.db === store.name && o.account.toLowerCase() === account.toLowerCase() && !o.token.startsWith('ohbt_'));
     if (this.maxSessionsPerAccount > 0) {
+      const name = account.toLowerCase();
+      const mine = [...this.sessions.values()].filter((o) => o.db === store.name && o.account.toLowerCase() === name && !o.token.startsWith('ohbt_'));
       mine.sort((a, b) => a.lastUsed - b.lastUsed);
       for (const old of mine.slice(0, Math.max(0, mine.length - this.maxSessionsPerAccount + 1))) {
         this.host.logs?.write('Access', 'Warning', from, `${account} already had ${this.maxSessionsPerAccount} sessions open in ${store.name}: the one unused longest was ended`);
         this.end(old.token, 'was signed out (too many sessions for this account)');
       }
     }
-    this.sessions.set(token, session);
+    this.remember(session);
     this.host.logs?.write('Access', 'Information', from, `${account} signed in to ${store.name} (${client === 'web' ? 'web client' : 'Data API'}${via ? `, as ${via}` : ''})`);
     return token;
   }

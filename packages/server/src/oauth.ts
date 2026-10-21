@@ -284,7 +284,10 @@ export class OAuthServer {
     // Counted per address, and per /64 for IPv6 (one machine usually has a whole /64).
     const from = addressBucket(clientAddress(req));
     const now = performance.now();
-    if (this.registered.size > 1000) for (const [k, ts] of this.registered) if (ts.every((t) => now - t >= 3600_000)) this.registered.delete(k);
+    if (!this.registered.has(from) && this.registered.size >= 1000) {
+      for (const [k, ts] of this.registered) if (ts.every((t) => now - t >= 3600_000)) this.registered.delete(k);
+      if (this.registered.size >= 1000) throw new OAuthError('invalid_client_metadata', 'Too many registration addresses; try again later', 429);
+    }
     const recent = (this.registered.get(from) ?? []).filter((t) => now - t < 3600_000);
     if (recent.length >= REGISTER_PER_HOUR) throw new OAuthError('invalid_client_metadata', 'Too many apps registered from this address; try again later', 429);
     const uris = body.redirect_uris;
