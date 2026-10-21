@@ -63,11 +63,20 @@ export class Live {
     this.host = host;
     this.api = api;
     this.api.endListeners.add((token) => this.closeToken(token));
-    // Stored accounts cover ordinary and fmDataSource readers. External sign-ins can have distinct account names;
-    // include their principals from every worker so a delete's row rules are evaluated while the row still exists.
-    const watch = (store: Store) => store.deleteReaders.add(() =>
-      [...api.own(() => 0), ...(api.others?.() ?? [])].map((s) =>
-        store.privileges(s.account, s.via, s.externalIdentity?.person)));
+    // A delete's row rules are evaluated while the row still exists, for the principals that hold a live stream on any
+    // worker (and no one else): each as its own file's account sees this one, so a data source's mapping applies.
+    const watch = (store: Store) => store.deleteReaders.add(() => {
+      const seen = new Set<string>();
+      const readers: Privileges[] = [];
+      for (const s of [...api.own((token) => this.byToken.get(token)?.size ?? 0), ...(api.others?.() ?? [])]) {
+        const key = JSON.stringify([s.db, s.account, s.via, s.externalIdentity?.person]);
+        if (!s.streams || seen.has(key)) continue;
+        seen.add(key);
+        const home = host.get(s.db);
+        if (home) readers.push(home.privileges(s.account, s.via, s.externalIdentity?.person).in(store));
+      }
+      return readers;
+    });
     for (const store of host.openStores()) watch(store);
     host.onAdd.push(watch);
   }
@@ -268,14 +277,13 @@ export class Live {
       // A changed rule never inherits an earlier grant. Layout scope and account validity are still checked below
       // and at flush time; reused record ids cannot change the decision for the row that was actually deleted.
       if (rule !== true && !deletedVisibility.some((grant) => grant.account === owner.account && grant.rule === rule)) return false;
-    } else if (id === undefined ? rule !== true : !file.canViewRecord(table, id, p)) return false;
+    } else if (id === undefined ? !file.tableVisible(table, p) : !file.canViewRecord(table, id, p)) return false;
     if (!session.layoutScope) return true;
     return session.layoutScope.some((name) => {
       try {
         const info = home.layout(name);
         const access = p.layout(info.name);
-        return info.owner === file && info.table === table && access.layout !== 'none' && access.records !== 'none'
-          && (deletedVisibility !== undefined || id === undefined || home.canView(info, id, p));
+        return info.owner === file && info.table === table && access.layout !== 'none' && access.records !== 'none';
       } catch { return false; }
     });
   }
@@ -338,11 +346,9 @@ export class Live {
       // Privileges are read per event, so a revoke applies at once; changes to tables the account can't see are left out.
       const text = render(c);
       if (text === undefined) return;
-      // Internal visibility evidence also counts against the buffer bound and is released at flush.
-      pendingBytes += Buffer.byteLength(text) + (c.deletedVisibility ? Buffer.byteLength(JSON.stringify(c.deletedVisibility)) : 0);
-      if (pendingBytes > MAX_STREAM_BUFFER) {
-        pending = [];
-        pendingBytes = 0;
+      // The visibility evidence is held until the flush: more than the buffer's bound in one change is refused outright.
+      const evidence = c.deletedVisibility ? Buffer.byteLength(JSON.stringify(c.deletedVisibility)) : 0;
+      if (evidence > MAX_STREAM_BUFFER) {
         res.destroy();
         stop();
         return;
@@ -350,6 +356,10 @@ export class Live {
       // Events from one moment go out in one write: with many people connected, a write per event per stream is most of the work.
       if (!pending.length) queueMicrotask(flush);
       pending.push({ ...c, ids: c.ids?.slice() });
+      // A burst (an import, a script's many records) is sent as it grows past the bound rather than held; a reader that
+      // is not taking it is cut off by putStream.
+      pendingBytes += Buffer.byteLength(text) + evidence;
+      if (pendingBytes > MAX_STREAM_BUFFER) flush();
     };
     let pending: Change[] = [];
     let pendingBytes = 0;
