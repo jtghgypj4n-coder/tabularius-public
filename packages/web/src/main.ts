@@ -15,6 +15,7 @@ import { signInError212 } from './sign-in-error.ts';
 import { ABOUT_RECORD, AssistantPanel, assistantInfo } from './assistant.ts';
 import { forgetAssistantHistory } from './assistant-chat.ts';
 import { calendarDialog } from './calendar-dialog.ts';
+import { readUrlState, writeUrlState, writeAddress, addsHistoryEntry, pageTitle, type UrlState } from './url-state.ts';
 import { importTablesDialog } from './import-tables-dialog.ts';
 import { importDialog, importTooLarge, type ImportFound } from './import-dialog.ts';
 import { LayoutRenderer, containerKind, callWebViewer, answerPageCalls, tellPages, previewStyled, type Host, type Mode, type RowContext } from './layout.ts';
@@ -1508,6 +1509,25 @@ class Session implements Host {
   private secondary?: number;
 
   async open(from?: WindowSnapshot): Promise<void> {
+    // Back and Forward are heard from the start; their restores wait until the file has finished opening.
+    this.onPop = () => this.popped();
+    window.addEventListener('popstate', this.onPop);
+    // An unavailable link ends the opening early; what the person opens next still adds history entries.
+    try { await this.openFile(from); } finally { this.urlReady = true; this.openDone(); }
+  }
+
+  /** Removed in teardown: a session that ended must not restore screens, with its dead token, over the one that replaces it. */
+  private onPop?: () => void;
+
+  private popped(): void {
+    if (!this.urlReady) this.popDuringOpen = true;
+    if (this.scripting) this.popDuringScript = true;
+    // A restore waits for the file to open and for a running script to end, so neither carries on from a screen it did not draw.
+    this.urlRestores = this.urlRestores.then(() => this.scriptEnded).then(() => this.restoreUrlState()).catch(() => undefined);
+  }
+
+  private async openFile(from?: WindowSnapshot): Promise<void> {
+    const linkedState = readUrlState(location.search);
     this.secondary = from?.number;
     if (!from) {
       try {
@@ -1543,7 +1563,8 @@ class Session implements Host {
       for (const l of locks) if (!l.self) this.lockedBy.set(this.lockKey(l.file, l.table, l.recordId), l.account);
       this.renderToolbar();
     }, () => {});
-    document.title = from ? `${menu.database} - ${from.number}` : menu.database;
+    this.windowName = from ? `${menu.database} - ${from.number}` : menu.database;
+    document.title = menu.database;
     this.joinWindows();
     this.statusToolbarHidden = localStorageGet(`openhbam.statusToolbar.${this.api.db}`) === 'hidden';
     const shell = h('div', { class: 'shell' }, this.toolbar, this.stage, this.windowBar, this.bottomBar);
@@ -1607,10 +1628,15 @@ class Session implements Host {
     // A WebDirect-style link (/fmi/webd/File?script=Name&param=...&$var=...) lands here with its script: run it once the file is open.
     const linked = linkedScript();
     sessionStorageSet('tabularius.opened', this.api.token);
-    const remembered = from?.layout ?? (opening ? menu.openLayout : sessionStorageGet(`tabularius.layout.${this.api.db}`));
+    const remembered = from?.layout ?? linkedState.layout ?? (opening ? menu.openLayout : sessionStorageGet(`tabularius.layout.${this.api.db}`));
     this.onLastWindowClose = !!menu.onLastWindowClose;
     this.onWindowClose = !!menu.onWindowClose;
     const first = this.menuItems.find((m) => m.open && m.name === remembered) ?? this.menuItems.find((m) => m.open);
+    if (linkedState.layout && !this.menuItems.some((m) => m.open && m.name === linkedState.layout)) {
+      this.content.replaceChildren(h('p', { class: 'empty', role: 'status' }, 'This link is not available to your account.'));
+      this.renderToolbar();
+      return;
+    }
     if (!first) {
       const design = h('a', { href: 'design.html' }, 'Open Design');
       this.content.replaceChildren(h('p', { class: 'empty' }, 'This file has no layouts the web client can show yet. ', design, ' to add tables and layouts.'));
@@ -1618,6 +1644,16 @@ class Session implements Host {
       return;
     }
     await this.goToLayout(first.name);
+    if (!from && linkedState.layout && linkedState.layout === first.name) {
+      if (linkedState.view && this.allows(linkedState.view)) this.view = linkedState.view;
+      if (linkedState.mode === 'find') await this.enterFind();
+      else if (linkedState.mode === 'preview') await this.enterPreview();
+      if (linkedState.record) {
+        const requested = linkedState.record;
+        await this.reload(requested);
+        if (this.record?.recordId !== requested) this.showMissingRecord(requested);
+      }
+    }
     if (from && first.name === from.layout) {
       // The same found set, sort, view and record as the window it came from.
       this.view = from.view;
@@ -1640,6 +1676,114 @@ class Session implements Host {
         toast(errorText(e));
       }
     }
+    // A Back or Forward pressed while the file opened moved the address; that restore (queued) says what the screen shows, so the opening does not write over it.
+    if (!this.popDuringOpen) this.writeScreenUrl(false, true);
+    this.urlReady = true;
+  }
+
+  private showMissingRecord(id: string): void {
+    this.content.replaceChildren(h('p', { class: 'empty', role: 'status' }, `Record ${id} no longer exists or is not available to this account.`));
+  }
+
+  private restoringUrlState = false;
+  /** Back and Forward pressed quickly queue up: each restore finishes before the next starts, and none starts before the file has opened. */
+  private openDone!: () => void;
+  private urlRestores: Promise<void> = new Promise((resolve) => { this.openDone = resolve; });
+  private popDuringOpen = false;
+  /** Back or Forward pressed while a script runs: the script's end then leaves the address as the browser moved it. */
+  private popDuringScript = false;
+  /** Settles when the running script ends (already settled when none runs). */
+  private scriptEnded: Promise<void> = Promise.resolve();
+
+  /** False while the file is still opening: the address is rewritten in place then, so the first Back leaves the app. */
+  private urlReady = false;
+
+  /** What scripts call this window (Select Window [ Name: ]); the tab title shown to people can follow the title pattern without renaming it. */
+  private windowName = '';
+
+  private screenUrlState(): UrlState {
+    return {
+      db: this.api.db,
+      ...(this.meta ? { layout: this.meta.layout.name } : {}),
+      ...(this.mode === 'browse' && this.record ? { record: this.record.recordId } : {}),
+      ...(this.meta ? { mode: this.preview ? 'preview' : this.mode, view: this.view, found: this.foundCount, total: this.totalCount } : {}),
+      ...(this.mode === 'find' ? { find: true } : {}),
+    };
+  }
+
+  private writeScreenUrl(push = true, opened = false): void {
+    if (!this.api) return;
+    const next = writeUrlState(location.pathname, location.search, location.hash, this.screenUrlState());
+    const current = location.pathname + location.search + location.hash;
+    // While Back or Forward is being drawn the address already is the state being restored; writing it from half-drawn state would overwrite another entry.
+    // While the file opens only the end of the opening writes: its steps on the way would leave an entry holding a half-drawn screen.
+    if (next !== current && !this.restoringUrlState && !this.popDuringOpen && (this.urlReady || opened)) {
+      // A script that moves through records must not flood the history (browsers limit pushState), so its moves replace the address.
+      writeAddress(history, next, addsHistoryEntry({ push, ready: this.urlReady, scripting: this.scripting }));
+    }
+    this.showTitle();
+  }
+
+  private showTitle(fileOnly = false): void {
+    const title = pageTitle(localStorageGet('tabularius.titlePattern'), fileOnly ? { file: this.api.db } : { file: this.api.db, layout: this.meta?.layout.name, record: this.record ? this.index + 1 : undefined });
+    document.title = this.secondary === undefined ? title : `${title} - ${this.secondary}`;
+  }
+
+  private async restoreUrlState(): Promise<void> {
+    this.popDuringOpen = false;
+    // A field being typed in belongs to the record it was typed in: it is saved there before the screen moves (Cancel in the save dialog leaves the screen as it is).
+    // The commit trigger's script ends with the screen's own address write, which would put back the address Back just moved to: it runs inside the restore.
+    this.restoringUrlState = true;
+    let committed = false;
+    try { committed = await this.commit(); } finally { this.restoringUrlState = false; }
+    if (!committed) return;
+    const state = readUrlState(location.search);
+    if (state.db && state.db !== this.api.db) { location.reload(); return; }
+    const startedAt = location.search + location.hash;
+    this.restoringUrlState = true;
+    let showAll = false;
+    try {
+      if (state.layout && state.layout !== this.meta?.layout.name) {
+        const allowed = this.menuItems.some((item) => item.open && item.name === state.layout);
+        if (!allowed) {
+          this.content.replaceChildren(h('p', { class: 'empty', role: 'status' }, 'This link is not available to your account.'));
+          this.showTitle(true);
+          return;
+        }
+        await this.goToLayout(state.layout);
+      }
+      if (state.view && this.allows(state.view)) this.view = state.view;
+      // The mode changes go through the same steps as a person's, which an edit not yet saved can refuse.
+      if (state.mode === 'preview' && !this.preview) await this.enterPreview();
+      else if (state.mode === 'find' && this.mode !== 'find') await this.enterFind();
+      else if ((!state.mode || state.mode === 'browse') && (this.mode !== 'browse' || this.preview)) await this.enterBrowse();
+      // A step that refused (an unsaved edit) leaves the old mode on screen: the address is not rewritten over the entry Back just chose.
+      if (this.windowMode !== (state.mode === 'preview' || state.mode === 'find' ? state.mode : 'browse')) return;
+      // The found set is not in the address, only its size: an entry that showed every record is restored by showing every record.
+      if (this.meta && this.mode === 'browse' && !this.preview && state.found !== undefined && state.found === state.total && state.found !== this.foundCount && (this.query || this.ids)) {
+        this.query = undefined;
+        this.ids = undefined;
+        showAll = true;
+      }
+      if (state.record && this.meta) {
+        await this.reload(state.record);
+        if (this.record?.recordId !== state.record) {
+          // A message that says the record is gone, and an address left as the browser moved it, not rewritten to another record.
+          this.showMissingRecord(state.record);
+          this.showTitle();
+          return;
+        }
+      } else if (showAll) {
+        this.index = 0;
+        await this.reload();
+      } else this.render();
+      if (state.view && this.allows(state.view)) this.view = state.view;
+      this.render();
+      // A smaller found set cannot be rebuilt from its size: the screen stays on the set it has and the entry keeps what it says.
+      if (state.found !== undefined && state.found !== this.foundCount) { this.showTitle(); return; }
+    } finally { this.restoringUrlState = false; }
+    // Written only when the screen was drawn from this address and no later Back or Forward has moved it on; a refused or failed restore returned above and leaves the address to say where the person went.
+    if (location.search + location.hash === startedAt) this.writeScreenUrl(false);
   }
 
   /** Window > New Window: another browser window on the same session, showing what this one shows. */
@@ -1676,6 +1820,7 @@ class Session implements Host {
     this.changesChannel = undefined;
     this.api.wrote = undefined;
     window.removeEventListener('keydown', this.onKeys);
+    if (this.onPop) window.removeEventListener('popstate', this.onPop);
     liveDown = false;
     showOnline();
   }
@@ -1699,10 +1844,10 @@ class Session implements Host {
 
   /** Tells this file's other windows in the browser that this one is open, and keeps the list of theirs. */
   private joinWindows(): void {
-    this.windows.set(this.windowId, { title: document.title });
+    this.windows.set(this.windowId, { title: this.windowName });
     if (typeof BroadcastChannel === 'undefined' || this.windowsChannel) return;
     const channel = this.windowsChannel = new BroadcastChannel(`tabularius.windows.${this.api.db}`);
-    const here = () => channel.postMessage({ type: 'here', id: this.windowId, title: document.title, number: this.secondary });
+    const here = () => channel.postMessage({ type: 'here', id: this.windowId, title: this.windowName, number: this.secondary });
     channel.onmessage = (e) => {
       const m = e.data as { type?: string; id?: string; title?: string };
       if (typeof m?.id !== 'string') return;
@@ -3006,6 +3151,7 @@ class Session implements Host {
     const was = this.view;
     this.view = v;
     this.render();
+    if (was !== v) this.writeScreenUrl();
     // OnViewChange: after the layout is shown in another view.
     if (was !== v) void this.fire('OnViewChange');
   }
@@ -3719,6 +3865,7 @@ class Session implements Host {
     await this.loadMenus();
     await this.fire('OnLayoutEnter');
     await this.fire('OnRecordLoad');
+    this.writeScreenUrl();
   }
 
   private lastTable?: string;
@@ -3862,6 +4009,7 @@ class Session implements Host {
     else this.select();
     if (this.index !== before) announce(`Record ${this.recordNumber} of ${this.foundCount}.`);
     if (this.index !== before) await this.fire('OnRecordLoad');
+    this.writeScreenUrl();
   }
 
   /** Records drawn with layout objects right now: the current one, or a list's page. */
@@ -4412,6 +4560,7 @@ class Session implements Host {
       await this.loadStates();
       this.render();
       this.focusFirstField();
+      this.writeScreenUrl();
     } catch (e) {
       toast(`Couldn't create a record: ${errorText(e)}`);
     }
@@ -4435,6 +4584,7 @@ class Session implements Host {
       await this.recordCommand('Delete Record');
       this.noteRecord(at);
       this.note({ kind: 'delete' });
+      this.writeScreenUrl();
     } catch (e) {
       toast(`Couldn't delete the record: ${errorText(e)}`);
     }
@@ -4449,6 +4599,7 @@ class Session implements Host {
     this.index = 0;
     await this.reload(id);
     this.note({ kind: 'showAll' });
+    this.writeScreenUrl();
   }
 
   /** Leaves the current mode, if its OnModeExit lets it. */
@@ -4470,6 +4621,7 @@ class Session implements Host {
     this.render();
     this.focusFirstField();
     await this.fire('OnModeEnter');
+    this.writeScreenUrl();
   }
 
   async enterBrowse(): Promise<void> {
@@ -4481,6 +4633,7 @@ class Session implements Host {
     this.render();
     if (was !== 'browse') announce('Browse mode.');
     if (was !== 'browse') await this.fire('OnModeEnter');
+    this.writeScreenUrl();
   }
 
   // ---------------------------------------------------------- preview
@@ -4504,6 +4657,7 @@ class Session implements Host {
     await this.loadStates();
     this.render();
     if (was !== 'preview') await this.fire('OnModeEnter');
+    this.writeScreenUrl();
   }
 
   /** Every record preview mode lays out, fetched a page at a time. */
@@ -4771,11 +4925,13 @@ class Session implements Host {
       const again = (await noMatchDialog()) === 'modify';
       this.mode = again ? 'find' : 'browse';
       await this.reload();
+      this.writeScreenUrl();
       return;
     }
     this.noteRecentFind(this.lastFind);
     this.note({ kind: 'find', occurrence: this.meta!.layout.occurrence, requests: query.filter((q) => Object.keys(q).some((k) => k !== 'omit')) });
     await this.fire('OnModeEnter');
+    this.writeScreenUrl();
   }
 
   /**
@@ -5402,15 +5558,30 @@ class Session implements Host {
     if (this.scripting) return undefined;
     this.scripting = true;
     this.content.setAttribute('aria-busy', 'true');
+    const before = this.urlReady ? location.pathname + location.search + location.hash : '';
+    let scriptDone!: () => void;
+    this.scriptEnded = new Promise<void>((resolve) => { scriptDone = resolve; });
     try {
       return await this.runScriptCall(o, row, trigger, extra);
     } finally {
       this.scripting = false;
-      this.content.removeAttribute('aria-busy');
-      // Failed requests and display actions must thaw too, before another script can start.
-      const frozen = this.frozenWindows.size > 0;
-      this.frozenWindows.clear();
-      if (frozen) this.renderKeepingTyping();
+      // The script applied its layout, record and found set without writing the address: write where it left the screen, then
+      // keep one entry for it, so Back returns to where it started. A Back pressed meanwhile already moved the address; that stays.
+      try {
+        if (this.urlReady && !this.popDuringScript) {
+          this.writeScreenUrl(false);
+          const after = location.pathname + location.search + location.hash;
+          if (after !== before && !this.restoringUrlState) { writeAddress(history, before, false); writeAddress(history, after, true); }
+        }
+      } finally {
+        this.popDuringScript = false;
+        scriptDone();
+        this.content.removeAttribute('aria-busy');
+        // Failed requests and display actions must thaw too, before another script can start.
+        const frozen = this.frozenWindows.size > 0;
+        this.frozenWindows.clear();
+        if (frozen) this.renderKeepingTyping();
+      }
     }
   }
 
@@ -5971,7 +6142,7 @@ class Session implements Host {
 
   /** The front window: one a script opened (New Window), or this browser window itself. */
   private frontWindow(): ScriptWindow {
-    return this.front ?? { id: this.windowId, name: document.title, style: 'document' };
+    return this.front ?? { id: this.windowId, name: this.windowName || document.title, style: 'document' };
   }
 
   /** What a window shows, kept while another window is in front of it. */

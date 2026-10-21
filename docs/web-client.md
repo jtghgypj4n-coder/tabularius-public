@@ -181,6 +181,18 @@ taken out of the address once it has run, so a reload doesn't run it again. Left
 Claris page doesn't document it), and a script link kept through Sign in with an identity provider (the provider's page
 returns to `/app/` without it).
 
+### Address, browser history and page title
+
+The `/app/` address carries the selected file, layout, record ID, browse/find/preview mode,
+layout view, and found/total counts. File and layout names are URL-encoded. Record field values,
+find criteria and credentials are not written to the address. A shared address is still checked
+against the signed-in account: if it names a layout that account cannot open, the client says
+the link is unavailable; if the record has since gone, it says so. Back and Forward restore
+record, view and mode changes. Not done: the found set itself is not in the address, only its size. Back to a screen that showed every record shows every record again; Back to an earlier found set of fewer records keeps the set on screen (the entry is left as it was), and Back to a record that has since been deleted says so. The default page title is `file - layout - record`; the optional
+`tabularius.titlePattern` browser setting accepts `{file}`, `{layout}` and `{record}` placeholders.
+
+Upgrade note: the browser tab now shows `file - layout - record` (a window opened with New Window keeps its number at the end), where it used to show only the file name. The address now holds the file name, layout name and record ID, so a copied address shows them. Each change of record, layout, view or mode adds a Back entry, except moves a script makes, which replace the address. Window names that scripts and the Window menu use do not change.
+
 ## Web viewer pages (modern layouts)
 
 Design > Layouts' New layout makes a classic layout or a modern one: a page in HTML, CSS and JavaScript in a web viewer
