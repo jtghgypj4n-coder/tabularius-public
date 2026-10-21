@@ -31,16 +31,20 @@ export function assertAiSecurityChanges(store: Store, changes: readonly Record<s
   assertNoAiVisibility(changes);
   for (const change of changes) {
     if (change.op === 'savePrivilegeSet') assertAiPrivilegeSet(store, change.set);
-    // The minimum password length is a human's call: an AI tool may keep or raise it, never lower it. What counts is the minimum
-    // that would result, so a policy that leaves minLength out (which drops the file's own minimum) is judged as the default.
+    // The minimum password length is a human's call: an AI tool may keep or raise it, never lower it. A policy replaces the
+    // whole stored one, so one that leaves minLength out drops the file's own minimum: refused when the file has one, and
+    // otherwise judged as the server default it falls back to.
     if (change.op === 'setPasswordPolicy') {
       const policy = change.policy;
       if (!policy || typeof policy !== 'object' || Array.isArray(policy)) throw new StoreError(960, 'setPasswordPolicy needs a policy object');
       const min = (policy as { minLength?: unknown }).minLength;
-      const resulting = typeof min === 'number' ? min : min === undefined || min === null ? defaultMinPasswordLength() : undefined;
-      if (resulting === undefined) throw new StoreError(960, 'minLength must be a whole number of characters');
+      const left = min === undefined || min === null;
+      if (!left && typeof min !== 'number') throw new StoreError(960, 'minLength must be a whole number of characters');
+      const own = typeof store.passwordPolicy().minLength === 'number';
+      if (left && own) throw new StoreError(9, `AI tools cannot drop the file's own minimum password length (${store.minPasswordLength()}); leave minLength in the policy, or a person can change it in Manage Security, the admin console or the CLI`);
+      const resulting = left ? defaultMinPasswordLength() : min as number;
       if (resulting < store.minPasswordLength()) {
-        throw new StoreError(9, `AI tools cannot lower the minimum password length (now ${store.minPasswordLength()}), and a policy without minLength falls back to the default; a person can change it in Manage Security, the admin console or the CLI`);
+        throw new StoreError(9, `AI tools cannot lower the minimum password length (now ${store.minPasswordLength()}); a person can change it in Manage Security, the admin console or the CLI`);
       }
     }
     if (change.op === 'deletePrivilegeSet') assertAiPrivilegeSet(store, { name: change.name });
