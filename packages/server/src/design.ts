@@ -825,8 +825,7 @@ export class DesignApi {
         if (!['field', 'table', 'layout', 'script', 'valueList'].includes(kind)) throw new ApiError(5, 'kind must be field, table, layout, script or valueList', 400);
         const change = url.searchParams.get('change') === 'delete' ? 'delete' : 'rename';
         try {
-          // The design API is a human designer's view, so it checks every other hosted file.
-          send(200, await changeImpact(store, this.host.logs, kind as ImpactKind, url.searchParams.get('name') ?? '', change, { others: this.host.openStores().filter((s) => s !== store) }));
+          send(200, await changeImpact(store, this.host.logs, kind as ImpactKind, url.searchParams.get('name') ?? '', change, { others: this.host.openStores().filter((s) => s !== store), canRead: (s) => privileges.in(s).full }));
         } catch (e) {
           throw new ApiError(5, (e as Error).message, 404);
         }

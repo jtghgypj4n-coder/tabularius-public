@@ -139,7 +139,7 @@ function sampledValues(store: Store, table: string, f: Field): string[] {
 }
 
 /** One field, worked out from its name, type and (for text nothing else decides) a sample of its values. */
-function classifyField(store: Store, table: string, f: Field, valueListFields: Set<number>): FieldClass {
+function classifyField(store: Store, table: string, f: Field): FieldClass {
   const byName = nameKind(f.name);
   // Output redaction alone does not stop a find/count oracle on a PIN or numeric credential.
   if (secretName(f.name)) return { pii: true, kind: byName ?? 'TEXT', why: 'a secret field: typed guesses must not reach its values' };
@@ -171,7 +171,7 @@ function classifyField(store: Store, table: string, f: Field, valueListFields: S
   if (f.type === 'number' && KEY_NAME.test(words(f.name))) return { pii: false, why: 'its name says it is a key or serial number' };
   if (byName) return named(byName);
   if (f.type === 'number' || f.type === 'date' || f.type === 'time' || f.type === 'timestamp') return { pii: false, why: `a ${f.type} field whose name says nothing personal` };
-  if (valueListFields.has(f.id)) return { pii: false, why: 'it must be one of a value list\'s values' };
+  if (f.options?.validation?.valueList !== undefined) return { pii: false, why: 'it must be one of a value list\'s values' };
   const safeName = SAFE_NAME.test(words(f.name)) || KEY_NAME.test(words(f.name));
   // Text nothing above decides: look at what it holds.
   const values = sampledValues(store, table, f);
@@ -208,15 +208,13 @@ export function fieldClasses(store: Store): Map<string, Map<string, FieldClass>>
   const marksKey = JSON.stringify(marks);
   const hit = cache.get(store);
   if (hit && hit.schema === store.schema && hit.marks === marksKey && performance.now() - hit.at < CLASS_MS) return hit.tables;
-  const valueListFields = new Set<number>();
-  for (const t of store.schema.tables) for (const f of t.fields) if (f.options?.validation?.valueList !== undefined) valueListFields.add(f.id);
   const marked = new Map(Object.entries(marks).map(([k, v]) => [k.toLowerCase(), v]));
   const tables = new Map<string, Map<string, FieldClass>>();
   for (const t of store.schema.tables) {
     const m = new Map<string, FieldClass>();
     for (const f of t.fields) {
       const mark = marked.get(`${t.name}::${f.name}`.toLowerCase());
-      const worked = classifyField(store, t.name, f, valueListFields);
+      const worked = classifyField(store, t.name, f);
       m.set(f.name.toLowerCase(), mark === undefined ? worked
         : { pii: mark, ...(mark ? { kind: worked.kind ?? nameKind(f.name) ?? 'TEXT' } : {}), why: mark ? 'marked as personal data by an administrator' : 'marked as not personal data by an administrator', marked: true });
     }
