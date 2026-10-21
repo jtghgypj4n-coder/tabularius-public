@@ -2,7 +2,7 @@
 // file is the user's own plain file that nobody else can read.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFile } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import { chmodSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -61,5 +61,9 @@ test('a file that is not the user\'s own private plain file is refused, never tr
   const real = join(dir, 'real');
   writeFileSync(real, planted, { mode: 0o600 });
   symlinkSync(real, file);
+  assert.throws(() => localMcpToken(dir), /is not a plain file/);
+  // A named pipe is refused at once, not waited on for a writer.
+  rmSync(file);
+  execFileSync('mkfifo', [file]);
   assert.throws(() => localMcpToken(dir), /is not a plain file/);
 });
