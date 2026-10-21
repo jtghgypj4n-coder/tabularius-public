@@ -281,10 +281,9 @@ function namesColumn(args: Words, ctx: Context): boolean {
     if (up === 'END' && cases > 0) { cases--; continue; }
     if (SYNTAX.has(up) || /^(?:\d|\$)/.test(t.text) || (up === 'X' && args[at + 1]?.kind === 'string') || isOperatorWord(args, at)) continue;
     if (args[at + 1]?.text === '(' || /^[:@]$/.test(args[at - 1]?.text ?? '')) continue;
-    // TRUE and FALSE are the constants unless a table of the select has, or might have, a column of that name.
-    if ((up === 'TRUE' || up === 'FALSE') && !ctx.outer.sources.some((s) => !s.columns || s.columns.has(up.toLowerCase()))) continue;
+    // TRUE and FALSE are constants, and USER, USERNAME and CURRENT_USER are filled in after this rewrite, unless a table of the select has, or might have, a column of that name.
+    if ((up === 'TRUE' || up === 'FALSE' || ACCOUNT.has(up.toLowerCase())) && !ctx.outer.sources.some((s) => !s.columns || s.columns.has(t.text.toLowerCase()))) continue;
     // The account's name is filled in after this rewrite.
-    if (ACCOUNT.has(t.text.toLowerCase())) continue;
     return true;
   }
   return false;
