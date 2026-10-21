@@ -7,7 +7,7 @@ missing from it. `npm run docs:known-differences` rewrites it, and a test fails 
 marker (`<!-- known-difference: area ;; what ;; how it shows ;; what would settle it -->`). Internal working notes are not
 part of it.
 
-**77 entries in 17 areas.** Waiting on: 21 on a sample file, 44 on a FileMaker run or Design Report, 10 on a Claris answer, 15 on a decision by the owner (an entry can wait on more than one).
+**78 entries in 17 areas.** Waiting on: 21 on a sample file, 45 on a FileMaker run or Design Report, 10 on a Claris answer, 15 on a decision by the owner (an entry can wait on more than one).
 
 ## Data API
 
@@ -53,6 +53,7 @@ part of it.
 | What differs or is unknown | How it shows | What would settle it | Where it is written |
 | --- | --- | --- | --- |
 | What FileMaker answers for edit-without-view definitions, layouts with no record access and expired or locked accounts over each protocol is unknown, and field byte 0x01 of an imported privilege set is read conservatively | Those cases follow this project's own choice (fail closed); an imported set can hide a field FileMaker shows | A Claris file and server run that exercises each case | [docs/audit-privilege-matrix.md › Claris evidence limits](audit-privilege-matrix.md) — “…guessed. The existing importer explicitly treats unverified field byte 0x01 conservatively; this matrix…” |
+| Whether FileMaker's AI-visible data policy and redaction match this review is not settled | Nothing shows; the review makes no claim about undocumented Claris behaviour | A FileMaker run of the same policy and redaction checks | [docs/audits/audit-review-round2-ai-policy.md › Round-two review: AI policy, redaction, MCP and agent tools](audits/audit-review-round2-ai-policy.md) — “…about Claris behavior. Claris equivalence is unverified.” |
 | Whether FileMaker's audit, restore and output behaviour matches this audit log is not settled | Nothing shows; the report makes no claim about undocumented Claris behaviour | A FileMaker run of the same audit, restore and output checks | [docs/audits/r26-12-audit-log.md › Validation and review](audits/r26-12-audit-log.md) — “…Claris audit/restore/output equivalence is unverified; this report makes no claim about undocumented Claris…” |
 | Whether FileMaker lets a validation by value list see records the editor may not view is not confirmed, and the behaviour is kept as it was | A field validated against a list backed by confidential data can accept a value the editor could not see listed | A native FileMaker test with a restricted account | [docs/calculation-privileges.md › Value-list membership validation: retained compatibility behavior](calculation-privileges.md) — “FileMaker parity for this finding remains unverified. Retaining the behavior” |
 | LDAP sign-in is tested against a stand-in directory, not a live Active Directory | A directory with matching rules the stand-in lacks may behave differently | A run against a live directory | [README.md › Try it](../README.md) — “protocol, not yet a live Active Directory ). People type their directory username and password” |
