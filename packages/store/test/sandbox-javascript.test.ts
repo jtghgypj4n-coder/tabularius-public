@@ -79,6 +79,8 @@ test('source grep inventories JS execution entry points and requires realm, host
     grep(dir, /\b(?:createContext|compileFunction|runInContext|runInNewContext|runInThisContext)\s*\(/g));
   t.diagnostic(JSON.stringify(execution));
   assert.deepEqual(execution, [
+    // errors.ts runs the constant text 'gc' (never anything a person wrote) to reach the garbage collector for the memory guard.
+    { file: 'packages/store/src/errors.ts', match: 'runInNewContext(' },
     { file: 'packages/store/src/javascript.ts', match: 'createContext(' },
     { file: 'packages/store/src/javascript.ts', match: 'runInContext(' },
   ], 'new VM entry points need guard coverage');

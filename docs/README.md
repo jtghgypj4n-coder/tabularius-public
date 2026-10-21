@@ -23,6 +23,7 @@ To read these pages offline with search, build the site: `npm run docs:build` wr
 - [How text is compared](text-comparison.md) — See where case, accents and different spellings of the same letter count as equal.
 - [Languages for sorting](sort-languages.md) — See how a field's Default language orders sorts, ranges, SQL and groups, and how far each language is checked.
 - [Web client coverage](web-client.md) — Check which Browse, Find and Preview features work in the browser.
+- [Walkthrough recorder](walkthrough-recorder.md) — Capture a synthetic browser walkthrough as an accessible standalone SVG.
 - [Connect an AI app](connect-ai.md) — Connect an MCP client to a hosted file.
 - [Local embeddings](local-embeddings.md) — Set up semantic search and retrieval with an embedding model on your computer.
 - [Writing a plug-in](writing-a-plugin.md) — Add calculation functions in JavaScript or WebAssembly.
