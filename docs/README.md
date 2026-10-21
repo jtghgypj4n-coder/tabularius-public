@@ -45,6 +45,7 @@ To read these pages offline with search, build the site: `npm run docs:build` wr
 - [DynaPDF stage 2](dynapdf-stage2.md) — See what the offline import and copy of existing PDF pages supports, and its limits.
 - [Solution patterns](solution-patterns.md) — Check which common FileMaker patterns (separation model, portals, summary reports, card windows) work here.
 - [Script step support](script-steps-support.md) — Check script steps that are partial, unavailable or do nothing.
+- [Script step reference](reference/script-steps/index.md) — Browse every registered step, grouped by task, with support status and an offline example.
 - [Script error codes](error-codes.md) — Look up script failures and how their codes compare with FileMaker.
 
 ## Troubleshooting and performance
@@ -97,6 +98,7 @@ To read these pages offline with search, build the site: `npm run docs:build` wr
 - [File format](research/fmp12-format.md) — Explore what is known about the .fmp12 format and the evidence behind it.
 - [Prior work](research/prior-work.md) — Find the projects and sources behind the format research.
 - [Write-back study](research/write-back.md) — Explore how design changes could be written back to a FileMaker file.
+- [UUIDv7 record identity](research/n3-uuid-record-ids.md) — Explore the design note for giving native-file records a durable, portable id beside the file-local record number.
 - [Secret taint tracking](research/secret-taint-tracking.md) — Explore a defense-in-depth design for preventing AI tools from returning values derived from secret fields.
 - [Script step privileges](research/r17b-01-script-step-privileges.md) — Review which script steps check privileges like their non-script paths, and the deliberate exceptions.
 - [Hosted file lifecycle tests](file-lifecycle-concurrency.md) — See what the file open, close and replace races are tested against, and how to run those tests.

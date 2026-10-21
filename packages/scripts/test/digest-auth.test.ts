@@ -43,3 +43,11 @@ test('the challenge reader picks the Digest one among several, and refuses what 
   // Digest first, then a weaker one: the second challenge's parameters don't leak into it.
   assert.equal(parseDigestChallenge('Digest realm="d", nonce="n", Basic realm="other"')!.realm, 'd');
 });
+
+test('session algorithms without qop are refused because the response requires a client nonce', () => {
+  for (const algorithm of ['MD5-sess', 'SHA-256-sess']) {
+    assert.equal(parseDigestChallenge(`Digest realm="r", nonce="n", algorithm=${algorithm}`), undefined, algorithm);
+    const withQop = parseDigestChallenge(`Digest realm="r", nonce="n", algorithm=${algorithm}, qop="auth"`)!;
+    assert.match(digestAuthorization(withQop, { method: 'GET', uri: '/x', user: 'u', password: 'p', cnonce: 'client-nonce' }), /cnonce="client-nonce"/);
+  }
+});

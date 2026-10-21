@@ -44,6 +44,7 @@
     "docs:patterns": "node --no-warnings scripts/solution-patterns.ts",
     "docs:security-defaults": "node --no-warnings scripts/security-defaults.ts",
     "docs:error-strings": "node --no-warnings scripts/error-strings.ts",
+    "docs:script-steps": "node --no-warnings scripts/script-step-pages.ts",
     "hooks:install": "git config core.hooksPath scripts/git-hooks",
     "visual": "node --no-warnings scripts/visual.ts",
     "tabularius": "node --no-warnings packages/cli/src/launch.cjs",

@@ -1,7 +1,8 @@
 // HTTP Digest authentication (RFC 7616, which keeps RFC 2617's MD5 form) for Insert from URL's --digest and
 // --anyauth: reads a `WWW-Authenticate: Digest ...` challenge and writes the matching `Authorization` header.
-// Supported: MD5, MD5-sess, SHA-256, SHA-256-sess, qop "auth" and no qop (RFC 2069). A challenge that offers only
-// qop "auth-int", or an algorithm named here as unsupported, gets no answer (the caller then reports the 401).
+// Supported: MD5, MD5-sess, SHA-256, SHA-256-sess with qop "auth"; and MD5 and SHA-256 with no qop (RFC 2069). A challenge
+// that offers only qop "auth-int", a session algorithm without qop (its response needs a client nonce, which that form has
+// none of), or an algorithm named here as unsupported, gets no answer (the caller then reports the 401).
 
 import { createHash, randomBytes } from 'node:crypto';
 
@@ -41,6 +42,8 @@ export function parseDigestChallenge(header: string | null | undefined): DigestC
     const qops = (p.qop ?? '').split(',').map((q) => q.trim().toLowerCase()).filter(Boolean);
     // Only "auth" is answered: "auth-int" hashes the request body and is not offered here.
     if (qops.length && !qops.includes('auth')) continue;
+    // Session algorithms incorporate cnonce in HA1, so the old no-qop header cannot authenticate them.
+    if (algorithm.endsWith('-SESS') && !qops.length) continue;
     return {
       realm: p.realm, nonce: p.nonce, ...(p.opaque !== undefined ? { opaque: p.opaque } : {}),
       algorithm: { MD5: 'MD5', 'MD5-SESS': 'MD5-sess', 'SHA-256': 'SHA-256', 'SHA-256-SESS': 'SHA-256-sess' }[algorithm] as DigestChallenge['algorithm'],

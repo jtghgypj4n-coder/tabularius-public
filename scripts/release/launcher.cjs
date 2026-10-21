@@ -5,7 +5,7 @@
 // there, so it behaves exactly like `node packages/cli/src/main.ts`.
 //
 // The same executable also starts the server's own helper processes and
-// installed services, which run it as `tabularius [--no-warnings] <file.ts> ...`:
+// installed services, which run it as `tabularius [--no-warnings [--eval <code>]] <file.ts> ...`:
 // a .ts or .js file that exists as the first argument is run instead of the
 // command line.
 
@@ -69,6 +69,9 @@ function start() {
   unpack();
   const args = process.argv.slice(2);
   if (args[0] === '--no-warnings') args.shift();
+  // An installed service starts as `tabularius --no-warnings --eval <code> <main.ts> serve ...` (service.ts). The code
+  // restores a renamed app folder for a checkout install and means nothing here: the program's files are unpacked, not renamed.
+  if (args[0] === '--eval') args.splice(0, 2);
   const entry = args.length && /\.(ts|js|mjs|cjs)$/.test(args[0]) && existsSync(args[0])
     ? args.shift()
     : join(root, 'packages', 'cli', 'src', 'main.ts');
