@@ -121,9 +121,28 @@ export function finishConversion(temp: string): void {
 
 /** Publish complete source bytes; a leftover partial copy is never a completed source. */
 function publishSource(source: string, target: string, scratch: string): void {
-  const size = fs.statSync(source).size;
+  const from = fs.statSync(source);
+  const size = from.size;
   const complete = () => {
-    try { return fs.statSync(target).size === size; }
+    try {
+      const to = fs.statSync(target);
+      if (to.size !== size) return false;
+      if (from.dev === to.dev && from.ino === to.ino) return true;
+      const a = fs.openSync(source, 'r');
+      try {
+        const b = fs.openSync(target, 'r');
+        try {
+          const left = Buffer.allocUnsafe(64 * 1024);
+          const right = Buffer.allocUnsafe(left.length);
+          for (let at = 0; at < size; at += left.length) {
+            const count = Math.min(left.length, size - at);
+            if (fs.readSync(a, left, 0, count, at) !== count || fs.readSync(b, right, 0, count, at) !== count) return false;
+            if (!left.subarray(0, count).equals(right.subarray(0, count))) return false;
+          }
+          return true;
+        } finally { fs.closeSync(b); }
+      } finally { fs.closeSync(a); }
+    }
     catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
       return false;

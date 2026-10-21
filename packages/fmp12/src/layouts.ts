@@ -22,7 +22,7 @@ import { Pb } from './proto.ts';
 import { readRules, readTheme, styleScope, type FontTable, type StyleRule, type Theme } from './styles.ts';
 import { scriptStepName } from './script-steps.ts';
 import { decodeStepParams, type ParamContext, type StepParams } from './script-params.ts';
-import { calcTokens, decodeCalc, schemaFieldNamer } from './calc.ts';
+import { CalcDecodeError, calcTokens, decodeCalc, schemaFieldNamer } from './calc.ts';
 import { FmpError, type FmpFile } from './file.ts';
 import type { Schema } from './schema.ts';
 
@@ -817,7 +817,8 @@ function formulaReader(schema: Schema | undefined): (n: Node | undefined) => str
     if (!tokens?.length) return undefined;
     try {
       return decodeCalc(tokens, field, (id) => cfs.get(id) ?? '<Function Missing>').text;
-    } catch {
+    } catch (error) {
+      if (error instanceof CalcDecodeError) throw error;
       return undefined;
     }
   };
