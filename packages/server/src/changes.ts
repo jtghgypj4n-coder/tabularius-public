@@ -50,6 +50,7 @@ export interface FeedEntry {
 }
 
 interface Feed {
+  epoch: string;
   seq: number;
   entries: FeedEntry[];
   waiters: Set<() => void>;
@@ -68,6 +69,12 @@ export class ChangeFeed {
     this.api = api;
     for (const s of host.openStores()) this.watch(s);
     host.onAdd.push((s) => this.watch(s));
+    host.onClose.push((s) => {
+      const key = s.name.toLowerCase();
+      const feed = this.feeds.get(key);
+      this.feeds.delete(key);
+      for (const wake of feed?.waiters ?? []) wake();
+    });
   }
 
   /** Called with every change to any file (webhooks). */
@@ -79,7 +86,7 @@ export class ChangeFeed {
     const key = file.toLowerCase();
     let f = this.feeds.get(key);
     if (!f) {
-      f = { seq: 0, entries: [], waiters: new Set() };
+      f = { epoch: randomBytes(4).toString('hex'), seq: 0, entries: [], waiters: new Set() };
       this.feeds.set(key, f);
     }
     return f;
@@ -109,8 +116,8 @@ export class ChangeFeed {
     });
   }
 
-  private cursor(seq: number): string {
-    return `${this.epoch}-${seq}`;
+  private cursor(feed: Feed, seq: number): string {
+    return `${feed.epoch}-${seq}`;
   }
 
   /** Returns false when the request is not for the change feed. */
@@ -128,18 +135,19 @@ export class ChangeFeed {
       let privileges = sessionPrivileges(store, session);
       const f = this.feed(store.name);
       const since = url.searchParams.get('since');
-      if (since === null) return send(200, { changes: [], next: this.cursor(f.seq) }), true;
+      if (since === null) return send(200, { changes: [], next: this.cursor(f, f.seq) }), true;
       const cm = /^([0-9a-f]+)-(\d+)$/.exec(since);
-      const from = cm && cm[1] === this.epoch ? Number(cm[2]) : NaN;
+      const from = cm && cm[1] === f.epoch ? Number(cm[2]) : NaN;
       const oldest = f.entries.length ? f.entries[0].seq : f.seq + 1;
       if (!Number.isSafeInteger(from) || from > f.seq || from < oldest - 1) {
-        return send(410, { error: 'This cursor is too old or from before a restart: read what you need again, then continue from next.', next: this.cursor(f.seq) }), true;
+        return send(410, { error: 'This cursor is too old or from before a restart: read what you need again, then continue from next.', next: this.cursor(f, f.seq) }), true;
       }
       const limit = Math.min(MAX_LIMIT, Math.max(1, Number(url.searchParams.get('limit') ?? MAX_LIMIT) || MAX_LIMIT));
       let wait = Math.min(MAX_WAIT_S, Math.max(0, Number(url.searchParams.get('wait') ?? 0) || 0)) * 1000;
       const deadline = performance.now() + wait;
       let after = from;
       for (;;) {
+        if (this.feeds.get(store.name.toLowerCase()) !== f) throw new ApiError(802, 'The file was closed; start a new change feed', 410);
         // A long poll can outlive the request that authorized it. Revalidate
         // the same principal and selected mapping every time it resumes.
         if (!this.api.alive(session.token)) throw new ApiError(952, 'Invalid FileMaker Data API token (*)', 401);
@@ -152,11 +160,13 @@ export class ChangeFeed {
           last = e.seq;
           if (this.visible(store, e, privileges)) visible.push(e);
         }
-        if (visible.length || wait <= 0 || res.destroyed) return send(200, { changes: visible, next: this.cursor(last) }), true;
+        if (visible.length || wait <= 0 || res.destroyed) return send(200, { changes: visible, next: this.cursor(f, last) }), true;
         // Everything new was out of sight: move past it and keep waiting.
         after = last;
         wait = deadline - performance.now();
-        if (wait <= 0) return send(200, { changes: [], next: this.cursor(after) }), true;
+        if (wait <= 0) return send(200, { changes: [], next: this.cursor(f, after) }), true;
+        if (f.waiters.size >= 256) throw new ApiError(956, 'Too many change-feed requests are waiting; try again later', 503);
+        if (req.socket.destroyed || res.destroyed || res.writableEnded) return true;
         await new Promise<void>((ok) => {
           const done = () => {
             clearTimeout(timer);

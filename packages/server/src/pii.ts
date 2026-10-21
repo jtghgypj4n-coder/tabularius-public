@@ -9,6 +9,7 @@
 // history...) are refused while it is on.
 
 import type { Store } from '../../store/src/index.ts';
+import { BoundedMap } from './bounded-map.ts';
 import { dataSourceFile } from '../../store/src/import.ts';
 import type { Field } from '../../fmp12/src/index.ts';
 import { secretName } from './ai-output.ts';
@@ -293,7 +294,7 @@ const MATCH_CHARS = 200;
 const TEXT_CHARS = 200_000;
 
 interface Candidate { folded: string; offset: number; token: string }
-interface Vault { lastId: number; byValue: Map<string, string>; byId: Map<number, { kind: string; value: string }>; words: Map<string, Candidate[]> }
+interface Vault { lastId: number; rows: number; overflow: boolean; byValue: Map<string, string>; byId: Map<number, { kind: string; value: string }>; words: Map<string, Candidate[]> }
 const vaults = new WeakMap<Store, Map<string, Vault>>();
 
 function vaultTable(store: Store): void {
@@ -339,28 +340,39 @@ export class PiiMasker {
     this.account = account ?? PII_ADMIN;
     vaultTable(store);
     let byAccount = vaults.get(store);
-    if (!byAccount) vaults.set(store, (byAccount = new Map()));
+    if (!byAccount) vaults.set(store, (byAccount = new BoundedMap(64)));
     const key = this.account.toLowerCase();
     let v = byAccount.get(key);
     // Rows the file no longer has (the account was deleted, or its stand-ins were forgotten) mean what this process
     // remembers is out of date: start again from what the file holds.
     if (v && v.lastId > 0) {
       const held = (store.sql.prepare('SELECT count(*) AS n FROM _fm_pii_vault WHERE id <= ? AND account = ?').get(v.lastId, this.account) as { n: number }).n;
-      if (held !== v.byId.size) v = undefined;
+      if (held !== v.rows) v = undefined;
     }
-    if (!v) byAccount.set(key, (v = { lastId: 0, byValue: new Map(), byId: new Map(), words: new Map() }));
+    if (!v) byAccount.set(key, (v = { lastId: 0, rows: 0, overflow: false, byValue: new Map(), byId: new Map(), words: new Map() }));
     this.vault = v;
     this.refresh();
   }
 
   /** Picks up stand-ins other workers gave this account since. */
   private refresh(): void {
-    const rows = this.store.sql.prepare('SELECT id, kind, value FROM _fm_pii_vault WHERE id > ? AND account = ? ORDER BY id').all(this.vault.lastId, this.account) as { id: number; kind: string; value: string }[];
+    const rows = this.store.sql.prepare('SELECT id, kind, value FROM _fm_pii_vault WHERE id > ? AND account = ? ORDER BY id').iterate(this.vault.lastId, this.account) as Iterable<{ id: number; kind: string; value: string }>;
     for (const r of rows) this.remember(r.id, r.kind, r.value);
   }
 
   private remember(id: number, kind: string, value: string): string {
     const token = `<${kind}_${id}>`;
+    if (!this.vault.byId.has(id) && this.vault.byId.size >= 1024) {
+      const [oldId, old] = this.vault.byId.entries().next().value!;
+      this.vault.byId.delete(oldId);
+      this.vault.byValue.delete(old.value);
+      const first = /[\p{L}\p{N}_]+/u.exec(fold(old.value.trim()))?.[0];
+      if (first) {
+        const kept = (this.vault.words.get(first) ?? []).filter((c) => c.token !== `<${old.kind}_${oldId}>`);
+        if (kept.length) this.vault.words.set(first, kept); else this.vault.words.delete(first);
+      }
+      this.vault.overflow = true;
+    }
     this.vault.byId.set(id, { kind, value });
     if (!this.vault.byValue.has(value)) {
       this.vault.byValue.set(value, token);
@@ -373,7 +385,7 @@ export class PiiMasker {
         this.vault.words.set(first[0], list);
       }
     }
-    if (id > this.vault.lastId) this.vault.lastId = id;
+    if (id > this.vault.lastId) { this.vault.lastId = id; this.vault.rows++; }
     return token;
   }
 
@@ -386,6 +398,7 @@ export class PiiMasker {
     this.count(kind);
     const known = this.vault.byValue.get(value);
     if (known) return known;
+    this.refresh();
     this.store.sql.prepare('INSERT OR IGNORE INTO _fm_pii_vault (account, kind, value) VALUES (?, ?, ?)').run(this.account, kind, value);
     const row = this.store.sql.prepare('SELECT id, kind FROM _fm_pii_vault WHERE account = ? AND value = ?').get(this.account, value) as { id: number; kind: string };
     return this.remember(row.id, row.kind, value);
@@ -401,7 +414,8 @@ export class PiiMasker {
     if (!s) return s;
     if (s.length > TEXT_CHARS) return LONG;
     this.refresh();
-    const whole = this.vault.byValue.get(s);
+    const stored = this.vault.overflow ? this.store.sql.prepare('SELECT id, kind FROM _fm_pii_vault WHERE account = ? AND value = ?').get(this.account, s) as { id: number; kind: string } | undefined : undefined;
+    const whole = this.vault.byValue.get(s) ?? (stored ? `<${stored.kind}_${stored.id}>` : undefined);
     if (whole) {
       this.count(whole.slice(1, whole.indexOf('_')));
       return whole;
@@ -423,10 +437,22 @@ export class PiiMasker {
 
   /** Values already in the vault, wherever they appear as whole words (case aside). */
   private known(s: string): string {
-    if (!this.vault.words.size) return s;
+    if (!this.vault.words.size && !this.vault.overflow) return s;
     const f = fold(s);
     const hits: { start: number; end: number; token: string }[] = [];
-    for (const w of f.matchAll(WORDS)) {
+    if (this.vault.overflow) {
+      // An evicted value must still be masked. Stream the authoritative vault instead of retaining it all.
+      const rows = this.store.sql.prepare('SELECT id, kind, value FROM _fm_pii_vault WHERE account = ?').iterate(this.account) as Iterable<{ id: number; kind: string; value: string }>;
+      for (const row of rows) {
+        const folded = fold(row.value.trim());
+        if (folded.length < 2 || folded.length > MATCH_CHARS || !/[\p{L}\p{N}_]/u.test(folded)) continue;
+        for (let start = f.indexOf(folded); start >= 0; start = f.indexOf(folded, start + 1)) {
+          const end = start + folded.length;
+          if (isWord(f[start - 1]) && isWord(f[start]) || isWord(f[end - 1]) && isWord(f[end])) continue;
+          hits.push({ start, end, token: `<${row.kind}_${row.id}>` });
+        }
+      }
+    } else for (const w of f.matchAll(WORDS)) {
       for (const c of this.vault.words.get(w[0]) ?? []) {
         const start = w.index - c.offset;
         const end = start + c.folded.length;
@@ -457,8 +483,7 @@ export class PiiMasker {
     return s.replace(TOKEN, (m, kind: string, id: string) => {
       let v = this.vault.byId.get(Number(id));
       if (!v) {
-        this.refresh();
-        v = this.vault.byId.get(Number(id));
+        v = this.store.sql.prepare('SELECT kind, value FROM _fm_pii_vault WHERE account = ? AND id = ?').get(this.account, Number(id)) as { kind: string; value: string } | undefined;
       }
       return v && v.kind === kind ? v.value : m;
     });

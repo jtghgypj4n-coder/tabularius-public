@@ -538,6 +538,7 @@ export class Schedules {
     this.history.delete(id);
     this.counts.delete(id);
     this.skipped.delete(id);
+    this.warned.delete(id);
     this.backupProblems.delete(id);
     this.save(undefined, id);
     this.saveRuns(id, true);

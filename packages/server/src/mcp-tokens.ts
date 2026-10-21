@@ -5,6 +5,7 @@
 
 import { expiryClock } from '../../store/src/clock.ts';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import { BoundedMap } from './bounded-map.ts';
 import { existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { readJsonStateSync, updateJsonStateSync } from '../../store/src/durable.ts';
@@ -37,7 +38,7 @@ export class McpTokens {
   private readonly file: string;
   private cache?: { mtime: number; tokens: Stored[] };
   /** Last-used times not yet written: written at most once a minute per token, not on every call. */
-  private readonly touched = new Map<string, number>();
+  private readonly touched = new BoundedMap<string, number>(1024);
 
   constructor(dir: string, onLastUsedWriteAttempt?: () => void) {
     this.file = join(dir, MCP_TOKENS_FILE);
@@ -52,6 +53,8 @@ export class McpTokens {
     if (this.cache?.mtime === mtime) return this.cache.tokens;
     const tokens = readJsonStateSync<Stored[]>(this.file);
     this.cache = { mtime, tokens };
+    const live = new Set(tokens.map((t) => t.id));
+    for (const id of this.touched.keys()) if (!live.has(id)) this.touched.delete(id);
     return tokens;
   }
 
@@ -86,6 +89,7 @@ export class McpTokens {
       return kept;
     }, { mode: 0o600 });
     this.cache = undefined;
+    this.touched.delete(id);
     return removed;
   }
 
