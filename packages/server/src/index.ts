@@ -6,6 +6,7 @@ import { legacyRequest } from './legacy-request.ts';
 import { AUTH_BODY_LIMIT } from './request-body.ts';
 import { parseRequestJson } from './request-json.ts';
 import { IdentityInFlight, busyHeaders } from './in-flight.ts';
+import { RequestGate, requestClass, isDataApiPath, isEventStream } from './request-gate.ts';
 import { StreamSlots } from './stream-slots.ts';
 import type { SmtpConfig } from './smtp.ts';
 import type { Server } from 'node:http';
@@ -223,6 +224,10 @@ export interface ServeOptions {
   log?: (msg: string) => void;
   /** Set when this server is one worker process of several (see cluster.ts). */
   cluster?: ClusterLink;
+  /** Short HTTP requests admitted per process (default 32). */
+  requestLimit?: number;
+  /** Short HTTP requests waiting for a slot per process (default 64). */
+  requestQueue?: number;
 }
 
 const sameToken = (a: string, b: string) => a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
@@ -329,6 +334,8 @@ export async function serve(opts: ServeOptions): Promise<{ server: Server; host:
     admin.log = log;
     const metrics = new Metrics();
     disposers.push(() => metrics.stop());
+    const requestGate = new RequestGate(opts.requestLimit ?? Number(process.env.TABULARIUS_REQUEST_LIMIT ?? 32), opts.requestQueue ?? Number(process.env.TABULARIUS_REQUEST_QUEUE ?? 64));
+    metrics.requestGate = requestGate;
     admin.metrics = metrics;
     admin.uploads = new Uploads(host, log);
     disposers.push(() => admin.uploads!.stop());
@@ -515,6 +522,25 @@ export async function serve(opts: ServeOptions): Promise<{ server: Server; host:
       }
       metrics.track(req, res, url.pathname);
       compressResponse(req, res, url.pathname);
+      // Health always answers. An event stream is long-lived and has a separate
+      // stream limit; holding a short-request slot for its lifetime would starve
+      // ordinary calls at normal session counts.
+      const stream = isEventStream(req.method, url.pathname);
+      const release = url.pathname === '/tabularius/health' || stream ? undefined : await requestGate.enter(req, res, requestClass(req.method, url.pathname));
+      if (req.socket.destroyed || res.destroyed || res.writableEnded) {
+        release?.();
+        return;
+      }
+      if (!release && url.pathname !== '/tabularius/health' && !stream) {
+        if (!res.destroyed && !res.writableEnded) {
+          busyHeaders(res);
+          if (isDataApiPath(url.pathname)) res.writeHead(503, { 'content-type': 'application/json' }).end(JSON.stringify({ messages: [{ code: '301', message: 'Server busy. Try again shortly.' }], response: {} }));
+          else if (wantsPage(req)) sendError(req, res, 503);
+          else res.writeHead(503, { 'content-type': 'application/json' }).end(JSON.stringify({ error: { code: 503, message: 'Server busy. Try again shortly.' } }));
+        }
+        return;
+      }
+      try {
       // What the audit log says a record change came from (the Data API's sign-in refines "rest" to "web" for the web client).
       const via = auditSurface(url.pathname);
       const context = writer.getStore();
@@ -698,6 +724,7 @@ export async function serve(opts: ServeOptions): Promise<{ server: Server; host:
         console.error(e);
         if (!res.headersSent) sendError(req, res, 500);
       }
+      } finally { release?.(); }
     });
     const server = createEdgeServer(handler, opts.edgeLimits, tls, link ? {} : { proxyHeader: opts.proxyHeader, trustedProxies });
     const close = server.close.bind(server);

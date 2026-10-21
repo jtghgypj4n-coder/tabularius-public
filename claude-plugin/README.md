@@ -5,7 +5,7 @@ Teaches Claude Code to work with a hosted Tabularius solution through its `/mcp`
 ## Install
 
 ```
-/plugin marketplace add jtghgypj4n-coder/tabularius-public
+/plugin marketplace add sitotisai/tabularius
 /plugin install tabularius@tabularius
 ```
 

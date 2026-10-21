@@ -1,6 +1,6 @@
 # Tabularius
 
-An open-source, AI-native platform for FileMaker solutions: open an existing
+An open-source (MIT licence), AI-native platform for FileMaker solutions: open an existing
 `.fmp12` file, host it, and work with it from a modern client, with an MCP
 server built in.
 
@@ -773,7 +773,7 @@ claude mcp add --transport http tabularius http://SERVER:8080/mcp --header "Auth
 
 Claude Code then finds, reads and edits records, lists layouts and schema and
 runs scripts as that account, within its privileges. The Tabularius plugin
-(`/plugin marketplace add jtghgypj4n-coder/tabularius-public`, then
+(`/plugin marketplace add sitotisai/tabularius`, then
 `/plugin install tabularius@tabularius`) makes the connection and adds a skill
 that teaches Claude Code the safe way to use the tools. Details, Claude Desktop and
 claude.ai connector steps: [docs/connect-ai.md](docs/connect-ai.md).

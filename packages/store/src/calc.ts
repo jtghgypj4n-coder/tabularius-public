@@ -1807,8 +1807,13 @@ export class Calculations {
           case 'recordid': return rec ? num(Number(rec.row._fm_record_id)) : EMPTY;
           case 'recordmodificationcount': return rec ? num(Number(rec.row._fm_mod_id ?? 0)) : EMPTY;
           case 'accountname': case 'username': return pass.account !== undefined ? text(pass.account) : undefined;
+          case 'currentprivilegesetname':
+            if (pass.privileges) return text(pass.privileges.in(store).name);
+          // Without an explicit evaluation privilege context, use the account's saved set.
+          // AccountPrivilegeSetName must never report a script's temporary elevation.
           case 'accountprivilegesetname': {
-            const name = pass.account !== undefined ? privilegeSetName(store.schema, pass.account) : undefined;
+            const account = pass.privileges?.in(store).via ?? pass.account ?? pass.privileges?.account;
+            const name = account !== undefined ? store.accountPrivilegeSet(account) : undefined;
             return name === undefined ? undefined : text(name);
           }
           case 'accountextendedprivileges': {
