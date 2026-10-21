@@ -39,7 +39,10 @@ import { LogShipper, applyLog, logReader, logRecords, startLog, writeLog } from 
 import type { LogFollower, LogWriter } from './logs.ts';
 import { backupInventory, checkedBackupCopies } from './backup-inventory.ts';
 import { readBackupInfo, updateBackupInfo, writeBackupInfo } from './backup-info.ts';
-import { isEncryptedSet, prepareSigner, readVerified, signManifest } from './backup-auth.ts';
+import { isEncryptedSet, openAmenderSync, readVerified, signManifest } from './backup-auth.ts';
+import type { Amender } from './backup-auth.ts';
+import { EMPTY_CHAIN, LOGS, OLD_LOG, chainOf, extendChain, verifyLogs } from './backup-log-chain.ts';
+import type { LogChain } from './backup-log-chain.ts';
 import { sweepStateTempsSync, writeDurable } from '../../store/src/durable.ts';
 import { commitRestore, recoverRestore } from './restore-files.ts';
 
@@ -626,11 +629,6 @@ export async function restoreBackup(folder: string, set: string, only?: string, 
 
 // --- point-in-time backups ------------------------------------------------
 
-/** Logs as saved by earlier versions: one log per file, named by its time. */
-const OLD_LOG = /^\d{4}-\d{2}-\d{2}_\d{6}\.\d{3}\.wal(?:\.enc)?$/;
-/** Files of logs, one started every interval, named by when it was started. */
-const LOGS = /^\d{4}-\d{2}-\d{2}_\d{6}\.\d{3}\.log(?:\.enc)?$/;
-
 export interface ProgressiveSchedule {
   every: number;
   /** The set the logs go into. */
@@ -664,14 +662,54 @@ export async function scheduleProgressive(host: Host, opts: { every: number; des
   let inSet = new Set(Object.keys(finishedTimes(set)));
   const adding = new Set<string>();
   const current = new Map<string, LogWriter & { started: number }>();
+  // With a passphrase, the set's manifest is only ever changed through an amender, which checks the signature first.
+  let amending: { set: string; key: string; amender: Amender } | undefined;
+  const amenderFor = (dir: string, key: string): Amender => {
+    if (!amending || amending.set !== dir || amending.key !== key) amending = { set: dir, key, amender: openAmenderSync(dir, key) };
+    return amending.amender;
+  };
+  /** Each file's saved logs as counted and chained so far, and the files whose count the manifest does not have yet. */
+  const chains = new Map<string, LogChain>();
+  const unlisted = new Set<string>();
+  const logDirOf = (dir: string, name: string) => join(dir, 'progressive', name);
+  const chainFor = (name: string): LogChain => {
+    let chain = chains.get(name);
+    if (!chain) {
+      chain = existsSync(logDirOf(set, name)) ? chainOf(logDirOf(set, name)) : EMPTY_CHAIN;
+      chains.set(name, chain);
+    }
+    return chain;
+  };
+  /** Puts the logs saved since the manifest was last signed into it. */
+  const listLogs = (): void => {
+    const key = backupKey();
+    if (!key || !unlisted.size) return;
+    const amender = amenderFor(set, key);
+    const names = [...unlisted];
+    try {
+      amender.amend((info) => {
+        info.logs = { ...info.logs, ...Object.fromEntries(names.map((n) => [n, chainFor(n)])) };
+      });
+    } catch (e) {
+      // The manifest no longer checks out: it is looked at again, from the start, before anything more is saved.
+      amending = undefined;
+      throw e;
+    }
+    for (const n of names) unlisted.delete(n);
+  };
   let bytes = 0;
   let failed: string | undefined;
   const addToSet = async (name: string) => {
     adding.add(name);
+    // A copy put in place that could not be listed is taken out again: a set never holds a copy its manifest does not list.
+    let placed: string | undefined;
     try {
       const into = set;
       const file = name + STORE_EXT;
       const key = backupKey();
+      // The set's signature is checked before anything is copied, and again when the file is listed: a set that was edited is
+      // not signed again.
+      const amender = key ? amenderFor(into, key) : undefined;
       // Made under a name no restore reads, then put in place and listed together: the set is never signed for a file it
       // does not list, nor lists a file it does not hold, for longer than the rename.
       const scratch = join(into, file + '.adding');
@@ -680,15 +718,19 @@ export async function scheduleProgressive(host: Host, opts: { every: number; des
       if (key) await seal(scratch, key);
       const copy = scratch + (key ? ENCRYPTED_EXT : '');
       const sum = await checksum(copy);
-      const sign = key ? await prepareSigner(key) : undefined;
-      renameSync(copy, join(into, file) + (key ? ENCRYPTED_EXT : ''));
-      updateBackupInfo<{ finished?: Record<string, string>; sha256?: Record<string, string> }>(into, (info) => {
+      placed = join(into, file) + (key ? ENCRYPTED_EXT : '');
+      renameSync(copy, placed);
+      const list = (info: { finished?: Record<string, string>; sha256?: Record<string, string> }) => {
         info.finished = { ...info.finished, [file]: new Date(finishedAt).toISOString() };
         info.sha256 = { ...info.sha256, [file]: sum };
-        sign?.(info);
-      });
+      };
+      if (amender) amender.amend(list);
+      else updateBackupInfo<{ finished?: Record<string, string>; sha256?: Record<string, string> }>(into, list);
+      placed = undefined;
       if (into === set) inSet.add(file);
     } catch (e) {
+      if (placed) rmSync(placed, { force: true });
+      amending = undefined;
       rmSync(join(set, name + STORE_EXT + '.adding'), { force: true });
       rmSync(join(set, name + STORE_EXT + '.adding' + ENCRYPTED_EXT), { force: true });
       log(`point-in-time backup of ${name} failed: ${(e as Error).message}`);
@@ -705,18 +747,27 @@ export async function scheduleProgressive(host: Host, opts: { every: number; des
         mkdirSync(set, { recursive: true });
         inSet = new Set();
         current.clear();
+        chains.clear();
+        unlisted.clear();
+        amending = undefined;
       }
       if (!inSet.has(file)) {
         // Hosted since this started (dropped into the folder): copy it into the set first, keeping its changes until then.
         if (!adding.has(store.name)) void addToSet(store.name);
         return false;
       }
+      const key = backupKey();
+      // Logs are only saved where they can be listed in the set's signed manifest, so the amender is opened first; the changes
+      // stay in the file's log until it is.
+      if (key) {
+        try { amenderFor(set, key); } catch (e) { failed = (e as Error).message; throw e; }
+      }
       try {
         let cur = current.get(store.name);
+        const chain = chainFor(store.name);
         if (!cur || at - cur.started >= opts.every) {
-          const dir = join(set, 'progressive', store.name);
+          const dir = logDirOf(set, store.name);
           mkdirSync(dir, { recursive: true });
-          const key = backupKey();
           // Encrypted as written, so no log is ever readable on disk.
           const latest = readdirSync(dir).filter((name) => LOGS.test(name)).sort().at(-1)?.slice(0, 21);
           let label = stamp(new Date(at), true);
@@ -725,10 +776,14 @@ export async function scheduleProgressive(host: Host, opts: { every: number; des
           cur = { ...startLog(join(dir, `${label}.log${key ? ENCRYPTED_EXT : ''}`), key, store.name), started: at };
           current.set(store.name, cur);
         }
-        writeLog(cur, { at, seq: 0, data });
+        const stored = writeLog(cur, { at, seq: 0, data });
+        chains.set(store.name, extendChain(chain, basename(cur.path), stored));
+        if (key) unlisted.add(store.name);
       } catch (e) {
-        // Whatever part was written stays unread at the end of that file; the next changes start a new one.
+        // Whatever part was written stays unread at the end of that file; the next changes start a new one. What the files hold is counted again.
         current.delete(store.name);
+        chains.delete(store.name);
+        if (key) unlisted.add(store.name);
         failed = (e as Error).message;
         throw e;
       }
@@ -736,6 +791,7 @@ export async function scheduleProgressive(host: Host, opts: { every: number; des
       return true;
     },
     shipped: () => {
+      try { listLogs(); } catch (e) { failed ||= (e as Error).message; }
       schedule.last = failed ? { at: Date.now(), ok: false, message: failed, bytes } : { at: Date.now(), ok: true, message: `${bytes} bytes of changes`, bytes };
       if (failed) log(`point-in-time backup failed: ${failed}`);
       bytes = 0;
@@ -746,9 +802,16 @@ export async function scheduleProgressive(host: Host, opts: { every: number; des
     every: opts.every,
     set: () => set,
     follow: (dir) => {
+      try { listLogs(); } catch { /* the set being left was not being relied on for more */ }
       set = dir;
       inSet = new Set(Object.keys(finishedTimes(dir)));
       current.clear();
+      chains.clear();
+      unlisted.clear();
+      const key = backupKey();
+      if (key) {
+        try { amenderFor(dir, key); } catch (e) { log(`point-in-time backups are not saved: ${(e as Error).message}`); }
+      }
     },
     run: () => shipper.ship(),
     stop: () => {
@@ -756,6 +819,11 @@ export async function scheduleProgressive(host: Host, opts: { every: number; des
       shipper.remove(follower);
     },
   };
+  // Opened now, so the first changes are saved at once.
+  const key = backupKey();
+  if (key) {
+    try { amenderFor(set, key); } catch (e) { log(`point-in-time backups are not saved: ${(e as Error).message}`); }
+  }
   shipper.add(follower);
   return schedule;
 }
@@ -779,6 +847,9 @@ export function parseTime(text: string): number {
 /** One saved log: when it was taken and how to read it. */
 export interface SavedLog {
   at: number;
+  /** The log file and the place in it the record is from (logs under the current format): what a signed set's inventory names. */
+  file?: string;
+  n?: number;
   /** `sealedOnly`: refuse a log that is not encrypted (a signed set has none). */
   read(passphrase: string | undefined, sealedOnly?: boolean): Promise<Buffer>;
 }
@@ -807,15 +878,15 @@ function savedLogs(logDir: string): SavedLog[] {
       });
     } else if (LOGS.test(l)) {
       let reader: Promise<(r: { at?: number; n: number; offset: number; length: number }) => Buffer> | undefined;
-      for (const r of logRecords(path)) out.push({ at: r.at, read: async (passphrase, sealedOnly) => (await (reader ??= logReader(path, passphrase, basename(logDir), sealedOnly)))(r) });
+      for (const r of logRecords(path)) out.push({ at: r.at, file: l, n: r.n, read: async (passphrase, sealedOnly) => (await (reader ??= logReader(path, passphrase, basename(logDir), sealedOnly)))(r) });
     }
   }
   return out.sort((a, b) => a.at - b.at);
 }
 
 /** The latest moment at or before `at` a file can be put back to, from which set and logs. */
-export function restorePoint(dest: string, file: string, at: number): { set: string; copy: string; logs: SavedLog[]; time: number } | undefined {
-  let best: { set: string; copy: string; logs: SavedLog[]; time: number } | undefined;
+export function restorePoint(dest: string, file: string, at: number): { set: string; copy: string; logs: SavedLog[]; time: number; finished: number } | undefined {
+  let best: { set: string; copy: string; logs: SavedLog[]; time: number; finished: number } | undefined;
   for (const name of backupSets(dest)) {
     const dir = join(dest, name);
     const finished = finishedTimes(dir)[file];
@@ -823,7 +894,7 @@ export function restorePoint(dest: string, file: string, at: number): { set: str
     if (finished === undefined || finished > at) continue;
     const logs = savedLogs(join(dir, 'progressive', file.slice(0, -STORE_EXT.length))).filter((x) => x.at > finished && x.at <= at);
     const time = logs.length ? logs.at(-1)!.at : finished;
-    if (!best || time >= best.time) best = { set: dir, copy, logs, time };
+    if (!best || time >= best.time) best = { set: dir, copy, logs, time, finished };
   }
   return best;
 }
@@ -1059,13 +1130,14 @@ function reconcileCredentials(source: string | undefined, restored: string): voi
 export async function restorePointTo(point: { copy: string; logs: SavedLog[] }, target: string, passphrase = backupKey(), securitySource = target, acceptUnsigned = false): Promise<void> {
   let external: Awaited<ReturnType<typeof stageExternal>> | undefined;
   try {
-    await stageRestorePoint(point, target, passphrase, securitySource, acceptUnsigned);
+    // The container files are the ones in the manifest that was checked, not a second read of it.
+    const { external: listed } = await stageRestorePoint(point, target, passphrase, securitySource, acceptUnsigned);
     const name = plain(basename(point.copy)).slice(0, -STORE_EXT.length);
-    const hasExternal = Object.keys(externalManifest(dirname(point.copy))).some((rel) => rel.split('/')[1] === name);
+    const hasExternal = Object.keys(listed).some((rel) => rel.split('/')[1] === name);
     if (hasExternal && basename(target) !== name + STORE_EXT) {
       throw new Error(`cannot restore external container files for ${name} under a different database name`);
     }
-    external = await stageExternal(dirname(point.copy), dirname(target), [name], passphrase);
+    external = await stageExternal(dirname(point.copy), dirname(target), [name], passphrase, undefined, listed);
     // Keep the old database and its WAL together until the replacement commits.
     commitRestore(dirname(target), [...restorePointFiles(target), ...external.files]);
     crashPoint('restore-copy:after-publish');
@@ -1089,9 +1161,10 @@ function lstatOrNull(path: string): ReturnType<typeof lstatSync> | null {
  * it unsigned), the copy is an ordinary file, and it has a checksum in the manifest. Returns the checksums of the manifest that
  * was checked, to compare a snapshot of the copy with, rather than a second read of a manifest that can change between two reads.
  * The saved logs laid over it are each authenticated when the set is encrypted (and, from log format 2, bound to their time
- * and the database), but the manifest does not list them, so a whole log removed, or a log file cut at a record boundary, is not noticed.
+ * and the database), and a signed manifest also records how many logs were saved and a chain over them (backup-log-chain.ts), so
+ * a log removed, replaced or cut at a record boundary is noticed. Also returns the container files the manifest lists.
  */
-async function trustPoint(copy: string, passphrase: string | undefined, acceptUnsigned: boolean, trusted = new Map<string, Awaited<ReturnType<typeof trustSet>>>()): Promise<{ signed: boolean; sums?: Record<string, string> }> {
+async function trustPoint(copy: string, passphrase: string | undefined, acceptUnsigned: boolean, trusted = new Map<string, Awaited<ReturnType<typeof trustSet>>>()): Promise<{ signed: boolean; sums?: Record<string, string>; external: ExternalManifest; logs?: Record<string, LogChain> }> {
   const dir = dirname(copy);
   let set = trusted.get(dir);
   if (!set) {
@@ -1103,33 +1176,41 @@ async function trustPoint(copy: string, passphrase: string | undefined, acceptUn
   if (!kind.isFile()) throw new Error(`${copy} is not an ordinary file (a ${kind.isSymbolicLink() ? 'symbolic link' : 'directory or special file'}), so it is not restored`);
   // The manifest that was checked, not a second read of the file.
   const sums = set.info.sha256;
-  if (!sums) return { signed: set.signed };
+  const external = (set.info.external ?? {}) as ExternalManifest;
+  const logs = set.info.logs as Record<string, LogChain> | undefined;
+  if (!sums) return { signed: set.signed, external, logs };
   const name = plain(basename(copy));
   if (!sums[name]) throw new Error(`missing checksum for ${name} in ${join(dir, 'backup.json')}`);
-  return { signed: set.signed, sums };
+  return { signed: set.signed, sums, external, logs };
 }
 
 /** Stage without touching any live database, so a folder restore can commit once. */
-async function stageRestorePoint(point: { copy: string; logs: SavedLog[] }, target: string, passphrase: string | undefined, securitySource = target, acceptUnsigned = false, trusted?: Map<string, Awaited<ReturnType<typeof trustSet>>>): Promise<void> {
-  const { signed, sums } = await trustPoint(point.copy, passphrase, acceptUnsigned, trusted);
+async function stageRestorePoint(point: { copy: string; logs: SavedLog[] }, target: string, passphrase: string | undefined, securitySource = target, acceptUnsigned = false, trusted?: Map<string, Awaited<ReturnType<typeof trustSet>>>): Promise<{ external: ExternalManifest; logs: SavedLog[] }> {
+  const { signed, sums, external, logs: recorded } = await trustPoint(point.copy, passphrase, acceptUnsigned, trusted);
+  const name = plain(basename(point.copy)).slice(0, -STORE_EXT.length);
+  // In a signed set only the logs its manifest recorded are replayed, and every one of them has to be there.
+  let logs = point.logs;
+  if (signed) {
+    const vouched = verifyLogs(join(dirname(point.copy), 'progressive', name), recorded && Object.hasOwn(recorded, name) ? recorded[name] : undefined, name);
+    logs = point.logs.filter((l) => l.file !== undefined && vouched.has(`${l.file}#${l.n}`));
+  }
   const work = target + '.restoring';
   const scratch = [work, work + '-wal', work + '-shm', work + ENCRYPTED_EXT];
   for (const x of scratch) rmSync(x, { force: true });
   try {
     // The database is read once into a file of our own, and that file is what is checked and opened.
     await copyVerifiedDatabase(point.copy, work, passphrase, () => crashPoint('restore-copy:after-copy'), sums);
-    const name = plain(basename(point.copy)).slice(0, -STORE_EXT.length);
-    if (point.logs.length && Object.keys(externalManifest(dirname(point.copy))).some((rel) => rel.split('/')[1] === name)) {
+    if (logs.length && Object.keys(external).some((rel) => rel.split('/')[1] === name)) {
       throw new Error(`cannot restore external container files for ${name} after the base snapshot: progressive logs do not capture their versions`);
     }
     // Each log, laid next to the copy, is replayed into it by SQLite. A signed set has only encrypted logs.
-    for (const l of point.logs) applyLog(work, await l.read(passphrase, signed));
+    for (const l of logs) applyLog(work, await l.read(passphrase, signed));
     crashPoint('restore-copy:after-replay');
     const check = new DatabaseSync(work, { readOnly: true });
     try {
       const r = Object.values(check.prepare('PRAGMA quick_check').get() as Record<string, string>)[0];
       if (r !== 'ok') throw new Error(`restoring ${basename(target)} failed its check: ${r}`);
-      if (point.logs.length && check.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = '_fm_containers'").get() &&
+      if (logs.length && check.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = '_fm_containers'").get() &&
           check.prepare("SELECT 1 FROM _fm_containers WHERE external IS NOT NULL AND external != '' LIMIT 1").get()) {
         throw new Error(`cannot restore external container files for ${basename(target)} after the base snapshot: progressive logs do not capture their versions`);
       }
@@ -1143,6 +1224,7 @@ async function stageRestorePoint(point: { copy: string; logs: SavedLog[] }, targ
   retainCurrentCredentials(securitySource, work);
   crashPoint('restore-copy:after-verify');
   for (const x of [work + '-wal', work + '-shm']) rmSync(x, { force: true });
+  return { external, logs };
 }
 
 /** The span of time a file can be put back to: from its oldest backed-up copy to its newest saved change. */
@@ -1185,12 +1267,15 @@ export async function restoreAt(folder: string, dest: string, at: number, only?:
         if (only) throw new Error(`no backup of ${only} from before ${new Date(at).toLocaleString()}`);
         continue;
       }
-      await stageRestorePoint(point, join(folder, f), passphrase, undefined, options.acceptUnsigned, trusted);
-      external.push(await stageExternal(point.set, folder, [f.slice(0, -STORE_EXT.length)], passphrase, options.signal));
-      const newer = changedSince(join(folder, f), point.time);
+      const staged = await stageRestorePoint(point, join(folder, f), passphrase, undefined, options.acceptUnsigned, trusted);
+      // The container files are the ones in the manifest that was checked, not a second read of it.
+      external.push(await stageExternal(point.set, folder, [f.slice(0, -STORE_EXT.length)], passphrase, options.signal, staged.external));
+      // Only the logs vouched for were replayed, so the file is as it was at the last of those.
+      const time = staged.logs.length === point.logs.length ? point.time : staged.logs.at(-1)?.at ?? point.finished;
+      const newer = changedSince(join(folder, f), time);
       if (newer) options.newerThanBackup?.push({ file: f, ...newer });
       crashPoint('restore-at:after-file');
-      out.push({ file: f, time: point.time });
+      out.push({ file: f, time });
     }
     const differences = out.flatMap(({ file }) => accountDifferences(file, join(folder, file), join(folder, file) + '.restoring'));
     options.differences?.push(...differences);

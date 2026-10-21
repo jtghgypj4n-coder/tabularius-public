@@ -30,6 +30,7 @@ import { decryptFile, ENCRYPTED_EXT } from './encrypt.ts';
 import { backupKey, backupSets } from './backup.ts';
 import { checkManifest, isEncryptedSet, signManifest } from './backup-auth.ts';
 import { verifyExternal } from './backup-external.ts';
+import { logInventory } from './backup-log-chain.ts';
 import { Store, isDamageError } from '../../store/src/index.ts';
 
 
@@ -287,7 +288,8 @@ export async function verifySet(setDir: string, passphrase = backupKey(), option
   const check: SetCheck = { at: new Date().toISOString(), ok: Object.values(files).every((v) => v === 'ok'), files, ms: Date.now() - started };
   if (unsigned) {
     // Signing says the person looked at the set and trusts it as it is; it is only offered for one that passed every check above.
-    if (options.sign && check.ok && passphrase) { await signManifest(setDir, passphrase); unsigned = false; }
+    // The logs saved in the set are counted into the signature as they are, like its copies: a restore then takes those and no others.
+    if (options.sign && check.ok && passphrase) { const logs = logInventory(setDir); await signManifest(setDir, passphrase, (i) => { if (Object.keys(logs).length) i.logs = logs; }); unsigned = false; }
     if (unsigned) check.unsigned = true;
   }
   updateInfo(setDir, (i) => {
