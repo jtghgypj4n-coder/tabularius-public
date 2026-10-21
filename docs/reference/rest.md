@@ -21408,13 +21408,13 @@ Source: `packages/server/src/index.ts`, `packages/server/src/mcp-tokens.ts`
 
 Sends one MCP JSON-RPC message (initialize, tools/list, tools/call and so on) and returns its answer.
 
-**Permissions:** One of, in this order: (1) HTTP Basic with an account and password: the account is checked in each file a tool touches (wrong password counts toward lockout) and its privilege set needs the fmmcp extended privilege there; files it can't use are left out of list_databases. (2) Bearer ohbt_… API token of a file (Manage Security, or the admin console's Connect an AI app): one account of that one file, its privilege set narrowed to the token's scope (read-only, layouts). It is not accepted when the token's surfaces leave out fmmcp, or the account may not sign in from the client's address. (3) Bearer ohm_… token made in the admin console (older AI app tokens): signs in as its account in its file only, until it expires; the privilege set needs fmmcp. (4) Otherwise the server administrator, with every file: when the server was started with --mcp-token (or TABULARIUS_MCP_TOKEN), only a Bearer token equal to it; without one, any request from loopback (127.0.0.1, ::1). Whoever it is, a file with AI turned off is refused to every MCP client, the administrator included.
+**Permissions:** One of, in this order: (1) HTTP Basic with an account and password: the account is checked in each file a tool touches (wrong password counts toward lockout) and its privilege set needs the fmmcp extended privilege there; files it can't use are left out of list_databases. (2) Bearer ohbt_… API token of a file (Manage Security, or the admin console's Connect an AI app): one account of that one file, its privilege set narrowed to the token's scope (read-only, layouts). It is not accepted when the token's surfaces leave out fmmcp, or the account may not sign in from the client's address. (3) Bearer ohm_… token made in the admin console (older AI app tokens): signs in as its account in its file only, until it expires; the privilege set needs fmmcp. (4) Otherwise the server administrator, with every file: only a Bearer token equal to --mcp-token (or TABULARIUS_MCP_TOKEN), or, when none was given, to the one the server keeps in the hosted folder (.openhbam-mcp-token; `tabularius mcp-token <folder>` prints it). No request is answered without a credential, this computer included. Whoever it is, a file with AI turned off is refused to every MCP client, the administrator included.
 
 **Parameters:**
 
 | Name | In | Type | Required | Description |
 | --- | --- | --- | --- | --- |
-| `Authorization` | header | string | no | Basic <account:password>, or Bearer <ohbt_ token \| ohm_ token \| --mcp-token>. Leave it off on loopback when no --mcp-token is set. |
+| `Authorization` | header | string | no | Basic <account:password>, or Bearer <ohbt_ token \| ohm_ token \| --mcp-token>.  |
 | `Content-Type` | header | string | yes | application/json |
 | `Accept` | header | string | yes | application/json, text/event-stream (the MCP transport wants both listed). |
 | `MCP-Protocol-Version` | header | string | no | The MCP protocol version, e.g. 2025-06-18. |

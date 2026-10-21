@@ -268,7 +268,7 @@ export const ROWS: Row[] = [
   {
     id: 'mcp-local', section: 'Sign-in and accounts', setting: 'AI connector (`/mcp`)',
     default: 'Needs a credential from everyone, this computer included. The server makes an administrator token on first start and keeps it in `.openhbam-mcp-token` in the hosted folder, readable only by the account that runs the server (`tabularius mcp-token <folder>` prints it)',
-    changedBy: '`--mcp-token` (or `TABULARIUS_MCP_TOKEN`) sets the administrator token instead; an account (HTTP Basic), an API token from the admin console or Manage Security, or the OAuth sign-in limit a caller to one account\'s privilege set. Deleting `.openhbam-mcp-token` and restarting makes a new one',
+    changedBy: '`--mcp-token` (or `TABULARIUS_MCP_TOKEN`) sets the administrator token instead; an account (HTTP Basic), an API token from the admin console or Manage Security, or the OAuth sign-in limit a caller to one account\'s privilege set. Deleting `.openhbam-mcp-token` and restarting makes a new one. Give a cluster or a standby pair the same `--mcp-token`, so every process and a server that takes over accept the same one; the admin console is a separate door and trusts this computer until it has a password',
     risk: 'Whoever holds the administrator token can read and change every hosted file: keep the file and the token out of repositories and chats. On Windows the file has no owner-only mode, so keep the hosted folder\'s own permissions tight',
     how: 'probed', expect: 'refused without a token, open with the folder\'s',
     observe: async (c) => {
@@ -439,7 +439,7 @@ function assertNotLocked(r: { status: number; text: string }, i: number): void {
 export const OWNER_DECISIONS: { title: string; text: string }[] = [
   {
     title: 'Admin console is open to this computer until a password is set',
-    text: 'The same reasoning as `/mcp`: on a shared computer any local user can open the console. Recommended: ask for the password on first visit even from this computer when the folder is not under the user\'s home directory. Not done: it would stop `tabularius` (no arguments) opening the welcome page straight away.',
+    text: 'On a shared computer any local user can open the console, and from it make `/mcp` tokens and act as the administrator, so a console password is what keeps the others out. Recommended: ask for the password on first visit even from this computer when the folder is not under the user\'s home directory. Not done: it would stop `tabularius` (no arguments) opening the welcome page straight away.',
   },
 ];
 

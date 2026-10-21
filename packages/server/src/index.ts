@@ -19,7 +19,7 @@ import { join, resolve } from 'node:path';
 import { certificateManaged, ImportedCertificates } from './cert-import.ts';
 import { guideIndex, guidePage } from './docs.ts';
 import { sendConditional } from './conditional.ts';
-import { timingSafeEqual } from 'node:crypto';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { isJsonContentType } from '@modelcontextprotocol/sdk/shared/mediaType.js';
 import { DEFAULT_MAX_REQUEST_BODY_SIZE, requestBodyTooLargeMessage } from '@modelcontextprotocol/sdk/server/requestBody.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
@@ -102,7 +102,7 @@ export { ContainerFiles, parseRange } from './containers.ts';
 export { Uploads, hostedName, MAX_PIECE } from './uploads.ts';
 export { Admin, setAdminPassword, adminPasswordProblem } from './admin.ts';
 export { tokenExpiry, defaultTokenDays, DEFAULT_TOKEN_DAYS, DEFAULT_FEED_DAYS } from './token-expiry.ts';
-export { localMcpToken, MCP_LOCAL_TOKEN_FILE } from './mcp-local-token.ts';
+export { localMcpToken, readLocalMcpToken, MCP_LOCAL_TOKEN_FILE } from './mcp-local-token.ts';
 export { AdminApi, ADMIN_API_VERSION } from './adminapi.ts';
 export { ChangeFeed, Webhooks, type Webhook, type FeedEntry } from './changes.ts';
 export { Profiler } from './profiler.ts';
@@ -233,7 +233,8 @@ export interface ServeOptions {
   requestQueue?: number;
 }
 
-const sameToken = (a: string, b: string) => a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
+// Hashed first: the two sides are then always the same length in bytes, whatever characters a header carries.
+const sameToken = (a: string, b: string) => timingSafeEqual(createHash('sha256').update(a).digest(), createHash('sha256').update(b).digest());
 
 /** The account and file an API token stands for at /mcp, with its scope; undefined when no hosted file knows it or it isn't for AI apps. */
 function apiTokenIdentity(host: Host, token: string, from: string): McpIdentity | undefined {

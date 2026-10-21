@@ -23,7 +23,7 @@ before(async () => {
   if (skip) return;
   dir = mkdtempSync(join(tmpdir(), 'tabularius-insight-'));
   for (const f of files) copyFileSync(join(fixtures, f), join(dir, f));
-  const s = await serve({ dir, port: 0, log: () => {} });
+  const s = await serve({ mcpToken: 'test-admin-token', dir, port: 0, log: () => {} });
   server = s.server;
   base = s.url;
   host = s.host;
@@ -180,7 +180,7 @@ test('check script: a draft with mistakes', { skip }, () => {
 test('MCP: AI tools and prompts', { skip }, async () => {
   const rpc = async (body: unknown) => (await fetch(`${base}/mcp`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-protocol-version': '2025-06-18' },
+    headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-protocol-version': '2025-06-18', authorization: 'Bearer test-admin-token' },
     body: JSON.stringify(body),
   })).json();
   const call = async (name: string, args: unknown) =>
@@ -278,7 +278,7 @@ test('documentation: tables, layouts, scripts and what calls what, as Markdown a
   }
   const mcp = await (await fetch(`${base}/mcp`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-protocol-version': '2025-06-18' },
+    headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-protocol-version': '2025-06-18', authorization: 'Bearer test-admin-token' },
     body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'document_solution', arguments: { database: 'Charts', section: 'scripts' } } }),
   })).json();
   assert.match(mcp.result.content[0].text, /^## Scripts\n/);

@@ -729,6 +729,8 @@ test('/mcp answers no one without a credential, this computer included; the fold
   assert.equal(await call({ authorization: `Bearer ${token}` }), 200);
   assert.equal(await call({ authorization: `Bearer ${token}x` }), 401, 'a near miss is not the token');
   assert.equal(await call({ authorization: 'Bearer ' + 'tbmcp_' + 'a'.repeat(43) }), 401);
+  // Same number of characters as the token but more bytes (a header is read as latin1): refused, not a server error.
+  assert.equal(await call({ authorization: `Bearer ${'\u00e9'.repeat(token.length)}` }), 401);
   // A second start in the same folder keeps the token, so an app set up once keeps working.
   const again = await serve({ dir, port: 0, log: () => {} });
   try { assert.equal(readFileSync(file, 'utf8').trim(), token); } finally { await new Promise<void>((r) => again.server.close(() => r())); }

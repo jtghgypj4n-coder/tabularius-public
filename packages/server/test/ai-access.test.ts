@@ -38,7 +38,7 @@ before(async () => {
   await new Promise<void>((r) => model.listen(0, '127.0.0.1', r));
   dir = mkdtempSync(join(tmpdir(), 'tabularius-ai-access-'));
   copyFileSync(fixture, join(dir, 'Charts.fmp12'));
-  const s = await serve({ dir, port: 0, log: () => {}, ai: { apiKey: 'test-key', baseUrl: `http://127.0.0.1:${(model.address() as { port: number }).port}` } });
+  const s = await serve({ mcpToken: 'test-admin-token', dir, port: 0, log: () => {}, ai: { apiKey: 'test-key', baseUrl: `http://127.0.0.1:${(model.address() as { port: number }).port}` } });
   server = s.server;
   base = s.url;
   host = s.host;
@@ -59,7 +59,7 @@ after(async () => {
 
 const mcp = async (method: string, params: Record<string, unknown> = {}) => (await (await fetch(`${base}/mcp`, {
   method: 'POST',
-  headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-protocol-version': '2025-06-18' },
+  headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-protocol-version': '2025-06-18', authorization: 'Bearer test-admin-token' },
   body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
 })).json()).result;
 const tool = (name: string, args: Record<string, unknown>) => mcp('tools/call', { name, arguments: args });
@@ -89,7 +89,7 @@ test('turned off: every MCP tool refuses the file, the local administrator inclu
   assert.deepEqual((await mcp('resources/list')).resources, [], 'no resources for it either');
   const read = await (await fetch(`${base}/mcp`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-protocol-version': '2025-06-18' },
+    headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-protocol-version': '2025-06-18', authorization: 'Bearer test-admin-token' },
     body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'resources/read', params: { uri: 'tabularius://Charts/schema' } }),
   })).json();
   assert.match(read.error.message, /AI is turned off for Charts/);
@@ -151,7 +151,7 @@ test('kept from AI by the server, and a file using one that is off is off too', 
 test('serve --ai-exclude keeps the named files from AI however they are set', { skip }, async () => {
   const other = mkdtempSync(join(tmpdir(), 'tabularius-ai-exclude-'));
   copyFileSync(fixture, join(other, 'Charts.fmp12'));
-  const s = await serve({ dir: other, port: 0, log: () => {}, aiExclude: ['charts.fmp12'] });
+  const s = await serve({ mcpToken: 'test-admin-token', dir: other, port: 0, log: () => {}, aiExclude: ['charts.fmp12'] });
   try {
     const r = await (await fetch(`${s.url}/tabularius/admin/v1/ai-access/Charts`)).json();
     assert.deepEqual(r, { allowed: false, turnedOff: false, byServer: true });
