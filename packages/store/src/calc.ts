@@ -68,6 +68,10 @@ export class ValidationError extends Error {
 
 /** One evaluation pass: computed values and related-record lookups are reused within it. */
 export interface Pass {
+  /** Record identities contributing field values to an observed formula evaluation. */
+  onRead?: (store: Store, table: string, ids: number[]) => void;
+  /** SQL provenance and result count, including cached results; callers must not persist query text. */
+  onQuery?: (store: Store, query: string, rows: number) => void;
   values: Map<string, Value>;
   busy: Set<string>;
   /** A private row with uncommitted edits and the calculations whose inputs changed. */
@@ -486,6 +490,7 @@ export class Calculations {
   value(rec: Rec, field: Field, repetition = 1, pass: Pass = newPass()): Value {
     const edited = this.editedRow(rec, pass);
     if (edited) rec = edited;
+    if (!field.options?.global) pass.onRead?.(rec.store, rec.table.name, [Number(rec.row._fm_record_id)]);
     // Without a found set, a summary in the record's own table covers every record.
     if (field.kind === 'summary') {
       return pass.foundSet?.table === rec.table
@@ -606,7 +611,7 @@ export class Calculations {
     const out = new Map<Field, Summed>();
     const ofs = fields.map((f) => [f, f.summary && table.fields.find((x) => x.id === f.summary!.fieldId)] as const);
     for (const [f] of ofs) out.set(f, { count: 0, nums: [], ...(f.summary?.type === 'list' ? { texts: [] } : {}) });
-    const sub: Pass = { ...newPass(pass.account, pass.privileges), foundSet: pass.foundSet, sums: (pass.sums ??= new Map()) };
+    const sub: Pass = { ...newPass(pass.account, pass.privileges), onRead: pass.onRead, onQuery: pass.onQuery, foundSet: pass.foundSet, sums: (pass.sums ??= new Map()) };
     const add = (r: Rec) => {
       checkMemory();
       for (const [f, of] of ofs) {
@@ -912,7 +917,7 @@ export class Calculations {
     // An account that may view only some of the table's records: over those, once per pass, never kept for others.
     const limited = pass.privileges && this.store.limitsView(table.name, pass.privileges);
     // Preparation also keeps summaries only in the pass, including nested reads in other stores.
-    if (preparing.getStore() || limited) {
+    if (preparing.getStore() || limited || pass.onRead) {
       const out = new Map<Field, Summed>();
       const key = (f: Field) => `${limited ? 'limited/' : ''}${sumKey(this.store, table, f, pass)}`;
       const missing = fields.filter((f) => {
@@ -1490,6 +1495,8 @@ export class Calculations {
    * List over a relationship). Undefined when the records are further away.
    */
   private storedRelatedValues(rec: Rec, from: number, to: number, f: Field, repetition: number, pass: Pass): Value[] | undefined {
+    // The value cache has no record identities; observed reads use the row iterator.
+    if (pass.onRead) return undefined;
     const hops = this.path(from, to);
     const target = this.occurrenceTable(to);
     if (!hops || hops.length !== 1 || !target) return undefined;
@@ -1756,7 +1763,7 @@ export class Calculations {
           if (direct) return direct;
         }
         const out: Value[] = [];
-        const sub: Pass = { values: new Map(), busy: pass.busy, related: new Map(), account: pass.account, privileges: pass.privileges, edited: pass.edited };
+        const sub: Pass = { values: new Map(), busy: pass.busy, related: new Map(), account: pass.account, privileges: pass.privileges, edited: pass.edited, onRead: pass.onRead, onQuery: pass.onQuery };
         for (const r of this.relatedRecs(rec, toId, t.to.id, pass, stored ? [f.name] : undefined)) {
           checkMemory();
           out.push(t.store.calc.value(r, f, ref.repetition, sub));
@@ -1980,6 +1987,7 @@ export class Calculations {
         if (target.results) for (const c of computed) c.store.calc.shareColumn(c.table, c.field, token);
       }
     }
+    pass?.onQuery?.(target, sql, result.rows.length);
     // A number field can hold text ("$3750"); FileMaker SQL reads its number.
     const number = result.types.map((t) => t === 'REAL');
     return result.rows.map((r) => r.map((v, i) => {

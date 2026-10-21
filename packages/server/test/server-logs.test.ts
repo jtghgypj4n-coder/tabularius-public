@@ -51,7 +51,7 @@ test('timestamps carry the offset from UTC and read back to the same moment; tok
   assert.equal(parseLogTime(logTime(d)), d.getTime());
   assert.match(logTime(d), /^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d\.\d{3} [+-]\d{4}$/);
   assert.equal(redactPath('/fmi/data/vLatest/databases/X/sessions/abc123'), '/fmi/data/vLatest/databases/X/sessions/…');
-  assert.equal(redactPath('/tabularius/auth/v1/oidc/callback?code=xyz&state=s1&x=1'), '/tabularius/auth/v1/oidc/callback?code=…&state=…&x=1');
+  assert.equal(redactPath('/tabularius/auth/v1/oidc/callback?code=xyz&state=s1&x=1'), '/tabularius/auth/v1/oidc/callback');
 });
 
 let dir: string;
@@ -102,7 +102,7 @@ test('sign-ins, Data API calls, server scripts and admin changes are logged and 
 
   const calls = await entries('fmdapi');
   const records = calls.find((e) => e.message.startsWith('GET /fmi/data/vLatest/databases/Charts/layouts/Congress/records'))!;
-  assert.match(records.message, /\?_limit=2 200 code 0 \d+ ms \d+ bytes account Ann$/);
+  assert.match(records.message, /\/records 200 code 0 \d+ ms \d+ bytes account Ann$/);
   const signOut = calls.find((e) => e.message.startsWith('DELETE'))!;
   assert.ok(!signOut.message.includes(token), 'the token is not in the log');
   assert.ok(calls.some((e) => / 401 code 212 /.test(e.message) && e.type === 'Warning'));
@@ -210,5 +210,5 @@ test('redactPath does not spend event-loop time on a hostile parameter name (the
     const elapsed = performance.now() - started;
     assert.ok(elapsed < 500, `${name.slice(0, 12)}... took ${elapsed.toFixed(0)} ms`);
   }
-  assert.equal(redactPath('/x?PGPASSWORD=hunter2&adminpassword=x&compass=north'), '/x?PGPASSWORD=…&adminpassword=…&compass=north');
+  assert.equal(redactPath('/x?PGPASSWORD=hunter2&adminpassword=x&compass=north'), '/x');
 });

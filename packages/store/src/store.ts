@@ -8591,14 +8591,17 @@ export class Store {
     return this.withDesignRead(() => this.evaluateCurrent(...args));
   }
 
-  private evaluateCurrent(layout: string | LayoutInfo, formula: string, recordId?: number, opts: EvaluateOptions = {}): { value: string; type: Value['type'] } {
+  private evaluateCurrent(layout: string | LayoutInfo, formula: string, recordId?: number, opts: EvaluateOptions & Pick<Pass, 'onRead' | 'onQuery'> = {}): { value: string; type: Value['type'] } {
     const info = this.layoutInfo(layout);
     const to = this.calc.occurrence(info.occurrence);
     if (!to) throw new StoreError(105, `Layout "${info.name}" has no table occurrence`);
     const owner = info.owner;
     const table = owner.schema.tables.find((t) => t.name === info.table)!;
     const rec = recordId === undefined ? undefined : { store: owner, table, row: (opts.row ?? owner.row(info, recordId)) as Row };
-    const ctx = this.calc.context(rec, to.id, this.calc.newPass(opts.account, opts.privileges));
+    const pass = this.calc.newPass(opts.account, opts.privileges);
+    pass.onRead = opts.onRead;
+    pass.onQuery = opts.onQuery;
+    const ctx = this.calc.context(rec, to.id, pass);
     if (opts.get) {
       const baseGet = ctx.get;
       ctx.get = (name) => opts.get!(name) ?? baseGet?.(name);

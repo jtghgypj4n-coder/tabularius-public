@@ -96,14 +96,14 @@ for (const [name, secret] of SECRET_SEEDS) {
     absent(lines, secret);
   });
 
-  test(`request paths redact conventional secret parameters without hiding secretary: ${name}`, () => {
+  test(`request paths drop query strings, conventional secret parameters included: ${name}`, () => {
     for (const key of [name, 'sig', 'signature', 'key', 'token', 'code', 'X-Amz-Signature', 'X-Amz-Credential']) {
       for (const encoded of [key, key.toUpperCase(), [...key].map((c) => '%' + c.charCodeAt(0).toString(16)).join('')]) {
         const path = `/request?${encoded}=${secret}&secretary=bob&monkey=banana`;
-        assert.equal(redactPath(path), `/request?${encoded}=…&secretary=bob&monkey=banana`);
+        assert.equal(redactPath(path), '/request');
       }
     }
-    assert.equal(redactPath(`/request?api+key=${secret}&secretary=bob`), '/request?api+key=…&secretary=bob');
+    assert.equal(redactPath(`/request?api+key=${secret}&secretary=bob`), '/request');
   });
 
   test(`validation diagnostics retain the field and expected type: ${name}`, (t) => {
