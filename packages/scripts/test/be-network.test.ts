@@ -193,6 +193,7 @@ test('FTP calls follow the file\'s own switch, read only the documents folder, a
   mkdirSync(docs, { recursive: true });
   writeFileSync(join(docs, 'ftp-big.bin'), '');
   truncateSync(join(docs, 'ftp-big.bin'), 10 * 1024 * 1024 + 1); // sparse
+  writeFileSync(join(dir, 'escape.bin'), 'outside the documents folder');
   const f = await fakeFtp();
   try {
     script('FtpLimits', [
@@ -203,6 +204,8 @@ test('FTP calls follow the file\'s own switch, read only the documents folder, a
     const { fetch } = net();
     const options = { [TEST_ONLY_CUSTOM_FETCH]: true as const, network: fetch, networkAllow: ['127.0.0.1'], documents: docs };
     assert.equal((await runScript(store, 'FtpLimits', options)).result, '2|2,25|25');
+    assert.equal(f.uploads.size, 0, 'a file outside the documents folder is not sent');
+    assert.deepEqual(f.commands, []);
     // The file's own switch is off while the run could reach the network: nothing is said to the server.
     script('FtpSwitch', `Set Variable [ $r ; Value: BE_FTP_Delete ( "ftp://127.0.0.1:${f.port}/old/file.txt" ; "ann" ; "pw" ) & "|" & BE_GetLastError ]\nExit Script [ Text Result: $r ]`);
     assert.equal((await runScript(store, 'FtpSwitch', options)).result, '|0');

@@ -213,3 +213,23 @@ test('an allow-list entry that is a host name lets the data connection through t
     assert.deepEqual([...f.uploads.get('/n.txt')!], [9]);
   } finally { await f.close(); }
 });
+
+test('a server that sends endless bytes with no line break is cut off and its connection closed', async () => {
+  let closed: () => void;
+  const serverSawClose = new Promise<void>((r) => { closed = r; });
+  const endless = createServer((s) => {
+    s.on('error', () => {});
+    s.on('close', () => closed());
+    s.write('220 hi\r\n');
+    const chunk = 'x'.repeat(256 * 1024);
+    const pump = () => { while (!s.destroyed && s.write(chunk)); if (!s.destroyed) s.once('drain', pump); };
+    pump();
+  });
+  await new Promise<void>((r) => endless.listen(0, '127.0.0.1', r));
+  try {
+    const r = await ftpTransfer({ op: 'delete', url: `ftp://127.0.0.1:${(endless.address() as AddressInfo).port}/a`, user: 'u', password: 'p' }, { policy, timeoutMs: 10_000 });
+    assert.equal(r.status, 0);
+    assert.match(r.error!, /too long/);
+    await Promise.race([serverSawClose, new Promise((_, no) => setTimeout(() => no(new Error('the connection stayed open')), 2000))]);
+  } finally { await new Promise<void>((r) => endless.close(() => r())); }
+});

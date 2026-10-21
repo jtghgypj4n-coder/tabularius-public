@@ -78,6 +78,7 @@ class Control {
     this.socket = socket;
     socket.setEncoding('utf8');
     socket.on('data', (chunk: string) => {
+      if (this.ended) return;
       this.buffer += chunk;
       if (this.buffer.length > LINE_MAX * 2 && !this.buffer.includes('\n')) return this.fail(new FtpFailure('the server sent a line that is too long', 7));
       for (let i = this.buffer.indexOf('\n'); i >= 0; i = this.buffer.indexOf('\n')) {
@@ -99,6 +100,9 @@ class Control {
 
   private fail(e: Error): void {
     this.ended ??= e;
+    // Nothing more is read from a connection that has failed.
+    this.buffer = '';
+    this.socket.destroy();
     this.wake();
   }
 
@@ -227,7 +231,7 @@ export async function ftpTransfer(request: FtpRequest, options: FtpOptions = {})
       passive = await ask(control, 'PASV');
       port = passive.code === 227 ? dataPort(passive) : undefined;
     }
-    // A passive port is an unprivileged one, and not the control connection's own: a server can't aim the upload at another service on its host.
+    // A passive port is an unprivileged one, and not the control connection's own. The data still goes only to the control connection's address, but a server can name any other unprivileged port on its own host.
     if (port === undefined || port < 1024 || port > 65535 || port === where.port) throw new FtpFailure('the server gave no port to send the file to', 25);
     // The address that answered the control connection: the reply's own address is ignored.
     const peer = control.socket.remoteAddress;
