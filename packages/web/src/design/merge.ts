@@ -54,6 +54,9 @@ export function mergeDesign(base: LayoutDesign, mine: LayoutDesign, theirs: Layo
   const byId = (list: LayoutObject[]) => new Map(list.map((o) => [o.id, o]));
   const b = byId(base.objects);
   const m = byId(mine.objects);
+  const baseIds = ids(base.objects);
+  const mineIds = ids(mine.objects);
+  const theirsIds = ids(theirs.objects);
   const objects: LayoutObject[] = [];
   for (const t of theirs.objects) {
     const was = b.get(t.id);
@@ -73,10 +76,46 @@ export function mergeDesign(base: LayoutDesign, mine: LayoutDesign, theirs: Layo
     objects.push(now);
   }
   // Objects both sides added can share an id: mine move to fresh ones.
-  const theirsAdded = new Set([...ids(theirs.objects)].filter((id) => !ids(base.objects).has(id)));
+  const collisions = [...mineIds].filter((id) => !baseIds.has(id) && theirsIds.has(id));
+  const remap = new Map<number, number>();
   let next = Math.max(maxId(objects), maxId(theirs.objects)) + 1;
-  const renumber = (o: LayoutObject): LayoutObject => ({ ...o, id: next++, ...(o.children ? { children: o.children.map(renumber) } : {}) });
-  const result = objects.map((o) => (!b.has(o.id) && m.get(o.id) === o && [...ids([o])].some((id) => theirsAdded.has(id)) ? renumber(o) : o));
+  for (const id of collisions) remap.set(id, next++);
+  const mineObjects = new Set<LayoutObject>();
+  const rememberMine = (list: LayoutObject[]) => list.forEach((o) => { mineObjects.add(o); if (o.children) rememberMine(o.children); });
+  rememberMine(mine.objects);
+  const remapMine = (o: LayoutObject): LayoutObject => {
+    if (!mineObjects.has(o)) return o;
+    const id = remap.get(o.id) ?? o.id;
+    return {
+      ...o, id,
+      ...(o.target !== undefined && remap.has(o.target) ? { target: remap.get(o.target)! } : {}),
+      ...(o.activeSegment !== undefined && remap.has(o.activeSegment) ? { activeSegment: remap.get(o.activeSegment)! } : {}),
+      ...(o.children ? { children: o.children.map(remapMine) } : {}),
+    };
+  };
+  const result = objects.map(remapMine);
+
+  // Preserve a one-sided top-level reorder. New objects from the other side
+  // are appended in their merged order; incompatible reorders keep mine and
+  // are reported as one order clash.
+  const baseOrder = base.objects.map((o) => o.id);
+  const mineOrder = mine.objects.map((o) => o.id);
+  const theirsOrder = theirs.objects.map((o) => o.id);
+  const common = new Set(baseOrder.filter((id) => mineOrder.includes(id) && theirsOrder.includes(id)));
+  const sequence = (xs: number[]) => xs.filter((id) => common.has(id));
+  const bOrder = sequence(baseOrder), mOrder = sequence(mineOrder), tOrder = sequence(theirsOrder);
+  const mineReordered = !same(mOrder, bOrder), theirsReordered = !same(tOrder, bOrder);
+  let chosenOrder = theirsOrder;
+  if (mineReordered) {
+    chosenOrder = mineOrder.map((id) => remap.get(id) ?? id);
+    if (theirsReordered && !same(mOrder, tOrder)) clashes.push({ what: 'order', id: 'objects', mine: mineOrder, theirs: theirsOrder });
+  }
+  const position = new Map(chosenOrder.map((id, i) => [id, i]));
+  result.sort((a, b) => (position.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (position.get(b.id) ?? Number.MAX_SAFE_INTEGER));
+  const orderRemap = remap;
+  if (Array.isArray(out.tabOrder) && same(out.tabOrder, mine.tabOrder) && !same(mine.tabOrder, base.tabOrder)) {
+    out.tabOrder = (out.tabOrder as number[]).map((id) => orderRemap.get(id) ?? id);
+  }
   return { design: { ...(out as unknown as LayoutDesign), objects: result }, conflicts: clashes.length, clashes };
 }
 
@@ -86,7 +125,7 @@ export function mergeDesign(base: LayoutDesign, mine: LayoutDesign, theirs: Layo
  * `kept` says which the merge used: mine, except an object I deleted that they changed.
  */
 export interface Clash {
-  what: 'setting' | 'object';
+  what: 'setting' | 'object' | 'order';
   id: string | number;
   mine: unknown;
   theirs: unknown;
@@ -102,6 +141,11 @@ export interface Clash {
 export function settleClash(design: LayoutDesign, clash: Clash, side: 'mine' | 'theirs'): LayoutDesign {
   if (side === (clash.kept ?? 'mine')) return design;
   const value = clash[side];
+  if (clash.what === 'order') {
+    const order = value as number[];
+    const position = new Map(order.map((id, i) => [id, i]));
+    return { ...design, objects: [...design.objects].sort((a, b) => (position.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (position.get(b.id) ?? Number.MAX_SAFE_INTEGER)) };
+  }
   if (clash.what === 'setting') {
     const out = { ...design } as Record<string, unknown>;
     if (value === undefined) delete out[clash.id as string];

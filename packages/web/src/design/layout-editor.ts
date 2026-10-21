@@ -31,6 +31,7 @@ import { responsiveDesign, stackBreakpoint } from '../responsive.ts';
 import { returnFocus } from '../return-focus.ts';
 import { layoutViewClasses, loadLayoutViewOptions, saveLayoutViewOptions, type LayoutViewOptions } from './layout-view.ts';
 import { httpProblem } from '../http-problem.ts';
+import { acknowledgeLayoutSave, findLayoutObject, pushBoundedHistory } from './async-state.ts';
 
 const SCOPE = 'fm-layout';
 /** Pictures of layout versions drawn so far, for each one's own style scope. */
@@ -453,21 +454,27 @@ class LayoutEditor {
   }
 
   private change(fn: () => void): void {
-    this.undo.push(JSON.stringify(this.design));
-    if (this.undo.length > 200) this.undo.shift();
+    this.rememberUndo(JSON.stringify(this.design));
     this.redo = [];
     fn();
     this.draw();
+  }
+
+  /** All editing paths retain the same bounded undo history. */
+  private rememberUndo(snapshot: string): void {
+    pushBoundedHistory(this.undo, snapshot, 200);
   }
 
   /**
    * The page editor: a web viewer's page as HTML, CSS and JavaScript, with a preview that follows the typing. Applying
    * it is one undoable step, saved with the layout. The preview has no data calls; the page gets them in Browse mode.
    */
-  private editPage(o: LayoutObject): void {
+  private editPage(objectId: number): void {
+    const original = this.find(objectId);
+    if (!original) return toast('This web viewer is no longer on the layout');
     const dialog = h('dialog', { class: 'd-dialog le-page', 'aria-label': 'Page' }) as HTMLDialogElement;
     const code = h('textarea', { class: 'd-code le-page-code', spellcheck: 'false', 'aria-label': 'Page HTML, CSS and JavaScript' }) as HTMLTextAreaElement;
-    code.value = pageSource(o.webUrl) ?? starterPage(this.design.name ?? 'Page', this.design.name ?? '');
+    code.value = pageSource(original.webUrl) ?? starterPage(this.design.name ?? 'Page', this.design.name ?? '');
     const preview = h('div', { class: 'le-page-preview' });
     const size = h('p', { class: 'd-muted', 'aria-live': 'polite' });
     const encode = (html: string) => {
@@ -514,9 +521,11 @@ class LayoutEditor {
       dialog.remove();
     };
     const apply = button('Apply', () => {
+      const current = this.find(objectId);
+      if (!current) return toast('This web viewer was removed while its page was open');
       this.change(() => {
-        o.webUrl = pageFormula(code.value);
-        o.webOptions = { ...(o.webOptions ?? PAGE_OPTIONS), jsBridge: true, encodeUrl: false };
+        current.webUrl = pageFormula(code.value);
+        current.webOptions = { ...(current.webOptions ?? PAGE_OPTIONS), jsBridge: true, encodeUrl: false };
       });
       close();
     }, { class: 'primary', title: 'One undoable step; Save keeps it' });
@@ -1018,9 +1027,7 @@ class LayoutEditor {
   }
 
   private find(id: number | undefined): LayoutObject | undefined {
-    let found: LayoutObject | undefined;
-    if (id !== undefined) walk(this.design.objects, (o) => (o.id === id ? (found = o) : undefined));
-    return found;
+    return id === undefined ? undefined : findLayoutObject(this.design.objects, id);
   }
 
   /**
@@ -1359,7 +1366,7 @@ class LayoutEditor {
       this.overlay.removeEventListener('pointerup', up);
       this.guides = { x: [], y: [], gaps: [] };
       if (moved) {
-        this.undo.push(before);
+        this.rememberUndo(before);
         this.redo = [];
         if (!handle) this.reparent(this.objects());
       }
@@ -1450,7 +1457,7 @@ class LayoutEditor {
       this.overlay.removeEventListener('pointermove', move);
       this.overlay.removeEventListener('pointerup', up);
       if (moved) {
-        this.undo.push(before);
+        this.rememberUndo(before);
         this.redo = [];
       }
     };
@@ -2222,7 +2229,7 @@ class LayoutEditor {
       h('span', { class: 'le-bar-item' }, h('span', { class: 'd-label' }, 'Table:'), h('strong', {}, occ?.name ?? '?')),
       h('span', { class: 'le-bar-item' }, h('span', { class: 'd-label' }, 'Theme:'), h('strong', {}, theme?.name ?? 'None')),
       setup,
-      ...(modern ? [button('Edit page…', () => this.editPage(modern.viewer), { class: 'le-keep', title: 'This layout is a page in HTML, CSS and JavaScript' })] : []),
+      ...(modern ? [button('Edit page…', () => this.editPage(modern.viewer.id), { class: 'le-keep', title: 'This layout is a page in HTML, CSS and JavaScript' })] : []),
       h('span', { class: 'd-spacer' }),
       this.status,
       button('Save', () => void this.save(), { class: 'primary le-keep', title: 'Save the layout (⌘S)' }),
@@ -2339,12 +2346,20 @@ class LayoutEditor {
 
   /** Saves the layout together with theme changes (a style made from an object), then redraws with the theme as saved. */
   private async saveWith(changes: Change[], done: string): Promise<void> {
+    const had = this.clashes.length;
+    if (!(await this.catchUp())) return;
+    if (this.clashes.length > had) return;
+    const submitted = structuredClone(this.design);
     try {
-      const r = await this.studio.client.change([...changes, { op: 'updateLayout', layout: this.design.id, design: this.design }]);
+      const r = await this.studio.client.change([...changes, { op: 'updateLayout', layout: submitted.id, design: submitted, expectedDesign: JSON.parse(this.saved) }]);
       this.studio.design = r.design;
-      this.takeSteps(r.applied);
-      if (this.design.themeId !== undefined) this.meta.theme = await this.studio.client.theme(this.design.themeId);
-      this.saved = JSON.stringify(this.design);
+      const accepted = [...r.applied].reverse().find((c) => c.op === 'updateLayout' && c.layout === submitted.id && (c.design as LayoutDesign | undefined)?.objects);
+      const savedDesign = structuredClone((accepted?.design as LayoutDesign | undefined) ?? submitted);
+      const acknowledged = acknowledgeLayoutSave(this.design, submitted, savedDesign);
+      this.design = acknowledged.design;
+      if (acknowledged.design === savedDesign) this.takeSteps(r.applied);
+      if (savedDesign.themeId !== undefined) this.meta.theme = await this.studio.client.theme(savedDesign.themeId);
+      this.saved = acknowledged.saved;
       this.draw();
       toast(done, 'info');
     } catch (e) {
@@ -2370,14 +2385,19 @@ class LayoutEditor {
     if (!(await this.catchUp())) return;
     // You both changed more of the same things: look at them before saving over theirs (saving again keeps yours).
     if (this.clashes.length > had) return;
+    const submitted = structuredClone(this.design);
     try {
-      const r = await this.studio.client.change([{ op: 'updateLayout', layout: this.design.id, design: this.design }]);
+      const r = await this.studio.client.change([{ op: 'updateLayout', layout: submitted.id, design: submitted, expectedDesign: JSON.parse(this.saved) }]);
       this.studio.design = r.design;
-      this.takeSteps(r.applied);
+      const accepted = [...r.applied].reverse().find((c) => c.op === 'updateLayout' && c.layout === submitted.id && (c.design as LayoutDesign | undefined)?.objects);
+      const savedDesign = structuredClone((accepted?.design as LayoutDesign | undefined) ?? submitted);
       // The file stops marking a layout as generated once it is saved; left on here, the next Save
       // reads the difference as someone else's save and merges with it.
-      delete (this.design as { generated?: boolean }).generated;
-      this.saved = JSON.stringify(this.design);
+      delete (savedDesign as { generated?: boolean }).generated;
+      const acknowledged = acknowledgeLayoutSave(this.design, submitted, savedDesign);
+      this.design = acknowledged.design;
+      if (acknowledged.design === savedDesign) this.takeSteps(r.applied);
+      this.saved = acknowledged.saved;
       this.clashes = [];
       this.draw();
       toast('Layout saved', 'info');
@@ -2443,6 +2463,7 @@ class LayoutEditor {
     });
     const name = (c: Clash) => {
       if (c.what === 'setting') return SETTING_NAMES[c.id as string] ?? String(c.id);
+      if (c.what === 'order') return 'Object stacking order';
       const o = (c.mine ?? c.theirs) as LayoutObject;
       const how = c.mine === undefined ? ' (you deleted it, they changed it)' : c.theirs === undefined ? ' (they deleted it, you changed it)' : '';
       return label(o) + how;
@@ -2553,6 +2574,8 @@ class LayoutEditor {
   private async saveAsComponent(sel: LayoutObject[]): Promise<void> {
     const name = prompt('Name the component (for example "Header" or "Address block")')?.trim();
     if (!name) return;
+    const had = this.clashes.length;
+    if (!(await this.catchUp()) || this.clashes.length > had) return;
     await this.saveComponentChange([{ op: 'createComponent', name, layout: this.design.id, objectIds: sel.map((o) => o.id) }], `Saved "${name}" as a component`, true);
   }
 
@@ -2576,6 +2599,8 @@ class LayoutEditor {
   private async saveComponent(): Promise<void> {
     const editing = this.editingComponent;
     if (!editing) return;
+    const had = this.clashes.length;
+    if (!(await this.catchUp()) || this.clashes.length > had) return;
     const sel = this.objects();
     if (!sel.length) return toast('Select the objects that make up the component');
     // They go back into one copy in the list they're in: the layout, or the group, panel or popover the copy was in.
@@ -2602,14 +2627,20 @@ class LayoutEditor {
 
   /** Saves the layout with a component change, then takes the layout as the server left it. */
   private async saveComponentChange(changes: Change[], done: string, layoutFirst: boolean): Promise<boolean> {
-    const mine: Change = { op: 'updateLayout', layout: this.design.id, design: this.design };
+    const had = this.clashes.length;
+    if (!(await this.catchUp())) return false;
+    if (this.clashes.length > had) return false;
+    const submitted = structuredClone(this.design);
+    const mine: Change = { op: 'updateLayout', layout: submitted.id, design: submitted, expectedDesign: JSON.parse(this.saved) };
     try {
       const r = await this.studio.client.change(layoutFirst ? [mine, ...changes] : [...changes, mine]);
       this.studio.design = r.design;
       const last = [...r.applied].reverse().find((c) => c.op === 'updateLayout' && c.layout === this.design.id && (c.design as LayoutDesign | undefined)?.objects);
-      if (last) this.design.objects = structuredClone((last.design as LayoutDesign).objects);
-      this.takeSteps(r.applied);
-      this.saved = JSON.stringify(this.design);
+      const savedDesign = structuredClone((last?.design as LayoutDesign | undefined) ?? submitted);
+      const acknowledged = acknowledgeLayoutSave(this.design, submitted, savedDesign);
+      this.design = acknowledged.design;
+      if (acknowledged.design === savedDesign) this.takeSteps(r.applied);
+      this.saved = acknowledged.saved;
       this.selected = new Set();
       this.refreshComponents?.();
       this.draw();
@@ -3007,7 +3038,7 @@ class LayoutEditor {
       // A page written here (HTML, CSS, JavaScript), kept in the address formula, so FileMaker Pro shows it too.
       const page = pageSource(o.webUrl);
       if (page !== undefined || !o.webUrl) {
-        dat.push(button(page !== undefined ? 'Edit page…' : 'Write a page…', () => this.editPage(o), { title: 'The web viewer shows a page you write in HTML, CSS and JavaScript' }));
+        dat.push(button(page !== undefined ? 'Edit page…' : 'Write a page…', () => this.editPage(o.id), { title: 'The web viewer shows a page you write in HTML, CSS and JavaScript' }));
       }
     }
     if (isPanels(o)) dat.push(...this.panelsInspector(o));
@@ -3251,7 +3282,7 @@ class LayoutEditor {
         if (!name || element === undefined) return;
         const named = this.meta.theme?.styles.find((x) => x.name === o.style.name && (x.element === undefined || x.element === element));
         const rules = mergeRules(named?.rules ?? [], local);
-        this.undo.push(JSON.stringify(this.design));
+        this.rememberUndo(JSON.stringify(this.design));
         o.style = { element, name };
         void this.saveWith([{ op: 'createStyle', theme: themeId!, name, element, rules }], `Saved style ${name}`);
       }, { title: 'Save this object\'s look as a style others can use' }));
@@ -3260,7 +3291,7 @@ class LayoutEditor {
           const named = this.meta.theme?.styles.find((x) => x.name === o.style.name && (x.element === undefined || x.element === element));
           const rules = mergeRules(named?.rules ?? [], local);
           const name = o.style.name!;
-          this.undo.push(JSON.stringify(this.design));
+          this.rememberUndo(JSON.stringify(this.design));
           delete o.style.rules;
           void this.saveWith([{ op: 'updateStyle', theme: themeId!, style: name, ...(named?.element !== undefined ? { element: named.element } : {}), rules }], `Updated style ${name} on every object that uses it`);
         }, { title: 'Put this object\'s own formatting into its style' }));

@@ -165,6 +165,29 @@ test('design mode over REST: build a database from nothing and use it', async ()
   assert.equal(noAuth.status, 401);
 });
 
+test('design apply rejects a stale expected layout revision without overwriting the concurrent save', async () => {
+  host.create('Revision').setPassword('Admin', 'pw');
+  host.get('Revision')!.applyDesign([{ op: 'createTable', name: 'T' }], { account: 'Admin' });
+  const login = await json('/fmi/data/vLatest/databases/Revision/sessions', { method: 'POST', headers: { authorization: 'Basic ' + btoa('Admin:pw') } });
+  const auth = { authorization: `Bearer ${login.body.response.token}` };
+  const current = host.get('Revision')!.designs().layouts[0];
+  const read = await json(`/tabularius/design/v1/databases/Revision/layouts/${current.id}`, { headers: auth });
+  const stale = read.body.design;
+  const accepted = await json('/tabularius/design/v1/databases/Revision', {
+    method: 'POST', headers: auth,
+    body: JSON.stringify({ changes: [{ op: 'updateLayout', layout: current.id, design: { ...stale, width: 600 }, expectedDesign: stale }] }),
+  });
+  assert.equal(accepted.status, 200);
+  const nextBase = await json(`/tabularius/design/v1/databases/Revision/layouts/${current.id}`, { headers: auth });
+  host.get('Revision')!.applyDesign([{ op: 'updateLayout', layout: current.id, design: { width: 900 } }], { account: 'Admin' });
+  const rejected = await json('/tabularius/design/v1/databases/Revision', {
+    method: 'POST', headers: auth,
+    body: JSON.stringify({ changes: [{ op: 'updateLayout', layout: current.id, design: { ...nextBase.body.design, width: 700 }, expectedDesign: nextBase.body.design }] }),
+  });
+  assert.equal(rejected.status, 409);
+  assert.equal(host.get('Revision')!.design(current.id)!.width, 900);
+});
+
 test('only full access can change the design', () => {
   const store = host.create('Locked');
   store.schema.privilegeSets.push({

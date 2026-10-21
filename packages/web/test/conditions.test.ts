@@ -13,3 +13,11 @@ test('conditional formatting: "Value is" conditions round-trip through their for
   assert.equal(valueIs('Invoices::Total > 0'), undefined);
   assert.equal(valueIs('Length ( Self ) > 3'), undefined);
 });
+
+test('Value is preserves whitespace inside quoted literals when formatting', () => {
+  const parsed = valueIs('Self = "a  b"');
+  assert.deepEqual(parsed, { op: 'eq', a: '"a  b"', b: '' });
+  assert.equal(valueFormula({ ...parsed!, op: 'ne' }), 'Self ≠ "a  b"');
+  assert.deepEqual(valueIs('Self = "a  b"'), { op: 'eq', a: '"a  b"', b: '' });
+  assert.deepEqual(valueIs('Self = "a and  b; c"'), { op: 'eq', a: '"a and  b; c"', b: '' });
+});

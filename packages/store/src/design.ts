@@ -108,7 +108,7 @@ export type DesignOp =
   | { op: 'deleteContainerDirectory'; directory: number }
   | { op: 'createLayout'; id?: number; name: string; occurrence?: Ref; /** A full design; without one, a form with every field is generated. */ design?: Partial<LayoutDesign>;
       /** A phone layout made from this desktop layout instead (its occurrence, stacked at `width`), kept in step with it. */ phoneOf?: Ref; width?: number }
-  | { op: 'updateLayout'; layout: Ref; name?: string; occurrence?: Ref; design?: Partial<LayoutDesign>; /** Layout Setup's "Include in layout menus". */ includeInMenu?: boolean;
+  | { op: 'updateLayout'; layout: Ref; name?: string; occurrence?: Ref; design?: Partial<LayoutDesign>; /** Optimistic full-layout revision checked by the design HTTP boundary. */ expectedDesign?: LayoutDesign; /** Layout Setup's "Include in layout menus". */ includeInMenu?: boolean;
       /** A phone layout: rebuild it from its desktop layout now, hand edits and all. */ rebuildPhone?: boolean }
   | { op: 'deleteLayout'; layout: Ref }
   /**
