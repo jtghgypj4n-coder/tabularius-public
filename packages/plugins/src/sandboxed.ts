@@ -12,13 +12,13 @@
 
 import { existsSync, readdirSync } from 'node:fs';
 import { readFileSync } from '../../store/src/fs-boundary.ts';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { CalcError, ERR, type Env } from '../../calc/src/index.ts';
 import { callJavaScriptModule, type PluginHost } from '../../store/src/javascript.ts';
 import { parseManifest, type PluginManifest } from './manifest.ts';
 import { readPluginSecrets } from './secrets.ts';
-import { checkInstalled } from './package.ts';
+import { checkInstalled, discoverablePluginFolder } from './package.ts';
 import type { PluginCall, PluginRegistry } from './registry.ts';
 
 /** The code for each of a plug-in's functions, run in the sandbox. */
@@ -120,6 +120,7 @@ function pluginHost(manifest: PluginManifest, fn: string, env: Env, secrets: () 
 /** Reads a plug-in folder (plugin.json and its main file), with its secrets from the data folder when given. Only
  * JavaScript plug-ins run so far. */
 export function readPlugin(dir: string, dataDir?: string): { manifest: PluginManifest; calls: Record<string, PluginCall> } {
+  if (!discoverablePluginFolder(basename(dir))) throw new Error('an internal plug-in folder cannot be loaded');
   const manifestBytes = readFileSync(join(dir, 'plugin.json'));
   const parsed = parseManifest(JSON.parse(manifestBytes.toString('utf8')));
   if (!parsed.ok) throw new Error(`${dir}/plugin.json: ${parsed.errors.join('; ')}`);
@@ -145,6 +146,10 @@ export function loadPlugins(registry: PluginRegistry, dataDir: string, log: (msg
   if (!existsSync(root)) return;
   for (const e of readdirSync(root, { withFileTypes: true })) {
     if (!e.isDirectory() || !existsSync(join(root, e.name, 'plugin.json'))) continue;
+    if (!discoverablePluginFolder(e.name)) {
+      log(`Plug-in in ${e.name} not installed: internal folder`);
+      continue;
+    }
     try {
       const { manifest, calls } = readPlugin(join(root, e.name), dataDir);
       registry.install(manifest, calls);
