@@ -270,6 +270,10 @@
       {
         "glob": "scripts/install.sh",
         "why": "the installer, run directly"
+      },
+      {
+        "glob": "scripts/get.sh",
+        "why": "the one-line installer, attached to each release and run through a pipe or directly"
       }
     ],
     "maxBytes": 1000000,
