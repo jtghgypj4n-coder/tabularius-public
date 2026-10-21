@@ -435,17 +435,19 @@ Hosting (point it at a folder of .fmp12 files; each is converted once):
   tabularius plugins <folder> pack <plug-in folder> [--key key.pem] [-o file.ohplugin]
                                              Turn a plug-in on or off for one hosted file; the
                                              server applies it when it next starts
-  tabularius token <folder> <database> create <account> [--label L] [--read-only] [--expires-days N] [--surfaces fmrest,fmodata,fmxdbc] [--layouts L1,L2,...]
+  tabularius token <folder> <database> create <account> [--label L] [--read-only] [--expires-days N|0] [--surfaces fmrest,fmodata,fmxdbc] [--layouts L1,L2,...]
                                              A revocable API token for an integration, acting as
                                              <account> (use it as a Bearer token on the Data API
-                                             and SQL). Shown once. --read-only forbids writes.
+                                             and SQL). Shown once. --read-only forbids writes. It stops
+                                             working after 90 days unless --expires-days says otherwise
+                                             (0 for none).
                                              --layouts limits it to those Data API layouts (and
                                              only the Data API; OData and SQL refuse it).
       ... list                               The file's tokens (never the secret)
       ... revoke <id>                        Revoke a token by its id
   tabularius calendar-feed <folder> <database> create --account A --layout L --start FIELD [--end F] [--title F] [--description F] [--location F]
                                              [--zone UTC|Europe/London] [--query '[{"Status":"open"}]'] [--limit N] [--label L]
-                                             [--expires-days N] [--public-url https://host] [--json]
+                                             [--expires-days N|0] [--public-url https://host] [--json]
                                              A calendar link for a layout's date field: a read-only API token
                                              scoped to that layout, as <account>, and the address that carries
                                              the field choices. The address is shown once, as a token is.

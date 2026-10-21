@@ -1405,7 +1405,7 @@ export const groups: RestGroup[] = [
           { name: 'account', in: 'body', type: 'string', required: true, description: 'The account the token acts as.' },
           { name: 'label', in: 'body', type: 'string', description: 'A label to know it by.' },
           { name: 'readOnly', in: 'body', type: 'boolean', description: 'Only reads: writes and scripts are refused.' },
-          { name: 'expiresDays', in: 'body', type: 'number', description: 'Days until it expires; left out, it doesn\'t.' },
+          { name: 'expiresDays', in: 'body', type: 'number', description: 'Days until it expires; left out, 90 (TABULARIUS_TOKEN_DEFAULT_DAYS changes that); 0 for a token that never expires.' },
           { name: 'surfaces', in: 'body', type: 'array of string', description: 'Only these: fmrest, fmodata, fmxdbc, fmmcp.' },
           { name: 'layouts', in: 'body', type: 'array of string', description: 'Only through these layouts (needs fmrest or fmmcp among the surfaces).' },
         ],

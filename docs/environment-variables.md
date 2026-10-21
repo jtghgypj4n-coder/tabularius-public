@@ -42,7 +42,6 @@ nothing reads, so this list and the code cannot drift apart.
 | `TABULARIUS_BACKUP_S3` | `--backup-s3` | A `s3://bucket/prefix` address that backups are also copied to. |
 | `TABULARIUS_S3_ENDPOINT` | `--s3-endpoint` | An S3-compatible service's address, for other providers than Amazon. |
 | `TABULARIUS_S3_REGION` | `--s3-region` | The bucket's region (`AWS_REGION` is used when this is not set). |
-| `TABULARIUS_TOKEN_DEFAULT_DAYS` | | Days a new API token or AI-app token lives when no lifetime is asked for (90 by default; `0` for none). A calendar feed address gets a year. Asking for `--expires-days 0` still makes a token that never expires. |
 | `TABULARIUS_REPLICATION_TOKEN` | `--replication-token`, `--token` | The token a standby presents to the primary. |
 | `TABULARIUS_PRIMARY` | `--primary` | The primary server a `standby` follows. |
 
@@ -65,6 +64,7 @@ nothing reads, so this list and the code cannot drift apart.
 | `TABULARIUS_LDAP_USER_ATTRIBUTE` | `--ldap-user-attribute` | The attribute holding the user name. |
 | `TABULARIUS_LDAP_EMAIL_ATTRIBUTE` | `--ldap-email-attribute` | The attribute holding the email address. |
 | `TABULARIUS_LDAP_GROUP_ATTRIBUTE` | `--ldap-group-attribute` | The attribute listing the person's groups. |
+| `TABULARIUS_TOKEN_DEFAULT_DAYS` | | Days a new API token or AI-app token lives when no lifetime is asked for (90 by default; `0` for none). A calendar feed address gets a year. Asking for `--expires-days 0` still makes a token that never expires. |
 
 ## The AI assistant
 
