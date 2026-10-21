@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   applySync, createStore, readSyncLog, readSyncMap, releaseHeldTables, syncPlan, Store, SyncWriteError, openForPlanning,
-  type DesignOp, type RemoteRecord, type RemoteSource, type RemoteWriter, type TableSyncConfig,
+  type DesignOp, type RemoteFile, type RemoteRecord, type RemoteSource, type RemoteWriter, type TableSyncConfig,
 } from '../src/index.ts';
 
 const config: TableSyncConfig = { localTable: 'Contacts', remoteLayout: 'Contacts', uuidField: 'uuid', modTimestampField: 'modts' };
@@ -27,14 +27,31 @@ class FakeFm implements RemoteSource, RemoteWriter {
   calls: string[] = [];
   uploads: { uuid: string; field: string; filename: string | null; data: Uint8Array }[] = [];
   failFirstUpload = false;
+  /** Make the next container upload fail with this (after FileMaker was asked). */
+  uploadFailure?: Error;
   next = 1;
   /** Fields the layout lets a write set. */
-  writable = new Set(['uuid', 'Name', 'Met', 'Amount', 'Photo']);
+  writable = new Set(['uuid', 'Name', 'Met', 'Amount', 'Photo', 'Scan']);
   /** Runs before a write goes through (a test's way to make something happen meanwhile). */
   before?: (op: string, recordId: string) => void;
   /** Make the nth write (counting from 1) fail. */
   failWrite?: { n: number; error: () => Error; afterApplying?: boolean };
   keepUuid = true;
+  /** Called as a container upload starts (before the connection checks anything) and after FileMaker has it, with how many it holds. */
+  onUpload?: (phase: 'start' | 'done', applied: number) => void;
+  /** Make the next read of one record (the readback after a create) fail. */
+  failNextRead = false;
+  /** What each container address holds. */
+  private held = new Map<string, Uint8Array>();
+  fetchSkipped?: string;
+  fetchContainer?: (layout: string, address: string, maxBytes: number) => Promise<RemoteFile | { skipped: string }>;
+  /** Lets the engine fetch a container file to compare it, as the Data API connection can. */
+  enableFetch(): void {
+    this.fetchContainer = async (_layout, address) => {
+      const data = this.held.get(address);
+      return this.fetchSkipped ? { skipped: this.fetchSkipped } : data ? { filename: null, mime: '', data } : { skipped: 'no such file' };
+    };
+  }
   /** Runs when the records are read (after the local ones were), for something to happen meanwhile. */
   onRead?: () => void;
   /** The field data of every create and update, as sent. */
@@ -56,6 +73,7 @@ class FakeFm implements RemoteSource, RemoteWriter {
   async allUuids() { return new Set([...this.records.values()].map((r) => r.fields.uuid)); }
   async writableFields() { return this.writable; }
   async read(_layout: string, recordId: string) {
+    if (this.failNextRead) { this.failNextRead = false; throw new Error('the readback failed'); }
     const r = this.records.get(recordId);
     return r ? this.view(r) : undefined;
   }
@@ -101,27 +119,32 @@ class FakeFm implements RemoteSource, RemoteWriter {
     this.gate('delete', recordId, () => void this.records.delete(recordId));
   }
   async uploadContainer(_layout: string, recordId: string, field: string, file: { filename: string | null; mime: string; data: Uint8Array }, beforeSend?: () => void) {
+    this.onUpload?.('start', this.uploads.length);
     beforeSend?.();
     const record = this.records.get(recordId);
     if (!record) throw new SyncWriteError('Record is missing (error 101)', '101', true);
     this.uploads.push({ uuid: record.fields.uuid, field, filename: file.filename, data: new Uint8Array(file.data) });
+    if (this.uploadFailure) { const e = this.uploadFailure; this.uploadFailure = undefined; throw e; }
     if (this.failFirstUpload) {
       this.failFirstUpload = false;
       throw new SyncWriteError('transient upload failure', 'network');
     }
     record.fields[field] = `container-${this.uploads.length}`;
+    this.held.set(record.fields[field], new Uint8Array(file.data));
     record.modId++;
+    this.onUpload?.('done', this.uploads.length);
     return { modId: String(record.modId) };
   }
 }
 
 interface Rig { dir: string; store: Store; fm: FakeFm; run: (o?: Partial<Parameters<typeof applySync>[5]>, cfg?: TableSyncConfig[]) => ReturnType<typeof applySync>; log: () => ReturnType<typeof readSyncLog> }
 
-function rig(): Rig {
+function rig(second = false): Rig {
   const dir = mkdtempSync(join(tmpdir(), 'tabularius-sync-apply-'));
   createStore(join(dir, 'Local.sqlite'));
   const store = new Store(join(dir, 'Local.sqlite'), 'Local');
   store.applyDesign(design);
+  if (second) store.applyDesign([{ op: 'createField', table: 'Contacts', name: 'Scan', type: 'container' }]);
   const fm = new FakeFm();
   return {
     dir, store, fm,
@@ -198,7 +221,7 @@ test('write: creates and updates on FileMaker, logs each, and a second run has n
   }
 });
 
-test('AR-store-core-05 retries a failed container upload after restart without creating another row', async () => {
+test('a container upload that failed is retried after a restart without creating another record', async () => {
   const r = rig();
   try {
     const made = r.store.create('Contacts', { uuid: 'u1', Name: 'Ann' });
@@ -801,5 +824,340 @@ test('a rejected create readback preserves the acknowledged write and stops furt
     const again = await r.run();
     assert.match(again.tables[0].skipped ?? '', /held by an earlier run/);
     assert.deepEqual(r.fm.calls, []);
+  } finally { cleanup(r); }
+});
+
+// --- container uploads that a run did not finish --------------------------------------------------------------
+// A "kill" is the process ending between FileMaker's answers: a sticky throw from assertWritable that unwinds past the
+// uploads, so nothing after the point is recorded. The restart is a new Store on the same file and a fresh run.
+
+const bytes = (text: string) => ({ filename: `${text}.txt`, mime: 'text/plain', data: Buffer.from(text) });
+const pendingRows = (s: Store) => s.sql.prepare('SELECT uuid, field FROM _fm_sync_container_pending ORDER BY uuid, field').all() as { uuid: string; field: string }[];
+const owedFields = (s: Store) => pendingRows(s).map((x) => `${x.uuid}:${x.field}`);
+const withFiles = (r: Rig, uuid: string, files: Record<string, string> = { Photo: 'photo bytes', Scan: 'scan bytes' }): number => {
+  const made = r.store.create('Contacts', { uuid, Name: 'Ann' });
+  for (const [field, text] of Object.entries(files)) r.store.setContainer('Contacts', made.recordId, field, 1, bytes(text));
+  return made.recordId;
+};
+type Kill = { start: number } | { done: number };
+const killAt = (r: Rig, at: Kill) => {
+  let dead = false;
+  r.fm.onUpload = (phase, n) => { if ('start' in at ? phase === 'start' && n === at.start : phase === 'done' && n === at.done) dead = true; };
+  return () => { if (dead) throw new Error('killed'); };
+};
+const containers = { maxBytes: 1024 };
+const killed = (r: Rig, at: Kill, o: Partial<Parameters<typeof applySync>[5]> = {}) =>
+  assert.rejects(r.run({ containers, assertWritable: killAt(r, at), ...o }), /killed/);
+const restart = (r: Rig): void => { r.store.close(); r.store = new Store(join(r.dir, 'Local.sqlite'), 'Local'); r.fm.onUpload = undefined; };
+const again = (r: Rig, o: Partial<Parameters<typeof applySync>[5]> = {}) => applySync(r.store, 'Local', [config], r.fm, r.fm, { write: true, containers, ...o });
+const sentFields = (r: Rig) => r.fm.uploads.map((u) => `${u.uuid}:${u.field}`).sort();
+
+for (const [name, at] of [['before the first upload', { start: 0 }], ['between the two uploads', { start: 1 }], ['after the last upload', { done: 2 }]] as [string, Kill][]) {
+  test(`a created record's two container files are all sent once after a kill ${name}`, async () => {
+    const r = rig(true);
+    try {
+      withFiles(r, 'u1');
+      r.fm.enableFetch();
+      await killed(r, at);
+      assert.equal(r.fm.records.size, 1);
+      assert.deepEqual(owedFields(r.store), ['u1:Photo', 'u1:Scan']);
+      restart(r);
+      const res = await again(r);
+      assert.equal(res.stopped, undefined);
+      assert.equal(r.fm.records.size, 1);
+      assert.ok(r.fm.byUuid('u1')!.fields.Photo && r.fm.byUuid('u1')!.fields.Scan);
+      assert.deepEqual(sentFields(r), ['u1:Photo', 'u1:Scan']);
+      assert.deepEqual(pendingRows(r.store), []);
+      // Nothing is left to do, and nothing is done.
+      r.fm.calls.length = 0;
+      await again(r);
+      assert.deepEqual(r.fm.calls, []);
+      assert.equal(r.fm.uploads.length, 2);
+    } finally { cleanup(r); }
+  });
+}
+
+test('an updated record keeps its owed container files across a kill after its fields were sent', async () => {
+  const r = rig(true);
+  try {
+    const known = r.store.create('Contacts', { uuid: 'u1', Name: 'Ann' });
+    r.fm.seed('u1', { Name: 'Ann' });
+    r.fm.enableFetch();
+    await r.run({ containers });
+    r.store.update('Contacts', known.recordId, { Name: 'Annie' });
+    r.store.setContainer('Contacts', known.recordId, 'Photo', 1, bytes('photo bytes'));
+    r.store.setContainer('Contacts', known.recordId, 'Scan', 1, bytes('scan bytes'));
+    await killed(r, { start: 0 });
+    assert.equal(r.fm.byUuid('u1')!.fields.Name, 'Annie');
+    assert.deepEqual(owedFields(r.store), ['u1:Photo', 'u1:Scan']);
+    restart(r);
+    await again(r);
+    assert.equal(r.fm.calls.filter((c) => c.startsWith('update')).length, 1);
+    assert.deepEqual(sentFields(r), ['u1:Photo', 'u1:Scan']);
+    assert.deepEqual(pendingRows(r.store), []);
+  } finally { cleanup(r); }
+});
+
+test('several records: the one cut off resumes, the ones not reached are made, none is sent twice', async () => {
+  const r = rig();
+  try {
+    for (const u of ['u1', 'u2', 'u3']) withFiles(r, u, { Photo: `${u} photo` });
+    r.fm.enableFetch();
+    await killed(r, { start: 1 });
+    assert.equal(r.fm.records.size, 2);
+    assert.deepEqual(owedFields(r.store), ['u2:Photo']);
+    restart(r);
+    await again(r);
+    assert.equal(r.fm.records.size, 3);
+    assert.deepEqual(sentFields(r), ['u1:Photo', 'u2:Photo', 'u3:Photo']);
+    assert.deepEqual(pendingRows(r.store), []);
+  } finally { cleanup(r); }
+});
+
+test('a record FileMaker dropped while its files were owed takes the owed rows with it', async () => {
+  const r = rig();
+  try {
+    withFiles(r, 'u1', { Photo: 'photo bytes' });
+    await killed(r, { start: 0 });
+    assert.deepEqual(owedFields(r.store), ['u1:Photo']);
+    r.fm.records.delete(r.fm.byUuid('u1')!.recordId);
+    restart(r);
+    await again(r, { pull: true, allowDeletes: true });
+    assert.deepEqual(rows(r.store), []);
+    assert.deepEqual(pendingRows(r.store), []);
+  } finally { cleanup(r); }
+});
+
+test('a record deleted here while its files were owed is not sent its files', async () => {
+  const r = rig();
+  try {
+    const id = withFiles(r, 'u1', { Photo: 'photo bytes' });
+    await killed(r, { start: 0 });
+    r.store.delete('Contacts', id);
+    restart(r);
+    await again(r);
+    assert.deepEqual(pendingRows(r.store), []);
+    assert.equal(r.fm.uploads.length, 0);
+    assert.equal(r.fm.records.size, 1);
+  } finally { cleanup(r); }
+});
+
+test('files owed to a record FileMaker changed meanwhile do not send the old copy of its fields over the edit', async () => {
+  const r = rig();
+  try {
+    withFiles(r, 'u1', { Photo: 'photo bytes' });
+    r.fm.enableFetch();
+    await killed(r, { start: 0 });
+    const theirs = r.fm.byUuid('u1')!;
+    theirs.fields.Name = 'EditedOnFM';
+    theirs.modId++;
+    restart(r);
+    r.fm.calls.length = 0;
+    await again(r, { pull: true });
+    assert.equal(r.fm.byUuid('u1')!.fields.Name, 'EditedOnFM');
+    assert.deepEqual(r.fm.calls.filter((c) => c.startsWith('update')), []);
+    assert.equal(rows(r.store)[0].Name, 'EditedOnFM');
+    // The record is pulled first: its files wait for the next run.
+    assert.equal(r.fm.uploads.length, 0);
+    assert.deepEqual(owedFields(r.store), ['u1:Photo']);
+    // The edit is in, so the files owed go next, and the edit stays.
+    await again(r, { pull: true });
+    assert.equal(r.fm.byUuid('u1')!.fields.Name, 'EditedOnFM');
+    assert.deepEqual(sentFields(r), ['u1:Photo']);
+    assert.deepEqual(pendingRows(r.store), []);
+  } finally { cleanup(r); }
+});
+
+test('files owed to a record FileMaker edited are left alone by a run that does not pull', async () => {
+  const r = rig();
+  try {
+    withFiles(r, 'u1', { Photo: 'photo bytes' });
+    r.fm.enableFetch();
+    await killed(r, { start: 0 });
+    const theirs = r.fm.byUuid('u1')!;
+    theirs.fields.Name = 'EditedOnFM';
+    theirs.modId++;
+    restart(r);
+    r.fm.calls.length = 0;
+    await again(r);
+    assert.deepEqual(r.fm.calls, []);
+    assert.equal(r.fm.uploads.length, 0);
+    assert.deepEqual(owedFields(r.store), ['u1:Photo']);
+    assert.equal(r.fm.byUuid('u1')!.fields.Name, 'EditedOnFM');
+  } finally { cleanup(r); }
+});
+
+test('a retry sends no field, even one that differs from FileMaker without this side having saved it', async () => {
+  const r = rig();
+  try {
+    const id = withFiles(r, 'u1', { Photo: 'photo bytes' });
+    r.fm.enableFetch();
+    await killed(r, { start: 0 });
+    restart(r);
+    // A value changed underneath the bookkeeping (no new modId): not a save, so not something to send.
+    r.store.sql.prepare('UPDATE "Contacts" SET "Name" = ? WHERE _fm_record_id = ?').run('Raw', id);
+    r.fm.calls.length = 0;
+    await again(r);
+    assert.deepEqual(r.fm.calls.filter((c) => c.startsWith('update')), []);
+    assert.equal(r.fm.byUuid('u1')!.fields.Name, 'Ann');
+    assert.deepEqual(sentFields(r), ['u1:Photo']);
+  } finally { cleanup(r); }
+});
+
+test('an update whose answer was lost after FileMaker applied it still owes its files', async () => {
+  const r = rig();
+  try {
+    const known = r.store.create('Contacts', { uuid: 'u1', Name: 'Ann' });
+    r.fm.seed('u1', { Name: 'Ann' });
+    r.fm.enableFetch();
+    await r.run({ containers });
+    r.store.update('Contacts', known.recordId, { Name: 'Annie' });
+    r.store.setContainer('Contacts', known.recordId, 'Photo', 1, bytes('photo bytes'));
+    r.fm.failWrite = { n: 1, error: () => new Error('connection reset'), afterApplying: true };
+    const first = await r.run({ containers }).catch((e: Error) => ({ stopped: e.message }));
+    assert.equal(r.fm.byUuid('u1')!.fields.Name, 'Annie');
+    assert.equal(r.fm.uploads.length, 0);
+    assert.ok((first as { stopped?: string }).stopped);
+    assert.deepEqual(owedFields(r.store), ['u1:Photo']);
+  } finally { cleanup(r); }
+});
+
+test('a file FileMaker refuses for its record is reported, and is no longer owed', async () => {
+  const r = rig();
+  try {
+    withFiles(r, 'u1', { Photo: 'photo bytes' });
+    r.fm.enableFetch();
+    r.fm.uploadFailure = new SyncWriteError('the field is not on the layout (error 102)', '102', true);
+    const res = await r.run({ containers });
+    assert.equal(res.stopped, undefined);
+    assert.equal(r.fm.uploads.length, 1);
+    assert.deepEqual(pendingRows(r.store), []);
+  } finally { cleanup(r); }
+});
+
+test('an owed file that is missing here is reported, and is no longer owed', async () => {
+  const r = rig();
+  try {
+    withFiles(r, 'u1', { Photo: 'photo bytes' });
+    r.fm.enableFetch();
+    await killed(r, { start: 0 });
+    r.store.sql.prepare('UPDATE _fm_containers SET external = ? WHERE id = ?').run('gone/missing.bin', Number(rows(r.store)[0].Photo));
+    restart(r);
+    await again(r);
+    assert.equal(r.fm.uploads.length, 0);
+    assert.deepEqual(pendingRows(r.store), []);
+  } finally { cleanup(r); }
+});
+
+test('a retry sends only the files: it sends no fields and does not need the record unchanged here', async () => {
+  const r = rig();
+  try {
+    withFiles(r, 'u1', { Photo: 'photo bytes' });
+    r.fm.enableFetch();
+    await killed(r, { start: 0 });
+    restart(r);
+    r.fm.calls.length = 0;
+    await again(r);
+    assert.deepEqual(r.fm.calls.filter((c) => c.startsWith('update')), []);
+    assert.deepEqual(sentFields(r), ['u1:Photo']);
+  } finally { cleanup(r); }
+});
+
+test('a record made on FileMaker whose readback failed still gets its owed files once the table is released', async () => {
+  const r = rig();
+  try {
+    withFiles(r, 'u1', { Photo: 'photo bytes' });
+    r.fm.enableFetch();
+    r.fm.failNextRead = true;
+    const first = await r.run({ containers });
+    assert.match(first.stopped ?? '', /readback failed/);
+    assert.equal(r.fm.records.size, 1);
+    assert.deepEqual(owedFields(r.store), ['u1:Photo']);
+    restart(r);
+    assert.equal(releaseHeldTables(r.store, 'Local', [config]), 1);
+    await again(r);
+    assert.equal(r.fm.records.size, 1);
+    assert.deepEqual(sentFields(r), ['u1:Photo']);
+    assert.deepEqual(pendingRows(r.store), []);
+  } finally { cleanup(r); }
+});
+
+test('a kill after FileMaker made the record but before its answer was read still sends the files', async () => {
+  const r = rig();
+  try {
+    withFiles(r, 'u1', { Photo: 'photo bytes' });
+    r.fm.enableFetch();
+    // The create has been applied when the connection is asked to read the new record back; the process ends there.
+    let dead = false;
+    r.fm.failNextRead = false;
+    const read = r.fm.read.bind(r.fm);
+    r.fm.read = async (layout: string, recordId: string) => { dead = true; return read(layout, recordId); };
+    await assert.rejects(r.run({ containers, assertWritable: () => { if (dead) throw new Error('killed'); } }), /killed/);
+    assert.equal(r.fm.records.size, 1);
+    assert.deepEqual(owedFields(r.store), ['u1:Photo']);
+    restart(r);
+    r.fm.read = read;
+    await again(r);
+    assert.equal(r.fm.records.size, 1);
+    assert.deepEqual(sentFields(r), ['u1:Photo']);
+  } finally { cleanup(r); }
+});
+
+test('owed rows that can no longer be sent are dropped, and a retry with nothing to send sends and logs nothing', async () => {
+  const r = rig();
+  try {
+    const id = withFiles(r, 'u1', { Photo: 'photo bytes' });
+    r.fm.enableFetch();
+    await killed(r, { start: 0 });
+    // A field that is no longer one the run sends, and a file now over the size limit.
+    r.store.sql.prepare('INSERT INTO _fm_sync_container_pending (table_key, uuid, field) VALUES (?, ?, ?)').run('Local\u0000Contacts', 'u1', 'Gone');
+    restart(r);
+    r.fm.calls.length = 0;
+    const res = await again(r, { containers: { maxBytes: 5 } });
+    assert.deepEqual(pendingRows(r.store), []);
+    assert.equal(res.tables[0].adopted, 0);
+    assert.deepEqual(r.fm.calls, []);
+    assert.deepEqual(readSyncLog(r.store, { runId: res.runId }).map((l) => l.status), ['started', 'finished']);
+    // Emptied here: no longer owed either.
+    r.store.sql.prepare('INSERT INTO _fm_sync_container_pending (table_key, uuid, field) VALUES (?, ?, ?)').run('Local\u0000Contacts', 'u1', 'Photo');
+    r.store.setContainer('Contacts', id, 'Photo', 1, null);
+    const emptied = await again(r);
+    assert.deepEqual(pendingRows(r.store), []);
+    assert.equal(emptied.tables[0].created + emptied.tables[0].updated, 0);
+    assert.deepEqual(r.fm.uploads, []);
+  } finally { cleanup(r); }
+});
+
+for (const how of ['a connection that cannot fetch files', 'a file too big to fetch']) {
+  test(`a file already on FileMaker is sent again when ${how} cannot say it is the same`, async () => {
+    const r = rig(true);
+    try {
+      withFiles(r, 'u1');
+      if (how !== 'a connection that cannot fetch files') { r.fm.enableFetch(); r.fm.fetchSkipped = 'too big'; }
+      await killed(r, { start: 1 });
+      assert.deepEqual(sentFields(r), ['u1:Photo']);
+      restart(r);
+      await again(r);
+      // Photo cannot be compared, so it goes again; Scan goes for the first time; nothing stays owed.
+      assert.deepEqual(sentFields(r), ['u1:Photo', 'u1:Photo', 'u1:Scan']);
+      assert.deepEqual(pendingRows(r.store), []);
+    } finally { cleanup(r); }
+  });
+}
+
+test('an owed file already on FileMaker, in a record pushed for its fields, is cleared when the files agree', async () => {
+  const r = rig();
+  try {
+    const id = withFiles(r, 'u1', { Photo: 'photo bytes' });
+    r.fm.enableFetch();
+    await killed(r, { done: 1 });
+    assert.deepEqual(owedFields(r.store), ['u1:Photo']);
+    restart(r);
+    // A save here, settled in this side's favour: pushed with its fields, and the agreeing file is not sent again.
+    r.store.update('Contacts', id, { Name: 'Ann Two' });
+    const res = await again(r, { resolve: 'tabularius-wins' });
+    assert.equal(res.tables[0].updated, 1);
+    assert.deepEqual(pendingRows(r.store), []);
+    assert.equal(r.fm.uploads.length, 1);
   } finally { cleanup(r); }
 });
