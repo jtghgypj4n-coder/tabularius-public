@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { createServer, type IncomingMessage } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -11,6 +12,61 @@ import { Store } from '../../store/src/index.ts';
 const fixture = join(import.meta.dirname, '..', '..', '..', 'fixtures', 'fmp12', 'Charts.fmp12');
 const skip = existsSync(fixture) ? false : 'fixtures missing: run npm run fixtures';
 const KEYS = { accessKey: 'AKIDTEST', secretKey: 'secret/key+test' };
+
+test('AR-server-containers-media-05: a new S3 destination receives unchanged backups and missing objects are repaired', async () => {
+  const folder = mkdtempSync(join(tmpdir(), 'tabularius-s3-destination-'));
+  const remote = await fakeS3();
+  try {
+    const set = '2026-10-19_120000';
+    mkdirSync(join(folder, set));
+    writeFileSync(join(folder, set, 'backup.bin'), 'backup');
+    const a = new S3({ url: 's3://backups/first', endpoint: remote.endpoint, ...KEYS });
+    const b = new S3({ url: 's3://backups/second', endpoint: remote.endpoint, ...KEYS });
+    assert.notEqual(a.destinationId(), b.destinationId());
+    assert.notEqual(a.destinationId(), new S3({ url: 's3://other/first', endpoint: remote.endpoint, ...KEYS }).destinationId());
+    assert.notEqual(a.destinationId(), new S3({ url: 's3://backups/first', endpoint: 'https://other.invalid', ...KEYS }).destinationId());
+    writeFileSync(join(folder, '.s3-mirrored.json'), JSON.stringify({ [`${set}/backup.bin`]: 'legacy-marker' }));
+    assert.equal((await mirrorUp(folder, a)).uploaded, 1);
+    assert.equal((await mirrorUp(folder, b)).uploaded, 1);
+    assert.equal(remote.objects.get(`second/${set}/backup.bin`)?.toString(), 'backup');
+    remote.objects.delete(`second/${set}/backup.bin`);
+    assert.equal((await mirrorUp(folder, b)).uploaded, 1);
+    assert.equal((await mirrorUp(folder, b)).uploaded, 0);
+  } finally {
+    remote.close();
+    rmSync(folder, { recursive: true, force: true });
+  }
+});
+
+test('AR-server-containers-media-06: multipart upload exits on early EOF and aborts', () => {
+  const script = `
+    import { mkdtempSync, writeFileSync, truncateSync, rmSync } from 'node:fs';
+    import { tmpdir } from 'node:os';
+    import { join } from 'node:path';
+    import { S3 } from ${JSON.stringify(new URL('../src/s3.ts', import.meta.url).href)};
+    const dir = mkdtempSync(join(tmpdir(), 'tabularius-s3-eof-'));
+    const file = join(dir, 'source');
+    writeFileSync(file, '12345678');
+    let aborted = false;
+    const fetch = async (url, init) => {
+      const u = new URL(url);
+      if (init.method === 'POST' && u.searchParams.has('uploads')) {
+        truncateSync(file, 2);
+        return new Response('<UploadId>one</UploadId>');
+      }
+      if (init.method === 'DELETE' && u.searchParams.has('uploadId')) { aborted = true; return new Response(null, { status: 204 }); }
+      throw new Error('unexpected request');
+    };
+    try {
+      const s3 = new S3({ url: 's3://backups/test', endpoint: 'https://example.invalid', accessKey: 'x', secretKey: 'x', partSize: 4, fetch });
+      try { await s3.put('object', file); process.exitCode = 2; }
+      catch (error) { if (!/EOF/.test(String(error)) || !aborted) process.exitCode = 3; }
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  `;
+  const child = spawnSync(process.execPath, ['--input-type=module', '-e', script], { timeout: 5000, encoding: 'utf8' });
+  assert.equal(child.error?.message, undefined, child.stderr);
+  assert.equal(child.status, 0, child.stderr);
+});
 
 test('requests are signed as AWS documents (Signature Version 4 example)', () => {
   // https://docs.aws.amazon.com/AmazonS3/latest/API/sig-v4-header-based-auth.html, "GET Object".

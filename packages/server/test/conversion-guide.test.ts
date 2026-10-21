@@ -7,9 +7,10 @@ import { copyFileSync, existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { Store } from '../../store/src/index.ts';
+import { createStore, Store } from '../../store/src/index.ts';
 import { serve } from '../src/index.ts';
 import { ConversionGuides, SEVERITIES, conversionGuide, convertedAt, urlTargets } from '../src/conversion-guide.ts';
+import { conversionReport } from '../src/conversion.ts';
 
 const fixture = join(import.meta.dirname, '..', '..', '..', 'fixtures', 'fmp12', 'Charts.fmp12');
 const skip = existsSync(fixture) ? false : 'fixtures missing: run npm run fixtures';
@@ -20,6 +21,35 @@ let base: string;
 let store: Store;
 const sent: { system: string; content: string }[] = [];
 const SECRET = 'Pa55-word-never-shown';
+
+test('AR-server-containers-media-11: structured and saved guide strings redact the same secret as Markdown', () => {
+  const folder = mkdtempSync(join(tmpdir(), 'tabularius-guide-redaction-'));
+  const path = join(folder, 'Guide.openhbam.sqlite');
+  createStore(path);
+  const local = new Store(path, 'Guide');
+  const key = 'sk-test_1234567890abcdef1234567890abcdef';
+  try {
+    const report = conversionReport(local, []);
+    report.unparsed.push({ where: 'Script "Example"', error: 'unparsed', text: `Bad ( "${key}" )` });
+    const guide = conversionGuide(local, [], report);
+    assert.ok(!JSON.stringify(guide).includes(key));
+    const guides = new ConversionGuides(() => []);
+    const legacy = structuredClone(guide);
+    legacy.breaks[0]!.where.push(key);
+    legacy.breaks[0]!.title = 'Password issue';
+    legacy.breaks[0]!.what = 'Contains "woodchuck"';
+    local.sql.exec('CREATE TABLE _fm_conversion_guide (id INTEGER PRIMARY KEY, converted TEXT, spec TEXT NOT NULL)');
+    local.sql.prepare('INSERT INTO _fm_conversion_guide VALUES (1, NULL, ?)').run(JSON.stringify(legacy));
+    assert.ok(!JSON.stringify(guides.saved(local)).includes(key));
+    assert.ok(!JSON.stringify(guides.saved(local)).includes('woodchuck'));
+    const persisted = local.sql.prepare('SELECT spec FROM _fm_conversion_guide WHERE id = 1').get() as { spec: string };
+    assert.ok(!persisted.spec.includes(key));
+    assert.ok(!persisted.spec.includes('woodchuck'));
+  } finally {
+    local.close();
+    rmSync(folder, { recursive: true, force: true });
+  }
+});
 
 const SEND = [
   `Set Variable [ $password ; Value: "${SECRET}" ]`,
