@@ -13,6 +13,7 @@ const ROUTES: [prefix: string, surface: string][] = [
   ['/tabularius/assistant/', 'assistant'],
   ['/tabularius/hooks/', 'hook'],
   ['/tabularius/design/', 'design'],
+  ['/tabularius/debug/', 'debug'],
 ];
 
 /** The audit-log surface for a request path, or undefined when the route doesn't change records. */
