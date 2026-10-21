@@ -196,8 +196,15 @@ test exported all rows in 3.7 s on Apple M5 Max (18 logical CPUs, 128 GiB
 memory), macOS 26.4, Node v22.22.2, but that is a test result, not a 5M
 estimate. Do not extrapolate a 5M result from it.
 
+Exports with no summary field, with or without a find or sort, take time in
+proportion to their rows (200,000 rows in a few seconds). An export that
+includes a summary field recomputes it over the whole found set for every batch
+of 500 rows, as it did before, so its time grows with the square of the rows:
+tens of thousands of rows take seconds, and 200,000 take minutes. Export such a
+file in parts, or leave the summary field out.
+
 Upgrade impact: CSV, tab and merge exports from the web client are now sent a
-batch at a time with no `content-length`, so a download can no longer fail as a
+batch at a time, uncompressed (`cache-control: no-transform`) and with no `content-length`, so a download can no longer fail as a
 clean error after its first batch (it ends early instead), and the read-audit
 entry, when read logging is on, is written when the download ends. Summaries in
 such an export are worked out in the found set's order, as in the other formats.
