@@ -233,3 +233,26 @@ test('a server that sends endless bytes with no line break is cut off and its co
     await Promise.race([serverSawClose, new Promise((_, no) => setTimeout(() => no(new Error('the connection stayed open')), 2000))]);
   } finally { await new Promise<void>((r) => endless.close(() => r())); }
 });
+
+test('a flood on the control connection while the file is being sent ends the call at once and closes the connection', async () => {
+  const f = await fakeFtp({ floodAfterStor: true });
+  try {
+    const started = Date.now();
+    const r = await ftpTransfer({ op: 'put', url: `ftp://127.0.0.1:${f.port}/big.bin`, user: 'ann', password: 'pw', bytes: new Uint8Array(24 * 1024 * 1024) }, { policy, timeoutMs: 15_000 });
+    assert.equal(r.status, 0);
+    assert.match(r.error!, /too long/);
+    assert.ok(Date.now() - started < 5000, 'the call did not wait for its time limit');
+    for (let i = 0; i < 40 && f.controlsClosed === 0; i++) await new Promise((r) => setTimeout(r, 50));
+    assert.equal(f.controlsClosed, 1, 'the control connection was closed');
+  } finally { await f.close(); }
+});
+
+test('an upload the server does not confirm at the end is a failure, not a success', async () => {
+  const f = await fakeFtp({ endReply: '552 out of space' });
+  try {
+    const r = await put(f, '/a.bin', new Uint8Array([1, 2, 3]));
+    assert.equal(r.status, 0);
+    assert.equal(r.code, 25);
+    assert.match(r.error!, /did not finish: 552/);
+  } finally { await f.close(); }
+});

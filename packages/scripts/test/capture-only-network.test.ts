@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import { createStore, Store } from '@tabularius/store';
 import { runScript, setCaptureOnlyDefaults, type OutboxEntry } from '../src/index.ts';
 import { TEST_ONLY_CUSTOM_FETCH } from '../src/test-only.ts';
+import { fakeFtp } from './fake-ftp.ts';
 
 // No file is capture-only by default; this test names the ones it holds back.
 setCaptureOnlyDefaults(['Held']);
@@ -92,4 +93,20 @@ test('a capture-only script that has returned still can\'t steer a request (its 
     assert.equal(r.error, 3, `${onServer ? 'on server' : 'Perform Script'}: ${r.trace?.find((t) => t.message)?.message}`);
     assert.deepEqual(urls, []);
   }
+});
+
+test('a capture-only file in the call stack is refused FTP calls too, and the server is not spoken to', async () => {
+  const f = await fakeFtp();
+  try {
+    const call = `Set Variable [ $r ; Value: BE_FTP_Delete ( "ftp://127.0.0.1:${f.port}/old/file.txt" ; "ann" ; "pw" ) & "|" & BE_GetLastError ]\nExit Script [ Text Result: $r ]`;
+    heldFile.applyDesign([{ op: 'createScript', name: 'FtpDelete', text: call }]);
+    shop.applyDesign([{ op: 'createScript', name: 'FtpDelete', text: call }]);
+    const { fetch } = net();
+    const options = { [TEST_ONLY_CUSTOM_FETCH]: true as const, network: fetch, networkAllow: ['127.0.0.1'] };
+    assert.equal((await runScript(heldFile, 'FtpDelete', options)).result, '?');
+    assert.equal(f.commands.length, 0);
+    // Any other file can.
+    assert.equal((await runScript(shop, 'FtpDelete', options)).result, '|0');
+    assert.ok(f.commands.includes('DELE old/file.txt'));
+  } finally { await f.close(); }
 });
