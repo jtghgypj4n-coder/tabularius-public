@@ -190,14 +190,19 @@ export function decimalFunction(name: string, values: Value[], places: number): 
       case 'log': r = a.ln().div(Decimal.parse('10', places).ln()); break;
       case 'lg': r = a.ln().div(Decimal.parse('2', places).ln()); break;
       case 'factorial': {
-        const n = a.integer(), stop = b.n ? n - b.integer() : 0n;
+        const n = a.integer(), remaining = b.n ? n - b.integer() : 0n;
+        const stop = remaining < 0n ? 0n : remaining;
         if (n < 0n || n > 1000n) return num(NaN);
-        r = one; for (let i = n; i > stop; i--) r = r.mul(Decimal.parse(String(i), places)); break;
+        r = one;
+        for (let i = n; i > stop; i--) { checkBudget?.(); r = r.mul(Decimal.parse(String(i), places)); }
+        break;
       }
       case 'combination': {
         const n = a.integer(), k = b.integer();
         if (n < 0n || k < 0n || k > n || n > 1000n) return num(NaN);
-        r = one; for (let i = 1n; i <= k; i++) r = r.mul(Decimal.parse(String(n-k+i), places)).div(Decimal.parse(String(i), places)); break;
+        r = one;
+        for (let i = 1n; i <= k; i++) { checkBudget?.(); r = r.mul(Decimal.parse(String(n-k+i), places)).div(Decimal.parse(String(i), places)); }
+        break;
       }
       case 'sum': case 'average': {
         if (key === 'average' && !ds.length) return EMPTY;
