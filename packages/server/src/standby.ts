@@ -10,13 +10,13 @@
 // carries on where it stopped. A file changed by anything else since (it was
 // served after a takeover, say) is never overwritten unless asked.
 
-import { createWriteStream, existsSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { createWriteStream, existsSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { readJsonStateSync, updateJsonStateSync } from '../../store/src/durable.ts';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { DatabaseSync } from 'node:sqlite';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { refuseNewer } from '../../store/src/store-format.ts';
 import { STORE_EXT } from './host.ts';
 import { guardedFetch } from '../../scripts/src/net-guard.ts';
@@ -27,15 +27,28 @@ import { writeDurable } from '../../store/src/durable.ts';
 
 export const STANDBY_STATE = '.openhbam-standby.json';
 
+/** A file as it stood: its size and time, or null for no file. */
+export type Seen = { size: number; mtimeMs: number } | null;
+
+/** What this is doing to a file: saved before the file is touched, and gone once it is done. */
+export interface StandbyPending {
+  /** The states the file may be in as far as this is concerned: before, and after a copy (a change applied leaves it somewhere only the next note knows). */
+  states: Seen[];
+  /** The hash of the log this left beside the file, which is the only log there is that is not a local change. */
+  log?: string;
+}
+
 export interface StandbyFile {
   run: string;
   /** The last change applied. */
   seq: number;
   /** The copy is whole once this change is applied. */
   wholeAfter: number;
-  /** The file as this left it, to notice anything else changing it. */
+  /** The file as this left it, to notice anything else changing it. Both -1 while `pending` is set (and in notes from before it existed, where they mean the same). */
   size: number;
   mtimeMs: number;
+  /** Set while a copy or a change is being done; the file is copied again, and is this's own while it is in one of these states. */
+  pending?: StandbyPending;
   /** When the last change was applied (epoch ms). */
   at: number;
 }
@@ -203,29 +216,58 @@ export class Standby {
     return join(this.opts.folder, name + STORE_EXT);
   }
 
-  /** Whether a sidecar of the file holds something: a write-ahead log or a rollback journal that is not empty is a local change that is not in the file itself. An empty one, or a shared-memory index (which holds nothing that is not in the log), is only what opening the file leaves behind. */
-  private sidecarHolds(name: string): boolean {
-    return ['-wal', '-journal'].some((x) => {
-      try { return statSync(this.path(name) + x).size > 0; } catch { return false; }
-    });
+  private seenAt(path: string): Seen {
+    try {
+      const s = statSync(path);
+      return { size: s.size, mtimeMs: s.mtimeMs };
+    } catch { return null; }
+  }
+
+  private seen(name: string): Seen {
+    return this.seenAt(this.path(name));
+  }
+
+  /** The hash of the write-ahead log beside the file, if it holds anything. */
+  private logHash(name: string): string | undefined {
+    try {
+      const log = readFileSync(this.path(name) + '-wal');
+      return log.length ? createHash('sha256').update(log).digest('hex') : undefined;
+    } catch { return undefined; }
+  }
+
+  /**
+   * Whether a sidecar of the file holds something that is not this's own: a rollback journal, or a write-ahead log, that
+   * is not empty is a local change that is not in the file itself, unless it is the log this left (`ours`, a hash). An
+   * empty one, or a shared-memory index (which holds nothing that is not in the log), is only what opening the file leaves.
+   */
+  private sidecarHolds(name: string, ours?: string): boolean {
+    try { if (statSync(this.path(name) + '-journal').size > 0) return true; } catch { /* none */ }
+    try { if (statSync(this.path(name) + '-wal').size > 0) return ours === undefined || this.logHash(name) !== ours; } catch { /* none */ }
+    return false;
   }
 
   /** Whether the file is as this left it, whole and with nothing noted as being done to it. */
   private untouched(name: string): boolean {
     const f = this.state.files[name];
-    if (!f || f.size < 0 || !existsSync(this.path(name))) return false;
+    if (!f || f.pending || f.size < 0 || !existsSync(this.path(name))) return false;
     const s = statSync(this.path(name));
     return s.size === f.size && s.mtimeMs === f.mtimeMs && !this.sidecarHolds(name);
   }
 
   /**
    * Whether something other than this standby changed the file, or left changes beside it, since it was last updated.
-   * A size of -1 in the notes means this was in the middle of a copy or of applying changes (the notes are saved with
-   * that before the file is touched), so whatever is in the folder, the file in either state and the log this left
-   * beside it, is its own. A file that is gone has nothing to lose, unless a log or journal is left that might.
+   * While a copy or a batch of changes is being done, the notes (saved before the file is touched) say what states the
+   * file may be in, and the log this left beside it; the file in one of those states, with that log or none, is this's
+   * own, and anything else is not. Notes from before that was kept have only a size of -1, which means the file in
+   * any state. A file that is gone has nothing to lose, unless a log or journal is left that might.
    */
   private changedHere(name: string): boolean {
     const f = this.state.files[name];
+    if (f?.pending) {
+      const now = this.seen(name);
+      const ours = f.pending.states.some((s) => s === null ? now === null : now !== null && s.size === now.size && s.mtimeMs === now.mtimeMs);
+      return !ours || this.sidecarHolds(name, f.pending.log);
+    }
     if (f && f.size < 0) return false;
     if (!existsSync(this.path(name))) return this.sidecarHolds(name);
     return !this.untouched(name);
@@ -237,10 +279,27 @@ export class Standby {
     if (this.changedHere(name)) throw new Error(`${name} changed here since it was last updated: use --overwrite to replace it`);
   }
 
-  private mark(name: string, f: StandbyFile): void {
+  /** Notes what is about to be done to the file, and saves at once: the file is not touched until it is on disk. */
+  private begin(name: string, f: StandbyFile, pending: StandbyPending): void {
+    this.state.files[name] = { ...f, size: -1, mtimeMs: -1, pending };
+    this.save();
+  }
+
+  /** After a failure, or when stopping, with a copy or changes half done: the file as it is now is this's own, and is copied again. */
+  private settle(name: string): void {
+    const f = this.state.files[name];
+    if (!f?.pending) return;
+    this.state.files[name] = { ...f, pending: { states: [this.seen(name)], log: this.logHash(name) } };
+    try { this.save(); } catch { this.scheduleSave(); }
+  }
+
+  private mark(name: string, f: StandbyFile, now = false): void {
     const s = statSync(this.path(name));
-    this.state.files[name] = { ...f, size: s.size, mtimeMs: s.mtimeMs };
-    this.scheduleSave();
+    const whole = { ...f, size: s.size, mtimeMs: s.mtimeMs };
+    delete whole.pending;
+    this.state.files[name] = whole;
+    if (!now) return this.scheduleSave();
+    try { this.save(); } catch { this.scheduleSave(); }
   }
 
   private async follow(name: string): Promise<void> {
@@ -291,14 +350,16 @@ export class Standby {
         db.close();
       }
       this.assertCopyAllowed(name);
-      // A journal left beside the old file would be rolled back into the new one when it is opened.
       for (const x of ['-wal', '-shm', '-journal']) rmSync(partial + x, { force: true });
+      // Noted before the file is touched, and saved now rather than in a moment: a crash between the two must not leave a
+      // file in the folder that the next start takes for someone else's. The old file and the new one are the two states
+      // it is in (the new one's size and time are those of the partial file, which the rename keeps), and the log beside
+      // the old one, which was allowed to be there, is the only one that may be.
+      this.begin(name, { run, seq, wholeAfter: Math.max(wholeAfter, seq + 1), size: -1, mtimeMs: -1, at: 0 }, { states: [this.seen(name), this.seenAt(partial)], log: this.logHash(name) });
+      // Checked once more against what was just noted, so that only the instants from here to the rename are open to a
+      // write by another program. A journal left beside the old file would be rolled back into the new one when it is opened.
+      this.assertCopyAllowed(name);
       for (const x of ['-wal', '-shm', '-journal']) rmSync(target + x, { force: true });
-      // Noted before the file appears, and saved now rather than in a moment: a crash between the two must not leave a
-      // file in the folder that the next start takes for someone else's (a size and time that match nothing make it copy
-      // this one again, as for any copy the note of which is older than the file).
-      this.state.files[name] = { run, seq, wholeAfter: Math.max(wholeAfter, seq + 1), size: -1, mtimeMs: -1, at: 0 };
-      this.save();
       writeDurable(partial, target);
     } catch (e) {
       rmSync(partial, { force: true });
@@ -325,16 +386,24 @@ export class Standby {
       const records = decodeRecords(Buffer.from(await res.arrayBuffer())).filter((r) => r.seq > f.seq);
       if (!this.untouched(name)) return;
       let seq = f.seq;
-      if (records.length) {
-        this.state.files[name] = { ...f, wholeAfter: Math.max(f.wholeAfter, records.at(-1)!.seq + 1), size: -1 };
-        this.save();
-      }
       for (const r of records) {
-        if (r.seq !== seq + 1) throw new Error(`change ${seq + 1} is missing`);
-        applyLog(this.path(name), r.data);
-        seq = r.seq;
+        if (r.seq !== ++seq) throw new Error(`change ${seq} is missing`);
       }
-      if (records.length) this.mark(name, { ...f, seq, at: Date.now() });
+      seq = f.seq;
+      if (records.length) {
+        try {
+          for (const r of records) {
+            // Each change is noted before it is applied, with the file as it is and the log it will leave beside it.
+            this.begin(name, { ...f, seq, wholeAfter: Math.max(f.wholeAfter, records.at(-1)!.seq + 1) }, { states: [this.seen(name)], log: createHash('sha256').update(r.data).digest('hex') });
+            applyLog(this.path(name), r.data);
+            seq = r.seq;
+          }
+        } catch (e) {
+          this.settle(name);
+          throw e;
+        }
+        this.mark(name, { ...f, seq, at: Date.now() }, true);
+      }
       if (this.problem?.startsWith(`following ${name}:`)) this.problem = undefined;
     }
   }

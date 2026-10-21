@@ -51,8 +51,10 @@ None is skipped.
 
 Fixed: the standby refuses at start, after a restart of the main server and just before a copy, for a file whose size or time
 differs from its notes or that has a log or journal with content beside it, and says to use `--overwrite`. The notes are saved
-with a size of -1 before a copy or a batch of changes touches the file, and that marker is how a crash of the standby itself is
-told from a change made here: it is copied again, as before. The test is no longer `todo`. What follows is the finding as it was.
+with a size of -1 and the states the file may be in (and the hash of the log left beside it, for a change) before a copy or a
+change touches the file; a file in one of those states is the standby's own after a crash and is copied again, and anything
+else is a change made here. A failed apply, or a copy that cannot finish, notes the file as it is then, so a stop and an outage
+of the main server leave the notes true (a bare -1 had let a write made in that time be copied over). The test is no longer `todo`. What follows is the finding as it was.
 
 The header of `standby.ts` says a file changed by anything else "is never overwritten unless asked". The code does the
 opposite for a file it is following: if the file's size or time differs from what the standby wrote down, it logs

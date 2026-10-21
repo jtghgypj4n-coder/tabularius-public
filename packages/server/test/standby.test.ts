@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -200,8 +201,8 @@ function fakePrimary(standby: Standby, source: string, seen: { copies: number; c
   } });
 }
 
-test('what a crash of the standby itself leaves is its own, and is copied again', async () => {
-  // The notes carry a size of -1 from before a copy or a batch of changes is applied until it is done, so a file in either
+test('notes from before pending work was recorded, left at a size of -1, take what is in the folder for the standby\'s own', async () => {
+  // Older notes carry only a size of -1 for a copy or a batch of changes that was not finished, so a file in either
   // state, with the log the standby itself left beside it, or no file at all, is not a change made here.
   for (const left of ['the old file', 'the old file and its log', 'no file']) {
     const root = mkdtempSync(join(tmpdir(), 'tabularius-standby-crashed-'));
@@ -227,6 +228,203 @@ test('what a crash of the standby itself leaves is its own, and is copied again'
       await standby?.stop();
       rmSync(root, { recursive: true, force: true });
     }
+  }
+});
+
+const sha = (data: string | Buffer): string => createHash('sha256').update(data).digest('hex');
+
+test('what a crash in the middle of a copy or a change leaves is the standby\'s own, and only that', async () => {
+  // The notes say, before the file is touched, the states it may be in and the log the standby leaves beside it.
+  const log = 'the changes being applied';
+  type Seen = { size: number; mtimeMs: number } | null;
+  const cases: { what: string; refused: boolean; arrange: (file: string, pre: Seen) => { states: (Seen | null)[]; log?: string } }[] = [
+    { what: 'a change that crashed before it was applied: the file as it was, and the log the standby wrote', refused: false, arrange: (file, pre) => { writeFileSync(file + '-wal', log); return { states: [pre], log: sha(log) }; } },
+    { what: 'the same, with the log changed by someone', refused: true, arrange: (file, pre) => { writeFileSync(file + '-wal', log + ' and a local write'); return { states: [pre], log: sha(log) }; } },
+    { what: 'the same, with a write made here after the crash', refused: true, arrange: (file, pre) => { const db = new DatabaseSync(file); try { db.exec("UPDATE rows SET value = 'local edit'"); } finally { db.close(); } return { states: [pre], log: sha(log) }; } },
+    { what: 'a copy that crashed before the new file appeared', refused: false, arrange: (_file, pre) => ({ states: [pre, { size: 1, mtimeMs: 1 }] }) },
+    { what: 'a copy that crashed before the new file appeared, then a write made here', refused: true, arrange: (file, pre) => { const db = new DatabaseSync(file); try { db.exec("UPDATE rows SET value = 'local edit'"); } finally { db.close(); } return { states: [pre, { size: 1, mtimeMs: 1 }] }; } },
+    { what: 'a copy that crashed after the new file appeared', refused: false, arrange: (file) => ({ states: [{ size: 1, mtimeMs: 1 }, (() => { const s = statSync(file); return { size: s.size, mtimeMs: s.mtimeMs }; })()] }) },
+    { what: 'a copy that crashed when there had been no file', refused: false, arrange: (file) => { rmSync(file); return { states: [null, { size: 1, mtimeMs: 1 }] }; } },
+    { what: 'a copy that crashed when there had been no file, then a local log', refused: true, arrange: (file) => { rmSync(file); writeFileSync(file + '-wal', 'a local write'); return { states: [null, { size: 1, mtimeMs: 1 }] }; } },
+  ];
+  for (const c of cases) {
+    const root = mkdtempSync(join(tmpdir(), 'tabularius-standby-pending-'));
+    const file = join(root, 'Local' + STORE_EXT);
+    const source = join(root, 'source.sqlite');
+    const primary = 'http://primary.invalid';
+    const seen = { copies: 0, changes: 0 };
+    let standby: Standby | undefined;
+    try {
+      tinyDb(source, 'primary copy');
+      tinyDb(file, 'replicated');
+      const s = statSync(file);
+      const pending = c.arrange(file, { size: s.size, mtimeMs: s.mtimeMs });
+      writeFileSync(join(root, STANDBY_STATE), JSON.stringify({ primary, files: {
+        Local: { run: 'old-run', seq: 1, wholeAfter: 2, size: -1, mtimeMs: -1, at: 0, pending },
+      } }));
+      standby = new Standby({ folder: root, primary, token: TOKEN, log: () => {}, wait: 0 });
+      fakePrimary(standby, source, seen);
+      if (c.refused) {
+        assert.throws(() => standby!.start(), /changed here since it was last updated: use --overwrite/, c.what);
+        assert.equal(seen.copies, 0, c.what);
+        if (existsSync(file)) assert.equal(tinyValue(file), c.what.includes('write made here') ? 'local edit' : 'replicated', c.what);
+      } else {
+        standby.start();
+        await until(`the file is copied again (${c.what})`, () => existsSync(file) && tinyValue(file) === 'primary copy', 5000);
+        assert.equal(existsSync(file + '-wal'), false, c.what);
+      }
+    } finally {
+      await standby?.stop();
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+});
+
+test('a change that failed to apply, or could not be, leaves the file as the standby\'s own for as long as the main server is away, and no longer', async () => {
+  for (const how of ['a gap in the changes', 'a change that fails to apply']) {
+    const root = mkdtempSync(join(tmpdir(), 'tabularius-standby-failed-'));
+    const file = join(root, 'Local' + STORE_EXT);
+    const source = join(root, 'source.sqlite');
+    const primary = 'http://primary.invalid';
+    const seen = { copies: 0, changes: 0 };
+    let standby: Standby | undefined;
+    let down = false;
+    try {
+      tinyDb(source, 'primary copy');
+      tinyDb(file, 'replicated');
+      savedTinyState(root, primary);
+      standby = new Standby({ folder: root, primary, token: TOKEN, log: () => {}, wait: 0 });
+      fakePrimary(standby, source, seen, async () => {
+        down = true;
+        // A directory where the log goes makes applying fail, after the standby has checked the file.
+        if (how === 'a change that fails to apply') mkdirSync(file + '-wal', { recursive: true });
+        // Change 2 would follow the 1 the notes have; 3 leaves a gap.
+        return new Response(new Uint8Array(encodeRecord({ at: 1, seq: how === 'a gap in the changes' ? 3 : 2, data: Buffer.from('changes') })));
+      });
+      const reach = (standby as unknown as { get: (path: string) => Promise<Response> }).get;
+      Object.assign(standby, { get: async (path: string) => {
+        if (down && !path.includes('/changes?')) throw new Error('the main server is away');
+        return reach.call(standby, path);
+      } });
+      standby.start();
+      await until('the change fails', () => down && !!standby!.problem?.includes('following Local'), 5000);
+      await standby.stop();
+      standby = undefined;
+      rmSync(file + '-wal', { recursive: true, force: true });
+
+      // Someone writes to the replica while the main server is away; the standby, started again, must not copy over it.
+      const db = new DatabaseSync(file);
+      try { db.exec("UPDATE rows SET value = 'local edit'"); } finally { db.close(); }
+      seen.copies = 0;
+      standby = new Standby({ folder: root, primary, token: TOKEN, log: () => {}, wait: 0 });
+      fakePrimary(standby, source, seen);
+      assert.throws(() => standby!.start(), /changed here since it was last updated: use --overwrite/, how);
+      assert.equal(tinyValue(file), 'local edit', how);
+      assert.equal(seen.copies, 0, how);
+    } finally {
+      await standby?.stop();
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+});
+
+test('a copy is noted before the file appears, with the states the file is in before and after', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'tabularius-standby-noted-'));
+  const file = join(root, 'Local' + STORE_EXT);
+  const source = join(root, 'source.sqlite');
+  const primary = 'http://primary.invalid';
+  const seen = { copies: 0, changes: 0 };
+  let noted: { files: { Local: { size: number; pending?: { states: ({ size: number; mtimeMs: number } | null)[] } } } } | undefined;
+  let standby: Standby | undefined;
+  try {
+    tinyDb(source, 'primary copy');
+    tinyDb(file, 'replicated');
+    const before = statSync(file);
+    savedTinyState(root, primary);
+    // Out of date, so that the file is copied again.
+    writeFileSync(join(root, STANDBY_STATE), JSON.stringify({ primary, files: { Local: { run: 'old-run', seq: 1, wholeAfter: 1, size: before.size, mtimeMs: before.mtimeMs, at: 0, pending: { states: [{ size: before.size, mtimeMs: before.mtimeMs }] } } } }));
+    standby = new Standby({ folder: root, primary, token: TOKEN, wait: 0, log: (m) => {
+      // The notes on disk at the moment the copy is done, before the save that follows it.
+      if (m === 'copied Local') noted = JSON.parse(readFileSync(join(root, STANDBY_STATE), 'utf8'));
+    } });
+    fakePrimary(standby, source, seen);
+    standby.start();
+    await until('the copy is done', () => !!noted, 5000);
+    const after = statSync(file);
+    assert.equal(noted!.files.Local.size, -1);
+    assert.deepEqual(noted!.files.Local.pending!.states, [{ size: before.size, mtimeMs: before.mtimeMs }, { size: after.size, mtimeMs: after.mtimeMs }]);
+  } finally {
+    await standby?.stop();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('each change is noted before it is applied, with the file as it is and the hash of the log it leaves', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'tabularius-standby-ahead-'));
+  const file = join(root, 'Local' + STORE_EXT);
+  const source = join(root, 'source.sqlite');
+  const primary = 'http://primary.invalid';
+  const seen = { copies: 0, changes: 0 };
+  const noted: { size: number; pending?: { states: ({ size: number; mtimeMs: number } | null)[]; log?: string }; file: { size: number; mtimeMs: number }; wal: boolean }[] = [];
+  let standby: Standby | undefined;
+  try {
+    tinyDb(source, 'primary copy');
+    tinyDb(file, 'replicated');
+    savedTinyState(root, primary);
+    standby = new Standby({ folder: root, primary, token: TOKEN, log: () => {}, wait: 0 });
+    fakePrimary(standby, source, seen, async () => {
+      if (seen.changes === 1) return new Response(new Uint8Array(Buffer.concat([encodeRecord({ at: 1, seq: 2, data: Buffer.from('one') }), encodeRecord({ at: 1, seq: 3, data: Buffer.from('two') })])));
+      await sleep(100);
+      return new Response(new Uint8Array());
+    });
+    // The notes as they are saved, and the file at that moment.
+    const save = (standby as unknown as { save: (wait?: number) => void }).save;
+    Object.assign(standby, { save: function (this: Standby, wait?: number) {
+      const f = this.state.files.Local;
+      const s = statSync(file);
+      noted.push({ size: f.size, pending: f.pending && JSON.parse(JSON.stringify(f.pending)), file: { size: s.size, mtimeMs: s.mtimeMs }, wal: existsSync(file + '-wal') });
+      return save.call(this, wait);
+    } });
+    standby.start();
+    await until('both changes are applied', () => standby!.state.files.Local.seq === 3 && !standby!.state.files.Local.pending, 5000);
+    const ahead = noted.filter((n) => n.pending?.log);
+    assert.deepEqual(ahead.map((n) => n.pending!.log), [sha('one'), sha('two')]);
+    for (const n of ahead) {
+      assert.equal(n.size, -1);
+      assert.deepEqual(n.pending!.states, [n.file], 'the file as it was when the note was saved');
+    }
+    assert.equal(ahead[0].wal, false, 'saved before the log is written');
+  } finally {
+    await standby?.stop();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a batch that fails half done is noted as it was left, and what is written after that is a change made here', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'tabularius-standby-settled-'));
+  const file = join(root, 'Local' + STORE_EXT);
+  const primary = 'http://primary.invalid';
+  try {
+    tinyDb(file, 'replicated');
+    const before = statSync(file);
+    writeFileSync(join(root, STANDBY_STATE), JSON.stringify({ primary, files: {
+      Local: { run: 'old-run', seq: 1, wholeAfter: 2, size: -1, mtimeMs: -1, at: 0, pending: { states: [{ size: before.size, mtimeMs: before.mtimeMs }], log: sha('a change') } },
+    } }));
+    const standby = new Standby({ folder: root, primary, token: TOKEN, log: () => {} });
+    // Part of the batch got in before it failed: the file is no longer as it was, and the log left is the one being applied.
+    const db = new DatabaseSync(file);
+    try { db.exec("UPDATE rows SET value = 'half applied'"); } finally { db.close(); }
+    writeFileSync(file + '-wal', 'a change');
+    (standby as unknown as { settle: (name: string) => void }).settle('Local');
+
+    // A start takes the file for its own, and a write made after that is not.
+    const changedHere = (): boolean => (new Standby({ folder: root, primary, token: TOKEN, log: () => {} }) as unknown as { changedHere: (name: string) => boolean }).changedHere('Local');
+    assert.equal(changedHere(), false);
+    const edit = new DatabaseSync(file);
+    try { edit.exec("UPDATE rows SET value = 'local edit'"); } finally { edit.close(); }
+    assert.equal(changedHere(), true);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 });
 
@@ -286,10 +484,11 @@ test('a rollback journal left beside a file is a change made here, and is never 
 
     // With --overwrite it is replaced with the file, and the journal and a shared-memory index go with it.
     writeFileSync(file + '-shm', 'index');
-    standby = new Standby({ folder: root, primary, token: TOKEN, log: () => {}, overwrite: true, wait: 0 });
+    const lines: string[] = [];
+    standby = new Standby({ folder: root, primary, token: TOKEN, log: (m) => void lines.push(m), overwrite: true, wait: 0 });
     fakePrimary(standby, source, seen);
     standby.start();
-    await until('the copy replaces the file', () => seen.copies > 0 && standby!.state.files.Local.size >= 0, 5000);
+    await until('the copy replaces the file', () => lines.includes('copied Local'), 5000);
     assert.equal(tinyValue(file), 'primary copy');
     assert.equal(existsSync(file + '-journal'), false);
     assert.equal(existsSync(file + '-shm'), false);
