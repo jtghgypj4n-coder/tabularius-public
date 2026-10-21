@@ -239,8 +239,8 @@ The following reasons apply to the exact enumerated expressions in each named fu
 | [packages/server/src/automations.ts:294](../../packages/server/src/automations.ts#L294) `dryRunAutomation/truth` | `Store.evaluateEach` (294) | AUTOMATION |
 | [packages/server/src/automations.ts:295](../../packages/server/src/automations.ts#L295) `dryRunAutomation` | `Store.canViewRecord` (295); `Store.findIds` (295); `Store.auditLog` (311, 339, 347); `Store.select` (324); `Store.evaluate` (340) | AUTOMATION |
 | [packages/server/src/automations.ts:422](../../packages/server/src/automations.ts#L422) `AutomationRunner/changed` | `Store.auditLog` (422) | AUTOMATION |
-| [packages/server/src/automations.ts:446](../../packages/server/src/automations.ts#L446) `AutomationRunner/run` | `Store.select` (446); `Store.canViewRecord` (456); `Store.evaluateEach` (459); `Store.evaluate` (465) | AUTOMATION |
-| [packages/server/src/automations.ts:489](../../packages/server/src/automations.ts#L489) `AutomationRunner/runDeleted` | `Store.auditLog` (489) | AUTOMATION |
+| [packages/server/src/automations.ts:451](../../packages/server/src/automations.ts#L451) `AutomationRunner/run` | `Store.select` (451); `Store.canViewRecord` (461); `Store.evaluateEach` (464); `Store.evaluate` (470) | AUTOMATION |
+| [packages/server/src/automations.ts:497](../../packages/server/src/automations.ts#L497) `AutomationRunner/runDeleted` | `Store.auditLog` (497) | AUTOMATION |
 | [packages/server/src/backup-verify.ts:147](../../packages/server/src/backup-verify.ts#L147) `testRestore` | `Store.recordCount` (147) | OPERATOR |
 | [packages/server/src/backup-verify.ts:187](../../packages/server/src/backup-verify.ts#L187) `integrity` | `SQLite.all` (187); `SQLite.prepare` (187, 191); `SQLite.get` (191) | OPERATOR |
 | [packages/server/src/backup-verify.ts:217](../../packages/server/src/backup-verify.ts#L217) `pageCheck` | `SQLite.all` (217); `SQLite.prepare` (217, 220); `SQLite.get` (220) | OPERATOR |
@@ -287,9 +287,9 @@ The following reasons apply to the exact enumerated expressions in each named fu
 | [packages/server/src/dashboards.ts:357](../../packages/server/src/dashboards.ts#L357) `Dashboards/create` | `SQLite.prepare` (357); `Store.sql` (357) | DASHBOARD |
 | [packages/server/src/dashboards.ts:370](../../packages/server/src/dashboards.ts#L370) `Dashboards/update` | `SQLite.prepare` (370); `Store.sql` (370) | DASHBOARD |
 | [packages/server/src/dashboards.ts:377](../../packages/server/src/dashboards.ts#L377) `Dashboards/delete` | `SQLite.prepare` (377); `Store.sql` (377) | DASHBOARD |
-| [packages/server/src/dataapi.ts:1911](../../packages/server/src/dataapi.ts#L1911) `DataApi/route` | `Store.get` (1911, 2133, 2156, 2164, 2211, 2235, 2255, 2292); `Store.valueListItems` (1926); `Store.find` (2088, 2135, 2325); `Store.findIds` (2092, 2330); `Store.query` (2330) | REST |
-| [packages/server/src/dataapi.ts:2040](../../packages/server/src/dataapi.ts#L2040) `DataApi/route/recordOut` | `Store.portalCounts` (2040) | REST |
-| [packages/server/src/dataapi.ts:2076](../../packages/server/src/dataapi.ts#L2076) `DataApi/route/shownAs` | `Store.get` (2076) | REST |
+| [packages/server/src/dataapi.ts:1914](../../packages/server/src/dataapi.ts#L1914) `DataApi/route` | `Store.get` (1914, 2136, 2159, 2167, 2214, 2238, 2258, 2295); `Store.valueListItems` (1929); `Store.find` (2091, 2138, 2328); `Store.findIds` (2095, 2333); `Store.query` (2333) | REST |
+| [packages/server/src/dataapi.ts:2043](../../packages/server/src/dataapi.ts#L2043) `DataApi/route/recordOut` | `Store.portalCounts` (2043) | REST |
+| [packages/server/src/dataapi.ts:2079](../../packages/server/src/dataapi.ts#L2079) `DataApi/route/shownAs` | `Store.get` (2079) | REST |
 | [packages/server/src/debug.ts:183](../../packages/server/src/debug.ts#L183) `learnStoredCredentials` | `Calculations.globalValue` (183); `Store.sql` (189, 199, 199); `SQLite.iterate` (199, 199); `SQLite.prepare` (199, 199); `Store.iterateCommitted` (199) | DESIGN |
 | [packages/server/src/debug.ts:309](../../packages/server/src/debug.ts#L309) `DebugApi/handle` | `Store.row` (309); `Store.get` (316); `Store.evaluate` (331) | DESIGN |
 | [packages/server/src/design.ts:233](../../packages/server/src/design.ts#L233) `containerData` | `Store.query` (233) | DESIGN |
@@ -339,15 +339,15 @@ The following reasons apply to the exact enumerated expressions in each named fu
 | [packages/server/src/oauth.ts:59](../../packages/server/src/oauth.ts#L59) `storedName` | `SQLite.get` (59); `SQLite.prepare` (59); `Store.sql` (59) | AUTH |
 | [packages/server/src/oauth.ts:70](../../packages/server/src/oauth.ts#L70) `legacyPasswordMark` | `SQLite.get` (70); `SQLite.prepare` (70); `Store.sql` (70) | AUTH |
 | [packages/server/src/oauth.ts:164](../../packages/server/src/oauth.ts#L164) `OAuthServer/constructor/cols` | `SQLite.all` (164); `SQLite.prepare` (164) | AUTH |
-| [packages/server/src/oauth.ts:170](../../packages/server/src/oauth.ts#L170) `OAuthServer/constructor` | `SQLite.all` (170); `SQLite.prepare` (170, 182, 184, 187, 188, 191); `SQLite.iterate` (182); `SQLite.get` (184); `Store.sql` (184, 187) | AUTH |
-| [packages/server/src/oauth.ts:303](../../packages/server/src/oauth.ts#L303) `OAuthServer/register` | `SQLite.prepare` (303, 304, 305, 306, 309); `SQLite.get` (304, 306) | AUTH |
-| [packages/server/src/oauth.ts:320](../../packages/server/src/oauth.ts#L320) `OAuthServer/client` | `SQLite.get` (320); `SQLite.prepare` (320) | AUTH |
-| [packages/server/src/oauth.ts:410](../../packages/server/src/oauth.ts#L410) `OAuthServer/authorize/done` | `SQLite.prepare` (410, 411) | AUTH |
-| [packages/server/src/oauth.ts:428](../../packages/server/src/oauth.ts#L428) `OAuthServer/authorize` | `SQLite.get` (428); `SQLite.prepare` (428, 432, 434, 441, 464, 465) | AUTH |
-| [packages/server/src/oauth.ts:609](../../packages/server/src/oauth.ts#L609) `OAuthServer/token` | `SQLite.get` (609, 630); `SQLite.prepare` (609, 630) | AUTH |
-| [packages/server/src/oauth.ts:660](../../packages/server/src/oauth.ts#L660) `OAuthServer/issue` | `SQLite.prepare` (660, 661) | AUTH |
-| [packages/server/src/oauth.ts:667](../../packages/server/src/oauth.ts#L667) `OAuthServer/sweep` | `SQLite.all` (667); `SQLite.prepare` (667, 669) | AUTH |
-| [packages/server/src/oauth.ts:676](../../packages/server/src/oauth.ts#L676) `OAuthServer/revoke` | `SQLite.get` (676, 683); `SQLite.prepare` (676, 683, 686) | AUTH |
+| [packages/server/src/oauth.ts:171](../../packages/server/src/oauth.ts#L171) `OAuthServer/constructor` | `SQLite.all` (171); `SQLite.prepare` (171, 183, 185, 188, 189, 192); `SQLite.iterate` (183); `SQLite.get` (185); `Store.sql` (185, 188) | AUTH |
+| [packages/server/src/oauth.ts:304](../../packages/server/src/oauth.ts#L304) `OAuthServer/register` | `SQLite.prepare` (304, 305, 306, 307, 310); `SQLite.get` (305, 307) | AUTH |
+| [packages/server/src/oauth.ts:321](../../packages/server/src/oauth.ts#L321) `OAuthServer/client` | `SQLite.get` (321); `SQLite.prepare` (321) | AUTH |
+| [packages/server/src/oauth.ts:411](../../packages/server/src/oauth.ts#L411) `OAuthServer/authorize/done` | `SQLite.prepare` (411, 412) | AUTH |
+| [packages/server/src/oauth.ts:429](../../packages/server/src/oauth.ts#L429) `OAuthServer/authorize` | `SQLite.get` (429); `SQLite.prepare` (429, 433, 435, 442, 465, 466) | AUTH |
+| [packages/server/src/oauth.ts:610](../../packages/server/src/oauth.ts#L610) `OAuthServer/token` | `SQLite.get` (610, 631); `SQLite.prepare` (610, 631) | AUTH |
+| [packages/server/src/oauth.ts:661](../../packages/server/src/oauth.ts#L661) `OAuthServer/issue` | `SQLite.prepare` (661, 662) | AUTH |
+| [packages/server/src/oauth.ts:668](../../packages/server/src/oauth.ts#L668) `OAuthServer/sweep` | `SQLite.all` (668); `SQLite.prepare` (668, 670) | AUTH |
+| [packages/server/src/oauth.ts:677](../../packages/server/src/oauth.ts#L677) `OAuthServer/revoke` | `SQLite.get` (677, 684); `SQLite.prepare` (677, 684, 687) | AUTH |
 | [packages/server/src/odata-crossjoin-worker.ts:40](../../packages/server/src/odata-crossjoin-worker.ts#L40) `join` | `SQLite.prepare` (40, 49, 58, 73); `SQLite.get` (58); `SQLite.all` (73) | JOIN |
 | [packages/server/src/odata.ts:926](../../packages/server/src/odata.ts#L926) `ODataEndpoint/resource` | `Store.countIds` (926); `Store.get` (966, 973, 1080) | ODATA |
 | [packages/server/src/odata.ts:1212](../../packages/server/src/odata.ts#L1212) `ODataEndpoint/lambdaFor` | `Store.selectIds` (1212); `Store.row` (1221); `relatedIdList` (1222) | ODATA |
@@ -691,172 +691,172 @@ The following reasons apply to the exact enumerated expressions in each named fu
 | [packages/store/src/store.ts:3830](../../packages/store/src/store.ts#L3830) `Store/limitAccountImport` | `SQLite.prepare` (3830, 3831, 3834); `Store.sql` (3830, 3831, 3834); `SQLite.get` (3831) | CORE |
 | [packages/store/src/store.ts:3841](../../packages/store/src/store.ts#L3841) `Store/applyAccountImport` | `Store.sql` (3841, 3849, 3878); `SQLite.get` (3849); `SQLite.prepare` (3849, 3878) | CORE |
 | [packages/store/src/store.ts:3903](../../packages/store/src/store.ts#L3903) `Store/forgetStandIns` | `SQLite.prepare` (3903); `Store.sql` (3903) | CORE |
-| [packages/store/src/store.ts:3936](../../packages/store/src/store.ts#L3936) `Store/deleteAccount` | `SQLite.prepare` (3936, 3937, 3938, 3940, 3944); `Store.sql` (3936, 3937, 3938, 3940, 3944) | CORE |
-| [packages/store/src/store.ts:3961](../../packages/store/src/store.ts#L3961) `Store/setAccountActive` | `SQLite.prepare` (3961, 3964, 3965); `Store.sql` (3961, 3964, 3965) | AUTH |
-| [packages/store/src/store.ts:3975](../../packages/store/src/store.ts#L3975) `Store/accountInactive` | `SQLite.get` (3975); `SQLite.prepare` (3975); `Store.sql` (3975) | CORE |
-| [packages/store/src/store.ts:3980](../../packages/store/src/store.ts#L3980) `Store/identityAllowed` | `SQLite.get` (3980, 3986, 3992); `SQLite.prepare` (3980, 3986, 3992); `Store.sql` (3980, 3986, 3992) | CORE |
-| [packages/store/src/store.ts:4000](../../packages/store/src/store.ts#L4000) `Store/externalIdentityId` | `SQLite.get` (4000, 4006); `SQLite.prepare` (4000, 4005, 4006); `Store.sql` (4000, 4005, 4006) | CORE |
-| [packages/store/src/store.ts:4011](../../packages/store/src/store.ts#L4011) `Store/accountIdentityId` | `SQLite.get` (4011, 4016); `SQLite.prepare` (4011, 4015, 4016); `Store.sql` (4011, 4015, 4016) | CORE |
-| [packages/store/src/store.ts:4039](../../packages/store/src/store.ts#L4039) `Store/signInMark` | `SQLite.prepare` (4039); `Store.sql` (4039) | AUTH |
-| [packages/store/src/store.ts:4049](../../packages/store/src/store.ts#L4049) `Store/signInBase` | `SQLite.get` (4049); `SQLite.prepare` (4049); `Store.sql` (4049) | AUTH |
-| [packages/store/src/store.ts:4051](../../packages/store/src/store.ts#L4051) `Store/signInBase/identity` | `SQLite.get` (4051); `SQLite.prepare` (4051); `Store.sql` (4051) | AUTH |
-| [packages/store/src/store.ts:4063](../../packages/store/src/store.ts#L4063) `Store/ledgerRow` | `SQLite.get` (4063, 4064); `SQLite.prepare` (4063, 4064); `Store.sql` (4063, 4064) | AUTH |
-| [packages/store/src/store.ts:4075](../../packages/store/src/store.ts#L4075) `Store/ledgerWrite` | `Store.sql` (4075, 4076, 4078, 4080, 4083, 4083) | AUTH |
-| [packages/store/src/store.ts:4102](../../packages/store/src/store.ts#L4102) `Store/settleSignIns` | `SQLite.all` (4102, 4108); `SQLite.prepare` (4102, 4108, 4114, 4118, 4120); `Store.sql` (4102, 4108, 4114, 4118, 4120) | AUTH |
-| [packages/store/src/store.ts:4131](../../packages/store/src/store.ts#L4131) `Store/securityToken` | `SQLite.get` (4131); `SQLite.prepare` (4131); `Store.sql` (4131) | CORE |
-| [packages/store/src/store.ts:4139](../../packages/store/src/store.ts#L4139) `Store/accountLocalOnly` | `SQLite.get` (4139); `SQLite.prepare` (4139); `Store.sql` (4139) | CORE |
-| [packages/store/src/store.ts:4144](../../packages/store/src/store.ts#L4144) `Store/accountRequires2fa` | `SQLite.get` (4144); `SQLite.prepare` (4144); `Store.sql` (4144) | CORE |
-| [packages/store/src/store.ts:4150](../../packages/store/src/store.ts#L4150) `Store/setAccountLocalOnly` | `SQLite.prepare` (4150); `Store.sql` (4150) | CORE |
-| [packages/store/src/store.ts:4159](../../packages/store/src/store.ts#L4159) `Store/setAccountRequire2fa` | `SQLite.prepare` (4159); `Store.sql` (4159) | CORE |
-| [packages/store/src/store.ts:4187](../../packages/store/src/store.ts#L4187) `Store/createApiToken` | `SQLite.get` (4187); `SQLite.prepare` (4187, 4215); `Store.sql` (4187, 4215) | CORE |
-| [packages/store/src/store.ts:4262](../../packages/store/src/store.ts#L4262) `Store/recordObjectUse` | `Store.sql` (4262) | CORE |
-| [packages/store/src/store.ts:4292](../../packages/store/src/store.ts#L4292) `Store/writeUsage` | `Store.sql` (4292, 4293, 4295, 4299, 4301) | CORE |
-| [packages/store/src/store.ts:4308](../../packages/store/src/store.ts#L4308) `Store/writeUsageRows` | `SQLite.prepare` (4308, 4309, 4315); `Store.sql` (4308, 4309, 4315) | CORE |
-| [packages/store/src/store.ts:4320](../../packages/store/src/store.ts#L4320) `Store/writeObjectUseRows` | `SQLite.prepare` (4320, 4321, 4326); `Store.sql` (4320, 4321, 4326) | CORE |
-| [packages/store/src/store.ts:4331](../../packages/store/src/store.ts#L4331) `Store/objectUseSince` | `SQLite.get` (4331); `SQLite.prepare` (4331); `Store.sql` (4331) | CORE |
-| [packages/store/src/store.ts:4344](../../packages/store/src/store.ts#L4344) `Store/accountUsage` | `SQLite.get` (4344); `SQLite.prepare` (4344, 4345); `Store.sql` (4344, 4345); `SQLite.all` (4345); `Store.auditLog` (4361) | CORE |
-| [packages/store/src/store.ts:4377](../../packages/store/src/store.ts#L4377) `Store/apiTokens` | `SQLite.all` (4377); `SQLite.prepare` (4377); `Store.sql` (4377) | CORE |
-| [packages/store/src/store.ts:4387](../../packages/store/src/store.ts#L4387) `Store/revokeApiToken` | `SQLite.prepare` (4387); `Store.sql` (4387) | CORE |
-| [packages/store/src/store.ts:4401](../../packages/store/src/store.ts#L4401) `Store/apiToken` | `SQLite.get` (4401); `SQLite.prepare` (4401, 4413); `Store.sql` (4401, 4413) | CORE |
-| [packages/store/src/store.ts:4429](../../packages/store/src/store.ts#L4429) `Store/enrollTotp` | `SQLite.prepare` (4429); `Store.sql` (4429) | CORE |
-| [packages/store/src/store.ts:4440](../../packages/store/src/store.ts#L4440) `Store/confirmTotp` | `SQLite.get` (4440); `SQLite.prepare` (4440, 4442); `Store.sql` (4440, 4442) | CORE |
-| [packages/store/src/store.ts:4450](../../packages/store/src/store.ts#L4450) `Store/hasTotp` | `SQLite.get` (4450); `SQLite.prepare` (4450); `Store.sql` (4450) | CORE |
-| [packages/store/src/store.ts:4455](../../packages/store/src/store.ts#L4455) `Store/totpAccounts` | `SQLite.all` (4455); `SQLite.prepare` (4455); `Store.sql` (4455) | CORE |
-| [packages/store/src/store.ts:4461](../../packages/store/src/store.ts#L4461) `Store/disableTotp` | `SQLite.prepare` (4461); `Store.sql` (4461) | CORE |
-| [packages/store/src/store.ts:4484](../../packages/store/src/store.ts#L4484) `Store/verifyTotp` | `SQLite.get` (4484); `SQLite.prepare` (4484, 4490); `Store.sql` (4484, 4490) | CORE |
-| [packages/store/src/store.ts:4503](../../packages/store/src/store.ts#L4503) `Store/issueWebauthnChallenge` | `SQLite.prepare` (4503, 4505, 4506, 4508); `Store.sql` (4503, 4505, 4506, 4508); `SQLite.get` (4505) | CORE |
-| [packages/store/src/store.ts:4555](../../packages/store/src/store.ts#L4555) `Store/passkeyAllowList` | `SQLite.all` (4555); `SQLite.prepare` (4555); `Store.sql` (4555) | CORE |
-| [packages/store/src/store.ts:4569](../../packages/store/src/store.ts#L4569) `Store/takeWebauthnChallenge` | `SQLite.get` (4569); `SQLite.prepare` (4569, 4571); `Store.sql` (4569, 4571) | CORE |
-| [packages/store/src/store.ts:4579](../../packages/store/src/store.ts#L4579) `Store/passkeys` | `SQLite.all` (4579); `SQLite.prepare` (4579); `Store.sql` (4579) | CORE |
-| [packages/store/src/store.ts:4586](../../packages/store/src/store.ts#L4586) `Store/hasPasskey` | `SQLite.get` (4586); `SQLite.prepare` (4586); `Store.sql` (4586) | CORE |
-| [packages/store/src/store.ts:4591](../../packages/store/src/store.ts#L4591) `Store/passkeyIds` | `SQLite.all` (4591); `SQLite.prepare` (4591); `Store.sql` (4591) | CORE |
-| [packages/store/src/store.ts:4613](../../packages/store/src/store.ts#L4613) `Store/registerPasskey` | `SQLite.prepare` (4613); `Store.sql` (4613) | CORE |
-| [packages/store/src/store.ts:4624](../../packages/store/src/store.ts#L4624) `Store/removePasskey` | `SQLite.get` (4624); `SQLite.prepare` (4624, 4625); `Store.sql` (4624, 4625) | CORE |
-| [packages/store/src/store.ts:4641](../../packages/store/src/store.ts#L4641) `Store/verifyPasskeyAssertion` | `SQLite.get` (4641); `SQLite.prepare` (4641, 4652); `Store.sql` (4641, 4652) | CORE |
-| [packages/store/src/store.ts:4688](../../packages/store/src/store.ts#L4688) `Store/generateRecoveryCodes` | `SQLite.prepare` (4688, 4691); `Store.sql` (4688, 4691) | CORE |
-| [packages/store/src/store.ts:4706](../../packages/store/src/store.ts#L4706) `Store/recoveryCodesRemaining` | `SQLite.get` (4706); `SQLite.prepare` (4706); `Store.sql` (4706) | CORE |
-| [packages/store/src/store.ts:4716](../../packages/store/src/store.ts#L4716) `Store/useRecoveryCode` | `SQLite.get` (4716); `SQLite.prepare` (4716, 4718); `Store.sql` (4716, 4718) | CORE |
-| [packages/store/src/store.ts:4729](../../packages/store/src/store.ts#L4729) `Store/privilegeSets` | `Store.sql` (4729) | CORE |
-| [packages/store/src/store.ts:4758](../../packages/store/src/store.ts#L4758) `Store/savePrivilegeSet` | `SQLite.prepare` (4758, 4766); `Store.sql` (4758, 4766) | AUTH |
-| [packages/store/src/store.ts:4801](../../packages/store/src/store.ts#L4801) `Store/deletePrivilegeSet` | `SQLite.prepare` (4801); `Store.sql` (4801) | CORE |
-| [packages/store/src/store.ts:4850](../../packages/store/src/store.ts#L4850) `Store/accountPrivilegeSet` | `SQLite.get` (4850); `SQLite.prepare` (4850); `Store.sql` (4850) | CORE |
-| [packages/store/src/store.ts:4864](../../packages/store/src/store.ts#L4864) `Store/setAccountPrivilegeSet` | `SQLite.get` (4864); `SQLite.prepare` (4864, 4867, 4871); `Store.sql` (4864, 4867, 4871) | AUTH |
-| [packages/store/src/store.ts:4886](../../packages/store/src/store.ts#L4886) `Store/clearAccountPrivilegeSet` | `SQLite.prepare` (4886); `Store.sql` (4886) | CORE |
-| [packages/store/src/store.ts:4900](../../packages/store/src/store.ts#L4900) `Store/addProvisionedAccount` | `SQLite.get` (4900); `SQLite.prepare` (4900, 4904); `Store.sql` (4900, 4904) | CORE |
-| [packages/store/src/store.ts:5065](../../packages/store/src/store.ts#L5065) `Store/ruleOutcome` | `Calculations.context` (5065) | CORE |
-| [packages/store/src/store.ts:5106](../../packages/store/src/store.ts#L5106) `Store/allowedIds` | `SQLite.iterate` (5106); `SQLite.prepare` (5106); `Store.sql` (5106) | CORE |
-| [packages/store/src/store.ts:5176](../../packages/store/src/store.ts#L5176) `Store/scopedTableSql` | `Store.viewableIds` (5176); `SQLite.all` (5179); `SQLite.prepare` (5179); `Store.sql` (5179) | GATED-STORE |
-| [packages/store/src/store.ts:5211](../../packages/store/src/store.ts#L5211) `Store/previewRecordRuleCurrent` | `SQLite.get` (5211); `SQLite.prepare` (5211, 5214); `Store.sql` (5211, 5214); `SQLite.all` (5214); `Calculations.context` (5220, 5236) | CORE |
-| [packages/store/src/store.ts:5388](../../packages/store/src/store.ts#L5388) `Store/passwordHash` | `SQLite.get` (5388); `SQLite.prepare` (5388); `Store.sql` (5388) | CORE |
-| [packages/store/src/store.ts:5417](../../packages/store/src/store.ts#L5417) `Store/setAllowBlankPasswordFromLan` | `SQLite.prepare` (5417); `Store.sql` (5417) | CORE |
-| [packages/store/src/store.ts:5430](../../packages/store/src/store.ts#L5430) `Store/knownSharedAccount` | `SQLite.get` (5430); `SQLite.prepare` (5430); `Store.sql` (5430) | CORE |
-| [packages/store/src/store.ts:5488](../../packages/store/src/store.ts#L5488) `Store/layouts` | `SQLite.all` (5488); `SQLite.prepare` (5488); `Store.sql` (5488) | CORE |
-| [packages/store/src/store.ts:5509](../../packages/store/src/store.ts#L5509) `Store/image` | `SQLite.get` (5509); `SQLite.prepare` (5509); `Store.sql` (5509) | CORE |
-| [packages/store/src/store.ts:5519](../../packages/store/src/store.ts#L5519) `Store/images` | `SQLite.all` (5519); `SQLite.prepare` (5519); `Store.sql` (5519) | CORE |
-| [packages/store/src/store.ts:5532](../../packages/store/src/store.ts#L5532) `Store/addImage` | `Store.sql` (5532, 5533); `SQLite.prepare` (5533) | CORE |
-| [packages/store/src/store.ts:5549](../../packages/store/src/store.ts#L5549) `Store/layout` | `SQLite.get` (5549); `SQLite.prepare` (5549); `Store.sql` (5549) | CORE |
-| [packages/store/src/store.ts:5753](../../packages/store/src/store.ts#L5753) `Store/wordIndex` | `Store.sql` (5753, 5761, 5766); `Store.recordCount` (5765); `SQLite.get` (5766); `SQLite.prepare` (5766) | CORE |
-| [packages/store/src/store.ts:5818](../../packages/store/src/store.ts#L5818) `Store/toRecord` | `Calculations.value` (5818, 5828); `Calculations.globalValue` (5822); `Calculations.unstoredStyled` (5827) | CORE |
-| [packages/store/src/store.ts:5877](../../packages/store/src/store.ts#L5877) `Store/relatedValues` | `Calculations.globalValue` (5877); `Calculations.unstoredValue` (5879) | CORE |
-| [packages/store/src/store.ts:5951](../../packages/store/src/store.ts#L5951) `Store/addRelated` | `relatedRows` (5951); `rowsById` (5983); `firstRelatedEach` (6005) | CORE |
-| [packages/store/src/store.ts:6033](../../packages/store/src/store.ts#L6033) `Store/foundSetPage` | `rowsById` (6033) | CORE |
-| [packages/store/src/store.ts:6049](../../packages/store/src/store.ts#L6049) `Store/foundSetRowsCurrent` | `Store.viewableIds` (6049); `Store.row` (6065) | GATED-STORE |
-| [packages/store/src/store.ts:6088](../../packages/store/src/store.ts#L6088) `Store/portalCountsCurrent` | `Store.canView` (6088); `Store.row` (6115) | GATED-STORE |
-| [packages/store/src/store.ts:6151](../../packages/store/src/store.ts#L6151) `Store/fieldIndexCurrent` | `SQLite.iterate` (6151); `SQLite.prepare` (6151, 6156); `Store.sql` (6151, 6156); `SQLite.all` (6156) | GATED-STORE |
-| [packages/store/src/store.ts:6197](../../packages/store/src/store.ts#L6197) `Store/valueListItemsCurrent` | `Store.valueListItems` (6197); `Store.get` (6211); `relatedRows` (6212); `Store.row` (6212); `SQLite.iterate` (6214); `SQLite.prepare` (6214); `Store.sql` (6214); `Calculations.related` (6224); `Calculations.value` (6228, 6229) | GATED-STORE |
-| [packages/store/src/store.ts:6326](../../packages/store/src/store.ts#L6326) `Store/portalRows` | `relatedRows` (6326); `relatedIdList` (6327); `Store.viewableIds` (6330); `rowsById` (6355, 6393); `Calculations.related` (6369) | CORE |
-| [packages/store/src/store.ts:6337](../../packages/store/src/store.ts#L6337) `Store/portalRows/context` | `Calculations.context` (6337) | CORE |
-| [packages/store/src/store.ts:6347](../../packages/store/src/store.ts#L6347) `Store/portalRows/valueOf` | `Calculations.value` (6347) | CORE |
-| [packages/store/src/store.ts:6464](../../packages/store/src/store.ts#L6464) `Store/markRepeating` | `SQLite.prepare` (6464); `Store.sql` (6464) | CORE |
-| [packages/store/src/store.ts:6491](../../packages/store/src/store.ts#L6491) `Store/externalContainerCheck` | `SQLite.all` (6491); `SQLite.prepare` (6491); `Store.sql` (6491) | CORE |
-| [packages/store/src/store.ts:6498](../../packages/store/src/store.ts#L6498) `Store/externalContainerCount` | `SQLite.get` (6498); `SQLite.prepare` (6498); `Store.sql` (6498) | CORE |
-| [packages/store/src/store.ts:6507](../../packages/store/src/store.ts#L6507) `Store/externalContainerReport` | `SQLite.all` (6507, 6520); `SQLite.prepare` (6507, 6520); `Store.sql` (6507, 6520) | CORE |
-| [packages/store/src/store.ts:6562](../../packages/store/src/store.ts#L6562) `Store/orphanContainerReport` | `SQLite.all` (6562, 6580, 6582, 6588, 6601, 6614, 6633, 6651); `SQLite.prepare` (6562, 6580, 6582, 6588, 6601, 6614, 6631, 6633, 6651); `Store.sql` (6562, 6580, 6582, 6588, 6601, 6614, 6631, 6633, 6651); `SQLite.get` (6631); `Store.row` (6645) | CORE |
-| [packages/store/src/store.ts:6662](../../packages/store/src/store.ts#L6662) `Store/purgeOrphanContainers` | `Store.sql` (6662, 6671, 6674, 6676, 6677, 6682, 6684); `Store.orphanContainerReport` (6663); `SQLite.get` (6671); `SQLite.prepare` (6671, 6676, 6677) | CORE |
-| [packages/store/src/store.ts:6697](../../packages/store/src/store.ts#L6697) `Store/containerIntact` | `SQLite.get` (6697); `SQLite.prepare` (6697); `Store.sql` (6697) | CORE |
-| [packages/store/src/store.ts:6707](../../packages/store/src/store.ts#L6707) `Store/externalOf` | `SQLite.get` (6707); `SQLite.prepare` (6707); `Store.sql` (6707) | CORE |
-| [packages/store/src/store.ts:6711](../../packages/store/src/store.ts#L6711) `Store/containerMeta` | `SQLite.get` (6711); `SQLite.prepare` (6711); `Store.sql` (6711) | CORE |
-| [packages/store/src/store.ts:6716](../../packages/store/src/store.ts#L6716) `Store/container` | `SQLite.get` (6716); `SQLite.prepare` (6716, 6725); `Store.sql` (6716, 6725); `SQLite.all` (6725) | CORE |
-| [packages/store/src/store.ts:6733](../../packages/store/src/store.ts#L6733) `Store/containerInfo` | `SQLite.get` (6733); `SQLite.prepare` (6733); `Store.sql` (6733) | CORE |
-| [packages/store/src/store.ts:6767](../../packages/store/src/store.ts#L6767) `Store/containerRange` | `SQLite.all` (6767); `SQLite.prepare` (6767, 6774); `Store.sql` (6767, 6774); `SQLite.get` (6774) | CORE |
-| [packages/store/src/store.ts:6787](../../packages/store/src/store.ts#L6787) `Store/addContainer` | `SQLite.prepare` (6787, 6791, 6792); `Store.sql` (6787, 6789, 6791, 6792, 6794, 6797) | CORE |
-| [packages/store/src/store.ts:6813](../../packages/store/src/store.ts#L6813) `Store/addExternalContainer` | `SQLite.prepare` (6813); `Store.sql` (6813) | CORE |
-| [packages/store/src/store.ts:6831](../../packages/store/src/store.ts#L6831) `Store/writeExternalFile` | `Store.evaluateEach` (6831); `SQLite.prepare` (6854); `Store.sql` (6854) | CORE |
-| [packages/store/src/store.ts:6855](../../packages/store/src/store.ts#L6855) `Store/writeExternalFile/taken` | `SQLite.get` (6855) | CORE |
-| [packages/store/src/store.ts:6872](../../packages/store/src/store.ts#L6872) `Store/embeddedContainers` | `SQLite.prepare` (6872, 6873); `Store.sql` (6872, 6873); `SQLite.all` (6873); `SQLite.get` (6877) | CORE |
-| [packages/store/src/store.ts:6886](../../packages/store/src/store.ts#L6886) `Store/embeddedContainerCount` | `SQLite.prepare` (6886); `Store.sql` (6886); `SQLite.get` (6887) | CORE |
-| [packages/store/src/store.ts:6895](../../packages/store/src/store.ts#L6895) `Store/recoverContainersOut` | `SQLite.prepare` (6895); `Store.sql` (6895); `SQLite.get` (6898) | CORE |
-| [packages/store/src/store.ts:6920](../../packages/store/src/store.ts#L6920) `Store/moveContainersOut` | `Store.sql` (6920, 6928, 6930, 6932, 6934, 6935, 6954, 6959, 6961, 6963, 6964, 6968); `SQLite.get` (6928); `SQLite.prepare` (6928, 6934, 6935); `Store.container` (6937) | CORE |
-| [packages/store/src/store.ts:6977](../../packages/store/src/store.ts#L6977) `Store/moveContainersIn` | `Store.sql` (6977, 6981, 6983, 6984, 6985, 6986, 7005, 7008, 7015, 7018, 7021, 7028); `SQLite.prepare` (6983, 6984, 6985, 6986, 7015, 7021); `SQLite.get` (6988, 7015, 7021) | CORE |
-| [packages/store/src/store.ts:7040](../../packages/store/src/store.ts#L7040) `Store/compactFile` | `Store.sql` (7040, 7041, 7042) | CORE |
-| [packages/store/src/store.ts:7048](../../packages/store/src/store.ts#L7048) `Store/containerId` | `Store.containerId` (7048); `Store.row` (7049) | CORE |
-| [packages/store/src/store.ts:7071](../../packages/store/src/store.ts#L7071) `Store/checkContainerWrite` | `Store.row` (7071) | CORE |
-| [packages/store/src/store.ts:7081](../../packages/store/src/store.ts#L7081) `Store/setContainer` | `Store.row` (7081); `SQLite.prepare` (7092); `Store.sql` (7092) | CORE |
-| [packages/store/src/store.ts:7124](../../packages/store/src/store.ts#L7124) `Store/orderBy` | `Store.valueListItems` (7124) | CORE |
-| [packages/store/src/store.ts:7147](../../packages/store/src/store.ts#L7147) `Store/userPrefs` | `SQLite.all` (7147); `SQLite.prepare` (7147); `Store.sql` (7147) | CORE |
-| [packages/store/src/store.ts:7152](../../packages/store/src/store.ts#L7152) `Store/hasTable` | `SQLite.get` (7152); `SQLite.prepare` (7152); `Store.sql` (7152) | CORE |
-| [packages/store/src/store.ts:7156](../../packages/store/src/store.ts#L7156) `Store/setUserPref` | `Store.sql` (7156, 7157, 7158); `SQLite.prepare` (7157, 7158) | CORE |
-| [packages/store/src/store.ts:7164](../../packages/store/src/store.ts#L7164) `Store/indexedFields` | `SQLite.all` (7164, 7165); `SQLite.prepare` (7164, 7165); `Store.sql` (7164, 7165) | CORE |
-| [packages/store/src/store.ts:7186](../../packages/store/src/store.ts#L7186) `Store/addFieldIndex` | `Store.sql` (7186) | CORE |
-| [packages/store/src/store.ts:7198](../../packages/store/src/store.ts#L7198) `Store/dropFieldIndex` | `SQLite.get` (7198); `SQLite.prepare` (7198); `Store.sql` (7198, 7199) | CORE |
-| [packages/store/src/store.ts:7209](../../packages/store/src/store.ts#L7209) `Store/timeFind` | `Store.query` (7209, 7213, 7214); `Store.recordCount` (7216) | CORE |
-| [packages/store/src/store.ts:7233](../../packages/store/src/store.ts#L7233) `Store/find` | `Store.find` (7233) | GATED-STORE |
-| [packages/store/src/store.ts:7244](../../packages/store/src/store.ts#L7244) `Store/findHere` | `Store.query` (7244, 7249, 7251, 7265, 7267, 7277); `Store.recordCount` (7262); `SQLite.get` (7263, 7267); `SQLite.prepare` (7263, 7267, 7272, 7279, 7288); `Store.sql` (7263, 7267, 7272, 7279, 7288); `SQLite.all` (7272, 7279, 7288) | GATED-STORE |
-| [packages/store/src/store.ts:7283](../../packages/store/src/store.ts#L7283) `Store/findHere/[Symbol.iterator]` | `SQLite.iterate` (7283); `SQLite.prepare` (7283); `Store.sql` (7283) | GATED-STORE |
-| [packages/store/src/store.ts:7316](../../packages/store/src/store.ts#L7316) `Store/sortedPage` | `SQLite.iterate` (7316); `SQLite.prepare` (7316, 7331); `Store.sql` (7316, 7331); `SQLite.all` (7331) | CORE |
-| [packages/store/src/store.ts:7388](../../packages/store/src/store.ts#L7388) `Store/relatedCriteria/matched` | `relatedRows` (7388) | CORE |
-| [packages/store/src/store.ts:7391](../../packages/store/src/store.ts#L7391) `Store/relatedCriteria` | `SQLite.iterate` (7391); `SQLite.prepare` (7391); `Store.sql` (7391) | CORE |
-| [packages/store/src/store.ts:7417](../../packages/store/src/store.ts#L7417) `Store/computedRows` | `Store.sql` (7417, 7420, 7421, 7422, 7424, 7434, 7435, 7436, 7439); `SQLite.prepare` (7420, 7422, 7424, 7434); `SQLite.iterate` (7424); `Calculations.globalValue` (7427); `Calculations.unstoredValue` (7428); `Calculations.related` (7431); `SQLite.all` (7434) | CORE |
-| [packages/store/src/store.ts:7464](../../packages/store/src/store.ts#L7464) `Store/summaries` | `Calculations.wholeTable` (7464); `Calculations.collect` (7484, 7489) | CORE |
-| [packages/store/src/store.ts:7480](../../packages/store/src/store.ts#L7480) `Store/summaries/recs` | `SQLite.iterate` (7480); `SQLite.prepare` (7480); `Store.sql` (7480) | CORE |
-| [packages/store/src/store.ts:7502](../../packages/store/src/store.ts#L7502) `Store/runningSummaryValues` | `Store.viewableIds` (7502); `rowsById` (7504); `Calculations.value` (7515, 7521); `Calculations.related` (7532) | GATED-STORE |
-| [packages/store/src/store.ts:7545](../../packages/store/src/store.ts#L7545) `Store/findSource` | `Store.query` (7545); `Store.sql` (7552, 7553, 7557, 7559, 7570, 7572); `SQLite.prepare` (7553, 7559); `SQLite.iterate` (7559); `Calculations.globalValue` (7563); `Calculations.unstoredValue` (7564); `Calculations.related` (7568) | CORE |
-| [packages/store/src/store.ts:7591](../../packages/store/src/store.ts#L7591) `Store/previewRow` | `Store.row` (7591) | CORE |
-| [packages/store/src/store.ts:7609](../../packages/store/src/store.ts#L7609) `Store/row` | `SQLite.get` (7609) | CORE |
-| [packages/store/src/store.ts:7628](../../packages/store/src/store.ts#L7628) `Store/getCurrent` | `Store.get` (7628); `Store.row` (7629, 7629, 7643); `SQLite.all` (7646); `SQLite.prepare` (7646); `Store.sql` (7646) | GATED-STORE |
-| [packages/store/src/store.ts:7666](../../packages/store/src/store.ts#L7666) `Store/getManyCurrent` | `Store.getMany` (7666); `SQLite.get` (7684); `SQLite.prepare` (7684); `Store.sql` (7684) | GATED-STORE |
-| [packages/store/src/store.ts:7677](../../packages/store/src/store.ts#L7677) `Store/getManyCurrent/[Symbol.iterator]` | `rowsById` (7677) | GATED-STORE |
-| [packages/store/src/store.ts:7700](../../packages/store/src/store.ts#L7700) `Store/canViewRecord` | `SQLite.get` (7700); `SQLite.prepare` (7700); `Store.sql` (7700) | GATED-STORE |
-| [packages/store/src/store.ts:7708](../../packages/store/src/store.ts#L7708) `Store/canView` | `Store.canView` (7708); `Store.row` (7709) | GATED-STORE |
-| [packages/store/src/store.ts:7733](../../packages/store/src/store.ts#L7733) `Store/create` | `SQLite.get` (7733, 7739); `SQLite.prepare` (7733, 7739, 7750); `Store.sql` (7733, 7739, 7750) | CORE |
-| [packages/store/src/store.ts:7774](../../packages/store/src/store.ts#L7774) `Store/duplicate` | `Store.row` (7774); `SQLite.get` (7778); `SQLite.prepare` (7778, 7791); `Store.sql` (7778, 7791) | CORE |
-| [packages/store/src/store.ts:7836](../../packages/store/src/store.ts#L7836) `Store/update` | `Store.row` (7836, 7843, 7854); `Store.sql` (7867, 7868, 7905, 7908) | CORE |
-| [packages/store/src/store.ts:7870](../../packages/store/src/store.ts#L7870) `Store/update/undo` | `Store.sql` (7870) | CORE |
-| [packages/store/src/store.ts:8012](../../packages/store/src/store.ts#L8012) `Store/setStoredCalcValues` | `SQLite.prepare` (8012, 8013); `Store.sql` (8012, 8013); `SQLite.get` (8017) | CORE |
-| [packages/store/src/store.ts:8091](../../packages/store/src/store.ts#L8091) `Store/evaluateCurrent` | `Store.row` (8091, 8091); `Calculations.context` (8092); `Store.get` (8093, 8095) | GATED-STORE |
-| [packages/store/src/store.ts:8127](../../packages/store/src/store.ts#L8127) `Store/evaluateEachCurrent` | `Store.row` (8127, 8127); `Calculations.context` (8132); `Store.get` (8134) | GATED-STORE |
-| [packages/store/src/store.ts:8167](../../packages/store/src/store.ts#L8167) `Store/evaluateRowsCurrent/each` | `Calculations.context` (8167); `Store.get` (8169) | GATED-STORE |
-| [packages/store/src/store.ts:8188](../../packages/store/src/store.ts#L8188) `Store/evaluateRowsCurrent` | `Store.row` (8188, 8188) | GATED-STORE |
-| [packages/store/src/store.ts:8202](../../packages/store/src/store.ts#L8202) `Store/evaluateRowsCurrent/found/[Symbol.iterator]` | `rowsById` (8202) | GATED-STORE |
-| [packages/store/src/store.ts:8224](../../packages/store/src/store.ts#L8224) `Store/evaluateRowsCurrent/key` | `Calculations.context` (8224) | GATED-STORE |
-| [packages/store/src/store.ts:8262](../../packages/store/src/store.ts#L8262) `Store/updateRelated` | `relatedRows` (8262) | CORE |
-| [packages/store/src/store.ts:8280](../../packages/store/src/store.ts#L8280) `Store/updatePortals` | `Store.row` (8280, 8315); `relatedRows` (8316) | CORE |
-| [packages/store/src/store.ts:8289](../../packages/store/src/store.ts#L8289) `Store/updatePortals/portal/related` | `relatedIdList` (8289) | CORE |
-| [packages/store/src/store.ts:8371](../../packages/store/src/store.ts#L8371) `Store/portalContainerTarget` | `Store.row` (8371); `relatedIdList` (8372) | CORE |
-| [packages/store/src/store.ts:8385](../../packages/store/src/store.ts#L8385) `Store/checkEditable` | `Store.row` (8385) | CORE |
-| [packages/store/src/store.ts:8408](../../packages/store/src/store.ts#L8408) `Store/delete` | `Store.row` (8408); `SQLite.get` (8413); `SQLite.prepare` (8413, 8415); `Store.sql` (8413, 8415) | CORE |
-| [packages/store/src/store.ts:8436](../../packages/store/src/store.ts#L8436) `Store/vaultHeld` | `SQLite.get` (8436); `SQLite.prepare` (8436); `Store.sql` (8436) | CORE |
-| [packages/store/src/store.ts:8443](../../packages/store/src/store.ts#L8443) `Store/forgetStandInValues` | `Store.sql` (8443, 8464); `SQLite.prepare` (8464) | CORE |
-| [packages/store/src/store.ts:8478](../../packages/store/src/store.ts#L8478) `Store/restoreDeletedRow` | `SQLite.get` (8478); `SQLite.prepare` (8478, 8479, 8481); `Store.sql` (8478, 8479, 8481); `SQLite.all` (8479) | CORE |
-| [packages/store/src/store.ts:8505](../../packages/store/src/store.ts#L8505) `Store/cascadeDelete` | `relatedRows` (8505) | CORE |
-| [packages/store/src/store.ts:8595](../../packages/store/src/store.ts#L8595) `Store/selectIdsCurrent` | `Store.selectIds` (8595); `SQLite.all` (8601); `SQLite.prepare` (8601); `Store.sql` (8601) | GATED-STORE |
-| [packages/store/src/store.ts:8609](../../packages/store/src/store.ts#L8609) `Store/countIds` | `Store.countIds` (8609); `SQLite.get` (8613); `SQLite.prepare` (8613); `Store.sql` (8613) | GATED-STORE |
-| [packages/store/src/store.ts:8629](../../packages/store/src/store.ts#L8629) `Store/computeValuesCurrent` | `Store.computeValues` (8629); `Store.sql` (8635, 8639); `SQLite.all` (8639); `SQLite.prepare` (8639) | GATED-STORE |
-| [packages/store/src/store.ts:8654](../../packages/store/src/store.ts#L8654) `Store/findIdsCurrent` | `Store.findIds` (8654) | GATED-STORE |
-| [packages/store/src/store.ts:8660](../../packages/store/src/store.ts#L8660) `Store/findIdsHere` | `Store.query` (8660, 8665, 8667); `SQLite.iterate` (8678); `SQLite.prepare` (8678); `Store.sql` (8678) | GATED-STORE |
-| [packages/store/src/store.ts:8695](../../packages/store/src/store.ts#L8695) `Store/groupSummariesCurrent` | `Store.groupSummaries` (8695); `Store.viewableIds` (8700); `Calculations.collect` (8716); `rowsById` (8716, 8766); `Calculations.collector` (8738) | GATED-STORE |
-| [packages/store/src/store.ts:8728](../../packages/store/src/store.ts#L8728) `Store/groupSummariesCurrent/key` | `Calculations.value` (8728); `Calculations.related` (8730) | GATED-STORE |
-| [packages/store/src/store.ts:8764](../../packages/store/src/store.ts#L8764) `Store/groupSummariesCurrent/flush` | `Calculations.collector` (8764) | GATED-STORE |
-| [packages/store/src/store.ts:8787](../../packages/store/src/store.ts#L8787) `Store/sortIdsCurrent` | `Store.sortIds` (8787); `SQLite.all` (8791); `SQLite.prepare` (8791); `Store.sql` (8791) | GATED-STORE |
-| [packages/store/src/store.ts:8801](../../packages/store/src/store.ts#L8801) `Store/matchIds` | `Store.matchIds` (8801); `SQLite.all` (8807); `SQLite.prepare` (8807); `Store.sql` (8807) | CORE |
-| [packages/store/src/store.ts:8825](../../packages/store/src/store.ts#L8825) `Store/truncate` | `Store.sql` (8825, 8827, 8834, 8835, 8837, 8838); `SQLite.prepare` (8827, 8834); `SQLite.all` (8829) | CORE |
-| [packages/store/src/store.ts:8859](../../packages/store/src/store.ts#L8859) `Store/iterateCommitted` | `SQLite.iterate` (8859) | CORE |
-| [packages/store/src/store.ts:8893](../../packages/store/src/store.ts#L8893) `Store/readOnlyChecked` | `SQLite.prepare` (8893, 8897, 8906, 8911); `SQLite.all` (8897, 8906, 8911) | CORE |
-| [packages/store/src/store.ts:8933](../../packages/store/src/store.ts#L8933) `Store/refreshDecimalSqlViews` | `SQLite.get` (8933); `SQLite.prepare` (8933, 8938); `SQLite.all` (8938) | CORE |
-| [packages/store/src/store.ts:8952](../../packages/store/src/store.ts#L8952) `Store/internalRoots` | `SQLite.get` (8952); `SQLite.prepare` (8952, 8954); `SQLite.all` (8954) | CORE |
-| [packages/store/src/store.ts:8987](../../packages/store/src/store.ts#L8987) `Store/selectCurrent` | `SQLite.iterate` (8987) | CORE |
-| [packages/store/src/store.ts:9008](../../packages/store/src/store.ts#L9008) `Store/query` | `SQLite.iterate` (9008) | CORE |
-| [packages/store/src/store.ts:9042](../../packages/store/src/store.ts#L9042) `Store/queryWithOriginsCurrent` | `SQLite.iterate` (9042); `SQLite.all` (9049, 9052); `SQLite.prepare` (9049, 9052) | CORE |
+| [packages/store/src/store.ts:3936](../../packages/store/src/store.ts#L3936) `Store/deleteAccount` | `SQLite.prepare` (3936, 3940, 3941, 3942, 3943, 3944, 3945, 3946, 3947, 3954, 3956, 3959, 3963); `Store.sql` (3936, 3940, 3941, 3942, 3943, 3944, 3945, 3946, 3947, 3954, 3956, 3959, 3963) | CORE |
+| [packages/store/src/store.ts:3980](../../packages/store/src/store.ts#L3980) `Store/setAccountActive` | `SQLite.prepare` (3980, 3983, 3984); `Store.sql` (3980, 3983, 3984) | AUTH |
+| [packages/store/src/store.ts:3994](../../packages/store/src/store.ts#L3994) `Store/accountInactive` | `SQLite.get` (3994); `SQLite.prepare` (3994); `Store.sql` (3994) | CORE |
+| [packages/store/src/store.ts:3999](../../packages/store/src/store.ts#L3999) `Store/identityAllowed` | `SQLite.get` (3999, 4005, 4011); `SQLite.prepare` (3999, 4005, 4011); `Store.sql` (3999, 4005, 4011) | CORE |
+| [packages/store/src/store.ts:4020](../../packages/store/src/store.ts#L4020) `Store/externalIdentityId` | `SQLite.get` (4020, 4026); `SQLite.prepare` (4020, 4025, 4026); `Store.sql` (4020, 4025, 4026) | CORE |
+| [packages/store/src/store.ts:4031](../../packages/store/src/store.ts#L4031) `Store/accountIdentityId` | `SQLite.get` (4031, 4036); `SQLite.prepare` (4031, 4035, 4036); `Store.sql` (4031, 4035, 4036) | CORE |
+| [packages/store/src/store.ts:4059](../../packages/store/src/store.ts#L4059) `Store/signInMark` | `SQLite.prepare` (4059); `Store.sql` (4059) | AUTH |
+| [packages/store/src/store.ts:4069](../../packages/store/src/store.ts#L4069) `Store/signInBase` | `SQLite.get` (4069); `SQLite.prepare` (4069); `Store.sql` (4069) | AUTH |
+| [packages/store/src/store.ts:4071](../../packages/store/src/store.ts#L4071) `Store/signInBase/identity` | `SQLite.get` (4071); `SQLite.prepare` (4071); `Store.sql` (4071) | AUTH |
+| [packages/store/src/store.ts:4083](../../packages/store/src/store.ts#L4083) `Store/ledgerRow` | `SQLite.get` (4083, 4084); `SQLite.prepare` (4083, 4084); `Store.sql` (4083, 4084) | AUTH |
+| [packages/store/src/store.ts:4095](../../packages/store/src/store.ts#L4095) `Store/ledgerWrite` | `Store.sql` (4095, 4096, 4098, 4100, 4103, 4103) | AUTH |
+| [packages/store/src/store.ts:4122](../../packages/store/src/store.ts#L4122) `Store/settleSignIns` | `SQLite.all` (4122, 4128); `SQLite.prepare` (4122, 4128, 4134, 4138, 4140); `Store.sql` (4122, 4128, 4134, 4138, 4140) | AUTH |
+| [packages/store/src/store.ts:4151](../../packages/store/src/store.ts#L4151) `Store/securityToken` | `SQLite.get` (4151); `SQLite.prepare` (4151); `Store.sql` (4151) | CORE |
+| [packages/store/src/store.ts:4159](../../packages/store/src/store.ts#L4159) `Store/accountLocalOnly` | `SQLite.get` (4159); `SQLite.prepare` (4159); `Store.sql` (4159) | CORE |
+| [packages/store/src/store.ts:4164](../../packages/store/src/store.ts#L4164) `Store/accountRequires2fa` | `SQLite.get` (4164); `SQLite.prepare` (4164); `Store.sql` (4164) | CORE |
+| [packages/store/src/store.ts:4170](../../packages/store/src/store.ts#L4170) `Store/setAccountLocalOnly` | `SQLite.prepare` (4170); `Store.sql` (4170) | CORE |
+| [packages/store/src/store.ts:4179](../../packages/store/src/store.ts#L4179) `Store/setAccountRequire2fa` | `SQLite.prepare` (4179); `Store.sql` (4179) | CORE |
+| [packages/store/src/store.ts:4207](../../packages/store/src/store.ts#L4207) `Store/createApiToken` | `SQLite.get` (4207); `SQLite.prepare` (4207, 4235); `Store.sql` (4207, 4235) | CORE |
+| [packages/store/src/store.ts:4282](../../packages/store/src/store.ts#L4282) `Store/recordObjectUse` | `Store.sql` (4282) | CORE |
+| [packages/store/src/store.ts:4312](../../packages/store/src/store.ts#L4312) `Store/writeUsage` | `Store.sql` (4312, 4313, 4315, 4319, 4321) | CORE |
+| [packages/store/src/store.ts:4328](../../packages/store/src/store.ts#L4328) `Store/writeUsageRows` | `SQLite.prepare` (4328, 4329, 4335); `Store.sql` (4328, 4329, 4335) | CORE |
+| [packages/store/src/store.ts:4340](../../packages/store/src/store.ts#L4340) `Store/writeObjectUseRows` | `SQLite.prepare` (4340, 4341, 4346); `Store.sql` (4340, 4341, 4346) | CORE |
+| [packages/store/src/store.ts:4351](../../packages/store/src/store.ts#L4351) `Store/objectUseSince` | `SQLite.get` (4351); `SQLite.prepare` (4351); `Store.sql` (4351) | CORE |
+| [packages/store/src/store.ts:4364](../../packages/store/src/store.ts#L4364) `Store/accountUsage` | `SQLite.get` (4364); `SQLite.prepare` (4364, 4365); `Store.sql` (4364, 4365); `SQLite.all` (4365); `Store.auditLog` (4381) | CORE |
+| [packages/store/src/store.ts:4397](../../packages/store/src/store.ts#L4397) `Store/apiTokens` | `SQLite.all` (4397); `SQLite.prepare` (4397); `Store.sql` (4397) | CORE |
+| [packages/store/src/store.ts:4407](../../packages/store/src/store.ts#L4407) `Store/revokeApiToken` | `SQLite.prepare` (4407); `Store.sql` (4407) | CORE |
+| [packages/store/src/store.ts:4421](../../packages/store/src/store.ts#L4421) `Store/apiToken` | `SQLite.get` (4421); `SQLite.prepare` (4421, 4433); `Store.sql` (4421, 4433) | CORE |
+| [packages/store/src/store.ts:4449](../../packages/store/src/store.ts#L4449) `Store/enrollTotp` | `SQLite.prepare` (4449); `Store.sql` (4449) | CORE |
+| [packages/store/src/store.ts:4460](../../packages/store/src/store.ts#L4460) `Store/confirmTotp` | `SQLite.get` (4460); `SQLite.prepare` (4460, 4462); `Store.sql` (4460, 4462) | CORE |
+| [packages/store/src/store.ts:4470](../../packages/store/src/store.ts#L4470) `Store/hasTotp` | `SQLite.get` (4470); `SQLite.prepare` (4470); `Store.sql` (4470) | CORE |
+| [packages/store/src/store.ts:4475](../../packages/store/src/store.ts#L4475) `Store/totpAccounts` | `SQLite.all` (4475); `SQLite.prepare` (4475); `Store.sql` (4475) | CORE |
+| [packages/store/src/store.ts:4481](../../packages/store/src/store.ts#L4481) `Store/disableTotp` | `SQLite.prepare` (4481); `Store.sql` (4481) | CORE |
+| [packages/store/src/store.ts:4504](../../packages/store/src/store.ts#L4504) `Store/verifyTotp` | `SQLite.get` (4504); `SQLite.prepare` (4504, 4510); `Store.sql` (4504, 4510) | CORE |
+| [packages/store/src/store.ts:4523](../../packages/store/src/store.ts#L4523) `Store/issueWebauthnChallenge` | `SQLite.prepare` (4523, 4525, 4526, 4528); `Store.sql` (4523, 4525, 4526, 4528); `SQLite.get` (4525) | CORE |
+| [packages/store/src/store.ts:4575](../../packages/store/src/store.ts#L4575) `Store/passkeyAllowList` | `SQLite.all` (4575); `SQLite.prepare` (4575); `Store.sql` (4575) | CORE |
+| [packages/store/src/store.ts:4589](../../packages/store/src/store.ts#L4589) `Store/takeWebauthnChallenge` | `SQLite.get` (4589); `SQLite.prepare` (4589, 4591); `Store.sql` (4589, 4591) | CORE |
+| [packages/store/src/store.ts:4599](../../packages/store/src/store.ts#L4599) `Store/passkeys` | `SQLite.all` (4599); `SQLite.prepare` (4599); `Store.sql` (4599) | CORE |
+| [packages/store/src/store.ts:4606](../../packages/store/src/store.ts#L4606) `Store/hasPasskey` | `SQLite.get` (4606); `SQLite.prepare` (4606); `Store.sql` (4606) | CORE |
+| [packages/store/src/store.ts:4611](../../packages/store/src/store.ts#L4611) `Store/passkeyIds` | `SQLite.all` (4611); `SQLite.prepare` (4611); `Store.sql` (4611) | CORE |
+| [packages/store/src/store.ts:4633](../../packages/store/src/store.ts#L4633) `Store/registerPasskey` | `SQLite.prepare` (4633); `Store.sql` (4633) | CORE |
+| [packages/store/src/store.ts:4644](../../packages/store/src/store.ts#L4644) `Store/removePasskey` | `SQLite.get` (4644); `SQLite.prepare` (4644, 4645); `Store.sql` (4644, 4645) | CORE |
+| [packages/store/src/store.ts:4661](../../packages/store/src/store.ts#L4661) `Store/verifyPasskeyAssertion` | `SQLite.get` (4661); `SQLite.prepare` (4661, 4672); `Store.sql` (4661, 4672) | CORE |
+| [packages/store/src/store.ts:4708](../../packages/store/src/store.ts#L4708) `Store/generateRecoveryCodes` | `SQLite.prepare` (4708, 4711); `Store.sql` (4708, 4711) | CORE |
+| [packages/store/src/store.ts:4726](../../packages/store/src/store.ts#L4726) `Store/recoveryCodesRemaining` | `SQLite.get` (4726); `SQLite.prepare` (4726); `Store.sql` (4726) | CORE |
+| [packages/store/src/store.ts:4736](../../packages/store/src/store.ts#L4736) `Store/useRecoveryCode` | `SQLite.get` (4736); `SQLite.prepare` (4736, 4738); `Store.sql` (4736, 4738) | CORE |
+| [packages/store/src/store.ts:4749](../../packages/store/src/store.ts#L4749) `Store/privilegeSets` | `Store.sql` (4749) | CORE |
+| [packages/store/src/store.ts:4778](../../packages/store/src/store.ts#L4778) `Store/savePrivilegeSet` | `SQLite.prepare` (4778, 4786); `Store.sql` (4778, 4786) | AUTH |
+| [packages/store/src/store.ts:4821](../../packages/store/src/store.ts#L4821) `Store/deletePrivilegeSet` | `SQLite.prepare` (4821); `Store.sql` (4821) | CORE |
+| [packages/store/src/store.ts:4870](../../packages/store/src/store.ts#L4870) `Store/accountPrivilegeSet` | `SQLite.get` (4870); `SQLite.prepare` (4870); `Store.sql` (4870) | CORE |
+| [packages/store/src/store.ts:4884](../../packages/store/src/store.ts#L4884) `Store/setAccountPrivilegeSet` | `SQLite.get` (4884); `SQLite.prepare` (4884, 4887, 4891); `Store.sql` (4884, 4887, 4891) | AUTH |
+| [packages/store/src/store.ts:4906](../../packages/store/src/store.ts#L4906) `Store/clearAccountPrivilegeSet` | `SQLite.prepare` (4906); `Store.sql` (4906) | CORE |
+| [packages/store/src/store.ts:4920](../../packages/store/src/store.ts#L4920) `Store/addProvisionedAccount` | `SQLite.get` (4920); `SQLite.prepare` (4920, 4924); `Store.sql` (4920, 4924) | CORE |
+| [packages/store/src/store.ts:5085](../../packages/store/src/store.ts#L5085) `Store/ruleOutcome` | `Calculations.context` (5085) | CORE |
+| [packages/store/src/store.ts:5126](../../packages/store/src/store.ts#L5126) `Store/allowedIds` | `SQLite.iterate` (5126); `SQLite.prepare` (5126); `Store.sql` (5126) | CORE |
+| [packages/store/src/store.ts:5196](../../packages/store/src/store.ts#L5196) `Store/scopedTableSql` | `Store.viewableIds` (5196); `SQLite.all` (5199); `SQLite.prepare` (5199); `Store.sql` (5199) | GATED-STORE |
+| [packages/store/src/store.ts:5231](../../packages/store/src/store.ts#L5231) `Store/previewRecordRuleCurrent` | `SQLite.get` (5231); `SQLite.prepare` (5231, 5234); `Store.sql` (5231, 5234); `SQLite.all` (5234); `Calculations.context` (5240, 5256) | CORE |
+| [packages/store/src/store.ts:5408](../../packages/store/src/store.ts#L5408) `Store/passwordHash` | `SQLite.get` (5408); `SQLite.prepare` (5408); `Store.sql` (5408) | CORE |
+| [packages/store/src/store.ts:5437](../../packages/store/src/store.ts#L5437) `Store/setAllowBlankPasswordFromLan` | `SQLite.prepare` (5437); `Store.sql` (5437) | CORE |
+| [packages/store/src/store.ts:5450](../../packages/store/src/store.ts#L5450) `Store/knownSharedAccount` | `SQLite.get` (5450); `SQLite.prepare` (5450); `Store.sql` (5450) | CORE |
+| [packages/store/src/store.ts:5508](../../packages/store/src/store.ts#L5508) `Store/layouts` | `SQLite.all` (5508); `SQLite.prepare` (5508); `Store.sql` (5508) | CORE |
+| [packages/store/src/store.ts:5529](../../packages/store/src/store.ts#L5529) `Store/image` | `SQLite.get` (5529); `SQLite.prepare` (5529); `Store.sql` (5529) | CORE |
+| [packages/store/src/store.ts:5539](../../packages/store/src/store.ts#L5539) `Store/images` | `SQLite.all` (5539); `SQLite.prepare` (5539); `Store.sql` (5539) | CORE |
+| [packages/store/src/store.ts:5552](../../packages/store/src/store.ts#L5552) `Store/addImage` | `Store.sql` (5552, 5553); `SQLite.prepare` (5553) | CORE |
+| [packages/store/src/store.ts:5569](../../packages/store/src/store.ts#L5569) `Store/layout` | `SQLite.get` (5569); `SQLite.prepare` (5569); `Store.sql` (5569) | CORE |
+| [packages/store/src/store.ts:5773](../../packages/store/src/store.ts#L5773) `Store/wordIndex` | `Store.sql` (5773, 5781, 5786); `Store.recordCount` (5785); `SQLite.get` (5786); `SQLite.prepare` (5786) | CORE |
+| [packages/store/src/store.ts:5838](../../packages/store/src/store.ts#L5838) `Store/toRecord` | `Calculations.value` (5838, 5848); `Calculations.globalValue` (5842); `Calculations.unstoredStyled` (5847) | CORE |
+| [packages/store/src/store.ts:5897](../../packages/store/src/store.ts#L5897) `Store/relatedValues` | `Calculations.globalValue` (5897); `Calculations.unstoredValue` (5899) | CORE |
+| [packages/store/src/store.ts:5971](../../packages/store/src/store.ts#L5971) `Store/addRelated` | `relatedRows` (5971); `rowsById` (6003); `firstRelatedEach` (6025) | CORE |
+| [packages/store/src/store.ts:6053](../../packages/store/src/store.ts#L6053) `Store/foundSetPage` | `rowsById` (6053) | CORE |
+| [packages/store/src/store.ts:6069](../../packages/store/src/store.ts#L6069) `Store/foundSetRowsCurrent` | `Store.viewableIds` (6069); `Store.row` (6085) | GATED-STORE |
+| [packages/store/src/store.ts:6108](../../packages/store/src/store.ts#L6108) `Store/portalCountsCurrent` | `Store.canView` (6108); `Store.row` (6135) | GATED-STORE |
+| [packages/store/src/store.ts:6171](../../packages/store/src/store.ts#L6171) `Store/fieldIndexCurrent` | `SQLite.iterate` (6171); `SQLite.prepare` (6171, 6176); `Store.sql` (6171, 6176); `SQLite.all` (6176) | GATED-STORE |
+| [packages/store/src/store.ts:6217](../../packages/store/src/store.ts#L6217) `Store/valueListItemsCurrent` | `Store.valueListItems` (6217); `Store.get` (6231); `relatedRows` (6232); `Store.row` (6232); `SQLite.iterate` (6234); `SQLite.prepare` (6234); `Store.sql` (6234); `Calculations.related` (6244); `Calculations.value` (6248, 6249) | GATED-STORE |
+| [packages/store/src/store.ts:6346](../../packages/store/src/store.ts#L6346) `Store/portalRows` | `relatedRows` (6346); `relatedIdList` (6347); `Store.viewableIds` (6350); `rowsById` (6375, 6413); `Calculations.related` (6389) | CORE |
+| [packages/store/src/store.ts:6357](../../packages/store/src/store.ts#L6357) `Store/portalRows/context` | `Calculations.context` (6357) | CORE |
+| [packages/store/src/store.ts:6367](../../packages/store/src/store.ts#L6367) `Store/portalRows/valueOf` | `Calculations.value` (6367) | CORE |
+| [packages/store/src/store.ts:6484](../../packages/store/src/store.ts#L6484) `Store/markRepeating` | `SQLite.prepare` (6484); `Store.sql` (6484) | CORE |
+| [packages/store/src/store.ts:6511](../../packages/store/src/store.ts#L6511) `Store/externalContainerCheck` | `SQLite.all` (6511); `SQLite.prepare` (6511); `Store.sql` (6511) | CORE |
+| [packages/store/src/store.ts:6518](../../packages/store/src/store.ts#L6518) `Store/externalContainerCount` | `SQLite.get` (6518); `SQLite.prepare` (6518); `Store.sql` (6518) | CORE |
+| [packages/store/src/store.ts:6527](../../packages/store/src/store.ts#L6527) `Store/externalContainerReport` | `SQLite.all` (6527, 6540); `SQLite.prepare` (6527, 6540); `Store.sql` (6527, 6540) | CORE |
+| [packages/store/src/store.ts:6582](../../packages/store/src/store.ts#L6582) `Store/orphanContainerReport` | `SQLite.all` (6582, 6600, 6602, 6608, 6621, 6634, 6653, 6671); `SQLite.prepare` (6582, 6600, 6602, 6608, 6621, 6634, 6651, 6653, 6671); `Store.sql` (6582, 6600, 6602, 6608, 6621, 6634, 6651, 6653, 6671); `SQLite.get` (6651); `Store.row` (6665) | CORE |
+| [packages/store/src/store.ts:6682](../../packages/store/src/store.ts#L6682) `Store/purgeOrphanContainers` | `Store.sql` (6682, 6691, 6694, 6696, 6697, 6702, 6704); `Store.orphanContainerReport` (6683); `SQLite.get` (6691); `SQLite.prepare` (6691, 6696, 6697) | CORE |
+| [packages/store/src/store.ts:6717](../../packages/store/src/store.ts#L6717) `Store/containerIntact` | `SQLite.get` (6717); `SQLite.prepare` (6717); `Store.sql` (6717) | CORE |
+| [packages/store/src/store.ts:6727](../../packages/store/src/store.ts#L6727) `Store/externalOf` | `SQLite.get` (6727); `SQLite.prepare` (6727); `Store.sql` (6727) | CORE |
+| [packages/store/src/store.ts:6731](../../packages/store/src/store.ts#L6731) `Store/containerMeta` | `SQLite.get` (6731); `SQLite.prepare` (6731); `Store.sql` (6731) | CORE |
+| [packages/store/src/store.ts:6736](../../packages/store/src/store.ts#L6736) `Store/container` | `SQLite.get` (6736); `SQLite.prepare` (6736, 6745); `Store.sql` (6736, 6745); `SQLite.all` (6745) | CORE |
+| [packages/store/src/store.ts:6753](../../packages/store/src/store.ts#L6753) `Store/containerInfo` | `SQLite.get` (6753); `SQLite.prepare` (6753); `Store.sql` (6753) | CORE |
+| [packages/store/src/store.ts:6787](../../packages/store/src/store.ts#L6787) `Store/containerRange` | `SQLite.all` (6787); `SQLite.prepare` (6787, 6794); `Store.sql` (6787, 6794); `SQLite.get` (6794) | CORE |
+| [packages/store/src/store.ts:6807](../../packages/store/src/store.ts#L6807) `Store/addContainer` | `SQLite.prepare` (6807, 6811, 6812); `Store.sql` (6807, 6809, 6811, 6812, 6814, 6817) | CORE |
+| [packages/store/src/store.ts:6833](../../packages/store/src/store.ts#L6833) `Store/addExternalContainer` | `SQLite.prepare` (6833); `Store.sql` (6833) | CORE |
+| [packages/store/src/store.ts:6851](../../packages/store/src/store.ts#L6851) `Store/writeExternalFile` | `Store.evaluateEach` (6851); `SQLite.prepare` (6874); `Store.sql` (6874) | CORE |
+| [packages/store/src/store.ts:6875](../../packages/store/src/store.ts#L6875) `Store/writeExternalFile/taken` | `SQLite.get` (6875) | CORE |
+| [packages/store/src/store.ts:6892](../../packages/store/src/store.ts#L6892) `Store/embeddedContainers` | `SQLite.prepare` (6892, 6893); `Store.sql` (6892, 6893); `SQLite.all` (6893); `SQLite.get` (6897) | CORE |
+| [packages/store/src/store.ts:6906](../../packages/store/src/store.ts#L6906) `Store/embeddedContainerCount` | `SQLite.prepare` (6906); `Store.sql` (6906); `SQLite.get` (6907) | CORE |
+| [packages/store/src/store.ts:6915](../../packages/store/src/store.ts#L6915) `Store/recoverContainersOut` | `SQLite.prepare` (6915); `Store.sql` (6915); `SQLite.get` (6918) | CORE |
+| [packages/store/src/store.ts:6940](../../packages/store/src/store.ts#L6940) `Store/moveContainersOut` | `Store.sql` (6940, 6948, 6950, 6952, 6954, 6955, 6974, 6979, 6981, 6983, 6984, 6988); `SQLite.get` (6948); `SQLite.prepare` (6948, 6954, 6955); `Store.container` (6957) | CORE |
+| [packages/store/src/store.ts:6997](../../packages/store/src/store.ts#L6997) `Store/moveContainersIn` | `Store.sql` (6997, 7001, 7003, 7004, 7005, 7006, 7025, 7028, 7035, 7038, 7041, 7048); `SQLite.prepare` (7003, 7004, 7005, 7006, 7035, 7041); `SQLite.get` (7008, 7035, 7041) | CORE |
+| [packages/store/src/store.ts:7060](../../packages/store/src/store.ts#L7060) `Store/compactFile` | `Store.sql` (7060, 7061, 7062) | CORE |
+| [packages/store/src/store.ts:7068](../../packages/store/src/store.ts#L7068) `Store/containerId` | `Store.containerId` (7068); `Store.row` (7069) | CORE |
+| [packages/store/src/store.ts:7091](../../packages/store/src/store.ts#L7091) `Store/checkContainerWrite` | `Store.row` (7091) | CORE |
+| [packages/store/src/store.ts:7101](../../packages/store/src/store.ts#L7101) `Store/setContainer` | `Store.row` (7101); `SQLite.prepare` (7112); `Store.sql` (7112) | CORE |
+| [packages/store/src/store.ts:7144](../../packages/store/src/store.ts#L7144) `Store/orderBy` | `Store.valueListItems` (7144) | CORE |
+| [packages/store/src/store.ts:7167](../../packages/store/src/store.ts#L7167) `Store/userPrefs` | `SQLite.all` (7167); `SQLite.prepare` (7167); `Store.sql` (7167) | CORE |
+| [packages/store/src/store.ts:7172](../../packages/store/src/store.ts#L7172) `Store/hasTable` | `SQLite.get` (7172); `SQLite.prepare` (7172); `Store.sql` (7172) | CORE |
+| [packages/store/src/store.ts:7176](../../packages/store/src/store.ts#L7176) `Store/setUserPref` | `Store.sql` (7176, 7177, 7178); `SQLite.prepare` (7177, 7178) | CORE |
+| [packages/store/src/store.ts:7184](../../packages/store/src/store.ts#L7184) `Store/indexedFields` | `SQLite.all` (7184, 7185); `SQLite.prepare` (7184, 7185); `Store.sql` (7184, 7185) | CORE |
+| [packages/store/src/store.ts:7206](../../packages/store/src/store.ts#L7206) `Store/addFieldIndex` | `Store.sql` (7206) | CORE |
+| [packages/store/src/store.ts:7218](../../packages/store/src/store.ts#L7218) `Store/dropFieldIndex` | `SQLite.get` (7218); `SQLite.prepare` (7218); `Store.sql` (7218, 7219) | CORE |
+| [packages/store/src/store.ts:7229](../../packages/store/src/store.ts#L7229) `Store/timeFind` | `Store.query` (7229, 7233, 7234); `Store.recordCount` (7236) | CORE |
+| [packages/store/src/store.ts:7253](../../packages/store/src/store.ts#L7253) `Store/find` | `Store.find` (7253) | GATED-STORE |
+| [packages/store/src/store.ts:7264](../../packages/store/src/store.ts#L7264) `Store/findHere` | `Store.query` (7264, 7269, 7271, 7285, 7287, 7297); `Store.recordCount` (7282); `SQLite.get` (7283, 7287); `SQLite.prepare` (7283, 7287, 7292, 7299, 7308); `Store.sql` (7283, 7287, 7292, 7299, 7308); `SQLite.all` (7292, 7299, 7308) | GATED-STORE |
+| [packages/store/src/store.ts:7303](../../packages/store/src/store.ts#L7303) `Store/findHere/[Symbol.iterator]` | `SQLite.iterate` (7303); `SQLite.prepare` (7303); `Store.sql` (7303) | GATED-STORE |
+| [packages/store/src/store.ts:7336](../../packages/store/src/store.ts#L7336) `Store/sortedPage` | `SQLite.iterate` (7336); `SQLite.prepare` (7336, 7351); `Store.sql` (7336, 7351); `SQLite.all` (7351) | CORE |
+| [packages/store/src/store.ts:7408](../../packages/store/src/store.ts#L7408) `Store/relatedCriteria/matched` | `relatedRows` (7408) | CORE |
+| [packages/store/src/store.ts:7411](../../packages/store/src/store.ts#L7411) `Store/relatedCriteria` | `SQLite.iterate` (7411); `SQLite.prepare` (7411); `Store.sql` (7411) | CORE |
+| [packages/store/src/store.ts:7437](../../packages/store/src/store.ts#L7437) `Store/computedRows` | `Store.sql` (7437, 7440, 7441, 7442, 7444, 7454, 7455, 7456, 7459); `SQLite.prepare` (7440, 7442, 7444, 7454); `SQLite.iterate` (7444); `Calculations.globalValue` (7447); `Calculations.unstoredValue` (7448); `Calculations.related` (7451); `SQLite.all` (7454) | CORE |
+| [packages/store/src/store.ts:7484](../../packages/store/src/store.ts#L7484) `Store/summaries` | `Calculations.wholeTable` (7484); `Calculations.collect` (7504, 7509) | CORE |
+| [packages/store/src/store.ts:7500](../../packages/store/src/store.ts#L7500) `Store/summaries/recs` | `SQLite.iterate` (7500); `SQLite.prepare` (7500); `Store.sql` (7500) | CORE |
+| [packages/store/src/store.ts:7522](../../packages/store/src/store.ts#L7522) `Store/runningSummaryValues` | `Store.viewableIds` (7522); `rowsById` (7524); `Calculations.value` (7535, 7541); `Calculations.related` (7552) | GATED-STORE |
+| [packages/store/src/store.ts:7565](../../packages/store/src/store.ts#L7565) `Store/findSource` | `Store.query` (7565); `Store.sql` (7572, 7573, 7577, 7579, 7590, 7592); `SQLite.prepare` (7573, 7579); `SQLite.iterate` (7579); `Calculations.globalValue` (7583); `Calculations.unstoredValue` (7584); `Calculations.related` (7588) | CORE |
+| [packages/store/src/store.ts:7611](../../packages/store/src/store.ts#L7611) `Store/previewRow` | `Store.row` (7611) | CORE |
+| [packages/store/src/store.ts:7629](../../packages/store/src/store.ts#L7629) `Store/row` | `SQLite.get` (7629) | CORE |
+| [packages/store/src/store.ts:7648](../../packages/store/src/store.ts#L7648) `Store/getCurrent` | `Store.get` (7648); `Store.row` (7649, 7649, 7663); `SQLite.all` (7666); `SQLite.prepare` (7666); `Store.sql` (7666) | GATED-STORE |
+| [packages/store/src/store.ts:7686](../../packages/store/src/store.ts#L7686) `Store/getManyCurrent` | `Store.getMany` (7686); `SQLite.get` (7704); `SQLite.prepare` (7704); `Store.sql` (7704) | GATED-STORE |
+| [packages/store/src/store.ts:7697](../../packages/store/src/store.ts#L7697) `Store/getManyCurrent/[Symbol.iterator]` | `rowsById` (7697) | GATED-STORE |
+| [packages/store/src/store.ts:7720](../../packages/store/src/store.ts#L7720) `Store/canViewRecord` | `SQLite.get` (7720); `SQLite.prepare` (7720); `Store.sql` (7720) | GATED-STORE |
+| [packages/store/src/store.ts:7728](../../packages/store/src/store.ts#L7728) `Store/canView` | `Store.canView` (7728); `Store.row` (7729) | GATED-STORE |
+| [packages/store/src/store.ts:7753](../../packages/store/src/store.ts#L7753) `Store/create` | `SQLite.get` (7753, 7759); `SQLite.prepare` (7753, 7759, 7770); `Store.sql` (7753, 7759, 7770) | CORE |
+| [packages/store/src/store.ts:7794](../../packages/store/src/store.ts#L7794) `Store/duplicate` | `Store.row` (7794); `SQLite.get` (7798); `SQLite.prepare` (7798, 7811); `Store.sql` (7798, 7811) | CORE |
+| [packages/store/src/store.ts:7856](../../packages/store/src/store.ts#L7856) `Store/update` | `Store.row` (7856, 7863, 7874); `Store.sql` (7887, 7888, 7925, 7928) | CORE |
+| [packages/store/src/store.ts:7890](../../packages/store/src/store.ts#L7890) `Store/update/undo` | `Store.sql` (7890) | CORE |
+| [packages/store/src/store.ts:8032](../../packages/store/src/store.ts#L8032) `Store/setStoredCalcValues` | `SQLite.prepare` (8032, 8033); `Store.sql` (8032, 8033); `SQLite.get` (8037) | CORE |
+| [packages/store/src/store.ts:8111](../../packages/store/src/store.ts#L8111) `Store/evaluateCurrent` | `Store.row` (8111, 8111); `Calculations.context` (8112); `Store.get` (8113, 8115) | GATED-STORE |
+| [packages/store/src/store.ts:8147](../../packages/store/src/store.ts#L8147) `Store/evaluateEachCurrent` | `Store.row` (8147, 8147); `Calculations.context` (8152); `Store.get` (8154) | GATED-STORE |
+| [packages/store/src/store.ts:8187](../../packages/store/src/store.ts#L8187) `Store/evaluateRowsCurrent/each` | `Calculations.context` (8187); `Store.get` (8189) | GATED-STORE |
+| [packages/store/src/store.ts:8208](../../packages/store/src/store.ts#L8208) `Store/evaluateRowsCurrent` | `Store.row` (8208, 8208) | GATED-STORE |
+| [packages/store/src/store.ts:8222](../../packages/store/src/store.ts#L8222) `Store/evaluateRowsCurrent/found/[Symbol.iterator]` | `rowsById` (8222) | GATED-STORE |
+| [packages/store/src/store.ts:8244](../../packages/store/src/store.ts#L8244) `Store/evaluateRowsCurrent/key` | `Calculations.context` (8244) | GATED-STORE |
+| [packages/store/src/store.ts:8282](../../packages/store/src/store.ts#L8282) `Store/updateRelated` | `relatedRows` (8282) | CORE |
+| [packages/store/src/store.ts:8300](../../packages/store/src/store.ts#L8300) `Store/updatePortals` | `Store.row` (8300, 8335); `relatedRows` (8336) | CORE |
+| [packages/store/src/store.ts:8309](../../packages/store/src/store.ts#L8309) `Store/updatePortals/portal/related` | `relatedIdList` (8309) | CORE |
+| [packages/store/src/store.ts:8391](../../packages/store/src/store.ts#L8391) `Store/portalContainerTarget` | `Store.row` (8391); `relatedIdList` (8392) | CORE |
+| [packages/store/src/store.ts:8405](../../packages/store/src/store.ts#L8405) `Store/checkEditable` | `Store.row` (8405) | CORE |
+| [packages/store/src/store.ts:8428](../../packages/store/src/store.ts#L8428) `Store/delete` | `Store.row` (8428); `SQLite.get` (8433); `SQLite.prepare` (8433, 8435); `Store.sql` (8433, 8435) | CORE |
+| [packages/store/src/store.ts:8456](../../packages/store/src/store.ts#L8456) `Store/vaultHeld` | `SQLite.get` (8456); `SQLite.prepare` (8456); `Store.sql` (8456) | CORE |
+| [packages/store/src/store.ts:8463](../../packages/store/src/store.ts#L8463) `Store/forgetStandInValues` | `Store.sql` (8463, 8484); `SQLite.prepare` (8484) | CORE |
+| [packages/store/src/store.ts:8498](../../packages/store/src/store.ts#L8498) `Store/restoreDeletedRow` | `SQLite.get` (8498); `SQLite.prepare` (8498, 8499, 8501); `Store.sql` (8498, 8499, 8501); `SQLite.all` (8499) | CORE |
+| [packages/store/src/store.ts:8525](../../packages/store/src/store.ts#L8525) `Store/cascadeDelete` | `relatedRows` (8525) | CORE |
+| [packages/store/src/store.ts:8615](../../packages/store/src/store.ts#L8615) `Store/selectIdsCurrent` | `Store.selectIds` (8615); `SQLite.all` (8621); `SQLite.prepare` (8621); `Store.sql` (8621) | GATED-STORE |
+| [packages/store/src/store.ts:8629](../../packages/store/src/store.ts#L8629) `Store/countIds` | `Store.countIds` (8629); `SQLite.get` (8633); `SQLite.prepare` (8633); `Store.sql` (8633) | GATED-STORE |
+| [packages/store/src/store.ts:8649](../../packages/store/src/store.ts#L8649) `Store/computeValuesCurrent` | `Store.computeValues` (8649); `Store.sql` (8655, 8659); `SQLite.all` (8659); `SQLite.prepare` (8659) | GATED-STORE |
+| [packages/store/src/store.ts:8674](../../packages/store/src/store.ts#L8674) `Store/findIdsCurrent` | `Store.findIds` (8674) | GATED-STORE |
+| [packages/store/src/store.ts:8680](../../packages/store/src/store.ts#L8680) `Store/findIdsHere` | `Store.query` (8680, 8685, 8687); `SQLite.iterate` (8698); `SQLite.prepare` (8698); `Store.sql` (8698) | GATED-STORE |
+| [packages/store/src/store.ts:8715](../../packages/store/src/store.ts#L8715) `Store/groupSummariesCurrent` | `Store.groupSummaries` (8715); `Store.viewableIds` (8720); `Calculations.collect` (8736); `rowsById` (8736, 8786); `Calculations.collector` (8758) | GATED-STORE |
+| [packages/store/src/store.ts:8748](../../packages/store/src/store.ts#L8748) `Store/groupSummariesCurrent/key` | `Calculations.value` (8748); `Calculations.related` (8750) | GATED-STORE |
+| [packages/store/src/store.ts:8784](../../packages/store/src/store.ts#L8784) `Store/groupSummariesCurrent/flush` | `Calculations.collector` (8784) | GATED-STORE |
+| [packages/store/src/store.ts:8807](../../packages/store/src/store.ts#L8807) `Store/sortIdsCurrent` | `Store.sortIds` (8807); `SQLite.all` (8811); `SQLite.prepare` (8811); `Store.sql` (8811) | GATED-STORE |
+| [packages/store/src/store.ts:8821](../../packages/store/src/store.ts#L8821) `Store/matchIds` | `Store.matchIds` (8821); `SQLite.all` (8827); `SQLite.prepare` (8827); `Store.sql` (8827) | CORE |
+| [packages/store/src/store.ts:8845](../../packages/store/src/store.ts#L8845) `Store/truncate` | `Store.sql` (8845, 8847, 8854, 8855, 8857, 8858); `SQLite.prepare` (8847, 8854); `SQLite.all` (8849) | CORE |
+| [packages/store/src/store.ts:8879](../../packages/store/src/store.ts#L8879) `Store/iterateCommitted` | `SQLite.iterate` (8879) | CORE |
+| [packages/store/src/store.ts:8913](../../packages/store/src/store.ts#L8913) `Store/readOnlyChecked` | `SQLite.prepare` (8913, 8917, 8926, 8931); `SQLite.all` (8917, 8926, 8931) | CORE |
+| [packages/store/src/store.ts:8953](../../packages/store/src/store.ts#L8953) `Store/refreshDecimalSqlViews` | `SQLite.get` (8953); `SQLite.prepare` (8953, 8958); `SQLite.all` (8958) | CORE |
+| [packages/store/src/store.ts:8972](../../packages/store/src/store.ts#L8972) `Store/internalRoots` | `SQLite.get` (8972); `SQLite.prepare` (8972, 8974); `SQLite.all` (8974) | CORE |
+| [packages/store/src/store.ts:9007](../../packages/store/src/store.ts#L9007) `Store/selectCurrent` | `SQLite.iterate` (9007) | CORE |
+| [packages/store/src/store.ts:9028](../../packages/store/src/store.ts#L9028) `Store/query` | `SQLite.iterate` (9028) | CORE |
+| [packages/store/src/store.ts:9062](../../packages/store/src/store.ts#L9062) `Store/queryWithOriginsCurrent` | `SQLite.iterate` (9062); `SQLite.all` (9069, 9072); `SQLite.prepare` (9069, 9072) | CORE |
 | [packages/store/src/sync-apply.ts:170](../../packages/store/src/sync-apply.ts#L170) `logRow` | `SQLite.prepare` (170); `Store.sql` (170) | OPERATOR |
 | [packages/store/src/sync-apply.ts:177](../../packages/store/src/sync-apply.ts#L177) `finishRow` | `SQLite.prepare` (177); `Store.sql` (177) | OPERATOR |
 | [packages/store/src/sync-apply.ts:184](../../packages/store/src/sync-apply.ts#L184) `atomically` | `Store.sql` (184, 187, 190, 191) | OPERATOR |
