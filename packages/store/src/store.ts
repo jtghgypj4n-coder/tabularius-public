@@ -4265,9 +4265,28 @@ export class Store {
       this.guardFullAccess(acct.name);
       // Remove every credential the account held, so nothing is left to sign in
       // with — and so a later account of the same name can't inherit it.
-      this.sql.prepare('DELETE FROM _fm_api_tokens WHERE account = ? COLLATE NOCASE').run(acct.name);
+      this.sql.prepare(`DELETE FROM _fm_api_tokens WHERE account = ? COLLATE NOCASE
+        OR CASE WHEN json_valid(identity) THEN json_extract(identity, '$.person') END = ? COLLATE NOCASE
+        OR CASE WHEN json_valid(identity) THEN json_extract(identity, '$.mapping') END = ? COLLATE NOCASE`)
+        .run(acct.name, acct.name, acct.name);
       this.sql.prepare('DELETE FROM _fm_totp WHERE account = ? COLLATE NOCASE').run(acct.name);
       this.sql.prepare('DELETE FROM _fm_passkeys WHERE account = ? COLLATE NOCASE').run(acct.name);
+      this.sql.prepare('DELETE FROM _fm_recovery_codes WHERE account = ? COLLATE NOCASE').run(acct.name);
+      this.sql.prepare('DELETE FROM _fm_webauthn_challenges WHERE account = ? COLLATE NOCASE').run(acct.name);
+      this.sql.prepare('DELETE FROM _fm_pending WHERE agent = ? COLLATE NOCASE').run(acct.name);
+      this.sql.prepare('DELETE FROM _fm_account_import_receipts WHERE actor = ? COLLATE NOCASE').run(acct.name);
+      if (this.hasTable('_fm_scim_users')) this.sql.prepare('DELETE FROM _fm_scim_users WHERE account = ? COLLATE NOCASE').run(acct.name);
+      if (this.hasTable('_fm_dashboards')) this.sql.prepare('UPDATE _fm_dashboards SET account = NULL WHERE account = ? COLLATE NOCASE').run(acct.name);
+      for (const [table, column, runs, parent] of [
+        ['_fm_automations', 'json', '_fm_automation_runs', 'automation'],
+        ['_fm_digests', 'spec', '_fm_digest_runs', 'digest'],
+      ]) {
+        if (!this.hasTable(table)) continue;
+        const owned = `CASE WHEN json_valid(${column}) THEN json_extract(${column}, '$.account') END = ? COLLATE NOCASE`;
+        if (this.hasTable(runs)) this.sql.prepare(`DELETE FROM ${runs}
+          WHERE ${parent} IN (SELECT id FROM ${table} WHERE ${owned})`).run(acct.name);
+        this.sql.prepare(`DELETE FROM ${table} WHERE ${owned}`).run(acct.name);
+      }
       // Its saved finds and recent records too (they hold record data).
       if (this.hasTable('_fm_user_prefs')) this.sql.prepare('DELETE FROM _fm_user_prefs WHERE account = ? COLLATE NOCASE').run(acct.name);
       // And the stand-ins kept for it while AI isolation was on: they are the real names, numbers and addresses
@@ -4308,11 +4327,11 @@ export class Store {
   }
 
   /** Whether a session principal and its selected privilege mapping are still active. */
-  identityAllowed(account: string, via?: string, mappingId?: string, person?: string, principalId?: string): boolean {
+  identityAllowed(account: string, via?: string, mappingId?: string, person?: string, principalId?: string, personId?: string): boolean {
     const principal = this.sql.prepare('SELECT inactive, identity_id FROM _fm_accounts WHERE name = ? COLLATE NOCASE').get(account) as { inactive: number; identity_id: string | null } | undefined;
     // A federated login may use a directory email that has no local account;
     // local sessions always require their persisted account row.
-    if (!principal && via === undefined) return false;
+    if (!principal && (via === undefined || principalId !== undefined)) return false;
     if (principal && (principal.inactive !== 0 || (principalId !== undefined && principal.identity_id !== principalId))) return false;
     if (via !== undefined) {
       const mapping = this.sql.prepare("SELECT inactive, source, identity_id FROM _fm_accounts WHERE name = ? COLLATE NOCASE").get(via) as { inactive: number; source: string; identity_id: string | null } | undefined;
@@ -4321,8 +4340,9 @@ export class Store {
       if (!mapping || !external || mapping.inactive !== 0 || (mappingId !== undefined && mapping.identity_id !== mappingId)) return false;
     }
     if (person !== undefined) {
-      const bound = this.sql.prepare('SELECT inactive FROM _fm_accounts WHERE name = ? COLLATE NOCASE').get(person) as { inactive: number } | undefined;
+      const bound = this.sql.prepare('SELECT inactive, identity_id FROM _fm_accounts WHERE name = ? COLLATE NOCASE').get(person) as { inactive: number; identity_id: string | null } | undefined;
       if (bound?.inactive !== undefined && bound.inactive !== 0) return false;
+      if (personId !== undefined && bound?.identity_id !== personId) return false;
     }
     return true;
   }
