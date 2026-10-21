@@ -109,6 +109,11 @@ export class S3 {
     return (this.prefix ? this.prefix + '/' : '') + rel.split(sep).join('/');
   }
 
+  /** Stable identity for the remote namespace, without storing credentials in the local mirror record. */
+  destinationId(): string {
+    return createHash('sha256').update(JSON.stringify([this.base.origin, this.base.pathname.replace(/\/$/, ''), this.bucket, this.prefix])).digest('hex');
+  }
+
   /** One signed request, answered as it is: no retries, and a refusal is a response, not an error. */
   async raw(method: string, key: string | undefined, opts: { query?: [string, string][]; body?: Uint8Array; headers?: Record<string, string>; signal?: AbortSignal } = {}): Promise<Response> {
     const path = `${this.base.pathname.replace(/\/$/, '')}/${enc(this.bucket)}${key === undefined ? '' : '/' + key.split('/').map(enc).join('/')}`;
@@ -148,7 +153,11 @@ export class S3 {
       const read = (pos: number, n: number) => {
         const buf = Buffer.alloc(n);
         let got = 0;
-        while (got < n) got += readSync(fd, buf, got, n - got, pos + got);
+        while (got < n) {
+          const count = readSync(fd, buf, got, n - got, pos + got);
+          if (count === 0) throw new Error('S3 source file ended before upload completed (unexpected EOF)');
+          got += count;
+        }
         return buf;
       };
       if (size <= part) {
@@ -227,8 +236,15 @@ const unxml = (s: string) => s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').repla
 
 // --- mirroring the backup folder ---------------------------------------------
 
-/** What was last uploaded, by path relative to the folder: size and modification time. */
+/** What was last uploaded to each destination, by path relative to the folder. */
 const MIRRORED = '.s3-mirrored.json';
+interface MirrorState { destinations: Record<string, Record<string, string>> }
+
+function mirrorState(value: unknown): MirrorState {
+  if (!value || typeof value !== 'object' || !('destinations' in value)) return { destinations: {} };
+  const destinations = (value as MirrorState).destinations;
+  return destinations && typeof destinations === 'object' && !Array.isArray(destinations) ? { destinations } : { destinations: {} };
+}
 
 function walk(dir: string, root = dir, skipped: string[] = []): string[] {
   if (!existsSync(dir)) return [];
@@ -251,22 +267,29 @@ function walk(dir: string, root = dir, skipped: string[] = []): string[] {
  */
 export async function mirrorUp(folder: string, s3: S3): Promise<{ uploaded: number; removed: number; bytes: number; skipped: string[] }> {
   const record = join(folder, MIRRORED);
+  const destination = s3.destinationId();
   let done: Record<string, string> = {};
   try {
-    done = readJsonStateSync<Record<string, string>>(record);
+    done = mirrorState(readJsonStateSync<unknown>(record)).destinations[destination] ?? {};
   } catch {}
   const save = (rel?: string, mark?: string) => {
-    done = updateJsonStateSync<Record<string, string>>(record, {}, (current) => {
-      if (rel !== undefined && mark !== undefined) current[rel] = mark;
+    const state = updateJsonStateSync<MirrorState>(record, { destinations: {} }, (current) => {
+      current = mirrorState(current);
+      const marks = current.destinations[destination] ?? {};
+      if (rel !== undefined && mark !== undefined) marks[rel] = mark;
       // Check the current disk, not this mirror's earlier directory snapshot.
-      for (const path of Object.keys(current)) if (!safeExistingPath(folder, path)) delete current[path];
+      for (const path of Object.keys(marks)) if (!safeExistingPath(folder, path)) delete marks[path];
+      current.destinations[destination] = marks;
       return current;
     });
+    done = state.destinations[destination] ?? {};
   };
   let uploaded = 0;
   let bytes = 0;
   const here = new Set<string>();
   const skipped: string[] = [];
+  const remote = await s3.list();
+  const present = new Map(remote.map((o) => [o.key, o.size]));
   // Oldest first: a set's copies go up before its later logs.
   for (const rel of walk(folder, folder, skipped).sort()) {
     here.add(rel);
@@ -274,7 +297,7 @@ export async function mirrorUp(folder: string, s3: S3): Promise<{ uploaded: numb
     if (!local || !statSync(local).isFile()) continue;
     const st = statSync(local);
     const mark = `${st.size}:${st.mtimeMs}`;
-    if (done[rel] === mark) continue;
+    if (done[rel] === mark && present.get(s3.key(rel)) === st.size) continue;
     await s3.put(s3.key(rel), local);
     uploaded++;
     bytes += st.size;
@@ -283,7 +306,7 @@ export async function mirrorUp(folder: string, s3: S3): Promise<{ uploaded: numb
   let removed = 0;
   const local = new Set([...here].map((r) => s3.key(r)));
   const protectedSets = skipped.map((entry) => s3.key(entry.split(':', 1)[0]!) + '/');
-  for (const o of await s3.list()) {
+  for (const o of remote) {
     const rel = s3.prefix ? o.key.slice(s3.prefix.length + 1) : o.key;
     // Only what this mirrors: sets (dated folders) under the prefix.
     if (!/^\d{4}-\d{2}-\d{2}_\d{6}\//.test(rel) || local.has(o.key) || protectedSets.some((prefix) => o.key.startsWith(prefix))) continue;

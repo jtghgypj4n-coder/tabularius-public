@@ -17,6 +17,10 @@ export interface ContainerMove {
   containerIds: number[];
   /** True when the move also set the field to store its files outside the file (undo sets it back). */
   setStorage: boolean;
+  /** The field's storage setting before the move. Missing only in older move history. */
+  previousStorage?: { directoryId: number; path?: string; secure?: boolean; fewerFolders?: boolean } | null;
+  /** Files still awaiting a retry after a partial undo must outlive the short ordinary history. */
+  partial?: boolean;
   /** Whether the file was rewritten afterwards so the freed space went back to the disk. */
   compacted: boolean;
 }
@@ -48,7 +52,8 @@ function read(store: Store): ContainerMove[] {
 }
 
 function write(store: Store, moves: ContainerMove[]): void {
-  store.sql.prepare('INSERT INTO _fm_meta VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET json = excluded.json').run(KEY, JSON.stringify(moves.slice(-KEEP)));
+  const recent = new Set(moves.filter((m) => !m.partial).slice(-KEEP));
+  store.sql.prepare('INSERT INTO _fm_meta VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET json = excluded.json').run(KEY, JSON.stringify(moves.filter((m) => m.partial || recent.has(m))));
 }
 
 /** The moves made so far that can still be undone, newest last. */
@@ -97,6 +102,7 @@ export function moveContainersToManagedStorage(
   if (options.expect !== undefined && options.expect !== plan.files) {
     throw new Error(`The file has changed since the report: ${table}::${field} now keeps ${plan.files} files inside it, not ${options.expect}. Look again.`);
   }
+  const previousStorage = containerField(store, table, field).options?.externalStorage ?? null;
   if (plan.setsStorage) {
     store.applyDesign([{ op: 'updateField', table, field, options: { externalStorage: { path: `"${table}/${field}/"` } } }] as never, { account: options.account });
   }
@@ -105,7 +111,7 @@ export function moveContainersToManagedStorage(
     out = store.moveContainersOut(table, field);
   } catch (e) {
     // The design change is undone with the move that didn't happen.
-    if (plan.setsStorage) store.applyDesign([{ op: 'updateField', table, field, options: { externalStorage: null } }] as never, { account: options.account });
+    if (plan.setsStorage) store.applyDesign([{ op: 'updateField', table, field, options: { externalStorage: previousStorage } }] as never, { account: options.account });
     throw e;
   }
   const compacted = options.compact !== false;
@@ -113,7 +119,7 @@ export function moveContainersToManagedStorage(
   const moves = read(store);
   const move: ContainerMove = {
     id: (moves.at(-1)?.id ?? 0) + 1, at: new Date().toISOString(), table, field, moved: out.moved, bytes: out.bytes,
-    containerIds: out.ids, setStorage: plan.setsStorage, compacted,
+    containerIds: out.ids, setStorage: plan.setsStorage, previousStorage, compacted,
   };
   write(store, [...moves, move]);
   return { plan, move };
@@ -124,10 +130,17 @@ export function undoContainerMove(store: Store, id: number, options: { compact?:
   const moves = read(store);
   const move = moves.find((m) => m.id === id);
   if (!move) throw new Error(`No move #${id} to undo`);
+  if (move.setStorage && !('previousStorage' in move)) throw new Error(`Move #${id} predates storage-setting history; its original field setting cannot be restored safely`);
   const back = store.moveContainersIn(move.containerIds);
   if (move.setStorage && !back.missing) {
-    store.applyDesign([{ op: 'updateField', table: move.table, field: move.field, options: { externalStorage: null } }] as never, { account: options.account });
+    store.applyDesign([{ op: 'updateField', table: move.table, field: move.field, options: { externalStorage: move.previousStorage ?? null } }] as never, { account: options.account });
   }
-  write(store, moves.filter((m) => m.id !== id));
+  if (back.missing) {
+    const unresolved = store.sql.prepare('SELECT 1 FROM _fm_containers WHERE id = ? AND external IS NOT NULL');
+    const remaining = move.containerIds.filter((containerId) => !!unresolved.get(containerId));
+    write(store, moves.map((m) => m.id === id ? { ...m, containerIds: remaining, partial: true } : m));
+  } else {
+    write(store, moves.filter((m) => m.id !== id));
+  }
   return { ...back, move };
 }

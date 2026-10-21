@@ -3,7 +3,7 @@
 // Measured on a public Beezwax sample (DEMO_drawers: six pictures kept inside the file).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { copyFileSync, existsSync, mkdtempSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdtempSync, readdirSync, renameSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
@@ -94,6 +94,73 @@ test('a field already set to store outside the file keeps its setting through a 
   } finally {
     done();
   }
+});
+
+test('AR-server-containers-media-09: partial undo remains retryable', () => {
+  const { dir, store, done } = ours();
+  try {
+    for (const name of ['a.bin', 'b.bin']) {
+      const id = Number(store.create('Items', { Name: name }).recordId);
+      store.setContainer('Items', id, 'Pic', 1, { filename: name, mime: 'application/octet-stream', data: Buffer.from(name) });
+    }
+    const move = moveContainersToManagedStorage(store, 'Items', 'Pic', { compact: false }).move!;
+    const external = store.sql.prepare('SELECT external FROM _fm_containers WHERE id = ?').get(move.containerIds[1]) as { external: string };
+    const file = join(dir, 'RC_Data_FMS', 'Media', external.external);
+    renameSync(file, `${file}.held`);
+    const first = undoContainerMove(store, move.id);
+    assert.deepEqual([first.moved, first.missing], [1, 1]);
+    assert.deepEqual(containerMoves(store)[0]?.containerIds, [move.containerIds[1]]);
+    renameSync(`${file}.held`, file);
+    const second = undoContainerMove(store, move.id);
+    assert.deepEqual([second.moved, second.missing], [1, 0]);
+    assert.deepEqual(containerMoves(store), []);
+    assert.equal(store.embeddedContainerCount('Items', 'Pic').files, 2);
+  } finally { done(); }
+});
+
+test('AR-server-containers-media-10: undo restores the original secure storage setting', () => {
+  const { store, done } = ours();
+  try {
+    const original = { directoryId: 0, secure: true };
+    store.applyDesign([{ op: 'updateField', table: 'Items', field: 'Pic', options: { externalStorage: original } }] as never);
+    const id = Number(store.create('Items', { Name: 'secure' }).recordId);
+    store.sql.prepare("INSERT INTO _fm_containers (id, filename, mime, kind, data) VALUES (9001, 's.bin', 'application/octet-stream', 'file', ?)").run(Buffer.from('data'));
+    store.sql.prepare('UPDATE "Items" SET "Pic" = 9001 WHERE _fm_record_id = ?').run(id);
+    const move = moveContainersToManagedStorage(store, 'Items', 'Pic', { compact: false }).move!;
+    assert.deepEqual(store.schema.tables[0]!.fields.find((f) => f.name === 'Pic')!.options?.externalStorage?.secure, undefined);
+    undoContainerMove(store, move.id);
+    assert.deepEqual(store.schema.tables[0]!.fields.find((f) => f.name === 'Pic')!.options?.externalStorage, original);
+  } finally { done(); }
+});
+
+test('AR-server-containers-media-10: failed move restores the original secure storage setting', (t) => {
+  const { store, done } = ours();
+  try {
+    const original = { directoryId: 0, secure: true };
+    store.applyDesign([{ op: 'updateField', table: 'Items', field: 'Pic', options: { externalStorage: original } }] as never);
+    const id = Number(store.create('Items', { Name: 'secure' }).recordId);
+    store.sql.prepare("INSERT INTO _fm_containers (id, filename, mime, kind, data) VALUES (9002, 's.bin', 'application/octet-stream', 'file', ?)").run(Buffer.from('data'));
+    store.sql.prepare('UPDATE "Items" SET "Pic" = 9002 WHERE _fm_record_id = ?').run(id);
+    t.mock.method(store, 'moveContainersOut', () => { throw new Error('write failed'); });
+    assert.throws(() => moveContainersToManagedStorage(store, 'Items', 'Pic', { compact: false }), /write failed/);
+    assert.deepEqual(store.schema.tables[0]!.fields.find((f) => f.name === 'Pic')!.options?.externalStorage, original);
+    assert.deepEqual(containerMoves(store), []);
+  } finally { done(); }
+});
+
+test('AR-server-containers-media-10: older move history refuses to guess the original setting', () => {
+  const { store, done } = ours();
+  try {
+    const id = Number(store.create('Items', { Name: 'old' }).recordId);
+    store.setContainer('Items', id, 'Pic', 1, { filename: 'old.bin', mime: 'application/octet-stream', data: Buffer.from('old') });
+    const move = moveContainersToManagedStorage(store, 'Items', 'Pic', { compact: false }).move!;
+    const legacy = { ...move } as Partial<typeof move>;
+    delete legacy.previousStorage;
+    store.sql.prepare("UPDATE _fm_meta SET json = ? WHERE key = 'containerMoves'").run(JSON.stringify([legacy]));
+    assert.throws(() => undoContainerMove(store, move.id), /original field setting cannot be restored safely/);
+    assert.equal(store.embeddedContainerCount('Items', 'Pic').files, 0);
+    assert.equal(containerMoves(store)[0]?.id, move.id);
+  } finally { done(); }
 });
 
 test('the admin console and MCP preview, make and undo a move on a converted file', { skip: skipFixtures }, async (t) => {

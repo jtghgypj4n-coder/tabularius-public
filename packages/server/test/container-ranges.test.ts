@@ -79,7 +79,7 @@ test('a file that has not changed is not sent again, and a range is only for the
   const head = await get({}, 'HEAD');
   const etag = head.headers.get('etag')!;
   const modified = head.headers.get('last-modified')!;
-  assert.match(etag, /^"\d+-\d+"$/);
+  assert.match(etag, /^"\d+-\d+-[^"\s]+"$/);
   assert.match(modified, /^[A-Z][a-z]{2}, \d\d [A-Z][a-z]{2} \d{4} \d\d:\d\d:\d\d GMT$/);
   assert.ok(Math.abs(Date.parse(modified) - Date.now()) < 60_000);
   const unchanged: Record<string, string>[] = [{ 'if-none-match': etag }, { 'if-none-match': `W/${etag}` }, { 'if-none-match': `"x", ${etag}` }, { 'if-none-match': '*' }, { 'if-modified-since': modified }, { 'if-modified-since': new Date(Date.now() + 86400_000).toUTCString() }];
@@ -106,6 +106,38 @@ test('a file that has not changed is not sent again, and a range is only for the
   assert.equal((await get({ 'if-match': `W/${etag}` })).status, 412);
   assert.equal((await get({ 'if-unmodified-since': new Date(Date.now() - 86400_000).toUTCString() })).status, 412);
   assert.equal((await get({ 'if-unmodified-since': new Date(Date.now() + 86400_000).toUTCString() })).status, 200);
+});
+
+test('AR-server-containers-media-07: full-file validators follow same-size versions and Store incarnations', async () => {
+  f.store.setContainer('Contacts', Number(f.contact(2)), 'Photo', 1, { filename: 'small.bin', mime: 'application/octet-stream', data: Buffer.from('old') });
+  const smallId = f.store.containerId('Contacts', Number(f.contact(2)), 'Photo')!;
+  const smallUrl = f.store.present(smallId, 'container', 'iso') as string;
+  const old = (await fetch(smallUrl, { method: 'HEAD' })).headers.get('etag')!;
+  f.store.sql.prepare('UPDATE _fm_containers SET data = ? WHERE id = ?').run(Buffer.from('new'), smallId);
+  f.store.sql.prepare('INSERT INTO _fm_container_versions (id, token) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET token = excluded.token').run(smallId, 'changed-version');
+  const changed = await fetch(smallUrl, { headers: { 'if-none-match': old } });
+  assert.equal(changed.status, 200);
+  assert.notEqual(changed.headers.get('etag'), old);
+  assert.equal(await changed.text(), 'new');
+  assert.equal((await fetch(smallUrl, { headers: { range: 'bytes=0-1', 'if-range': old } })).status, 200);
+  const current = (await fetch(smallUrl, { method: 'HEAD' })).headers.get('etag')!;
+  const { Store } = await import('../../store/src/index.ts');
+  const { ContainerFiles } = await import('../src/containers.ts');
+  const { createServer } = await import('node:http');
+  const reopened = new Store(f.store.path, 'C');
+  const files = new ContainerFiles();
+  const server = createServer((req, res) => { void files.send(req, res, reopened, smallId); });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const port = (server.address() as { port: number }).port;
+    const response = await fetch(`http://127.0.0.1:${port}/`, { method: 'HEAD', headers: { 'if-none-match': current } });
+    assert.equal(response.status, 200);
+    assert.notEqual(response.headers.get('etag'), current);
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    files.stop();
+    reopened.close();
+  }
 });
 
 test('a file stored before its time was kept has no Last-Modified, and no date can stand in for it', async () => {

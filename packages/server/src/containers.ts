@@ -11,7 +11,7 @@
 // Thumbnails are kept in memory, a few dozen megabytes' worth.
 
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { Worker } from 'node:worker_threads';
 import { execFile } from 'node:child_process';
 import { accessSync, constants, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -115,6 +115,12 @@ export class ContainerFiles {
     this.workerTimeoutMs = options.workerTimeoutMs ?? WORKER_TIMEOUT_MS;
   }
 
+  private containerVersion(store: Store, identity: string): string {
+    let incarnation = this.incarnations.get(store);
+    if (!incarnation) this.incarnations.set(store, incarnation = randomUUID());
+    return createHash('sha256').update(incarnation).update('\0').update(String(identity)).digest('hex');
+  }
+
   /** Sends a container file, or part of it, or its thumbnail. */
   async send(req: IncomingMessage, res: ServerResponse, store: Store, id: number, opts: { thumb?: number; headers?: Record<string, string> } = {}): Promise<void> {
     const info = store.containerInfo(id);
@@ -129,8 +135,7 @@ export class ContainerFiles {
     }
     if (opts.thumb !== undefined) return this.sendThumbnail(req, res, store, id, info.version, Math.min(THUMB_MAX, Math.max(THUMB_MIN, Math.round(opts.thumb))));
 
-    // Container files never change (a new file gets a new id), so this tag holds for good.
-    const etag = `"${id}-${info.size}"`;
+    const etag = `"${id}-${info.size}-${this.containerVersion(store, info.version)}"`;
     // The type is the uploader's word: only kinds that can't run script show in place. Anything else (HTML, SVG,
     // XML...) is sent to be saved, and sandboxed should a browser show it anyway, so it never runs as this site.
     const mime = /^[\x21-\x7e][\x20-\x7e]*$/.test(info.mime) ? info.mime : 'application/octet-stream';
@@ -214,10 +219,8 @@ export class ContainerFiles {
     if (!alive()) return;
     // A restore can reuse both container ids and version counters. A newly opened
     // Store starts a fresh incarnation, even when the database inode is unchanged.
-    let incarnation = this.incarnations.get(store);
-    if (!incarnation) this.incarnations.set(store, incarnation = randomUUID());
     // Only this container changing or the file reopening invalidates its bytes.
-    const version = `${incarnation}-${identity}`;
+    const version = this.containerVersion(store, identity);
     const key = `${store.path}\0${id}\0${size}\0${version}`;
     const etag = `"t${id}-${size}-${version}"`;
     if (matches(req.headers['if-none-match'], etag)) {
