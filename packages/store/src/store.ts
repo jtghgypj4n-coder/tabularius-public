@@ -2133,6 +2133,7 @@ export class Store {
       throw e instanceof DesignError ? new StoreError(e.code, e.message) : e;
     }
     if (this.securityBatchPublications) this.securityBatchPublications.push(() => this.onDesignChange());
+    else if (this.writePublications) this.writePublications.push(() => this.onDesignChange());
     else this.onDesignChange();
     if (result.ops.length) {
       // Design mode in other windows reloads what changed (the layouts by id, so an open layout editor knows it's its own).
@@ -4588,6 +4589,7 @@ export class Store {
           WHERE ${parent} IN (SELECT id FROM ${table} WHERE ${owned})`).run(acct.name);
         this.sql.prepare(`DELETE FROM ${table} WHERE ${owned}`).run(acct.name);
       }
+      if (this.hasTable('_fm_scim_users')) this.sql.prepare('DELETE FROM _fm_scim_users WHERE account = ? COLLATE NOCASE').run(acct.name);
       // Its saved finds and recent records too (they hold record data).
       if (this.hasTable('_fm_user_prefs')) this.sql.prepare('DELETE FROM _fm_user_prefs WHERE account = ? COLLATE NOCASE').run(acct.name);
       // And the stand-ins kept for it while AI isolation was on: they are the real names, numbers and addresses
@@ -4821,6 +4823,15 @@ export class Store {
   }
 
   // --- API tokens -----------------------------------------------------------
+
+  /** Create or update an agent and issue its credential in the same security transaction. */
+  createAgentApiToken(name: string, privilegeSet: string, agent: { createdBy?: string; needsApproval?: boolean }, token: Parameters<Store['createApiToken']>[1] = {}): string {
+    return this.securityChange(() => {
+      this.setAgentAccount(name, privilegeSet, agent);
+      this.requireActiveAccount(name);
+      return this.createApiToken(name, token);
+    });
+  }
 
   /**
    * A long-lived, revocable bearer credential for an integration, bound to an
@@ -5544,6 +5555,35 @@ export class Store {
       if (r.changes > 0) this.logSecurity('privilege-set-deleted', { target: set.name });
       return r.changes > 0;
     });
+  }
+
+  /**
+   * Manage Security may create/rename/delete catalog privileges and grant them
+   * in one batch. Apply the catalog first, under the same lock and savepoint as
+   * the account changes; publish design changes only after the batch succeeds.
+   */
+  applySecurityWithCatalog(
+    catalog: Extract<DesignOp, { op: 'createExtendedPrivilege' | 'updateExtendedPrivilege' | 'deleteExtendedPrivilege' }>[],
+    ops: SecurityOp[],
+    opts: WriteOptions = {},
+  ): void {
+    const parentPublications = this.writePublications;
+    const publications: (() => void)[] = [];
+    this.writePublications = publications;
+    try {
+      this.securityChange(() => {
+        this.applyDesign(catalog, opts);
+        this.applySecurity(ops);
+      });
+    } catch (e) {
+      // applyDesign refreshed caches inside the now-rolled-back transaction.
+      this.resetCaches();
+      throw e;
+    } finally {
+      this.writePublications = parentPublications;
+    }
+    if (parentPublications) parentPublications.push(...publications);
+    else for (const publish of publications) publish();
   }
 
   /**

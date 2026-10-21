@@ -78,7 +78,7 @@ interface Attrs {
 
 type Account = ReturnType<Store['accounts']>[number];
 
-interface UserRow { id: string; account: string; external_id: string | null; attrs: string | null; groups: string | null; created: string; modified: string }
+interface UserRow { id: string; account: string; account_identity: string | null; external_id: string | null; attrs: string | null; groups: string | null; created: string; modified: string }
 
 /** What a PUT or PATCH works on: the user as the provider can change it. */
 interface UserModel extends Attrs {
@@ -121,7 +121,14 @@ export class ScimDirectory {
 
   private table(): void {
     this.store.sql.exec(`CREATE TABLE IF NOT EXISTS _fm_scim_users (id TEXT PRIMARY KEY, account TEXT NOT NULL UNIQUE COLLATE NOCASE,
-      external_id TEXT, attrs TEXT, groups TEXT, created TEXT NOT NULL, modified TEXT NOT NULL)`);
+      external_id TEXT, attrs TEXT, groups TEXT, created TEXT NOT NULL, modified TEXT NOT NULL, account_identity TEXT)`);
+    const columns = this.store.sql.prepare('PRAGMA table_info(_fm_scim_users)').all() as { name: string }[];
+    if (!columns.some((c) => c.name === 'account_identity')) {
+      this.atomically('scim_identity_column', () => {
+        const current = this.store.sql.prepare('PRAGMA table_info(_fm_scim_users)').all() as { name: string }[];
+        if (!current.some((c) => c.name === 'account_identity')) this.store.sql.exec('ALTER TABLE _fm_scim_users ADD COLUMN account_identity TEXT');
+      });
+    }
   }
 
   settings(): Settings {
@@ -217,10 +224,12 @@ export class ScimDirectory {
   rows(accounts = this.accounts()): UserRow[] {
     this.table();
     const rows = this.store.sql.prepare('SELECT * FROM _fm_scim_users ORDER BY created, id').all() as unknown as UserRow[];
-    const names = accounts;
-    const gone = rows.filter((r) => !names.has(r.account.toLowerCase()));
+    // Old bindings without an identity must be provisioned again; a name cannot establish ownership.
+    const current = (r: UserRow) => accounts.has(r.account.toLowerCase()) && !!r.account_identity
+      && r.account_identity === this.store.accountIdentityId(r.account);
+    const gone = rows.filter((r) => !current(r));
     for (const r of gone) this.store.sql.prepare('DELETE FROM _fm_scim_users WHERE id = ?').run(r.id);
-    return gone.length ? rows.filter((r) => names.has(r.account.toLowerCase())) : rows;
+    return gone.length ? rows.filter(current) : rows;
   }
 
   row(id: string): UserRow | undefined {
@@ -310,7 +319,23 @@ export class ScimDirectory {
     try { this.guard(account); return true; } catch (e) { if (e instanceof ScimError) return false; throw e; }
   }
 
+  private eligible(account: string): void {
+    const a = this.store.accounts().find((a) => a.name.toLowerCase() === account.toLowerCase());
+    if (!a || !a.external || a.hasPassword || a.agent || this.store.schema.accounts.some((a) => a.name.toLowerCase() === account.toLowerCase())) {
+      throw new ScimError(403, 'This account cannot be managed by provisioning');
+    }
+  }
+
+  private bound(r: UserRow): void {
+    const current = this.row(r.id);
+    if (!current || current.account_identity !== r.account_identity || current.account !== r.account) {
+      throw new ScimError(404, 'This provisioning user no longer exists');
+    }
+    this.eligible(r.account);
+  }
+
   private guard(account: string): void {
+    this.eligible(account);
     const name = this.store.accountPrivilegeSet(account);
     const set = name ? this.store.privilegeSet(name) : undefined;
     if (set && isFullAccess(set)) {
@@ -352,18 +377,18 @@ export class ScimDirectory {
       throw new ScimError(400, 'userName must be the person\'s email address (name@domain)', 'invalidValue');
     }
     this.table();
-    if (this.rows().some((r) => r.account.toLowerCase() === name.toLowerCase())) throw new ScimError(409, `A user named "${name}" already exists`, 'uniqueness');
-    const existing = this.store.accounts().find((a) => a.name.toLowerCase() === name.toLowerCase());
-    const fromFile = this.store.schema.accounts.some((a) => a.name.toLowerCase() === name.toLowerCase());
-    if (existing && (!existing.external || existing.hasPassword || existing.agent || fromFile)) {
-      throw new ScimError(409, `"${existing.name}" is already an account with its own sign-in in this file; provisioning won't take it over`, 'uniqueness');
-    }
-    const existingSet = existing?.privilegeSet ? this.store.privilegeSet(existing.privilegeSet) : undefined;
-    if (existingSet && isFullAccess(existingSet)) {
-      throw new ScimError(409, `"${existing!.name}" has full access, which only an admin can change; provisioning won't take it over`, 'uniqueness');
-    }
     const id = randomUUID();
     this.atomically('scim_user_create', () => {
+      if (this.rows().some((r) => r.account.toLowerCase() === name.toLowerCase())) throw new ScimError(409, `A user named "${name}" already exists`, 'uniqueness');
+      const existing = this.store.accounts().find((a) => a.name.toLowerCase() === name.toLowerCase());
+      const fromFile = this.store.schema.accounts.some((a) => a.name.toLowerCase() === name.toLowerCase());
+      if (existing && (!existing.external || existing.hasPassword || existing.agent || fromFile)) {
+        throw new ScimError(409, `"${existing.name}" is already an account with its own sign-in in this file; provisioning won't take it over`, 'uniqueness');
+      }
+      const existingSet = existing?.privilegeSet ? this.store.privilegeSet(existing.privilegeSet) : undefined;
+      if (existingSet && isFullAccess(existingSet)) {
+        throw new ScimError(409, `"${existing!.name}" has full access, which only an admin can change; provisioning won't take it over`, 'uniqueness');
+      }
       if (!existing) {
         this.store.addProvisionedAccount(name, SCIM_ACTOR);
         const def = this.defaultSet();
@@ -371,8 +396,8 @@ export class ScimDirectory {
       }
       const account = existing?.name ?? name;
       const now = new Date().toISOString();
-      this.store.sql.prepare('INSERT INTO _fm_scim_users (id, account, external_id, attrs, groups, created, modified) VALUES (?, ?, ?, ?, ?, ?, ?)')
-        .run(id, account, m.externalId ?? null, JSON.stringify(attrsOf(m)), '[]', now, now);
+      this.store.sql.prepare('INSERT INTO _fm_scim_users (id, account, external_id, attrs, groups, created, modified, account_identity) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+        .run(id, account, m.externalId ?? null, JSON.stringify(attrsOf(m)), '[]', now, now, this.store.accountIdentityId(account)!);
       if (!m.active) {
         this.store.setAccountActive(account, false, { by: SCIM_ACTOR });
         this.revokePersonTokens(account);
@@ -384,20 +409,21 @@ export class ScimDirectory {
 
   /** Saves a changed user; returns whether the account was just deactivated (its sessions should end). */
   update(r: UserRow, m: UserModel): boolean {
-    if (m.userName.toLowerCase() !== r.account.toLowerCase()) {
-      throw new ScimError(400, 'userName can\'t change: the account is named by it. Remove the user and add them again under the new name', 'mutability');
-    }
-    const wasActive = !this.store.accountInactive(r.account);
-    if (wasActive !== m.active) this.guard(r.account);
-    // A full-access account's tokens are not provisioning's to revoke either, even when an inactive one is merely edited.
-    const revoke = !m.active && (wasActive || this.canTouch(r.account));
-    this.atomically('scim_user_update', () => {
+    return this.atomically('scim_user_update', () => {
+      this.bound(r);
+      if (m.userName.toLowerCase() !== r.account.toLowerCase()) {
+        throw new ScimError(400, 'userName can\'t change: the account is named by it. Remove the user and add them again under the new name', 'mutability');
+      }
+      const wasActive = !this.store.accountInactive(r.account);
+      if (wasActive !== m.active) this.guard(r.account);
+      // A protected account's credentials cannot be revoked through a metadata edit.
+      const revoke = !m.active && (wasActive || this.canTouch(r.account));
       this.store.sql.prepare('UPDATE _fm_scim_users SET external_id = ?, attrs = ?, modified = ? WHERE id = ?')
         .run(m.externalId ?? null, JSON.stringify(attrsOf(m)), new Date().toISOString(), r.id);
       if (wasActive !== m.active) this.store.setAccountActive(r.account, m.active, { by: SCIM_ACTOR });
       if (revoke) this.revokePersonTokens(r.account);
+      return wasActive && !m.active;
     });
-    return wasActive && !m.active;
   }
 
   /**
@@ -409,8 +435,9 @@ export class ScimDirectory {
    * who is back only gets fresh ones.
    */
   remove(r: UserRow): void {
-    this.guard(r.account);
     this.atomically('scim_user_remove', () => {
+      this.bound(r);
+      this.guard(r.account);
       if (!this.store.accountInactive(r.account)) this.store.setAccountActive(r.account, false, { by: SCIM_ACTOR });
       if (this.store.accountPrivilegeSet(r.account)) this.store.clearAccountPrivilegeSet(r.account, { by: SCIM_ACTOR });
       this.revokePersonTokens(r.account);
@@ -457,20 +484,24 @@ export class ScimDirectory {
   }
 
   addMember(set: string, userId: string): void {
-    const r = this.row(userId);
-    if (!r) throw new ScimError(400, `No user with id "${userId}"`, 'invalidValue');
-    this.guard(r.account);
-    this.setMemberships(r, [...this.memberships(r).filter((g) => g !== set), set]);
-    this.apply(r);
+    this.atomically('scim_member_add', () => {
+      const r = this.row(userId);
+      if (!r) throw new ScimError(400, `No user with id "${userId}"`, 'invalidValue');
+      this.guard(r.account);
+      this.setMemberships(r, [...this.memberships(r).filter((g) => g !== set), set]);
+      this.apply(r);
+    });
   }
 
   /** Takes the user out of the group: they get the set of another group they're in, else the default, else none. */
   removeMember(set: string, userId: string): void {
-    const r = this.row(userId);
-    if (!r || !this.memberships(r).includes(set)) return;
-    this.guard(r.account);
-    this.setMemberships(r, this.memberships(r).filter((g) => g !== set));
-    this.apply(r);
+    this.atomically('scim_member_remove', () => {
+      const r = this.row(userId);
+      if (!r || !this.memberships(r).includes(set)) return;
+      this.guard(r.account);
+      this.setMemberships(r, this.memberships(r).filter((g) => g !== set));
+      this.apply(r);
+    });
   }
 
   /** Validates a member change without applying it. */
@@ -482,19 +513,18 @@ export class ScimDirectory {
 
   /** Makes exactly these users the group's members. PATCH additions can also move an existing group to the end. */
   setMembers(set: string, userIds: string[], promoteIds: string[] = []): void {
-    const rows = this.rows();
-    const byId = new Map(rows.map((r) => [r.id, r]));
-    for (const id of userIds) if (!byId.has(id)) throw new ScimError(400, `No user with id "${id}"`, 'invalidValue');
-    const want = new Set(userIds);
-    const promote = new Set(promoteIds);
-    const current = rows.filter((r) => this.memberships(r).includes(set));
-    // Check the entire replacement before the first grant or removal, including accounts
-    // an administrator protected after SCIM created them.
-    for (const id of want) if (!this.memberships(byId.get(id)!).includes(set) || promote.has(id)) this.guard(byId.get(id)!.account);
-    for (const r of current) if (!want.has(r.id)) this.guard(r.account);
-
     try {
       this.atomically('scim_members', () => {
+        const rows = this.rows();
+        const byId = new Map(rows.map((r) => [r.id, r]));
+        for (const id of userIds) if (!byId.has(id)) throw new ScimError(400, `No user with id "${id}"`, 'invalidValue');
+        const want = new Set(userIds);
+        const promote = new Set(promoteIds);
+        const current = rows.filter((r) => this.memberships(r).includes(set));
+        // Check the entire replacement before the first grant or removal, including accounts
+        // an administrator protected after SCIM created them.
+        for (const id of want) if (!this.memberships(byId.get(id)!).includes(set) || promote.has(id)) this.guard(byId.get(id)!.account);
+        for (const r of current) if (!want.has(r.id)) this.guard(r.account);
         for (const r of current) if (!want.has(r.id)) this.removeMember(set, r.id);
         for (const id of want) if (!this.memberships(byId.get(id)!).includes(set) || promote.has(id)) this.addMember(set, id);
       });
@@ -665,14 +695,18 @@ export class ScimEndpoint {
       if (!store || !dir || !token || !dir.tokenValid(token)) {
         throw new ScimError(401, 'Sign in with this file\'s provisioning token (Authorization: Bearer ...)');
       }
+      const body = ['POST', 'PUT', 'PATCH'].includes(req.method ?? '') ? await objectBody(req) : {};
+      if (this.host.get(store.name) !== store || !dir.tokenValid(token)) {
+        throw new ScimError(401, 'Sign in with this file\'s provisioning token (Authorization: Bearer ...)');
+      }
       const location = `${origin(req)}/tabularius/scim/v2/databases/${encodeURIComponent(store.name)}`;
       const resource = m[2] ?? '';
       const id = m[3] === undefined ? undefined : decodeURIComponent(m[3]);
       if (resource === 'ServiceProviderConfig' && req.method === 'GET' && !id) return send(200, serviceProviderConfig(location)), true;
       if (resource === 'ResourceTypes' && req.method === 'GET') return send(200, resourceTypes(location, id)), true;
       if (resource === 'Schemas' && req.method === 'GET') return send(200, schemas(id)), true;
-      if (resource === 'Users') await this.users(req, url, dir, location, id, send);
-      else if (resource === 'Groups') await this.groups(req, url, dir, location, id, send);
+      if (resource === 'Users') await this.users(req, url, dir, location, id, send, body);
+      else if (resource === 'Groups') await this.groups(req, url, dir, location, id, send, body);
       else throw new ScimError(404, `No resource "${resource}"`);
     } catch (e) {
       const status = e instanceof ScimError ? e.status : e instanceof ApiError ? e.status : e instanceof StoreError || e instanceof URIError ? 400 : 500;
@@ -682,7 +716,7 @@ export class ScimEndpoint {
     return true;
   }
 
-  private async users(req: IncomingMessage, url: URL, dir: ScimDirectory, location: string, id: string | undefined, send: (s: number, b?: unknown, h?: Record<string, string>) => void): Promise<void> {
+  private async users(req: IncomingMessage, url: URL, dir: ScimDirectory, location: string, id: string | undefined, send: (s: number, b?: unknown, h?: Record<string, string>) => void, body: Record<string, unknown>): Promise<void> {
     if (id === undefined) {
       if (req.method === 'GET') {
         const f = parseFilter(url.searchParams.get('filter'));
@@ -699,11 +733,11 @@ export class ScimEndpoint {
         return send(200, page(url, rows.map((r) => dir.user(r, location, accounts, groups))));
       }
       if (req.method === 'POST') {
-        const model = userFrom(await objectBody(req));
+        const model = userFrom(body);
         const r = dir.create(model);
         if (!model.active) this.api.endByAccount(dir.store.name, r.account);
-        const body = dir.user(r, location);
-        return send(201, body, { location: (body.meta as { location: string }).location });
+        const result = dir.user(r, location);
+        return send(201, result, { location: (result.meta as { location: string }).location });
       }
       throw new ScimError(405, 'Use GET or POST on Users');
     }
@@ -711,7 +745,6 @@ export class ScimEndpoint {
     if (!r) throw new ScimError(404, `No user with id "${id}"`);
     if (req.method === 'GET') return send(200, dir.user(r, location));
     if (req.method === 'PUT' || req.method === 'PATCH') {
-      const body = await objectBody(req);
       const now = dir.model(r);
       const next = req.method === 'PUT' ? userFrom(body, { ...now, displayName: undefined, name: undefined, emails: undefined, externalId: undefined }) : patchUser(now, patchOps(body));
       if (dir.update(r, next)) this.api.endByAccount(dir.store.name, r.account);
@@ -725,7 +758,7 @@ export class ScimEndpoint {
     throw new ScimError(405, 'Use GET, PUT, PATCH or DELETE on a user');
   }
 
-  private async groups(req: IncomingMessage, url: URL, dir: ScimDirectory, location: string, id: string | undefined, send: (s: number, b?: unknown, h?: Record<string, string>) => void): Promise<void> {
+  private async groups(req: IncomingMessage, url: URL, dir: ScimDirectory, location: string, id: string | undefined, send: (s: number, b?: unknown, h?: Record<string, string>) => void, body: Record<string, unknown>): Promise<void> {
     const withMembers = !/\bmembers\b/i.test(url.searchParams.get('excludedAttributes') ?? '');
     if (id === undefined) {
       if (req.method === 'GET') {
@@ -741,7 +774,6 @@ export class ScimEndpoint {
       }
       if (req.method === 'POST') {
         // Groups are the file's privilege sets: "creating" one links to the set of that name.
-        const body = await objectBody(req);
         const wanted = str(body.displayName) ?? '';
         const set = dir.groupSets().find((s) => s.toLowerCase() === wanted.toLowerCase());
         if (!set) {
@@ -760,7 +792,6 @@ export class ScimEndpoint {
     if (!set) throw new ScimError(404, `No group with id "${id}"`);
     if (req.method === 'GET') return send(200, dir.group(set, location, withMembers));
     if (req.method === 'PUT') {
-      const body = await objectBody(req);
       if (typeof body.displayName === 'string' && body.displayName.toLowerCase() !== set.toLowerCase()) {
         throw new ScimError(400, 'A group is a privilege set and can\'t be renamed here; rename the set in Manage Security', 'mutability');
       }
@@ -772,7 +803,7 @@ export class ScimEndpoint {
       const promote = new Set<string>();
       const touched = new Set<string>();
       let changeMembers = false;
-      for (const op of patchOps(await objectBody(req))) {
+      for (const op of patchOps(body)) {
         const path = op.path ?? '';
         const one = /^members\[value eq "([^"]+)"\]$/i.exec(path);
         if (one && op.op === 'remove') {
@@ -833,7 +864,7 @@ export class ScimEndpoint {
     }
     if (req.method === 'DELETE') {
       // The privilege set stays; the people SCIM gave it to lose it.
-      for (const r of dir.members(set)) dir.removeMember(set, r.id);
+      dir.setMembers(set, []);
       return send(204);
     }
     throw new ScimError(405, 'Use GET, PUT, PATCH or DELETE on a group');
