@@ -821,6 +821,11 @@ test('encrypted: a manifest that loses its signature while point-in-time backups
   t.after(() => rmSync(empty, { recursive: true, force: true }));
   writeFileSync(join(empty, 'backup.json'), JSON.stringify({ finished: { 'A.openhbam.sqlite': new Date(0).toISOString() } }));
   assert.throws(() => openAmenderSync(empty, KEY), /no signature/, 'a manifest that lists a time is not empty');
+  const entry = { size: 1, mtimeMs: 1, sha256: 'a'.repeat(64) };
+  for (const [what, list] of [['a container file', { external: { 'Files/A/x/y': entry } }], ['a saved log', { logs: { A: { n: 1, head: 'b'.repeat(64) } } }], ['a copy\'s checksum', { sha256: { 'A.openhbam.sqlite': 'c'.repeat(64) } }]] as [string, object][]) {
+    writeFileSync(join(empty, 'backup.json'), JSON.stringify(list));
+    assert.throws(() => openAmenderSync(empty, KEY), /no signature/, `a manifest that lists ${what} is not empty`);
+  }
   writeFileSync(join(empty, 'backup.json'), JSON.stringify({}));
   openAmenderSync(empty, KEY).amend((i) => { i.sha256 = {}; i.finished = {}; });
   assert.ok(manifest(empty).auth.mac);
@@ -840,6 +845,12 @@ test('encrypted: the next backup copies a container file again when the set it w
   writeManifest(linked, info);
   const next = (await backupFolder(w.folder, dest, 0, KEY)).dir;
   assert.notEqual(statSync(join(next, ...rel.split('/')) + '.enc').ino, statSync(join(linked, ...rel.split('/')) + '.enc').ino, 'copied again, not linked');
+  // A previous set that has lost its signature is not reused either.
+  const stripped = manifest(next);
+  delete stripped.auth;
+  writeManifest(next, stripped);
+  const after = (await backupFolder(w.folder, dest, 0, KEY)).dir;
+  assert.notEqual(statSync(join(after, ...rel.split('/')) + '.enc').ino, statSync(join(next, ...rel.split('/')) + '.enc').ino, 'a set with no signature is not linked from');
 });
 
 test('a manifest that was checked but has no checksum for a copy does not restore it', async (t) => {

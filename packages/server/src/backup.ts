@@ -1206,7 +1206,10 @@ async function checkedPoint(point: { copy: string; logs: SavedLog[] }, passphras
  * that is going to be refused does not cost the file's users their connection.
  */
 export async function checkRestorePoint(point: { copy: string; logs: SavedLog[] }, passphrase = backupKey(), acceptUnsigned = false): Promise<void> {
-  await checkedPoint(point, passphrase, acceptUnsigned);
+  const { sums } = await checkedPoint(point, passphrase, acceptUnsigned);
+  // The copy itself is read once, so a changed one is found out here too (the restore reads it again, into a file of its own, and checks it again).
+  const name = plain(basename(point.copy));
+  if (sums && await checksum(point.copy) !== sums[name]) throw new Error(`${name}: changed on disk since it was taken (checksum)`);
 }
 
 /** Stage without touching any live database, so a folder restore can commit once. */
