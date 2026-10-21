@@ -27,7 +27,7 @@ import {
   scriptStepId, scriptStepName, displayedStepLine,
   type Field, type FieldKind, type FieldLookup, type FieldOptions, type FieldType, type JoinOperator, type LayoutDesign, type LayoutDesigns,
   type LayoutObject, type LayoutPart, type LayoutView, type OrderedItem, type PageSetup, type Schema, type ScriptStep, type StepParams, type SummaryType, type Table,
-  type Relationship, type TableOccurrence, type CustomFunction, type Script, type ValueListField, type CustomMenu, type CustomMenuItem, type StyleRule, type Theme, type ThemeStyle,
+  type Relationship, type TableOccurrence, type DataSource, type CustomFunction, type Script, type ValueListField, type CustomMenu, type CustomMenuItem, type StyleRule, type Theme, type ThemeStyle,
   MENU_COMMANDS,
 } from '../../fmp12/src/index.ts';
 
@@ -84,7 +84,7 @@ export type DesignOp =
   | ({ op: 'createRelationship'; id?: number; left: Ref; right: Ref; predicates: PredicateSpec[] } & RelationshipOptions)
   | ({ op: 'updateRelationship'; relationship: number; left?: Ref; right?: Ref; predicates?: PredicateSpec[] } & RelationshipOptions)
   | { op: 'deleteRelationship'; relationship: number }
-  | { op: 'createValueList'; id?: number; name: string; values?: string[]; field?: ValueListFieldSpec }
+  | { op: 'createValueList'; id?: number; name: string; values?: string[]; field?: ValueListFieldSpec; /** The list of that id in another hosted file instead: the data source naming it, and the list's id there. */ external?: { file: Ref; valueList: number } }
   | { op: 'updateValueList'; valueList: Ref; name?: string; values?: string[]; field?: ValueListFieldSpec }
   | { op: 'deleteValueList'; valueList: Ref }
   /** A custom "way in" privilege sets can grant (Manage Security's Extended Privileges tab), beyond Tabularius's own fmapp/fmwebdirect/fmrest/fmxml/fmmcp. */
@@ -210,6 +210,12 @@ export interface DesignState {
    * undefined by callers that don't carry privileges (then nothing is rewritten).
    */
   privileges?: PrivilegeDefinition[];
+  /**
+   * The tables of the hosted file a data source points at, when there is one. Design can't change another file, but
+   * it reads that file's tables so a layout or value list can use the fields of a table occurrence from another file.
+   * Not cloned with the state (a function), and left undefined by callers that can't reach other files.
+   */
+  externalTables?: (source: DataSource) => Table[] | undefined;
 }
 
 /** A deleted table or field the store still has the data for. */
@@ -407,6 +413,13 @@ function resolveFieldOptions(s: Schema, table: Table, options: FieldOptionsSpec 
 /** Base table of a table occurrence in this file (not one from another file). */
 const localTable = (s: Schema, to: TableOccurrence) => (to.dataSourceId ? undefined : s.tables.find((t) => t.id === to.baseTableId));
 
+/** The base table behind an occurrence: this file's, or the one in the other hosted file a data source names (when it can be read). */
+function tableOf(st: DesignState, to: TableOccurrence): Table | undefined {
+  if (!to.dataSourceId) return localTable(st.schema, to);
+  const source = st.schema.dataSources.find((d) => d.id === to.dataSourceId);
+  return source && st.externalTables?.(source)?.find((t) => t.id === to.baseTableId);
+}
+
 /** Where a value list takes its values: a field (and a second field to show) of an occurrence, optionally only related values. */
 export interface ValueListFieldSpec {
   occurrence: Ref;
@@ -418,11 +431,12 @@ export interface ValueListFieldSpec {
   sortBySecond?: boolean;
 }
 
-function valueListField(s: Schema, spec: ValueListFieldSpec): ValueListField {
+function valueListField(st: DesignState, spec: ValueListFieldSpec): ValueListField {
+  const s = st.schema;
   if (!spec || typeof spec !== 'object') throw invalid('A value list field needs an occurrence and a field');
   const to = find(s.tableOccurrences, spec.occurrence, 'Table occurrence', 106);
-  const table = localTable(s, to);
-  if (!table) throw invalid('Value lists from tables in other files can\'t be edited yet');
+  const table = tableOf(st, to);
+  if (!table) throw invalid(to.dataSourceId ? `${to.name} is in another file that isn't hosted here, so its fields can't be read to make a value list` : `${to.name} has no table`);
   const field = find(table.fields, spec.field, `Field ${to.name}::`, 102);
   const out: ValueListField = { occurrenceId: to.id, fieldId: field.id };
   if (spec.second !== undefined && spec.second !== null) out.secondFieldId = find(table.fields, spec.second, `Field ${to.name}::`, 102).id;
@@ -904,7 +918,7 @@ type Design = LayoutDesign & { generated?: boolean };
 export function generateLayout(st: DesignState, id: number, name: string, toId: number, view: LayoutView = 'form'): Design {
   const s = st.schema;
   const to = s.tableOccurrences.find((t) => t.id === toId);
-  const table = to && localTable(s, to);
+  const table = to && tableOf(st, to);
   const fields = (table?.fields ?? []).filter((f) => f.type !== 'unknown');
   if (view === 'list') return generateList(st, id, name, toId, fields);
   const header = 60;
@@ -1454,7 +1468,7 @@ function applyOneOp(st: DesignState, op: DesignOp, deleted?: DeletedLookup): { o
     }
     case 'deleteTable': {
       const table = find(s.tables, op.table, 'Table', 106);
-      const before = structuredClone(st);
+      const before = cloneState(st);
       // Its occurrences go too (with their relationships); layouts on them stay, without a table.
       for (const to of s.tableOccurrences.filter((t) => !t.dataSourceId && t.baseTableId === table.id)) deleteOccurrence(st, to);
       rekeyAccess(st, 'table', table.name, null);
@@ -1542,7 +1556,7 @@ function applyOneOp(st: DesignState, op: DesignOp, deleted?: DeletedLookup): { o
     case 'deleteField': {
       const table = find(s.tables, op.table, 'Table', 106);
       const field = find(table.fields, op.field, `Field ${table.name}::`, 102);
-      const before = structuredClone(st);
+      const before = cloneState(st);
       propagate(st, { kind: 'field', tableId: table.id, from: field.name, to: null });
       rekeyField(st, table.name, field.name, null);
       table.fields.splice(table.fields.indexOf(field), 1);
@@ -1718,8 +1732,16 @@ function applyOneOp(st: DesignState, op: DesignOp, deleted?: DeletedLookup): { o
       const name = checkName(op.name, 'A value list');
       unique(s.valueLists.map((v) => v.name), name, 'Value list');
       const id = op.id ?? nextId(s.valueLists.map((v) => v.id));
+      if (op.external !== undefined) {
+        if (op.field !== undefined || op.values !== undefined) throw invalid('A value list from another file has no values or field of its own');
+        const ds = find(s.dataSources, op.external?.file as Ref, 'Data source', 106);
+        if (typeof op.external.valueList !== 'number') throw invalid('A value list from another file needs the list\'s id in that file');
+        if (ds.paths[0]?.startsWith('odbc:')) throw invalid(`${ds.name} is an ODBC source, which has no value lists`);
+        s.valueLists.push({ id, name, external: { dataSourceId: ds.id, valueListId: op.external.valueList } });
+        return { op: { op: 'createValueList', id, name, external: { file: ds.id, valueList: op.external.valueList } }, effects };
+      }
       if (op.field !== undefined) {
-        const field = valueListField(s, op.field);
+        const field = valueListField(st, op.field);
         s.valueLists.push({ id, name, field });
         return { op: { op: 'createValueList', id, name, field: fieldSpec(field) }, effects };
       }
@@ -1742,7 +1764,7 @@ function applyOneOp(st: DesignState, op: DesignOp, deleted?: DeletedLookup): { o
         delete vl.field;
       }
       if (op.field !== undefined) {
-        vl.field = valueListField(s, op.field);
+        vl.field = valueListField(st, op.field);
         delete vl.values;
         return { op: { ...op, valueList: vl.id, field: fieldSpec(vl.field) }, effects };
       }
@@ -2303,9 +2325,15 @@ function deleteOccurrence(st: DesignState, to: TableOccurrence): void {
 }
 
 /** Apply ops to a copy of the design; the original is untouched if any op fails. */
+/** A copy of the state to change; the reader of other files' tables is shared (a function can't be cloned). */
+function cloneState(st: DesignState): DesignState {
+  const { externalTables, ...cloneable } = st;
+  return { ...structuredClone(cloneable), externalTables };
+}
+
 export function applyOps(st: DesignState, ops: DesignOp[], deleted?: DeletedLookup): { state: DesignState; ops: DesignOp[]; effects: Effect[] } {
   if (!Array.isArray(ops) || !ops.length) throw invalid('Send a list of changes');
-  const state = structuredClone(st);
+  const state = cloneState(st);
   const resolved: DesignOp[] = [];
   const effects: Effect[] = [];
   ops.forEach((op, i) => {

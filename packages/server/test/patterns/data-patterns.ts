@@ -74,8 +74,7 @@ export const DATA_PATTERNS: Pattern[] = [
       },
     },
     dataApi: {
-      expected: 'partial',
-      note: 'The interface file serves the data file\'s records once a field is placed on the layout. A layout that design mode generates for a table occurrence in another file has no fields on it, so it returns records with empty fieldData.',
+      expected: 'pass',
       async run(t) {
         const data = t.file('Data');
         data.applyDesign([{ op: 'createTable', name: 'Contacts', fields: [{ name: 'Name' }] }]);
@@ -97,8 +96,8 @@ export const DATA_PATTERNS: Pattern[] = [
         assert.equal(placed.code, '0', placed.message);
         assert.deepEqual(placed.response.data.map((d: any) => d.fieldData.Name), ['Ann'], 'with the field placed, the interface file serves the data file\'s records');
         const generated = await api.get('/layouts/Generated/records');
-        assert.deepEqual(generated.response.data.map((d: any) => d.fieldData), [{}], 'the generated layout has no field on it');
-        return partial('generated layouts of external tables have no fields');
+        assert.deepEqual(generated.response.data.map((d: any) => d.fieldData.Name), ['Ann'], 'a layout design mode generates for the data file\'s table has its fields');
+        return pass();
       },
     },
   },

@@ -60,13 +60,14 @@ export const CHANGES = `Design changes, applied in order as one unit (all or non
   when the match fields change), prohibitModification?: true (people can't change it, scripts can)},
   validation?: {notEmpty?, unique?, existing?, type?: number|date4|time (strict data type), valueList?: name, range?: {min, max}, maxLength?,
   calculation?, calculationAlways? (check it on every commit, not only when the field changed), message?}}, summary?: {type: total|count|average|..., field}}
-- {op:"createOccurrence", name, table} / {op:"updateOccurrence", occurrence, name?, table?, color?} / {op:"deleteOccurrence", occurrence}
+- {op:"createOccurrence", name, table | file: data source, externalTable: the table's id in that file} / {op:"updateOccurrence", occurrence, name?, table?, color?} / {op:"deleteOccurrence", occurrence}
 - {op:"createRelationship", left, right, predicates: [{left: field, operator?: = ≠ < ≤ > ≥ ×, right: field}]} (left/right are occurrences)
   plus per-side options leftCreate/rightCreate (allow creating records on that side through the relationship; new ones default to true)
   and leftDelete/rightDelete (delete that side's related records when a record on the other side is deleted)
   / {op:"updateRelationship", relationship: id, ...} / {op:"deleteRelationship", relationship: id}
 - {op:"createValueList", name, values} or {op:"createValueList", name, field: {occurrence, field, second?: field to show too,
   showSecondOnly?, sortBySecond?, related?: occurrence (only values related to the current record, starting from it)}}
+  or {op:"createValueList", name, external: {file: data source, valueList: the list's id in that file}} (a list of another hosted file)
   / updateValueList (valueList; values or field replaces the other) / deleteValueList (valueList)
 - {op:"createCustomFunction", name, parameters, formula, language?: "calculation" (default) | "javascript"} / updateCustomFunction /
   deleteCustomFunction (customFunction). A JavaScript function's formula is the body of a JavaScript function of its parameters
