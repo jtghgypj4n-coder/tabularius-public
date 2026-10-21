@@ -40,11 +40,27 @@ test('a web host is a public https host name and nothing else', () => {
   assert.equal(normalizeWebViewerHost('*.example.com'), '*.example.com');
   for (const bad of [
     '', '  ', 'https://maps.example.com', 'maps.example.com/path', 'maps.example.com:8443', 'user@maps.example.com', 'maps example.com', 'a?b.example.com',
-    'localhost', 'intranet', 'printer.local', 'db.internal', '127.0.0.1', '10.0.0.5', '192.168.1.1', '[::1]', '*.com', '*', '*.', '*.*.example.com', 'ex_ample.com', '-bad.example.com', 'a..b.com',
+    'localhost', 'intranet', '0x7f.0x1', 'a.0x7f', 'printer.local', 'db.internal', '127.0.0.1', '10.0.0.5', '192.168.1.1', '[::1]', '*.com', '*', '*.', '*.*.example.com', 'ex_ample.com', '-bad.example.com', 'a..b.com',
     `${'a'.repeat(64)}.example.com`,
   ]) assert.throws(() => normalizeWebViewerHost(bad), StoreError, JSON.stringify(bad));
   assert.throws(() => normalizeWebViewerHost(42), StoreError);
   assert.throws(() => normalizeWebViewerHosts('maps.example.com'), StoreError);
   assert.throws(() => normalizeWebViewerHosts(Array.from({ length: 51 }, (_, i) => `h${i}.example.com`)), /At most 50/);
   assert.equal(normalizeWebViewerHosts(Array.from({ length: 50 }, (_, i) => `h${i}.example.com`)).length, 50);
+});
+
+test('a list stored by anything but the console is trusted only as far as it passes the same checks', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'web-viewer-hosts-'));
+  const path = join(dir, 'Shop.sqlite');
+  try {
+    createStore(path);
+    const store = new Store(path, 'Shop');
+    const stored = ['maps.example.com', 'evil.com; frame-ancestors *', 'evil.com *', '*', 'a.example.com\r\nx: y', 42, 'Upper.Example.com', 'maps.example.com'];
+    (store as unknown as { sql: { prepare(q: string): { run(...a: unknown[]): void } } }).sql
+      .prepare(`INSERT INTO _fm_meta VALUES ('webViewerHosts', ?) ON CONFLICT(key) DO UPDATE SET json = excluded.json`).run(JSON.stringify(stored));
+    assert.deepEqual(store.webViewerHosts, ['maps.example.com']);
+    store.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

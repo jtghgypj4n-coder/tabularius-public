@@ -20,7 +20,7 @@ export function normalizeWebViewerHost(input: unknown): string {
     throw new StoreError(960, `"${input.trim()}" isn't a host name Tabularius can allow: use a name with at least two parts, like maps.example.com or *.example.com`);
   }
   // Web viewers load pages in the person's browser, so addresses on a private or local network are not for an allow-list either.
-  if (/^\d+$/.test(labels[labels.length - 1]) || labels[labels.length - 1] === 'local' || labels[labels.length - 1] === 'localhost' || labels[labels.length - 1] === 'internal') {
+  if (/^(\d+|0x[0-9a-f]*)$/.test(labels[labels.length - 1]) || labels[labels.length - 1] === 'local' || labels[labels.length - 1] === 'localhost' || labels[labels.length - 1] === 'internal') {
     throw new StoreError(960, `"${input.trim()}" is an address on a local network, or a number: allow a public host name instead`);
   }
   return text;
@@ -32,4 +32,17 @@ export function normalizeWebViewerHosts(input: unknown): string[] {
   const out = [...new Set(input.map(normalizeWebViewerHost))].sort();
   if (out.length > WEB_VIEWER_HOSTS_MAX) throw new StoreError(960, `At most ${WEB_VIEWER_HOSTS_MAX} web hosts can be allowed`);
   return out;
+}
+
+/** The stored list as it can be trusted: a value written by anything but setWebViewerHosts (a restored or foreign file) is dropped unless it passes the same checks. */
+export function trustedWebViewerHosts(stored: unknown): string[] {
+  if (!Array.isArray(stored)) return [];
+  const out: string[] = [];
+  for (const v of stored) {
+    try {
+      const host = normalizeWebViewerHost(v);
+      if (host === v && !out.includes(host)) out.push(host);
+    } catch { /* dropped */ }
+  }
+  return out.slice(0, WEB_VIEWER_HOSTS_MAX);
 }

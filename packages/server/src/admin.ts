@@ -1173,7 +1173,14 @@ export class Admin {
           if (!Array.isArray(body.hosts)) send(400, { error: 'Send {"hosts": ["maps.example.com"]}' });
           else {
             const before = store.webViewerHosts;
+            // A page of this server's own host would run beside the app with scripts and same-origin together.
+            const ownNames = [String(req.headers.host ?? '').replace(/:\d+$/, ''), this.host.publicUrl ? new URL(this.host.publicUrl).hostname : ''].map((n) => n.replace(/^\[|\]$/g, '').toLowerCase()).filter(Boolean);
+            const ownHost = (body.hosts as unknown[]).find((h) => {
+              const t = typeof h === 'string' ? h.trim().toLowerCase() : '';
+              return ownNames.some((n) => t === n || (t.startsWith('*.') && n.endsWith(t.slice(1))));
+            });
             try {
+              if (ownHost) throw new StoreError(960, `"${String(ownHost).trim()}" is the address of this server itself, which a web viewer can't be given: allow other sites' hosts`);
               store.setWebViewerHosts(body.hosts, { account: 'admin console' });
               if (before.join('\n') !== store.webViewerHosts.join('\n')) this.log(`Web viewer hosts for ${store.name} now: ${store.webViewerHosts.join(', ') || 'none'} (admin console)`);
               send(200, status(store));

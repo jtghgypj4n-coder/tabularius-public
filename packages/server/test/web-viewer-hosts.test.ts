@@ -36,6 +36,15 @@ test('web viewer hosts: none to begin with; the console lists them, the app page
     // Bad requests change nothing and say what is wrong.
     for (const bad of [{ hosts: 'maps.example.com' }, {}, null, { hosts: ['https://maps.example.com'] }, { hosts: ['127.0.0.1'] }, { hosts: [42] }]) assert.equal((await hostsOf(bad)).status, 400, JSON.stringify(bad));
     assert.match((await hostsOf({ hosts: ['maps.example.com/x'] })).body.error, /just a host name/);
+    // This server's own host is refused: a page of it would run beside the app.
+    hosted.host.publicUrl = 'https://files.corp-example.com/';
+    for (const hosts of [['files.corp-example.com'], ['*.corp-example.com']]) {
+      const refused = await hostsOf({ hosts });
+      assert.equal(refused.status, 400);
+      assert.match(refused.body.error, /address of this server itself/);
+    }
+    assert.deepEqual(store.webViewerHosts, []);
+    hosted.host.publicUrl = undefined;
     assert.deepEqual(store.webViewerHosts, []);
     assert.equal((await fetch(`${hosted.url}/tabularius/admin/v1/web-viewer-hosts/Nope`)).status, 404);
 
