@@ -305,7 +305,9 @@ for (const [path, body] of [
   store.setAccountPrivilegeSet('Admin', 'Reader');
   const before = store.securityToken();
   pending.stream.end(JSON.stringify(body).slice(1));
-  assert.equal((await pending.done).status, 403);
+  // Main's sign-in ledger ends the session when its account's privilege set changes, so the second check can refuse with 401 before the full-access check says 403.
+  const response = await pending.done;
+  assert.ok([401, 403].includes(response.status), response.text);
   assert.equal(store.securityToken(), before);
 });
 
