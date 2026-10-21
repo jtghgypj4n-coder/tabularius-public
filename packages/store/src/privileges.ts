@@ -309,6 +309,11 @@ export class Privileges {
     return new Privileges(this.account, this.set, this.file, (file) => ceiling(this.in(file)), this.captureDenials, ceiling).withVia(this.via);
   }
 
+  /** These privileges looked at only from other hosted files: nothing is checked in the file they are for. */
+  elsewhereOnly(): Privileges {
+    return new Privileges(this.account, { ...this.set, id: 1 }, this.file, this.other, this.captureDenials, this.ceiling).withVia(this.via);
+  }
+
   /** The same account's privileges in another hosted file (no access when it has no account there). */
   in(file: unknown): Privileges {
     return file === this.file ? this : this.other(file);
