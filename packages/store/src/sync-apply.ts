@@ -564,12 +564,10 @@ async function applySyncRun(store: SyncLocal & Partial<Pick<Store, 'present' | '
     // Container files owed to FileMaker by an earlier run that did not finish them (see _fm_sync_container_pending). They are this
     // side's until sent: a pull never empties or replaces one, and the owed record is retried with files only.
     const owedBy = opts.containers ? owedContainers(store, key) : new Map<string, Set<string>>();
-    // A record settled for FileMaker's side (a conflict policy or a review) takes its files too: the files owed are given up.
-    if (opts.containers && opts.pull) {
-      const given = d.plan.pulls.filter((item) => item.op === 'update' && /^conflict:/.test(item.reason) && owedBy.has(item.uuid));
-      if (given.length) atomically(store, () => { for (const item of given) clearContainersPending(store, key, item.uuid, [...owedBy.get(item.uuid)!]); });
-      for (const item of given) owedBy.delete(item.uuid);
-    }
+    // A record settled for FileMaker's side (a conflict policy or a review) takes its files too, where FileMaker holds one: a file
+    // owed is replaced by it (and no longer owed, in the pull's own transaction); where FileMaker's field is empty the local file stays owed.
+    const giveUp = new Set(opts.containers ? d.plan.pulls.filter((item) => item.op === 'update' && /^conflict:/.test(item.reason) && owedBy.has(item.uuid)).map((item) => item.uuid) : []);
+    const settledOwed = new Map<string, string[]>();
     // Whether a pull of this record would change anything here besides the files owed: a field, or another container.
     const pullWouldChange = async (loc: LocalRecord, rem: RemoteRecord, owed: Set<string>): Promise<boolean> => {
       if (Object.keys(pullData(loc, rem)).length) return true;
@@ -661,7 +659,10 @@ async function applySyncRun(store: SyncLocal & Partial<Pick<Store, 'present' | '
         if (repeating(field)) { skipContainer(rem.uuid, field, 'a repeating container isn\'t brought'); continue; }
         const address = rem.fields[field];
         const had = loc ? Number(loc.fields[field]) : NaN;
-        if (had > 0 && owedBy.get(rem.uuid)?.has(field)) { skipContainer(rem.uuid, field, 'the file here is still owed to FileMaker: it is sent first, not replaced'); continue; }
+        const owedHere = had > 0 && !!owedBy.get(rem.uuid)?.has(field);
+        if (owedHere && !giveUp.has(rem.uuid)) { skipContainer(rem.uuid, field, 'the file here is still owed to FileMaker: it is sent first, not replaced'); continue; }
+        if (owedHere && address === '') { skipContainer(rem.uuid, field, 'the file here is still owed to FileMaker, whose field is empty: it is kept and sent'); continue; }
+        const settle = () => { if (owedHere) settledOwed.set(rem.uuid, [...(settledOwed.get(rem.uuid) ?? []), field]); };
         if (address === '') {
           if (Number.isInteger(had) && had > 0) out.push({ field, file: null });
           continue;
@@ -672,7 +673,9 @@ async function applySyncRun(store: SyncLocal & Partial<Pick<Store, 'present' | '
         assertWritable();
         if ('skipped' in got) { skipContainer(rem.uuid, field, got.skipped); continue; }
         const current = Number.isInteger(had) && had > 0 ? ls.container(had) : undefined;
-        if (current && Buffer.from(current.data.buffer, current.data.byteOffset, current.data.byteLength).equals(got.data)) { t.containers.unchanged++; continue; }
+        if (current && Buffer.from(current.data.buffer, current.data.byteOffset, current.data.byteLength).equals(got.data)) { t.containers.unchanged++; settle(); continue; }
+        if (owedHere) skipContainer(rem.uuid, field, `FileMaker's file (${got.data.length} bytes) replaced the file here that was owed to it, as this record is settled for FileMaker`);
+        settle();
         out.push({ field, file: got });
       }
       return out;
@@ -759,6 +762,7 @@ async function applySyncRun(store: SyncLocal & Partial<Pick<Store, 'present' | '
               if (!now_ || Number(now_.m) !== loc.modId) throw new SyncWriteError(`${item.uuid}: changed here since it was read (modId ${loc.modId}); its files were not changed`, '306', true);
             }
             modId = setContainers(table, loc.recordId, files, modId);
+            clearContainersPending(store, key, item.uuid, settledOwed.get(item.uuid) ?? []);
             crashPoint('sync-apply:after-data');
             upsertMap(store, key, { uuid: item.uuid, localRecordId: loc.recordId, lastLocalModId: modId, remoteRecordId: rem.recordId, lastRemoteModId: rem.modId, lastRemoteModTs: rem.modTimestamp ?? null });
             finishRow(store, rowId, 'ok', { after: String(modId) });
@@ -808,9 +812,11 @@ async function applySyncRun(store: SyncLocal & Partial<Pick<Store, 'present' | '
     // The local container files a record being sent needs sent too: the ones FileMaker lacks or holds differently
     // (compared by fetching its file, for a record that exists there). A file that can't be sent is listed, not an error.
     const maxFile = opts.containers?.maxBytes ?? 0;
-    const filesToSend = async (local: LocalRecord, rem: RemoteRecord | undefined): Promise<{ files: { field: string; file: RemoteFile }[]; satisfied: string[] }> => {
+    const filesToSend = async (local: LocalRecord, rem: RemoteRecord | undefined): Promise<{ files: { field: string; file: RemoteFile }[]; satisfied: string[]; agreed: string[] }> => {
       const out: { field: string; file: RemoteFile }[] = [];
       const satisfied: string[] = [];
+      // The fields whose file on FileMaker was compared with ours and is the same: all that says the two sides agree.
+      const agreed: string[] = [];
       const retrying = new Set((store.sql.prepare('SELECT field FROM _fm_sync_container_pending WHERE table_key = ? AND uuid = ?').all(key, local.uuid) as { field: string }[]).map((r) => r.field));
       for (const field of sendFileFields) {
         const had = Number(local.fields[field]);
@@ -842,6 +848,7 @@ async function applySyncRun(store: SyncLocal & Partial<Pick<Store, 'present' | '
             } else if (Buffer.from(mine.data.buffer, mine.data.byteOffset, mine.data.byteLength).equals(got.data)) {
               t.containers.unchanged++;
               satisfied.push(field);
+              agreed.push(field);
               continue;
             } else if (retrying.has(field)) {
               skipContainer(local.uuid, field, `the file owed replaced a different file FileMaker held (${got.data.length} bytes, ${got.filename ?? 'no name'})`);
@@ -850,7 +857,7 @@ async function applySyncRun(store: SyncLocal & Partial<Pick<Store, 'present' | '
         }
         out.push({ field, file: { filename: mine.filename, mime: mine.mime, data: mine.data } });
       }
-      return { files: out, satisfied };
+      return { files: out, satisfied, agreed };
     };
     // Sends the files to a record on FileMaker. A refused file is listed and the rest go on; anything that isn't one
     // file's problem (the account, the network, a changed review) comes back as `fatal` for the caller to raise after
@@ -870,8 +877,9 @@ async function applySyncRun(store: SyncLocal & Partial<Pick<Store, 'present' | '
           assertWritable();
           if (e instanceof SyncWriteError && e.recordLevel && e.code !== 'stale-review') {
             skipContainer(uuid, f.field, e.message);
-            // A record in use (301) or changed meanwhile (306) is tried again by the next run; any other refusal is final.
-            if (e.code !== '301' && e.code !== '306') completed.push(f.field);
+            // A record in use (301) is tried again by the next run, and counts as failed until it goes; any other refusal is final.
+            if (e.code === '301') t.failed.push({ uuid, op: 'container', error: `${f.field}: ${e.message} (it is tried again by the next run)` });
+            else completed.push(f.field);
           }
           else return { modId, fatal: e, completed };
         }
@@ -911,7 +919,7 @@ async function applySyncRun(store: SyncLocal & Partial<Pick<Store, 'present' | '
         if (item.op === 'create') {
           if (!local) throw new SyncWriteError(`${item.uuid}: the local record is gone`, 'local-missing', true);
           const fieldData = data(local, undefined);
-          const fileWork = sendFileFields.length ? await filesToSend(local, undefined) : { files: [], satisfied: [] };
+          const fileWork = sendFileFields.length ? await filesToSend(local, undefined) : { files: [], satisfied: [], agreed: [] };
           const files = fileWork.files;
           if (files.length) { assertWritable(); if (!reviewsMatch()) return finish('refused'); }
           // The files owed are recorded with the attempt, before FileMaker is asked to make the record: an exit anywhere after
@@ -975,15 +983,17 @@ async function applySyncRun(store: SyncLocal & Partial<Pick<Store, 'present' | '
           if (!local || !rem) throw new SyncWriteError(`${item.uuid}: the record isn't in the snapshot this plan was made from`, 'snapshot-missing', true);
           // A record owed only its files is sent nothing else: what FileMaker holds now is not compared field by field here.
           const fieldData = retryOnly.has(item.uuid) ? {} : data(local, rem);
-          const fileWork = sendFileFields.length ? await filesToSend(local, rem) : { files: [], satisfied: [] };
+          const fileWork = sendFileFields.length ? await filesToSend(local, rem) : { files: [], satisfied: [], agreed: [] };
           const files = fileWork.files;
           if (files.length) { assertWritable(); if (!reviewsMatch()) return finish('refused'); }
           if (retryOnly.has(item.uuid) && !files.length) {
-            // Nothing is left to send for it: no request, no log row, and what can no longer be sent is forgotten. Pulling it
-            // would have changed nothing here, so FileMaker's version (moved by the upload that did land) is the baseline now.
+            // Nothing is left to send for it: no request, no log row, and what can no longer be sent is forgotten. When every file
+            // owed was found the same on FileMaker, FileMaker's version (moved by the upload that did land) is the baseline now; when
+            // one was forgotten unsent (too big, missing here), FileMaker's record is left as a change for a pull to bring.
+            const agreedAll = [...(owedBy.get(item.uuid) ?? [])].every((f) => fileWork.agreed.includes(f));
             atomically(store, () => {
               clearContainersPending(store, key, item.uuid, fileWork.satisfied);
-              upsertMap(store, key, { uuid: item.uuid, localRecordId: local.recordId, lastLocalModId: local.modId, remoteRecordId: rem.recordId, lastRemoteModId: rem.modId, lastRemoteModTs: rem.modTimestamp ?? null });
+              if (agreedAll) upsertMap(store, key, { uuid: item.uuid, localRecordId: local.recordId, lastLocalModId: local.modId, remoteRecordId: rem.recordId, lastRemoteModId: rem.modId, lastRemoteModTs: rem.modTimestamp ?? null });
             });
             continue;
           }
