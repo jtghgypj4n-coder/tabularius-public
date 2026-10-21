@@ -5,7 +5,7 @@
 
 import { notionMarkdownSheet, MAX_IMPORT_ROWS, type SheetInput } from '../../store/src/index.ts';
 import { importFileRowIterator } from '../../scripts/src/index.ts';
-import { xlsxSheetNames } from '../../scripts/src/xlsx.ts';
+import { unzip, xlsxSheetNames } from '../../scripts/src/xlsx.ts';
 
 /** A file that cannot be read as sheets: the message says why, without the file's name. */
 export class ImportSheetsError extends Error {}
@@ -29,6 +29,24 @@ export function sheetsFromFile(name: string, data: Uint8Array): SheetInput[] {
     }
     return rows;
   };
+  if (/\.zip$/i.test(name)) {
+    try {
+      const files = unzip(data);
+      const sheets: SheetInput[] = [];
+      const pages: { file: string; text: string }[] = [];
+      for (const [path, bytes] of files) {
+        // Notion's Markdown & CSV export is a ZIP. Ignore its asset files; only
+        // the textual table and page exports become imported tables.
+        if (/\.csv$/i.test(path)) sheets.push(...sheetsFromFile(path.split(/[\\/]/).pop()!, bytes));
+        else if (/\.md$/i.test(path)) pages.push({ file: path.split(/[\\/]/).pop()!, text: Buffer.from(bytes).toString('utf8') });
+      }
+      if (pages.length) sheets.push(notionMarkdownSheet(sheetNameOf(name), pages));
+      if (!sheets.length) throw new ImportSheetsError('the ZIP has no CSV or Markdown exports');
+      return sheets;
+    } catch (e) {
+      throw e instanceof ImportSheetsError ? e : new ImportSheetsError(e instanceof Error ? e.message : String(e));
+    }
+  }
   if (/\.xlsx$/i.test(name)) {
     try {
       return xlsxSheetNames(data).map((sheet) => ({ name: sheet, rows: rowsOf(sheet) }));
