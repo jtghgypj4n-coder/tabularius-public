@@ -138,4 +138,6 @@ update dashboards and alert rules), responses carry `X-Tabularius-*` headers, an
 image tag in the examples are `tabularius`.
 
 A standby and its primary should be upgraded together, the primary first: a standby on the new name asks for
-`/tabularius/replication/...`, which a primary still on the old name does not answer.
+`/tabularius/replication/...`, which a primary still on the old name does not answer (the standby says so, and names the
+order). A primary on the new name still answers a standby on the old one, so the standby keeps following until it is
+upgraded. See [standby servers](standby-guarantees.md).

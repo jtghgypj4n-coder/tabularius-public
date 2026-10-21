@@ -53,6 +53,17 @@ export interface StandbyClient {
   at: number;
 }
 
+/**
+ * A standby still running the old product name reads the position of a copy or of changes from `x-openhbam-*` headers
+ * (and asks for /openhbam/replication/..., which is answered as /tabularius/replication/...). Without them it would copy
+ * the file again and again, so a primary upgraded first, as docs/upgrading.md says to do, keeps its old standby following.
+ */
+const legacyHeaders = (run: string, seq: number, wholeAfter?: number): Record<string, string> => ({
+  'x-openhbam-run': run,
+  'x-openhbam-seq': String(seq),
+  ...(wholeAfter === undefined ? {} : { 'x-openhbam-whole-after': String(wholeAfter) }),
+});
+
 const sameToken = (a: string, b: string) => a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
 
 export class Replication {
@@ -189,6 +200,7 @@ export class Replication {
         'x-tabularius-run': run,
         'x-tabularius-seq': String(from),
         'x-tabularius-whole-after': String(whole),
+        ...legacyHeaders(run, from, whole),
       });
       await pipeline(createReadStream(tmp), res);
     } catch (e) {
@@ -241,7 +253,7 @@ export class Replication {
       parts.push(b);
       size += b.length;
     }
-    res.writeHead(200, { 'content-type': 'application/octet-stream', 'cache-control': 'no-store', 'content-length': size, 'x-tabularius-run': f.run, 'x-tabularius-seq': String(f.seq) });
+    res.writeHead(200, { 'content-type': 'application/octet-stream', 'cache-control': 'no-store', 'content-length': size, 'x-tabularius-run': f.run, 'x-tabularius-seq': String(f.seq), ...legacyHeaders(f.run, f.seq) });
     res.end(Buffer.concat(parts));
   }
 }

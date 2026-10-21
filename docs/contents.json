@@ -74,6 +74,7 @@
         "docs/upgrading.md",
         "docs/reporting-a-file-that-does-not-open.md",
         "docs/performance.md",
+        "docs/standby-guarantees.md",
         "docs/in-memory-lease-clocks.md",
         "docs/pgwire-session.md",
         "docs/pgwire-bi-tools.md",

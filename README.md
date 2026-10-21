@@ -1276,7 +1276,8 @@ tabularius standby ~/Standby --primary http://main:8080 --token "$TOKEN"     # s
 The standby copies each file once, then applies its changes as they happen
 (it carries on after either side restarts). To take over, stop the standby
 and run `tabularius serve ~/Standby`. The admin console shows which standbys
-are following and how far behind they are. Over the internet, give the main
+are following and how far behind they are. [What a standby promises, what a takeover
+gives you and what it does not copy](docs/standby-guarantees.md). Over the internet, give the main
 server a certificate (`--tls-cert`/`--tls-key`); for a self-signed one, start
 the standby with `NODE_EXTRA_CA_CERTS=cert.pem`.
 
