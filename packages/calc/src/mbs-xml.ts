@@ -11,9 +11,12 @@
 // content and text beside attributes come out), XML.Tidy and XML.ToHTML (no description of their output), and the
 // file, container, record and import functions. They give an "isn't available" MBS error.
 
+import { rethrowExecutionRefusal } from './execution-refusal.ts';
+
+import { withXmlWorkBudget, workBudget, budgetReplace, budgetDepth } from './work-budget.ts';
 import { MbsError } from './mbs-text.ts';
 import { canonicalXml } from './xmltools.ts';
-import { XPathError, evaluateXPath, formatNumber, makeNode, parseXmlDocument, stringValue, type XNode } from './xpath.ts';
+import { XPathError, xpathValues, evaluateXPath, formatNumber, makeNode, parseXmlDocument, stringValue, type XNode } from './xpath.ts';
 import { XsltError, applyXslt } from './xslt.ts';
 
 type MbsXml = (t: string[], scope: object) => string | number;
@@ -43,6 +46,7 @@ function parse(xml: string): XNode {
   try {
     doc = parseXmlDocument(xml, { processingInstructions: true });
   } catch (e) {
+    rethrowExecutionRefusal(e);
     if (e instanceof XPathError) throw new MbsError(`Failed to parse XML: ${e.message}`);
     throw e;
   }
@@ -137,11 +141,10 @@ function asRoot(n: XNode, parent: XNode | null): XNode {
 
 // --- writing, as libxml2 does --------------------------------------------------------------------
 
-const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-// Control characters XML 1.0 can't hold as they are are written as character references, as libxml2 does (inferred).
-const control = (s: string) => s.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, (c) => `&#${c.charCodeAt(0)};`);
-const escText = (s: string) => control(esc(s).replace(/\r/g, '&#13;'));
-const escAttr = (s: string) => control(esc(s).replace(/"/g, '&quot;').replace(/\n/g, '&#10;').replace(/\r/g, '&#13;').replace(/\t/g, '&#9;'));
+const escText = (s: string) => budgetReplace(s, /[&<>\r\x00-\x08\x0b\x0c\x0e-\x1f]/g,
+  (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c] ?? `&#${c.charCodeAt(0)};`);
+const escAttr = (s: string) => budgetReplace(s, /[&<>"\n\r\t\x00-\x08\x0b\x0c\x0e-\x1f]/g,
+  (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c] ?? `&#${c.charCodeAt(0)};`);
 const blank = (n: XNode) => n.kind === 'text' && !n.cdata && !/[^ \t\r\n]/.test(n.value);
 /** Without the whitespace-only text between elements, as libxml2 drops it: only where there are elements and the
  * element doesn't start or end with real text (then the spaces are part of the text). */
@@ -154,61 +157,84 @@ function withoutBlanks(children: XNode[]): XNode[] {
 // libxml2 indents at most 60 spaces.
 const indentOf = (level: number) => '  '.repeat(Math.min(level, 30));
 
+class XmlChunks {
+  private readonly parts: string[] = [];
+  private size = 0;
+  push(...parts: string[]): void {
+    const size = this.size + parts.reduce((n, s) => n + s.length, 0);
+    workBudget()?.checkText(size);
+    workBudget()?.text(size - this.size);
+    workBudget()?.nodes(parts.length);
+    this.size = size;
+    this.parts.push(...parts);
+  }
+  join(): string { return this.parts.join(''); }
+}
 interface Write { format: boolean; noEmptyTags: boolean }
-function dump(n: XNode, w: Write, level: number, out: string[]): void {
-  switch (n.kind) {
-    case 'document':
-      for (const c of n.children) {
-        dump(c, w, 0, out);
-        out.push('\n');
-      }
-      return;
-    case 'element': {
-      out.push('<', n.name);
-      for (const [prefix, uri] of n.nsDecls) out.push(` ${prefix ? `xmlns:${prefix}` : 'xmlns'}="${escAttr(uri)}"`);
-      for (const a of n.attributes) out.push(` ${a.name}="${escAttr(a.value)}"`);
-      let children = n.children;
-      if (w.format) children = withoutBlanks(children);
-      if (!children.length) {
-        out.push(w.noEmptyTags ? `></${n.name}>` : '/>');
+function dump(n: XNode, w: Write, level: number, out: XmlChunks): void {
+  return budgetDepth(() => {
+    switch (n.kind) {
+      case 'document':
+        for (const c of n.children) {
+          dump(c, w, 0, out);
+          out.push('\n');
+        }
+        return;
+      case 'element': {
+        out.push('<', n.name);
+        for (const [prefix, uri] of n.nsDecls) out.push(` ${prefix ? `xmlns:${prefix}` : 'xmlns'}="${escAttr(uri)}"`);
+        for (const a of n.attributes) out.push(` ${a.name}="${escAttr(a.value)}"`);
+        let children = n.children;
+        if (w.format) children = withoutBlanks(children);
+        if (!children.length) {
+          out.push(w.noEmptyTags ? `></${n.name}>` : '/>');
+          return;
+        }
+        const indent = w.format && !children.some((c) => c.kind === 'text');
+        out.push('>');
+        if (indent) out.push('\n');
+        for (const c of children) {
+          if (indent) out.push(indentOf(level + 1));
+          dump(c, { ...w, format: indent }, level + 1, out);
+          if (indent) out.push('\n');
+        }
+        if (indent) out.push(indentOf(level));
+        out.push(`</${n.name}>`);
         return;
       }
-      const indent = w.format && !children.some((c) => c.kind === 'text');
-      out.push('>');
-      if (indent) out.push('\n');
-      for (const c of children) {
-        if (indent) out.push(indentOf(level + 1));
-        dump(c, { ...w, format: indent }, level + 1, out);
-        if (indent) out.push('\n');
-      }
-      if (indent) out.push(indentOf(level));
-      out.push(`</${n.name}>`);
-      return;
+      case 'attribute':
+        out.push(`${n.name}="${escAttr(n.value)}"`);
+        return;
+      case 'text':
+        // A CDATA section can't hold "]]>", so it is split there.
+        out.push(n.cdata ? `<![CDATA[${budgetReplace(n.value, /]]>/g, () => ']]]]><![CDATA[>')}]]>` : escText(n.value));
+        return;
+      case 'comment':
+        out.push(`<!--${n.value}-->`);
+        return;
+      case 'processing-instruction':
+        out.push(`<?${n.name}${n.value ? ` ${n.value}` : ''}?>`);
+        return;
+      case 'namespace':
+        out.push(`${n.name ? `xmlns:${n.name}` : 'xmlns'}="${escAttr(n.value)}"`);
     }
-    case 'attribute':
-      out.push(`${n.name}="${escAttr(n.value)}"`);
-      return;
-    case 'text':
-      // A CDATA section can't hold "]]>", so it is split there.
-      out.push(n.cdata ? `<![CDATA[${n.value.replace(/]]>/g, ']]]]><![CDATA[>')}]]>` : escText(n.value));
-      return;
-    case 'comment':
-      out.push(`<!--${n.value}-->`);
-      return;
-    case 'processing-instruction':
-      out.push(`<?${n.name}${n.value ? ` ${n.value}` : ''}?>`);
-      return;
-    case 'namespace':
-      out.push(`${n.name ? `xmlns:${n.name}` : 'xmlns'}="${escAttr(n.value)}"`);
-  }
+  });
 }
 const DECLARATION = '<?xml version="1.0" encoding="UTF-8"?>\n';
 /** A whole document, or a node written as one (with the declaration unless `bare`). */
 function write(scope: object, n: XNode, format: boolean, bare = false): string {
-  const out: string[] = [];
-  dump(n, { format, noEmptyTags: sessionOf(scope).noEmptyTags }, 0, out);
-  const body = out.join('').replace(/\n$/, '');
-  return bare ? body : DECLARATION + body;
+  return withXmlWorkBudget(() => {
+    try {
+      const out = new XmlChunks();
+      dump(n, { format, noEmptyTags: sessionOf(scope).noEmptyTags }, 0, out);
+      const body = out.join().replace(/\n$/, '');
+      workBudget()?.checkText(body.length + (bare ? 0 : DECLARATION.length));
+      return bare ? body : DECLARATION + body;
+    } catch (e) {
+      rethrowExecutionRefusal(e);
+      throw e;
+    }
+  });
 }
 
 // --- paths ------------------------------------------------------------------------------------
@@ -355,29 +381,36 @@ function subTrees(doc: XNode, names: string[]): XNode[] {
 const lines = (s: string) => s.split(/\r\n|\r|\n/).filter((x) => x !== '');
 
 function query(scope: object, doc: XNode, path: string, namespaces: string, fl: number): string {
-  let r;
-  try {
-    r = evaluateXPath(doc, path, namespaces);
-  } catch (e) {
-    if (e instanceof XPathError) throw new MbsError(e.message);
-    throw e;
-  }
-  if (r.type === 'string') return r.value;
-  if (r.type === 'number') return formatNumber(r.value);
-  if (r.type === 'boolean') return r.value ? 'true' : 'false';
-  const nodes = fl & 16 ? r.nodes.slice(0, 1) : r.nodes;
-  if (!nodes.length) return '';
-  const format = !(fl & FLAG.format);
-  // Flag 2, or text nodes only: their text, one per line (FileMaker's return between them, inferred).
-  if (fl & 2 || nodes.every((n) => n.kind === 'text')) return nodes.map(stringValue).join('\r');
-  const one = (n: XNode) => write(scope, n, format, true);
-  if (fl & FLAG.asXml) return nodes.map(one).join('\n');
-  if (nodes.length === 1) return DECLARATION + one(nodes[0]);
-  // Several nodes go in a <result> element (MBS's description); attributes are written as name="value" there.
-  const result = makeNode('element', null, 0);
-  result.name = result.localName = 'result';
-  result.children = nodes;
-  return DECLARATION + one(result);
+  return withXmlWorkBudget(() => {
+    let r;
+    try {
+      r = evaluateXPath(doc, path, namespaces);
+    } catch (e) {
+      rethrowExecutionRefusal(e);
+      if (e instanceof XPathError) throw new MbsError(e.message);
+      throw e;
+    }
+    if (r.type === 'string') return r.value;
+    if (r.type === 'number') return formatNumber(r.value);
+    if (r.type === 'boolean') return r.value ? 'true' : 'false';
+    const nodes = fl & 16 ? r.nodes.slice(0, 1) : r.nodes;
+    if (!nodes.length) return '';
+    const format = !(fl & FLAG.format);
+    // Flag 2, or text nodes only: their text, one per line (FileMaker's return between them, inferred).
+    if (fl & 2 || nodes.every((n) => n.kind === 'text')) return xpathValues({ type: 'nodeset', nodes });
+    const one = (n: XNode) => write(scope, n, format, true);
+    if (fl & FLAG.asXml) {
+      const parts: string[] = [];
+      for (const n of nodes) { const s = one(n); workBudget()?.output(s.length + (parts.length ? 1 : 0)); parts.push(s); }
+      return parts.join('\n');
+    }
+    if (nodes.length === 1) return write(scope, nodes[0], format);
+    // Several nodes go in a <result> element (MBS's description); attributes are written as name="value" there.
+    const result = makeNode('element', null, 0);
+    result.name = result.localName = 'result';
+    result.children = nodes;
+    return write(scope, result, format);
+  });
 }
 
 const xmlText = (scope: object, s: string): string => {
@@ -388,6 +421,7 @@ function xslt(scope: object, xml: string, style: string, params: Map<string, str
   try {
     return applyXslt(xmlText(scope, xml), xmlText(scope, style), { params }).replace(/\n$/, '');
   } catch (e) {
+    rethrowExecutionRefusal(e);
     if (e instanceof XsltError || e instanceof XPathError) throw new MbsError(e.message);
     throw e;
   }
@@ -453,6 +487,7 @@ export const MBS_XML: Record<string, MbsXml> = {
       if (fl & FLAG.asXml && el.children.some((c) => c.kind === 'element')) return write(scope, el, !!(fl & FLAG.format));
       return stringValue(el);
     } catch (e) {
+      rethrowExecutionRefusal(e);
       if (fl & 2 && e instanceof MbsError) return '';
       throw e;
     }
@@ -501,12 +536,18 @@ export const MBS_XML: Record<string, MbsXml> = {
     const out = write(scope, doc, false);
     return fl & FLAG.noDeclaration ? out.slice(DECLARATION.length) : out;
   },
-  'xml.query': ([xml = '', path = '', namespaces = '', flags], scope) => {
-    const fl = flagsOf(flags);
-    let doc = input(scope, xml).doc;
-    if (fl & FLAG.noNamespaces) doc = withoutNamespaces(doc);
-    return query(scope, doc, path, namespaces, fl);
-  },
+  'xml.query': ([xml = '', path = '', namespaces = '', flags], scope) => withXmlWorkBudget(() => {
+    try {
+      const fl = flagsOf(flags);
+      let doc = input(scope, xml).doc;
+      if (fl & FLAG.noNamespaces) doc = withoutNamespaces(doc);
+      return query(scope, doc, path, namespaces, fl);
+    } catch (e) {
+      rethrowExecutionRefusal(e);
+      if (e instanceof XPathError) throw new MbsError(e.message);
+      throw e;
+    }
+  }),
   // Parameters as name=value lines; libxslt reads each value as an XPath expression, so text needs quotes (inferred
   // from XML.ApplyStylesheet2's "may be quoted with single quotes").
   'xml.applystylesheet': ([xml = '', style = '', params = ''], scope) => {
@@ -532,6 +573,7 @@ export const MBS_XML: Record<string, MbsXml> = {
     try {
       return canonicalXml(xmlText(scope, xml), !!(flagsOf(flags) & 2));
     } catch (e) {
+      rethrowExecutionRefusal(e);
       if (e instanceof XPathError) throw new MbsError(`Failed to parse XML: ${e.message}`);
       throw e;
     }

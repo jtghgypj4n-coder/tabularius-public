@@ -1,3 +1,4 @@
+import { withXmlWorkBudget } from './work-budget.ts';
 // FileMaker's built-in calculation functions.
 //
 // Each takes its arguments unevaluated, so If, Case, Choose, Let and the
@@ -2391,6 +2392,7 @@ eager('BE_JSON_jq', 2, 3, (v, env) => {
     beErrors.set(env.ctx, '');
     return beResult(env, 0, text(out));
   } catch (e) {
+    rethrowExecutionRefusal(e);
     if (e instanceof HostWait) throw e;
     if (!(e instanceof JqError) && !(e instanceof RegexTimeout)) throw e;
     beErrors.set(env.ctx, e instanceof RegexTimeout ? 'regular expression took too long' : e.message);
@@ -2478,17 +2480,18 @@ eager('BE_CipherDecrypt', 3, 6, beCipher(true));
 // BE_XPath ( xml ; xpath {; namespaces ; asText } ) and BE_XPathAll ( xml ; xpath {; namespaces } ): XPath 1.0 as
 // libxml2 runs it (xpath.ts). XPath gives the first node's text (or, with asText false, its XML); XPathAll every
 // node's text, one per line. Namespaces: "prefix=uri" pairs. Malformed XML or an expression error gives "?".
-const beXPath = (all: boolean) => (v: Value[], env: Env): Value => {
+const beXPath = (all: boolean) => (v: Value[], env: Env): Value => withXmlWorkBudget(() => {
   try {
     const r = evaluateXPath(parseXmlDocument(T(v[0], env)), T(v[1], env), v[2] === undefined ? '' : T(v[2], env));
     beErrors.set(env.ctx, '');
     return beResult(env, 0, text(all ? xpathValues(r) : beBool(v[3], true) ? xpathText(r) : xpathXml(r)));
   } catch (e) {
+    rethrowExecutionRefusal(e);
     if (e instanceof HostWait) throw e;
     beErrors.set(env.ctx, (e as Error).message);
     return beResult(env, -1, text('?'));
   }
-};
+});
 eager('BE_XPath', 2, 4, beXPath(false));
 eager('BE_XPathAll', 2, 3, beXPath(true));
 // BE_XSLT_ApplyInMemory ( xml ; xslt ): the transformed result, or what went wrong as text, as BaseElements reports
@@ -2497,6 +2500,7 @@ const beXslt = (env: Env, xml: string, xslt: string): { ok: boolean; out: string
   try {
     return { ok: true, out: applyXslt(xml, xslt.replace(/\r\n?/g, '\n')) };
   } catch (e) {
+    rethrowExecutionRefusal(e);
     if (e instanceof HostWait) throw e;
     beErrors.set(env.ctx, (e as Error).message);
     return { ok: false, out: (e as Error).message + '\n' };

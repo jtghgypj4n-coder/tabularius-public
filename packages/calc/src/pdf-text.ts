@@ -3,6 +3,7 @@
 // font's ToUnicode map, or its simple encoding (WinAnsi, MacRoman, Standard, with Differences). Layout is kept only
 // as line breaks. Encrypted files, and files with no text (a scan), give undefined.
 
+import { ResourceLimitError, withWorkBudget, workBudget } from './work-budget.ts';
 import { inflateSync } from 'node:zlib';
 import { ComplexityError } from './complexity-error.ts';
 
@@ -662,18 +663,26 @@ function font(doc: Doc, f: Dict | undefined): Font {
     const widths = new Map<number, number>();
     const w = doc.get(cid?.get('W'));
     if (Array.isArray(w)) {
-      for (let i = 0; i < w.length && widths.size < 100000;) {
+      for (let i = 0; i < w.length;) {
         const first = doc.get(w[i]);
         const next = doc.get(w[i + 1]);
+        workBudget()?.work();
         if (typeof first !== 'number') break;
+        if (!Number.isSafeInteger(first) || first < 0 || first > 65535) throw new ResourceLimitError('invalid CID width range');
         if (Array.isArray(next)) {
+          if (next.length > 65536 - first) throw new ResourceLimitError('invalid CID width range');
+          workBudget()?.nodes(next.length);
           next.forEach((x, k) => { const v = doc.get(x); if (typeof v === 'number') widths.set(first + k, v); });
           i += 2;
         } else {
           const last = next;
           const v = doc.get(w[i + 2]);
-          if (typeof last !== 'number' || typeof v !== 'number') break;
-          for (let c = first; c <= Math.min(last, first + 65535); c++) widths.set(c, v);
+          if (typeof last !== 'number') break;
+          if (!Number.isSafeInteger(last) || last < first || last > 65535) throw new ResourceLimitError('invalid CID width range');
+          if (typeof v !== 'number') break;
+          const count = last - first + 1;
+          workBudget()?.nodes(count);
+          for (let k = 0; k < count; k++) widths.set(first + k, v);
           i += 3;
         }
       }
@@ -858,28 +867,30 @@ function runContent(doc: Doc, data: Uint8Array, resources: Dict | undefined, out
 
 /** The text of a PDF, pages and lines separated by carriage returns, or undefined when there is none to read. Throws PdfLimitError on page limits. */
 export function pdfText(bytes: Uint8Array): string | undefined {
-  if (latin1(bytes.subarray(0, 1024)).indexOf('%PDF-') < 0) return undefined;
-  try {
-    const doc = new Doc(bytes);
-    if (doc.encrypted()) return undefined;
-    const lines: string[] = [];
-    const fonts = new Map<Dict, Font>();
-    for (const { page, resources } of doc.pages()) {
-      const c = doc.get(page.get('Contents'));
-      const parts = (Array.isArray(c) ? c.map((x) => doc.get(x)) : [c]).filter(isStream);
-      // A page's content may be split across streams anywhere, even inside an operator, so they are read as one.
-      const chunks = parts.map((p) => doc.data(p)).filter((d): d is Uint8Array => !!d);
-      const data = new Uint8Array(chunks.reduce((n, d) => n + d.length + 1, 0));
-      let at = 0;
-      for (const d of chunks) { data.set(d, at); data[at + d.length] = 0x0a; at += d.length + 1; }
-      runContent(doc, data, resources, lines, 0, fonts);
+  return withWorkBudget(() => {
+    if (latin1(bytes.subarray(0, 1024)).indexOf('%PDF-') < 0) return undefined;
+    try {
+      const doc = new Doc(bytes);
+      if (doc.encrypted()) return undefined;
+      const lines: string[] = [];
+      const fonts = new Map<Dict, Font>();
+      for (const { page, resources } of doc.pages()) {
+        const c = doc.get(page.get('Contents'));
+        const parts = (Array.isArray(c) ? c.map((x) => doc.get(x)) : [c]).filter(isStream);
+        // A page's content may be split across streams anywhere, even inside an operator, so they are read as one.
+        const chunks = parts.map((p) => doc.data(p)).filter((d): d is Uint8Array => !!d);
+        const data = new Uint8Array(chunks.reduce((n, d) => n + d.length + 1, 0));
+        let at = 0;
+        for (const d of chunks) { data.set(d, at); data[at + d.length] = 0x0a; at += d.length + 1; }
+        runContent(doc, data, resources, lines, 0, fonts);
+      }
+      const text = lines.map((l) => l.replace(/[\u0000-\u0008\u000b-\u001f]/g, '').replace(/\s+$/, '')).join('\r').replace(/\r{3,}/g, '\r\r').trim();
+      return text ? text : undefined;
+    } catch (e) {
+      if (e instanceof ResourceLimitError || e instanceof PdfLimitError) throw e;
+      return undefined;
     }
-    const text = lines.map((l) => l.replace(/[\u0000-\u0008\u000b-\u001f]/g, '').replace(/\s+$/, '')).join('\r').replace(/\r{3,}/g, '\r\r').trim();
-    return text ? text : undefined;
-  } catch (e) {
-    if (e instanceof PdfLimitError) throw e;
-    return undefined;
-  }
+  });
 }
 
 /** How many pages a PDF has, or undefined for something that is not a readable, unencrypted PDF. Throws PdfLimitError on page limits. */
