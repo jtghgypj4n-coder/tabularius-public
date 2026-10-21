@@ -2,7 +2,7 @@
 // does not have, = ANY and <> ALL, and the star in a select list (fields only, never the record's internal columns).
 // Each works on the text outside strings, quoted names and comments, found by blanking those out (same length, so
 // positions carry over to the original).
-import { maskSql } from './sql-tokens.ts';
+import { maskSql, sqlTokens } from './sql-tokens.ts';
 import { CalcError, ERR } from '../../calc/src/values.ts';
 import { closing, operandStart } from './sql-dates.ts';
 
@@ -42,19 +42,55 @@ export function refuseUnsupportedJoins(sql: string): void {
 
 /**
  * ANY, SOME and ALL with a subquery. `= ANY` and `<> ALL` mean IN and NOT IN. The other comparisons (`> ALL`, `< ANY`,
- * `= ALL`...) have no SQLite form, so `x > ALL (S)` becomes `NOT EXISTS (WITH q(v) AS (S) SELECT 1 FROM q WHERE NOT
- * COALESCE(x > v, 0))` and `x < ANY (S)` becomes `EXISTS (WITH q(v) AS (S) SELECT 1 FROM q WHERE x < v)`; the column
- * list names S's one column, so a subquery with two is an error. ALL over no rows is true and ANY over none false, and
- * a NULL among the values keeps ALL from being true, as in SQL. The left side is a name, a constant or a call; when
- * it is part of a longer expression (`a + b > ALL (...)`) the comparison is left for SQLite to report.
+ * `= ALL`...) have no SQLite form, so a scalar aggregate of the comparisons supplies true, false, or unknown. The
+ * column list names S's one column, so a subquery with two is an error. ALL over no rows is true and ANY over none
+ * false. The left side is a name, a constant or a call; when it is part of a longer expression
+ * (`a + b > ALL (...)`), or an aggregate without an outer column, the comparison is left for SQLite to report.
  */
 export function anyAllToIn(sql: string): string {
-  return sql.length > MAX_STAR_QUERY ? sql : quantified(sql, { left: MAX_QUANTIFIED, depth: 0 });
+  if (sql.length > MAX_STAR_QUERY) return sql;
+  const rewritten = quantified(sql, { left: MAX_QUANTIFIED, depth: 0 });
+  return rewritten === sql ? sql : quantified(numberPlainParameters(sql), { left: MAX_QUANTIFIED, depth: 0 });
+}
+
+/** SQLite allocates each plain parameter after the highest slot already seen. Fix its identity before moving SQL. */
+function numberPlainParameters(sql: string): string {
+  let highest = 0;
+  return sqlTokens(sql).map((t) => {
+    if (t.kind === 'parameter' && t.text[0] === '?') {
+      highest = Math.max(highest, Number(t.text.slice(1)));
+    } else if (t.kind === 'symbol' && t.text === '?') return `?${++highest}`;
+    return t.text;
+  }).join('');
 }
 
 /** More quantified comparisons than this in a query, or nested deeper than MAX_QUANTIFIED_DEPTH, are left for SQLite to report. */
 const MAX_QUANTIFIED = 500;
 const MAX_QUANTIFIED_DEPTH = 20;
+
+/** A column-free aggregate moved under fm_q would count its rows instead of the outer query's rows. */
+function aggregateWithoutColumn(operand: string): boolean {
+  const tokens = sqlTokens(operand).filter((t) => t.kind !== 'space' && t.kind !== 'comment');
+  const aggregate = /^(?:COUNT|SUM|AVG|MIN|MAX|TOTAL|GROUP_CONCAT|STRING_AGG|JSON_GROUP_ARRAY|JSON_GROUP_OBJECT)$/i;
+  const syntax = /^(?:DISTINCT|ALL|NULL|TRUE|FALSE|CASE|WHEN|THEN|ELSE|END|AS|CAST|INTEGER|INT|REAL|TEXT|NUMERIC|BLOB|VARCHAR|CHAR|DECIMAL|FLOAT|DOUBLE|PRECISION)$/i;
+  for (let i = 0; i < tokens.length - 1; i++) {
+    if (tokens[i].kind !== 'word' || !aggregate.test(tokens[i].text) || tokens[i + 1].text !== '(') continue;
+    let depth = 1;
+    let end = i + 2;
+    while (end < tokens.length && depth > 0) {
+      if (tokens[end].text === '(') depth++;
+      else if (tokens[end].text === ')') depth--;
+      end++;
+    }
+    if (depth !== 0) continue;
+    const args = tokens.slice(i + 2, end - 1);
+    const hasColumn = args.some((t, at) => t.kind === 'identifier'
+      || (t.kind === 'word' && !/^(?:\d|0x[0-9a-f]+$)/i.test(t.text)
+        && !syntax.test(t.text) && args[at + 1]?.text !== '('));
+    if (!hasColumn) return true;
+  }
+  return false;
+}
 
 function quantified(sql: string, budget: { left: number; depth: number }): string {
   if (!/\b(?:ANY|SOME|ALL)\b/i.test(sql) || budget.depth > MAX_QUANTIFIED_DEPTH) return sql;
@@ -71,20 +107,22 @@ function quantified(sql: string, budget: { left: number; depth: number }): strin
       continue;
     }
     if (budget.left <= 0) break;
-    budget.left--;
     const open = m.index + m[0].length;
     const close = closing(sql, open + 1);
     const left = operandStart(sql, m.index);
     if (close < 0 || left < copied || left < 0) continue;
     // A longer expression to the left (a + b, a || b, t.x with a sign) is not this operand alone.
     if (/[-+*/%^.|]$/.test(plain.slice(0, left).trimEnd())) continue;
+    const operand = sql.slice(left, m.index).trimEnd();
+    if (aggregateWithoutColumn(operand)) continue;
+    budget.left--;
     budget.depth++;
-    const x = quantified(sql.slice(left, m.index).trimEnd(), budget);
+    const x = quantified(operand, budget);
     const sub = quantified(sql.slice(open + 1, close), budget);
     budget.depth--;
     const op = m[1] === '!=' ? '<>' : m[1];
-    const q = `WITH fm_q(fm_v) AS (${sub}) SELECT 1 FROM fm_q WHERE `;
-    out += sql.slice(copied, left) + (all ? `NOT EXISTS (${q}NOT COALESCE(${x} ${op} fm_v, 0))` : `EXISTS (${q}${x} ${op} fm_v)`);
+    const q = `WITH fm_q(fm_v) AS (${sub}) SELECT CASE WHEN ${all ? 'MIN(fm_cmp) = 0 THEN 0' : 'MAX(fm_cmp) = 1 THEN 1'} WHEN COUNT(*) > COUNT(fm_cmp) THEN NULL ELSE ${all ? 1 : 0} END FROM (SELECT ${x} ${op} fm_v AS fm_cmp FROM fm_q)`;
+    out += sql.slice(copied, left) + `(${q})`;
     copied = close + 1;
   }
   return copied ? out + sql.slice(copied) : sql;

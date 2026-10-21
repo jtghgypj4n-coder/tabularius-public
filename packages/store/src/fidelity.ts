@@ -11,6 +11,7 @@ import type { Field, Table } from '../../fmp12/src/index.ts';
 import { fromStored } from '../../calc/src/index.ts';
 import type { SqlValue } from './find.ts';
 import { q } from './import.ts';
+import { sqlTokens } from './sql-tokens.ts';
 import type { Store } from './store.ts';
 
 export interface FidelityTally {
@@ -62,13 +63,15 @@ const SQL_WORDS = /^(select|distinct|count|sum|avg|min|max|from|where|and|or|not
 
 /** A query reduced to its SQL keywords and punctuation: names become "x", literals "v", parameters "?". */
 export function queryShape(sql: string): string {
-  return sql
-    .replace(/'(?:[^']|'')*'/g, ' \u0001 ')
-    .replace(/"(?:[^"]|"")*"/g, ' \u0002 ')
-    .replace(/\b\d+(?:\.\d+)?\b/g, ' \u0001 ')
-    .replace(/[A-Za-z_][\w.$]*/g, (w) => (SQL_WORDS.test(w) ? w.toUpperCase() : '\u0002'))
-    .replace(/\u0001/g, 'v')
-    .replace(/\u0002/g, 'x')
+  return sqlTokens(sql).map((t) => {
+    if (t.kind === 'comment') return ' ';
+    if (t.kind === 'string' || /^\d/.test(t.text)) return ' v ';
+    if (t.kind === 'identifier') return ' x ';
+    if (t.kind === 'parameter') return '?';
+    if (t.kind === 'word') return SQL_WORDS.test(t.text) ? t.text.toUpperCase() : 'x';
+    if (t.kind === 'symbol' && !/^[!#$%&()*+,./:;<=>?@[\]^{|}~-]$/u.test(t.text)) return ' x ';
+    return t.text;
+  }).join('')
     .replace(/\s+/g, ' ')
     .replace(/\bx(?: x)+\b/g, 'x')
     .trim();

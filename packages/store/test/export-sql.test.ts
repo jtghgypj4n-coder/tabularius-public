@@ -106,6 +106,16 @@ test('a SQLite script loads into SQLite with the same rows, types and values', (
   }
 });
 
+test('AR-store-design-io-12', () => {
+  store.applyDesign([{ op: 'createValueList', name: 'Choices', values: ['A', 'A\u0000'] }] as never);
+  const { script, report } = run(store, { dialect: 'sqlite' });
+  const db = load(script);
+  try {
+    assert.deepEqual(db.prepare('SELECT value FROM value_list_Choices').all().map((r) => r.value), ['A']);
+    assert.equal(report.nulCharactersDropped, 1);
+  } finally { db.close(); }
+});
+
 test('the PostgreSQL script for a small file', () => {
   const path = join(dir, 'Small.sqlite');
   createStore(path);

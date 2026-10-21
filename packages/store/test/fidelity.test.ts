@@ -18,6 +18,12 @@ test('query shapes keep SQL keywords only', () => {
   assert.equal(queryShape('select sum(Amount) from Lines where Qty > 10 group by Code'), 'SELECT SUM(x) FROM x WHERE x > v GROUP BY x');
 });
 
+test('AR-store-design-io-14', () => {
+  assert.equal(queryShape('SELECT 客户 FROM 表'), 'SELECT x FROM x');
+  assert.equal(queryShape('SELECT "客户" FROM "表" /* private */'), 'SELECT x FROM x');
+  assert.equal(queryShape('SELECT "A""客户" FROM [订单] -- secret\n WHERE `字段` = \'值\''), 'SELECT x FROM x WHERE x = v');
+});
+
 test('fidelity counts matches and differences by query shape, and changes nothing', () => {
   const path = join(dir, 'Shop.sqlite');
   createStore(path);
