@@ -185,7 +185,8 @@ export function createEdgeServer(
   server.on('upgrade', unsupported);
   server.on('connect', unsupported);
   server.on('clientError', (error: NodeJS.ErrnoException, socket: Socket) => {
-    const code = error.code ?? '';
+    // A socket destroyed with an application error may carry a numeric code; only a string is a Node parser code.
+    const code = typeof error.code === 'string' ? error.code : '';
     const status = code === 'HPE_HEADER_OVERFLOW' ? '431 Request Header Fields Too Large'
       : code === 'ERR_HTTP_REQUEST_TIMEOUT' ? '408 Request Timeout'
       : code.startsWith('HPE_') ? '400 Bad Request' : undefined;

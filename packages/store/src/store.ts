@@ -2038,9 +2038,9 @@ export class Store {
    * Logs that an account read records, when the file's audit settings ask for it (off by default): one entry per
    * request with the table and the ids it returned (the first 100 are listed). Never the values read.
    */
-  logRead(table: string, recordIds: number[], opts: WriteOptions = {}): void {
-    if (!recordIds.length || !this.auditSettings().logReads) return;
-    this.audit('read', table, recordIds.length === 1 ? recordIds[0] : undefined, { records: recordIds.length, ...(recordIds.length > 1 ? { ids: recordIds.slice(0, 100) } : {}) }, opts);
+  logRead(table: string, recordIds: number[], opts: WriteOptions = {}, total = recordIds.length): void {
+    if (!total || !this.auditSettings().logReads) return;
+    this.audit('read', table, total === 1 ? recordIds[0] : undefined, { records: total, ...(total > 1 ? { ids: recordIds.slice(0, 100) } : {}) }, opts);
   }
 
   /**
@@ -7251,7 +7251,7 @@ export class Store {
     const offset = Math.max(1, opts.offset ?? 1) - 1;
     const order = this.orderBy(info, opts.sort, opts.privileges);
     const rows = opts.sort?.length && found >= SORTED_KEEP_MIN
-      ? this.sortedPage(t, where, params, order, offset, limit)
+      ? this.sortedPage(t, where, params, order, offset, limit, found)
       : this.sql.prepare(`SELECT * FROM ${t} WHERE ${where} ORDER BY ${order} LIMIT ? OFFSET ?`).all(...params, limit, offset) as Record<string, SqlValue>[];
     // Every record found (no find, no record-level limits): summaries over the whole table, kept while the data is the same.
     const table = this.table(info);
@@ -7287,13 +7287,20 @@ export class Store {
    * so the order is worked out once and kept while the data is the same: scrolling a sorted list of a million records
    * pays for the sort once, not on every page.
    */
-  private sortedPage(t: string, where: string, params: SqlValue[], order: string, offset: number, limit: number): Record<string, SqlValue>[] {
+  private sortedPage(t: string, where: string, params: SqlValue[], order: string, offset: number, limit: number, found: number): Record<string, SqlValue>[] {
     const key = `${t}\u0000${where}\u0000${JSON.stringify(params)}\u0000${order}`;
     const stamp = this.writeToken();
     let kept = this.sortedIds.value.get(key);
     if (!kept || kept.stamp !== stamp) {
-      const ids = (this.sql.prepare(`SELECT _fm_record_id AS id FROM ${t} WHERE ${where} ORDER BY ${order}`).all(...params) as { id: number }[]).map((r) => Number(r.id));
-      kept = { stamp, ids: Int32Array.from(ids) };
+      // The count is already known. Iterate straight into the final typed array so a 5M sort
+      // does not also hold 5M SQLite row objects and a second JS number array at its peak.
+      const ids = new Int32Array(found);
+      let n = 0;
+      for (const row of this.sql.prepare(`SELECT _fm_record_id AS id FROM ${t} WHERE ${where} ORDER BY ${order}`).iterate(...params) as Iterable<{ id: number }>) {
+        ids[n++] = Number(row.id);
+      }
+      if (n !== found) throw new Error('Sorted found set changed while it was read');
+      kept = { stamp, ids };
       this.sortedIds.value.delete(key);
       this.sortedIds.value.set(key, kept);
       // A few found sets at a time (windows, people): the oldest goes.
@@ -8650,8 +8657,10 @@ export class Store {
     const view = this.viewFilter(info, pv);
     // Unstored calculations and globals found or sorted on are computed first, as find does.
     const t = source();
-    return (this.sql.prepare(`SELECT _fm_record_id AS id FROM ${t} WHERE (${where}) AND ${view.where} ORDER BY ${this.orderBy(info, opts.sort, opts.privileges)}`)
-      .all(...params, ...view.params) as { id: number }[]).map((r) => Number(r.id));
+    const ids: number[] = [];
+    for (const row of this.sql.prepare(`SELECT _fm_record_id AS id FROM ${t} WHERE (${where}) AND ${view.where} ORDER BY ${this.orderBy(info, opts.sort, opts.privileges)}`)
+      .iterate(...params, ...view.params) as Iterable<{ id: number }>) ids.push(Number(row.id));
+    return ids;
   }
 
   /**
