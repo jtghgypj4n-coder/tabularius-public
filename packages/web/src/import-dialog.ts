@@ -58,6 +58,8 @@ export interface ImportPlan {
   keys: string[];
   preview: ImportPreviewRow[];
   summary: { ready: number; withIssues: number; duplicatesInFile: number; duplicatesExisting: number };
+  /** The summary and preview cover this many source rows when a large file is sampled. */
+  sampledRows?: number;
   ai?: { used: boolean; note?: string };
   /** An Excel workbook's sheets and the one being read; text that opens a quote it never closes says so in `notices`. */
   sheets?: string[];
@@ -65,7 +67,7 @@ export interface ImportPlan {
   notices?: string[];
 }
 export interface ImportChoice { headerRow: boolean; columns: { column: number; field: string | null; transforms: string[] }[]; keys: string[] }
-export interface ImportResult { id: string; foundSet: number[]; imported: number; updated?: number; skipped: { row: number; why: string }[]; pendingApproval?: number; undoable?: false }
+export interface ImportResult { id: string; foundSet: number[]; imported: number; updated?: number; skipped: { row: number; why: string }[]; skippedCount?: number; stopped?: true; pendingApproval?: number; undoable?: false }
 /** FileMaker's import actions. */
 export type ImportAction = 'add' | 'update' | 'replace';
 /** The found set Update and Replace work on: its record ids, or the find that made it, and its sort. */
@@ -238,7 +240,7 @@ export function importDialog(fileName: string, first: ImportPlan, api: ImportDia
         sheetPick,
         ...(plan.notices ?? []).map((n) => h('p', { class: 'import-why', role: 'status' }, n)),
         h('p', {}, action === 'add'
-          ? `${fileName}: ${plan.rows} row(s) into ${plan.table}. ${s.ready} ready${s.withIssues ? `, ${s.withIssues} with a value that couldn't be fixed` : ''}${s.duplicatesExisting ? `, ${s.duplicatesExisting} already in the file` : ''}${s.duplicatesInFile ? `, ${s.duplicatesInFile} repeated in the file` : ''}.`
+          ? `${fileName}: ${plan.rows} row(s) into ${plan.table}. ${s.ready} ready${s.withIssues ? `, ${s.withIssues} with a value that couldn't be fixed` : ''}${s.duplicatesExisting ? `, ${s.duplicatesExisting} already in the file` : ''}${s.duplicatesInFile ? `, ${s.duplicatesInFile} repeated in the file` : ''}${plan.sampledRows ? ` (preview and counts from the first ${plan.sampledRows} rows; all rows are checked during import)` : ''}.`
           : `${fileName}: ${plan.rows} row(s) into ${plan.table}. ${outcome}${s.withIssues ? ` ${s.withIssues} with a value that couldn't be fixed.` : ''}`),
         h('table', { class: 'import-map import-columns' },
           h('thead', {}, h('tr', {}, h('th', {}, 'Column'), h('th', {}, 'Into field'), h('th', {}, 'Fixes'))),

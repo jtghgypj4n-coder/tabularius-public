@@ -637,6 +637,10 @@ export interface ImportResult {
   updated?: number;
   /** Rows not imported: not allowed, not valid, or a duplicate when duplicates are skipped. */
   skipped: { row: number; why: string }[];
+  /** Full count when the response retains only the first 1,000 skipped row details. */
+  skippedCount?: number;
+  /** Stop leaves completed records committed and included in this import's Undo journal. */
+  stopped?: true;
   /** Rows an AI agent imported that wait for a person to approve them (each is its own approval). */
   pendingApproval?: number;
   /** False when the records it changed were too many to keep what they held, so Undo can't take it back. */
@@ -790,15 +794,17 @@ function journal(store: Store): void {
 export interface ImportRecord { id: string; at: string; account?: string; layout: string; file?: string; imported: number; undone?: string }
 
 /** Import a plain column mapping from a row iterator in bounded batches. */
-export function importMappedRows(store: Store, layout: string, rows: Iterable<Cell[]>, mapping: (string | undefined)[], opts: { privileges?: Privileges; account?: string; skipFirst?: boolean }): { foundSet: number[]; imported: number; skipped: number } {
+export async function importMappedRows(store: Store, layout: string, rows: Iterable<Cell[]>, mapping: (string | undefined)[], opts: { privileges?: Privileges; account?: string; skipFirst?: boolean; signal?: AbortSignal; onProgress?: (completed: number) => void }): Promise<{ foundSet: number[]; imported: number; skipped: number; stopped?: true }> {
   const info = store.layout(layout);
   const types = new Map(info.fields.map((f) => [f.name, f.type]));
   const ids: number[] = [];
   let skipped = 0;
   let first = true;
   let batch: Cell[][] = [];
+  let completed = 0;
   const importBatch = () => {
     for (const row of batch) {
+      if (opts.signal?.aborted) break;
       const data: Record<string, Cell> = {};
       row.forEach((v, i) => {
         const field = mapping[i];
@@ -810,17 +816,29 @@ export function importMappedRows(store: Store, layout: string, rows: Iterable<Ce
         if (!(e instanceof StoreError || e instanceof PrivilegeError)) throw e;
         skipped++;
       }
+      completed++;
     }
     batch = [];
+    opts.onProgress?.(completed);
   };
-  for (const row of rows) {
-    if (first && opts.skipFirst) { first = false; continue; }
-    first = false;
-    batch.push(row);
-    if (batch.length === 500) importBatch();
-  }
-  if (batch.length) importBatch();
-  return { foundSet: ids, imported: ids.length, skipped };
+  const cursor = rows[Symbol.iterator]();
+  try {
+    for (;;) {
+      if (opts.signal?.aborted) break;
+      const next = cursor.next();
+      if (next.done) break;
+      const row = next.value;
+      if (first && opts.skipFirst) { first = false; continue; }
+      first = false;
+      batch.push(row);
+      if (batch.length === 500) {
+        importBatch();
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
+    }
+  } finally { cursor.return?.(); }
+  if (batch.length && !opts.signal?.aborted) importBatch();
+  return { foundSet: ids, imported: ids.length, skipped, ...(opts.signal?.aborted ? { stopped: true as const } : {}) };
 }
 
 /** Imports kept in the file, newest first. */
@@ -877,6 +895,72 @@ function undoImportRun(store: Store, id: string, opts: { privileges?: Privileges
 /** Imports rows (see applyImportRun); the record changes are logged as coming from "import", whichever way in the import was started. */
 export function applyImport(...args: Parameters<typeof applyImportRun>): ReturnType<typeof applyImportRun> {
   return writer.run({ ...writer.getStore(), surface: 'import' }, () => applyImportRun(...args));
+}
+
+/** Add-mode import without retaining converted rows. Every completed record is committed and journaled for Undo. */
+export function applyImportAddStream(store: Store, layout: string, rows: Iterable<Cell[]>, plan: { headerRow: boolean; columns: { column: number; field: string | null; transforms?: string[] }[]; keys?: string[] },
+  opts: { privileges?: Privileges; account?: string; skipDuplicates?: boolean; skipIssues?: boolean; file?: string; signal?: AbortSignal; onProgress?: (completed: number) => void }): Promise<ImportResult> {
+  return writer.run({ ...writer.getStore(), surface: 'import' }, async () => {
+    const fields = importFields(store, layout, opts.privileges);
+    const byName = new Map(fields.map((f) => [f.name, f]));
+    const columns = oneEach(plan.columns.map((c) => ({ column: c.column, field: c.field && byName.has(c.field) ? c.field : null, transforms: cleanFixes(c.transforms) })));
+    if (!columns.some((c) => c.field)) throw new ImportError('Choose the fields to import into');
+    const mapped = columns.filter((c) => c.field).map((c) => ({ ...c, def: byName.get(c.field!)! }));
+    const keys = (plan.keys ?? []).filter((k) => byName.has(k));
+    const existing = existingKeys(store, layout, keys, opts.privileges);
+    const seen = new Map<string, number>();
+    const ids: number[] = [], mods: number[] = [];
+    const skipped: ImportResult['skipped'] = [];
+    let skippedCount = 0, pending = 0, position = 0;
+    const skip = (row: number, why: string) => { skippedCount++; if (skipped.length < 1000) skipped.push({ row, why }); };
+    const cursor = rows[Symbol.iterator]();
+    try {
+      for (;;) {
+        if (opts.signal?.aborted) break;
+        if (position && position % 500 === 0) {
+          opts.onProgress?.(position);
+          await new Promise<void>((resolve) => setImmediate(resolve));
+          if (opts.signal?.aborted) break;
+        }
+        const next = cursor.next();
+        if (next.done) break;
+        const raw = next.value;
+        const row = ++position;
+        if (row === 1 && plan.headerRow) continue;
+        const values: Record<string, Cell> = {};
+        const issues: string[] = [];
+        for (const c of mapped) {
+          const converted = convert(raw[c.column] ?? '', c.def, c.transforms);
+          if (converted.issue) issues.push(`${c.def.name}: ${converted.issue}`);
+          if (converted.value !== '') values[c.def.name] = converted.value;
+        }
+        if (!Object.keys(values).length) continue;
+        const key = keys.length ? keyOf(stored(store, layout, keys.map((f) => values[f]), keys.map((f) => byName.get(f)?.type))) : undefined;
+        const duplicate = key === undefined ? undefined : existing.has(key) ? { of: 'existing' as const, recordId: existing.get(key)! }
+          : seen.has(key) ? { of: 'file' as const, row: seen.get(key)! } : undefined;
+        if (key !== undefined && !duplicate) seen.set(key, row);
+        if (opts.skipDuplicates && duplicate) { skip(row, duplicate.of === 'existing' ? `same as record ${duplicate.recordId}` : `same as row ${duplicate.row}`); continue; }
+        if (opts.skipIssues && issues.length) { skip(row, issues[0]); continue; }
+        try {
+          const made = store.create(layout, values, { privileges: opts.privileges, account: opts.account });
+          ids.push(made.recordId);
+          mods.push(made.modId);
+        } catch (e) {
+          if (e instanceof PendingApprovalError) pending++;
+          else if (e instanceof StoreError || e instanceof PrivilegeError) skip(row, e.message);
+          else throw e;
+        }
+      }
+    } finally { cursor.return?.(); }
+    opts.onProgress?.(position);
+    const id = randomBytes(6).toString('hex');
+    journal(store);
+    const info = store.layout(layout);
+    store.sql.prepare('INSERT INTO _fm_imports (id, at, account, layout, tbl, file, ids, mods, cleanup) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, new Date().toISOString(), opts.account ?? null, info.name, info.table, opts.file ?? null, JSON.stringify(ids), JSON.stringify(mods), null);
+    return { id, foundSet: ids, imported: ids.length, skipped, ...(skippedCount > skipped.length ? { skippedCount } : {}),
+      ...(pending ? { pendingApproval: pending } : {}), ...(opts.signal?.aborted ? { stopped: true as const } : {}) };
+  });
 }
 
 /** Takes an import back; the deletions and put-back values are logged as coming from "import" too. */

@@ -68,8 +68,10 @@ function log(how: string, sql: string, rows: number | undefined, ms: number, fro
   process.stderr.write(`[sql] ${ms.toFixed(1).padStart(8)} ms  ${rows === undefined ? '' : `${rows} rows`.padStart(10)}  ${how.padEnd(7)}  ${sqlShape(sql)}${from ? `  <- ${from}` : ''}\n`);
 }
 
-/** Statements run so far (when tracing), for telling how many a piece of work ran. */
+/** Prepared statement executions so far when tracing or TABULARIUS_COUNT_SQL=1 is enabled. */
 export let statements = 0;
+/** Rows changed by measured SQLite run calls. Enable with TABULARIUS_COUNT_SQL=1 before opening a store. */
+export let rowsWritten = 0;
 
 /** Logs a note about kept results (why one was worked out again), whatever the time. */
 export function traceNote(what: string): void {
@@ -100,8 +102,9 @@ function traceStatement(st: StatementSync, sql: string): StatementSync {
           const t0 = performance.now();
           const out = (v as (...a: unknown[]) => unknown).apply(target, args);
           const rows = prop === 'all' ? (out as unknown[]).length : prop === 'get' ? (out === undefined ? 0 : 1) : Number((out as { changes?: number | bigint })?.changes ?? 0);
+          if (prop === 'run') rowsWritten += rows;
           const ms = performance.now() - t0;
-          if (ms >= minMs()) log(String(prop), sql, rows, ms, callers());
+          if (tracing() && ms >= minMs()) log(String(prop), sql, rows, ms, callers());
           return out;
         };
       }
@@ -109,7 +112,7 @@ function traceStatement(st: StatementSync, sql: string): StatementSync {
         // Timed from the first row to the last, so it includes the reader's own work between rows.
         return function* (...args: unknown[]) {
           statements++;
-          const from = callers();
+          const from = tracing() ? callers() : '';
           const t0 = performance.now();
           let rows = 0;
           try {
@@ -118,7 +121,7 @@ function traceStatement(st: StatementSync, sql: string): StatementSync {
               yield row;
             }
           } finally {
-            log('iterate', sql, rows, performance.now() - t0, from);
+            if (tracing()) log('iterate', sql, rows, performance.now() - t0, from);
           }
         };
       }
@@ -127,9 +130,9 @@ function traceStatement(st: StatementSync, sql: string): StatementSync {
   });
 }
 
-/** The database, traced when TABULARIUS_TRACE_SQL is set; the database itself otherwise. */
+/** The database, traced or counted when requested; the database itself otherwise. */
 export function traceDatabase(db: DatabaseSync): DatabaseSync {
-  if (!tracing()) return db;
+  if (!tracing() && process.env.TABULARIUS_COUNT_SQL !== '1') return db;
   return new Proxy(db, {
     get(target, prop) {
       const v = Reflect.get(target, prop, target);
@@ -140,7 +143,7 @@ export function traceDatabase(db: DatabaseSync): DatabaseSync {
           const t0 = performance.now();
           target.exec(sql);
           const ms = performance.now() - t0;
-          if (ms >= minMs()) log('exec', sql, undefined, ms, callers());
+          if (tracing() && ms >= minMs()) log('exec', sql, undefined, ms, callers());
         };
       }
       return (v as (...a: unknown[]) => unknown).bind(target);

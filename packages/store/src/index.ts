@@ -30,7 +30,7 @@ export { isLayoutSnippet, layoutObjectsFrom, layoutObjectsFromSnippet, layoutSni
 export { designReport, type ReportOptions } from './ddr.ts';
 export { saveAsXml, uuidsFromSaveAsXml, type SaveAsXmlOptions } from './save-as-xml.ts';
 export { writeBackKit, type WriteBackKit, type PasteStep } from './write-back.ts';
-export { fmExport, fmpXmlResult, fmpDsoResult, dsoElementName, type DsoField, sanitize as fmExportSanitize, type FmExportFile, type FmExportOptions, type ExportField, type ExportRow } from './fmexport.ts';
+export { fmExport, fmpXmlResult, fmpXmlHeader, fmpXmlRow, fmpXmlFooter, fmpDsoResult, dsoElementName, type DsoField, sanitize as fmExportSanitize, type FmExportFile, type FmExportOptions, type ExportField, type ExportRow } from './fmexport.ts';
 export { applySync, readSyncLog, releaseHeldTables, SyncWriteError, type RemoteWriter, type ApplyOptions, type ApplyResult, type Resolution, type TableApply, type FailedWrite, type SyncLogRow } from './sync-apply.ts';
 export { syncPlanDetailed, type DetailedPlan } from './sync.ts';
 export { syncPlan, planTable, openForPlanning, SyncPause, type SyncLocal, ensureSyncTables, readSyncMap, readLocalRecords, missingPrereqs, lastPullTimestamp, tableKey as syncTableKey, DEFAULT_CONFLICT_POLICY, type ConflictPolicy, type TableSyncConfig, type LocalRecord, type RemoteRecord, type RemoteSource, type RemoteFile, type SyncMapEntry, type TablePlan, type PlanItem, type PlanConflict, type FieldClash } from './sync.ts';
