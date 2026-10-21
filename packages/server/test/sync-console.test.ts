@@ -51,7 +51,7 @@ before(async () => {
   const own = join(dir, 'console');
   mkdirSync(own);
   setAdminPassword(own, 'secret');
-  const s = await serve({ dir: own, port: 0, log: () => {} });
+  const s = await serve({ dir: own, port: 0, log: () => {}, mcpToken: 'sync-console-admin' });
   consoleServer = s.server;
   host = s.host;
   base = s.url;
@@ -128,7 +128,7 @@ test('a check reads both sides, lists the conflicts, and changes neither', async
 test('the AI tool sync_status shows where syncing stands without record values, and only to the administrator', async () => {
   const call = (name: string, args: Record<string, unknown> = {}) => fetch(`${base}/mcp`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-protocol-version': '2025-06-18' },
+    headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-protocol-version': '2025-06-18', authorization: 'Bearer sync-console-admin' },
     body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }),
   }).then(async (r) => (await r.json()).result.content[0].text as string);
   const text = await call('sync_status', { log: true });

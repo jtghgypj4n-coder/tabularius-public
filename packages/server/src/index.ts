@@ -12,7 +12,7 @@ import type { SmtpConfig } from './smtp.ts';
 import type { Server } from 'node:http';
 import { createEdgeServer, type EdgeLimits } from './edge-limits.ts';
 import { parseAllowList } from '../../scripts/src/net-guard.ts';
-import { directFromThisComputer, trustedProxyAddresses, useForwardedFor, type ProxyHeader } from './client-address.ts';
+import { trustedProxyAddresses, useForwardedFor, type ProxyHeader } from './client-address.ts';
 import { acmeOrigins, mcpOriginAllowed, onForwardedWithoutPublicUrl, validatePublicUrl, urlHostname } from './public-origin.ts';
 import { readFileSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -33,6 +33,7 @@ export { IMAGE_EMBED_PROVIDERS, resolveImageEmbed, type ImageEmbedProvider, type
 export { EMBED_PRESETS, probeEmbedding, resolveEmbedEndpoint, type EmbedEndpoint } from './embed-endpoint.ts';
 import { excludeFromAi } from './ai-access.ts';
 import { McpTokens } from './mcp-tokens.ts';
+import { localMcpToken } from './mcp-local-token.ts';
 import { OAuthServer } from './oauth.ts';
 import { Oidc, type OidcProvider } from './oidc.ts';
 import { ldapAuthenticator, type LdapProvider } from './ldap.ts';
@@ -101,6 +102,7 @@ export { ContainerFiles, parseRange } from './containers.ts';
 export { Uploads, hostedName, MAX_PIECE } from './uploads.ts';
 export { Admin, setAdminPassword, adminPasswordProblem } from './admin.ts';
 export { tokenExpiry, defaultTokenDays, DEFAULT_TOKEN_DAYS, DEFAULT_FEED_DAYS } from './token-expiry.ts';
+export { localMcpToken, MCP_LOCAL_TOKEN_FILE } from './mcp-local-token.ts';
 export { AdminApi, ADMIN_API_VERSION } from './adminapi.ts';
 export { ChangeFeed, Webhooks, type Webhook, type FeedEntry } from './changes.ts';
 export { Profiler } from './profiler.ts';
@@ -145,9 +147,9 @@ export interface ServeOptions {
   port?: number;
   hostname?: string;
   /**
-   * Bearer token for /mcp, acting as the server administrator. Without one, only
-   * direct requests from this computer (loopback, not passed on by a proxy, addressed to localhost) get administrator access. Any client can instead sign in
-   * with an account (HTTP Basic auth) and work within its privilege set.
+   * Bearer token for /mcp, acting as the server administrator. Without one the server makes its own and keeps it in the hosted
+   * folder (mcp-local-token.ts), so /mcp is never open to whoever can reach it, this computer's other users included. Any client can
+   * instead sign in with an account (HTTP Basic auth) and work within its privilege set.
    */
   mcpToken?: string;
   /** Additional browser origins allowed at /mcp (scheme, host and optional port). Authentication still applies. */
@@ -429,6 +431,8 @@ export async function serve(opts: ServeOptions): Promise<{ server: Server; host:
     for (const s of host.openStores()) timeFinds(s);
     host.onAdd.push(timeFinds);
     const mcpTokens = new McpTokens(opts.dir);
+    // The administrator's way into /mcp: the given token, else the folder's own (made on first start).
+    const mcpAdminToken = opts.mcpToken || localMcpToken(opts.dir);
     const mcpInFlight = new IdentityInFlight();
     const mcpStreams = new StreamSlots();
     disposers.push(() => mcpStreams.closeAll());
@@ -602,9 +606,6 @@ export async function serve(opts: ServeOptions): Promise<{ server: Server; host:
           }
           const bearer = /^Bearer\s+(.+)$/i.exec(req.headers.authorization ?? '')?.[1];
           const basic = /^Basic\s+(.+)$/i.exec(req.headers.authorization ?? '')?.[1];
-          // A request a proxy on this computer passed on (it says whom for), or that a page addressed to another name
-          // (DNS rebinding), is not this computer asking.
-          const loopback = directFromThisComputer(req);
           let who: McpIdentity | undefined;
           let expired = false;
           if (basic) {
@@ -617,13 +618,12 @@ export async function serve(opts: ServeOptions): Promise<{ server: Server; host:
             const api = bearer?.startsWith('ohbt_') ? apiTokenIdentity(host, bearer, clientAddress(req)) : undefined;
             const scoped = api ?? (bearer ? mcpTokens.check(bearer) : undefined);
             if (scoped) who = scoped;
-            else if (opts.mcpToken && bearer && sameToken(bearer, opts.mcpToken)) who = { admin: true };
+            else if (bearer && sameToken(bearer, mcpAdminToken)) who = { admin: true };
             // A file's token that has expired or was revoked is refused, even from this computer, so the app signs in
             // again (or refreshes it) rather than quietly working as the administrator.
             else if (bearer?.startsWith('ohbt_') || bearer?.startsWith('ohm_')) expired = true;
-            // Local administrator access is credential-free. An unsupported credential
-            // (including a Data API session token) must never gain server authority.
-            else if (!req.headers.authorization && !opts.mcpToken && loopback) who = { admin: true };
+            // No credential-free access, from this computer or any other: an unsupported credential (including a Data
+            // API session token) must never gain server authority.
           }
           if (!who) {
             // Apps that sign in with OAuth (claude.ai and Claude Desktop connectors) find the sign-in from the Bearer challenge.

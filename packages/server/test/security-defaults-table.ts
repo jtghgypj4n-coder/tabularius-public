@@ -6,6 +6,7 @@
 // code" is a constant or a line of source that the test reads, because nothing on a running server shows it from this side.
 
 import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { LOCKOUT, PASSWORD_POLICY } from '../../store/src/index.ts';
 
 export interface Ctx {
@@ -265,15 +266,18 @@ export const ROWS: Row[] = [
     },
   },
   {
-    id: 'mcp-local', section: 'Sign-in and accounts', setting: 'AI connector (`/mcp`) from programs on this computer',
-    default: 'Open with administrator rights (from the code; only the opening is probed) and no token, to a request that comes straight from this computer, is addressed to localhost and carries no browser origin',
-    changedBy: '`--mcp-token` makes every caller present it; an account (HTTP Basic) limits a caller to its privilege set',
-    risk: 'Any program run by any user on the machine can read and change every hosted file. Set a token on a shared computer. See "Owner decisions"',
-    how: 'probed', expect: 'open to this computer',
+    id: 'mcp-local', section: 'Sign-in and accounts', setting: 'AI connector (`/mcp`)',
+    default: 'Needs a credential from everyone, this computer included. The server makes an administrator token on first start and keeps it in `.openhbam-mcp-token` in the hosted folder, readable only by the account that runs the server (`tabularius mcp-token <folder>` prints it)',
+    changedBy: '`--mcp-token` (or `TABULARIUS_MCP_TOKEN`) sets the administrator token instead; an account (HTTP Basic), an API token from the admin console or Manage Security, or the OAuth sign-in limit a caller to one account\'s privilege set. Deleting `.openhbam-mcp-token` and restarting makes a new one',
+    risk: 'Whoever holds the administrator token can read and change every hosted file: keep the file and the token out of repositories and chats. On Windows the file has no owner-only mode, so keep the hosted folder\'s own permissions tight',
+    how: 'probed', expect: 'refused without a token, open with the folder\'s',
     observe: async (c) => {
-      const r = await c.request('/mcp', { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' }, body: '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"t","version":"1"}}}' });
-      const other = await c.request('/mcp', { method: 'POST', headers: { host: 'example.com', 'content-type': 'application/json', accept: 'application/json, text/event-stream' }, body: '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' });
-      return r.status === 200 && other.status >= 400 ? 'open to this computer' : `${r.status}, other host ${other.status}`;
+      const call = (headers: Record<string, string>) => c.request('/mcp', { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', ...headers }, body: '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' });
+      const bare = await call({});
+      const other = await call({ host: 'example.com' });
+      const token = readFileSync(join(c.dir, '.openhbam-mcp-token'), 'utf8').trim();
+      const own = await call({ authorization: `Bearer ${token}` });
+      return bare.status === 401 && other.status === 401 && own.status === 200 ? 'refused without a token, open with the folder\'s' : `${bare.status}, other host ${other.status}, with the token ${own.status}`;
     },
   },
   {
@@ -433,10 +437,6 @@ function assertNotLocked(r: { status: number; text: string }, i: number): void {
 }
 
 export const OWNER_DECISIONS: { title: string; text: string }[] = [
-  {
-    title: '`/mcp` is open to programs on this computer',
-    text: 'On a computer other people also sign in to, any of them can reach `/mcp` on the loopback address and act as the administrator. It is documented and gated against browsers (no origin, localhost host name), but not against other local users. Recommended: generate a token at first start and print where it is stored, or require `--mcp-token` as soon as the server listens beyond this computer (it already warns about plain HTTP there). Changing it breaks the local `tabularius mcp` set-up described in docs/connect-ai.md.',
-  },
   {
     title: 'Admin console is open to this computer until a password is set',
     text: 'The same reasoning as `/mcp`: on a shared computer any local user can open the console. Recommended: ask for the password on first visit even from this computer when the folder is not under the user\'s home directory. Not done: it would stop `tabularius` (no arguments) opening the welcome page straight away.',
