@@ -1,5 +1,7 @@
 # docker compose up -d
-# Then open http://localhost:8080/ and log in. Files go in ./Databases, which the container's
+# Then open http://localhost:8080/ and log in. The port is published on this computer only; to let others on your
+# network connect, publish it as "8080:8080" and read the security notes in ADMIN.md first (plain HTTP crosses the
+# network unencrypted). A public machine should use compose.https.yaml. Files go in ./Databases, which the container's
 # unprivileged user (uid 1000) must be able to write: sudo chown 1000:1000 Databases
 #
 # Stricter: docker compose -f compose.yaml -f compose.hardened.yaml up -d
@@ -11,7 +13,7 @@ services:
     init: true
     restart: unless-stopped
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"
     volumes:
       - ./Databases:/data
     environment:

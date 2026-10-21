@@ -104,14 +104,14 @@ appears within a few seconds. The server prints where everything is:
 | `/fmi/admin/api/v2` | The Admin API | FileMaker Server Admin API |
 | `/mcp` | The MCP server, for AI apps | (none) |
 
-To let other computers connect, add `--host 0.0.0.0`, and set the admin
-console's password first. The console has no user name, and its password is
+To let other computers connect, add `--host 0.0.0.0` with HTTPS (`--https local` on a local
+network), and set the admin console's password first. The console has no user name, and its password is
 not a FileMaker account:
 
 <!-- docs-example: illustrative -->
 ```sh
 tabularius admin-password ~/Databases
-tabularius serve ~/Databases --host 0.0.0.0
+tabularius serve ~/Databases --host 0.0.0.0 --https local
 ```
 
 To keep it running, install it as a service. It starts at sign-in, or at

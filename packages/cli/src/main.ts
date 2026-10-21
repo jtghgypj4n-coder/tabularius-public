@@ -3,7 +3,7 @@ import { auditJsonLine } from '../../store/src/audit-output.ts';
 // tabularius: inspect and convert FileMaker .fmp12 files.
 
 import '../../store/src/legacy-env.ts';
-import { isLoopbackHost } from './loopback.ts';
+import { isLoopbackHost, plainHttpRefusal } from './loopback.ts';
 import { availableParallelism, homedir, tmpdir } from 'node:os';
 import { expiryClock } from '../../store/src/clock.ts';
 import { spawn } from 'node:child_process';
@@ -16,7 +16,7 @@ import { askServer } from './ask-server.ts';
 import { defaultBundleName, diagnostics, writeBundle } from './diagnostics.ts';
 import { doctorText, runDoctor } from './doctor.ts';
 import { startDemo } from './demo.ts';
-import { checkPort, defaults, installed, installService, serviceFile, uninstallService, upgrade, validateServicePublicUrl, type Platform, type ServiceOptions } from './service.ts';
+import { checkPort, defaults, installed, installService, serviceFile, uninstallService, servicePlainRefusal, upgrade, validateServicePublicUrl, type Platform, type ServiceOptions } from './service.ts';
 import { claimFolder } from '../../server/src/backup.ts';
 import { FmpDatabase, fileSource, encryptionInfo, readLayoutDesigns, segmentOf, inspectText, type Schema } from '../../fmp12/src/index.ts';
 import { BUILT_IN_EXTENDED_PRIVILEGES, addCensus, styleCensus, styleCensusText, calcFidelity, censusText, exportSql, exportSqlSummary, planImportTables, importTables, importTablesSummary, notionMarkdownSheet, MAX_IMPORT_ROWS, type SheetInput, type ColumnOverrides, type ColumnKind, findStaleCalcs, layoutCensus, type LayoutCensus, createStore, designReport, importFmp12, PASSWORD_POLICY, reconvert, reconvertCheck, verifySecurityAudit, verifyRecordAudit, anchorHead, checkAnchor, Store, syncPlan, openForPlanning, applySync, readSyncLog, releaseHeldTables, type ConflictPolicy, writeBackKit, designText, writeDesignText, diffDesigns, planDesignApply, readDesignFolder, type DesignOp, type ReconvertPreview, csvField } from '../../store/src/index.ts';
@@ -75,7 +75,7 @@ Usage:
 Hosting (point it at a folder of .fmp12 files; each is converted once):
   tabularius serve <folder> [--port 8080] [--host 127.0.0.1] [--mcp-token T] [--allow-script-network] [--allow-script-network-to hosts] [--allow-app-connections] [--allow-webhooks] [--allow-inbound-hooks]
                 [--list-files-publicly]
-                [--tls-cert cert.pem --tls-key key.pem] [--public-url URL] [--mcp-origin URL]... [--proxy-header x-forwarded-for|forwarded|x-real-ip] [--trusted-proxies IP/CIDR,...] [--connections-per-address N]
+                [--tls-cert cert.pem --tls-key key.pem] [--allow-plain-http] [--public-url URL] [--mcp-origin URL]... [--proxy-header x-forwarded-for|forwarded|x-real-ip] [--trusted-proxies IP/CIDR,...] [--connections-per-address N]
                 [--https name[,name]|local [--https-email E] [--http-port 80]] [--sql-port 5432]
                 [--backup-every 1d] [--keep 7] [--backup-dir DIR] [--no-backups]
                 [--progressive 5m] [--stats-interval 1m|off] [--log-limit 100MB] [--backup-s3 s3://bucket/prefix [--s3-endpoint URL]] [--replication-token T] [--ai] [--allow-blank-passwords]
@@ -84,8 +84,10 @@ Hosting (point it at a folder of .fmp12 files; each is converted once):
                 [--workers N|auto] [--test-outbound [--mail-redirect ADDRESS] [--mail-copies 20] [--allow-host h[,h]] [--capture-only F[,F]] [--capture-only-copies-to-redirect]]
                 [--send-mail --mail-from ADDRESS [--capture-only F[,F]]]
                                              Data API at /fmi/data/vLatest, MCP at /mcp,
-                                             web client at /app/. Use --host 0.0.0.0 so
-                                             others on the network can connect. Backs up
+                                             web client at /app/. Listens on this computer
+                                             only. --host 0.0.0.0 lets others on the network
+                                             connect, but needs HTTPS (--https, --tls-cert)
+                                             or --allow-plain-http. Backs up
                                              daily to <folder>/Backups unless told not to;
                                              --backup-s3 copies them off-site (keys in
                                              TABULARIUS_S3_ACCESS_KEY / TABULARIUS_S3_SECRET_KEY).
@@ -208,10 +210,11 @@ Hosting (point it at a folder of .fmp12 files; each is converted once):
                                              earlier run held back write again
   tabularius sync-log <folder> <db> [--run ID] [--limit 200] [--json]
                                              The log of what sync-apply sent to FileMaker
-  tabularius service install <folder> [--port 8080] [--host 0.0.0.0] [--system] [-- serve options]
+  tabularius service install <folder> [--port 8080] [--host 127.0.0.1] [--system] [-- serve options]
                                              Run it as a service that starts at login, or with
                                              --system at boot (launchd, systemd or Windows Task
-                                             Scheduler); 'service print' shows the file,
+                                             Scheduler), on this computer only unless --host
+                                             says more; 'service print' shows the file,
                                              'service uninstall' removes it (files stay). Refuses
                                              a port another program holds, naming a free one
   tabularius design-diff <old> <new> [--exit-code]
@@ -965,8 +968,8 @@ function serviceCommand(cmd: string, args: string[]): number {
   const o: ServiceOptions = {
     ...base,
     port: Number(flag(args, '--port') ?? 8080),
-    // Reachable from the network unless told otherwise: a service is for others to use.
-    host: flag(args, '--host') ?? '0.0.0.0',
+    // This computer only unless told otherwise: reaching it from the network is a choice made with --host (and HTTPS).
+    host: flag(args, '--host') ?? '127.0.0.1',
     system: bool(args, '--system'),
     folder: '',
     extra,
@@ -978,6 +981,8 @@ function serviceCommand(cmd: string, args: string[]): number {
   const stray = args.find((a) => a.startsWith('--'));
   if (stray) throw new Error(`service ${action}: ${stray} is not an option of service ${action}. Options for serve go after "--", for example: tabularius service ${action} ${o.folder} -- ${stray} ...`);
   validateServicePublicUrl(o.extra);
+  const plainProblem = action === 'install' ? servicePlainRefusal(o) : undefined;
+  if (plainProblem) throw new Error(`service install: ${plainProblem}`);
   const folderProblem = action === 'install' ? hostFolderProblem(o.folder) : undefined;
   if (folderProblem) throw new Error(`service install: ${folderProblem}`);
   if (action === 'print') process.stdout.write(serviceFile(o, platform !== process.platform).text);
@@ -1249,6 +1254,10 @@ function main(argv: string[]): number {
         console.log(`  each device trusts it once: open https://<this server>:<port>/tabularius/tls/ (fingerprint ${local.tls.fingerprint})`);
       }
       if (acme && tlsCert) throw new Error('serve: --https gets its own certificate; leave out --tls-cert and --tls-key');
+      // Plain HTTP beyond this computer sends passwords and session tokens in the clear: refused unless said to be wanted.
+      const allowPlainHttp = bool(args, '--allow-plain-http') || /^(1|true|yes|on)$/i.test(process.env.TABULARIUS_ALLOW_PLAIN_HTTP ?? '');
+      const plainRefusal = plainHttpRefusal({ host: hostname, secure: !!tlsCert || !!acme, allowed: allowPlainHttp });
+      if (plainRefusal) throw new Error(`serve: ${plainRefusal}`);
       const mcpAllowedOrigins = mcpOriginsFrom(args);
       const proxyHeaderName = flag(args, '--proxy-header') ?? process.env.TABULARIUS_PROXY_HEADER;
       const proxyHeader = proxyHeaderName ? checkedProxyHeader(proxyHeaderName) : undefined;

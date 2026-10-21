@@ -6,7 +6,7 @@ import { createServer } from 'node:http';
 import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { checkPort, healthUrl, installService, installed, portFree, stopOwnServer, upgrade, winArg, serviceFile, defaults, validateServicePublicUrl, type Installed } from '../src/service.ts';
+import { checkPort, healthUrl, installService, installed, portFree, stopOwnServer, upgrade, winArg, serviceFile, servicePlainRefusal, defaults, validateServicePublicUrl, type Installed } from '../src/service.ts';
 
 const main = join(import.meta.dirname, '..', 'src', 'main.ts');
 const print = (...args: string[]) => execFileSync(process.execPath, ['--no-warnings', main, 'service', 'print', ...args], { stdio: ['ignore', 'pipe', 'pipe'] }).toString();
@@ -17,7 +17,7 @@ test('Windows: a Task Scheduler task at logon, or at boot as the system account,
   assert.match(user, /<LogonType>InteractiveToken<\/LogonType>/);
   assert.match(user, /<RestartOnFailure><Interval>PT1M<\/Interval><Count>255<\/Count><\/RestartOnFailure>/);
   assert.match(user, /<ExecutionTimeLimit>PT0S<\/ExecutionTimeLimit>/, 'no time limit: a server runs for good');
-  assert.match(user, /<Arguments>--no-warnings --eval .* \S+main\.ts serve "C:\\Data bases" --port 8080 --host 0\.0\.0\.0 --name "Sales \\"East\\""<\/Arguments>/);
+  assert.match(user, /<Arguments>--no-warnings --eval .* \S+main\.ts serve "C:\\Data bases" --port 8080 --host 127\.0\.0\.1 --name "Sales \\"East\\""<\/Arguments>/);
   assert.match(user, /<WorkingDirectory>C:\\Data bases<\/WorkingDirectory>/);
   const system = print('C:\\Data', '--platform', 'win32', '--system', '--port', '443');
   assert.match(system, /<BootTrigger><Enabled>true<\/Enabled><\/BootTrigger>/);
@@ -205,4 +205,22 @@ test('service preflight uses flag over environment without changing persisted ar
     if (was === undefined) delete process.env.TABULARIUS_PUBLIC_URL;
     else process.env.TABULARIUS_PUBLIC_URL = was;
   }
+});
+
+test('a service listens on this computer only unless --host says otherwise, and plain HTTP beyond it is refused', () => {
+  assert.match(print('/srv/data', '--platform', 'linux'), /"serve" "\/srv\/data" "--port" "8080" "--host" "127\.0\.0\.1"/);
+  const install = (...args: string[]) => spawnSync(process.execPath, ['--no-warnings', main, 'service', 'install', '/srv/data', '--platform', 'linux', ...args], { encoding: 'utf8' });
+  for (const host of ['0.0.0.0', '::', '192.168.1.20']) {
+    const r = install('--host', host);
+    assert.equal(r.status, 1, host);
+    assert.match(r.stderr, new RegExp(`service install: it would listen on ${host.replace(/\./g, '\\.')} over plain HTTP`), r.stderr);
+    assert.match(r.stderr, /--https local/, 'the message names the way out');
+  }
+  assert.equal(servicePlainRefusal({ host: '127.0.0.1', extra: [] }), undefined);
+  assert.equal(servicePlainRefusal({ host: 'localhost', extra: [] }), undefined);
+  assert.equal(servicePlainRefusal({ host: '0.0.0.0', extra: ['--https', 'local'] }), undefined);
+  assert.equal(servicePlainRefusal({ host: '0.0.0.0', extra: ['--https=files.example.com'] }), undefined);
+  assert.equal(servicePlainRefusal({ host: '0.0.0.0', extra: ['--tls-cert', '/c.pem', '--tls-key', '/k.pem'] }), undefined);
+  assert.equal(servicePlainRefusal({ host: '0.0.0.0', extra: ['--allow-plain-http'] }), undefined, 'a proxy elsewhere does the HTTPS, and the operator said so');
+  assert.match(servicePlainRefusal({ host: '0.0.0.0', extra: ['--public-url', 'https://files.example.com'] }) ?? '', /plain HTTP/, 'naming a proxy is not saying plain HTTP is allowed');
 });

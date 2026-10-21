@@ -84,6 +84,7 @@ test('Dockerfile: the server runs as an unprivileged user that owns /data, start
 test('Dockerfile: the port, the host address and the health check agree with the server', () => {
   const e = env();
   assert.equal(e.TABULARIUS_HOST, '0.0.0.0', 'listens on every interface inside the container (the published port is the choice)');
+  assert.equal(e.TABULARIUS_ALLOW_PLAIN_HTTP, '1', 'the refusal to listen beyond this computer over plain HTTP is for the port the container publishes to decide');
   assert.match(e.PORT!, /^\d+$/);
   assert.ok(ofKind('EXPOSE').some((s) => s.args === e.PORT), 'EXPOSE names the port the server is told to use');
   const check = ofKind('HEALTHCHECK')[0];
@@ -208,7 +209,7 @@ test('Compose: the folder, the port, the restart policy and the stop time fit th
     assert.equal(service(file).build, '.');
   }
   assert.ok(read('.dockerignore').split('\n').includes('Databases'), 'the folder the files live in never goes into a build');
-  assert.deepEqual(service('compose.yaml').ports, [`${e.PORT}:${e.PORT}`], 'published on the port the pages say, 8080');
+  assert.deepEqual(service('compose.yaml').ports, [`127.0.0.1:${e.PORT}:${e.PORT}`], 'published on the port the pages say, 8080, to this computer only');
   assert.equal(e.PORT, '8080');
   assert.ok(!('ports' in service('compose.https.yaml')), 'behind Caddy the server itself publishes nothing');
   assert.deepEqual(service('compose.https.yaml').expose, [e.PORT]);

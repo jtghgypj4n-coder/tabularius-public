@@ -20,6 +20,8 @@ export interface Ctx {
   status(): Promise<any>;
   /** Starts another server in a new folder with these options, and returns what it printed once it was serving. */
   other(args: string[]): Promise<string>;
+  /** Starts another server with these options that is expected to refuse to start; returns what it printed before it stopped. */
+  refused(args: string[]): Promise<string>;
   /** The source of a file in the repository. */
   source(path: string): string;
   /** The file's password policy, as JSON ('{}' when none was set). */
@@ -79,7 +81,7 @@ export const ROWS: Row[] = [
   {
     id: 'listen', section: 'Network and transport', setting: 'Listen address',
     default: 'This computer only (127.0.0.1)',
-    changedBy: '`--host 0.0.0.0` (or an address), `TABULARIUS_HOST`; `--https <domain>` listens on every address unless `--host` says otherwise. `tabularius service install` is the exception: it listens on every address (`--host 0.0.0.0`) unless told otherwise, and says so with a warning when HTTPS is not set up',
+    changedBy: '`--host 0.0.0.0` (or an address), `TABULARIUS_HOST`, which also needs HTTPS or `--allow-plain-http` (next rows); `--https <domain>` listens on every address unless `--host` says otherwise. `tabularius service install` listens on this computer only too, and applies the same rule to `--host`. The PostgreSQL-protocol port (`--sql-port`) listens on the same address',
     risk: 'Anyone who can reach the machine can reach the sign-in pages. Set an admin password and use HTTPS before listening on the network',
     how: 'probed', expect: 'loopback only',
     observe: async (c) => listeningOn(c.port),
@@ -96,16 +98,19 @@ export const ROWS: Row[] = [
     },
   },
   {
-    id: 'exposed-warning', section: 'Network and transport', setting: 'Warning when listening beyond this computer without HTTPS',
-    default: 'On: a line in the log at start',
-    changedBy: 'Not switchable. It stops when a certificate is given, `--https` is used, or `--public-url` starts with `https://`',
-    risk: 'None; it is only a line. A proxy that does HTTPS must say so with `--public-url`',
-    how: 'probed', expect: 'warns',
+    id: 'exposed-refusal', section: 'Network and transport', setting: 'Listening beyond this computer without HTTPS',
+    default: 'Refused: the server does not start, and says how to fix it',
+    changedBy: 'HTTPS (`--https`, `--https local`, `--tls-cert` with `--tls-key`) lifts it. `--allow-plain-http` (or `TABULARIUS_ALLOW_PLAIN_HTTP`) allows plain HTTP for a proxy or network you control; the server then warns in the log unless `--public-url` starts with `https://`. The Docker image sets it, because the port you publish decides who can connect',
+    risk: 'Allowing it sends passwords and session tokens across the network in the clear to anyone who can see the traffic',
+    how: 'probed', expect: 'refuses',
     observe: async (c) => {
-      const exposed = await c.other(['--host', '0.0.0.0']);
-      const proxied = await c.other(['--host', '0.0.0.0', '--public-url', 'https://files.example.com']);
+      const exposed = await c.refused(['--host', '0.0.0.0']);
+      const proxied = await c.refused(['--host', '0.0.0.0', '--public-url', 'https://files.example.com']);
+      const allowed = await c.other(['--host', '0.0.0.0', '--allow-plain-http']);
+      const secure = await c.other(['--host', '0.0.0.0', '--https', 'local']);
       const here = c.log();
-      return /Warning: this server listens on 0\.0\.0\.0 over plain HTTP/.test(exposed) && !/Warning: this server listens/.test(proxied) && !/Warning: this server listens/.test(here) ? 'warns' : `exposed: ${exposed.slice(0, 80)}`;
+      const says = /would listen on 0\.0\.0\.0 over plain HTTP/;
+      return says.test(exposed) && says.test(proxied) && /Warning: this server listens on 0\.0\.0\.0 over plain HTTP/.test(allowed) && !/over plain HTTP/.test(secure) && !/over plain HTTP/.test(here) ? 'refuses' : `exposed: ${exposed.slice(0, 80)}`;
     },
   },
   {

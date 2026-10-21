@@ -24,7 +24,7 @@ describe('command line: wrong values are answered in sentences', { concurrency: 
     { name: 'a port that is not a number', args: ['serve', '@', '--port', 'abc'], says: /^error: serve: --port takes a port number from 1 to 65535, not "abc"$/ },
     { name: 'a port above 65535', args: ['serve', '@', '--port', '99999'], says: /^error: serve: --port takes a port number from 1 to 65535, not "99999"$/ },
     { name: 'a PORT variable that is not a number', args: ['serve', '@'], env: { PORT: 'zzz' }, says: /^error: serve: the PORT variable takes a port number/ },
-    { name: 'an address that is not there', args: ['serve', '@', '--host', '999.1.1.1'], says: /^error: the address "999\.1\.1\.1" was not found\. Use an IP address of this computer/ },
+    { name: 'an address that is not there', args: ['serve', '@', '--host', '999.1.1.1', '--allow-plain-http'], says: /^error: the address "999\.1\.1\.1" was not found\. Use an IP address of this computer/ },
     { name: 'a certificate file that is not there', args: ['serve', '@', '--tls-cert', 'nofile.pem', '--tls-key', 'nokey.pem'], says: /^error: no such file or folder: nofile\.pem$/ },
     { name: 'a number of backups to keep that is not a number', args: ['serve', '@', '--keep', 'none'], says: /^error: serve: --keep is the number of backups to keep, a whole number of 1 or more, not "none"$/ },
     { name: 'the same in a variable', args: ['serve', '@'], env: { TABULARIUS_BACKUP_KEEP: '0' }, says: /^error: serve: TABULARIUS_BACKUP_KEEP is the number of backups to keep/ },
