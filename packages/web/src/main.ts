@@ -43,6 +43,7 @@ import { keepFocusOnPress } from './keep-focus.ts';
 import { triggerKeystroke } from './keystrokes.ts';
 import { pinnedToast, progressToast, toast, toastUndo } from './toast.ts';
 import { httpProblem } from './http-problem.ts';
+import { browserFeatures, browserFeatureMessage } from './browser-features.ts';
 import { announce } from './announcer.ts';
 
 type View = 'form' | 'list' | 'table';
@@ -390,6 +391,12 @@ function errorText(e: unknown): string {
 // ---------------------------------------------------------------- start / login
 
 async function start(): Promise<void> {
+  const required = browserFeatures().find((feature) => feature.name === 'structuredClone' && !feature.available);
+  if (required) {
+    const root = document.querySelector<HTMLElement>('#app');
+    if (root) root.replaceChildren(h('section', { class: 'fatal', role: 'alert' }, h('h1', {}, 'This browser cannot run Tabularius'), h('p', {}, browserFeatureMessage(required)), h('p', {}, 'Update your browser and reload this page.'), h('a', { href: 'self-check.html' }, 'Run browser self-check')));
+    return;
+  }
   // Back from an identity provider: the server put the session (or an error) in the fragment.
   const back = new URLSearchParams(location.hash.slice(1));
   if (back.has('token') || back.has('error')) {
@@ -428,12 +435,33 @@ async function start(): Promise<void> {
       await restoreOffline(api, offline);
       const session = new Session(api);
       await session.open(from);
+      showBrowserFeatureNotice();
       return;
     } catch {
       sessionStorageSet('tabularius.session', undefined);
     }
   }
-  showLogin();
+  await showLogin();
+  showBrowserFeatureNotice();
+}
+
+/** Features whose absence changes what the page can do for a person; the rest (clipboard, ResizeObserver) have a plain fallback and are only on the self-check page. */
+const NOTICE_FEATURES = new Set(['Modules', 'IndexedDB', 'WebAuthn', 'Service workers']);
+
+function showBrowserFeatureNotice(): void {
+  const unavailable = browserFeatures().filter((feature) => !feature.available && NOTICE_FEATURES.has(feature.name));
+  if (!unavailable.length) return;
+  const dismiss = h('button', { type: 'button' }, 'Dismiss');
+  const notice = h('aside', { class: 'browser-support-banner', role: 'status', 'aria-label': 'Browser feature support' },
+    h('strong', {}, 'Some browser features are unavailable'),
+    ...unavailable.map((feature) => h('p', {}, browserFeatureMessage(feature))),
+    h('a', { href: 'self-check.html' }, 'Run browser self-check'),
+    ' ',
+    dismiss,
+  );
+  dismiss.addEventListener('click', () => notice.remove());
+  Object.assign(notice.style, { position: 'fixed', zIndex: '20000', inset: '0 0 auto', padding: '12px 20px', background: '#fff4dc', color: '#33270c', borderBottom: '1px solid #7a4a00', maxHeight: '35vh', overflow: 'auto' });
+  document.body.append(notice);
 }
 
 /** What a new window copies from the window it was opened from. */

@@ -59,7 +59,9 @@ test('a server answers both /tabularius/health and the old /openhbam/health', as
     const old = await fetch(`${s.url}/openhbam/health`);
     assert.equal(now.status, 200);
     assert.equal(old.status, 200);
-    assert.deepEqual(await old.json(), await now.json());
+    // The two answers come a few milliseconds apart, so the clock reading differs; everything else is the same.
+    const withoutTime = ({ serverTime: _time, ...rest }: Record<string, unknown>) => rest;
+    assert.deepEqual(withoutTime(await old.json() as Record<string, unknown>), withoutTime(await now.json() as Record<string, unknown>));
   } finally {
     await new Promise<void>((done) => s.server.close(() => done()));
     rmSync(dir, { recursive: true, force: true, maxRetries: 5 });

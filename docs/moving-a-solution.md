@@ -287,6 +287,17 @@ This keeps records created, changed and deleted since the first
 conversion, as well as accounts and settings. The previous store is kept
 beside the new one.
 
+### Dates in the file
+
+A `.fmp12` file stores dates as text in the order its creator's computer used, and does not say which. Tabularius
+reads the order from the dates themselves: a date with the year first, or a day above 12, settles it, and the
+timestamps count too. It looks at the first 200 records of each table. When no date settles it (every date reads either
+way, or day and month are the same), it reads them month first, as earlier versions did.
+
+If two dates settle opposite orders (`13/04/2025` and `04/13/2025`), the file is not converted: the message names both
+dates, with their table, field and record. Correct the date that is wrong in the source file and convert again.
+Earlier versions took whichever date came first. There is no setting to state the order yourself yet.
+
 ## 4. Accounts and privilege sets
 
 Accounts and privilege sets come over with the file. Every way in enforces

@@ -23,7 +23,7 @@ import { scriptStepName } from './script-steps.ts';
 import { decodeStepParams, stepLine, type ParamContext, type StepParams } from './script-params.ts';
 import { pathValue } from './chunks.ts';
 import { Pb } from './proto.ts';
-import { calcTokens, decodeCalc, schemaFieldNamer, type FieldNamer } from './calc.ts';
+import { CalcDecodeError, calcTokens, decodeCalc, schemaFieldNamer, type FieldNamer } from './calc.ts';
 
 interface Namers {
   field: FieldNamer;
@@ -1021,7 +1021,8 @@ function formula(tokens: Uint8Array | undefined, namer: Namers): string | undefi
   if (!tokens?.length) return undefined;
   try {
     return decodeCalc(tokens, namer.field, namer.customFunction).text;
-  } catch {
+  } catch (error) {
+    if (error instanceof CalcDecodeError) throw error;
     return undefined; // malformed or not yet understood; the rest of the schema still reads
   }
 }

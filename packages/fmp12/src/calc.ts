@@ -17,6 +17,8 @@
 import { pathValue } from './chunks.ts';
 import { decodeTextChars } from './scsu.ts';
 
+export class CalcDecodeError extends Error {}
+
 // Ids were matched from formulas whose meaning is plain from context
 // (argument shapes, comments, neighbouring ids, values FileMaker stored).
 const ONE_BYTE: Record<number, string> = {
@@ -247,8 +249,10 @@ const hex = (n: number, w = 2) => n.toString(16).padStart(w, '0');
 
 /** Number literal: limbs of 9 decimal digits, integer limbs then two fraction limbs. */
 function decodeNumber(b: Uint8Array, at: number): { text: string; end: number } {
+  if (at + 5 > b.length) throw new CalcDecodeError(`truncated calculation number at byte ${at}`);
   const v = new DataView(b.buffer, b.byteOffset, b.byteLength);
   const intLimbs = v.getUint16(at + 1);
+  if (at + 5 + (intLimbs + 2) * 4 > b.length) throw new CalcDecodeError(`truncated calculation number at byte ${at}`);
   let p = at + 5;
   let int = '';
   for (let i = 0; i < intLimbs; i++, p += 4) int += i === 0 ? String(v.getUint32(p)) : String(v.getUint32(p)).padStart(9, '0');
@@ -300,13 +304,22 @@ export function decodeCalc(
   // The formula with every name, string, comment and long number masked, for observer.formula.
   const shaping = !!observer?.formula;
   let shape = '';
+  const requireBytes = (at: number, count: number): void => {
+    if (at + count > b.length) throw new CalcDecodeError(`truncated calculation token at byte ${at}: need ${count} bytes`);
+  };
   // 13, length in characters (one byte, or two with the top bit set), SCSU text, 00.
   const literal = (at: number): { text: string; end: number } => {
-    if (b[at] !== 0x13) throw new Error(`expected literal at ${at}`);
+    requireBytes(at, 1);
+    if (b[at] !== 0x13) throw new CalcDecodeError(`expected calculation literal at byte ${at}`);
     let p = at + 1;
+    requireBytes(p, 1);
     let n = b[p++];
-    if (n & 0x80) n = ((n & 0x7f) << 8) | b[p++];
-    const { text, end } = decodeTextChars(b.subarray(p), n);
+    if (n & 0x80) { requireBytes(p, 1); n = ((n & 0x7f) << 8) | b[p++]; }
+    let text: string, end: number;
+    try { ({ text, end } = decodeTextChars(b.subarray(p), n)); }
+    catch (cause) { throw new CalcDecodeError(`truncated calculation literal at byte ${at}`, { cause }); }
+    requireBytes(p + end, 1);
+    if (b[p + end] !== 0) throw new CalcDecodeError(`missing calculation literal terminator at byte ${p + end}`);
     return { text, end: p + end + 1 };
   };
   while (i < b.length) {
@@ -327,7 +340,14 @@ export function decodeCalc(
       if (shaping && (text.length > 3 || /\p{L}|\p{N}/u.test(text))) masked = '"…"';
       i = end;
     } else if (c === 0x1a || c === 0x0b) {
-      const { text, end } = decodeTextChars(b.subarray(i + 2), b[i + 1]);
+      requireBytes(i + 1, 1);
+      let text: string, end: number;
+      try { ({ text, end } = decodeTextChars(b.subarray(i + 2), b[i + 1])); }
+      catch (cause) { throw new CalcDecodeError(`truncated calculation name at byte ${i}`, { cause }); }
+      if (c === 0x0b) {
+        requireBytes(i + 2 + end, 2);
+        if (b[i + 2 + end] !== 0 || b[i + 3 + end] !== 0) throw new CalcDecodeError(`missing calculation name terminator at byte ${i + 2 + end}`);
+      }
       out += text;
       masked = c === 0x0b ? '«var»' : text.startsWith('$$') ? '$$var' : text.startsWith('$') ? '$var' : '«var»';
       i += 2 + end + (c === 0x0b ? 2 : 0);
@@ -337,22 +357,27 @@ export function decodeCalc(
       if (/\d{5}/.test(text)) masked = '‹number›';
       i = end;
     } else if (c === 0x16) {
+      requireBytes(i + 1, 1);
       const flags = b[i + 1];
       let j = i + 2;
       let to: number | undefined;
       let field: number | undefined;
       // Tagged refs: 04 = table occurrence, 02 or 03 = field (03 meaning unknown).
       while (b[j] === 0x02 || b[j] === 0x03 || b[j] === 0x04) {
+        requireBytes(j + 1, 1);
         const n = b[j + 1];
+        requireBytes(j + 2, n);
         const value = pathValue(b.subarray(j + 2, j + 2 + n));
         if (b[j] === 0x04) to = value;
         else field = value;
         j += 2 + n;
       }
+      requireBytes(j, 2);
       out += nameField(to, field, (flags & 0x04) !== 0);
       masked = '«field»';
       i = j + 2; // repetition (u16); written separately as [n] when not 1
     } else if (c === 0x1d) {
+      requireBytes(i, 10);
       // External function: 1D 00 00 15, 4-byte owner id, u16 function index. "FMDR" owns
       // the design functions (LayoutIDs = 9); others belong to plug-ins.
       const owner = String.fromCharCode(...b.subarray(i + 4, i + 8));
@@ -364,20 +389,27 @@ export function decodeCalc(
       out += name ?? (PLUGIN_OWNERS.includes(owner) ? `<plugin:${owner}:${index}>` : `⟨${owner}:${index}⟩`);
       i += 10;
     } else if (c === 0x1b && b[i + 1] === 0x14) {
+      requireBytes(i, 4);
       // Custom function call: 1B 14 len, then a length-prefixed id.
       const n = b[i + 3];
+      requireBytes(i + 4, n);
+      requireBytes(i, 3 + b[i + 2]);
       out += nameFunction(pathValue(b.subarray(i + 4, i + 4 + n)) ?? -1);
       observer?.token('custom', '');
       masked = '«cf»';
       i += 3 + b[i + 2];
+    } else if (c === 0x1b && i + 1 >= b.length) {
+      throw new CalcDecodeError(`truncated calculation token at byte ${i}`);
     } else if (PUNCTUATION[c]) {
       out += PUNCTUATION[c];
       i++;
     } else if (c === 0x9c) {
+      requireBytes(i + 1, 1);
       out += GET_PARAMS[b[i + 1]] ?? (unknown.push(`9c${hex(b[i + 1])}`), `⟨get:${hex(b[i + 1])}⟩`);
       observer?.token(GET_PARAMS[b[i + 1]] ? 'get' : 'unknown-get', GET_PARAMS[b[i + 1]] ?? hex(b[i + 1]));
       i += 2;
     } else if (c >= 0xf8 && c <= 0xfd) {
+      requireBytes(i + 1, 1);
       const id = (c << 8) | b[i + 1];
       out += TWO_BYTE[id] ?? (unknown.push(hex(id, 4)), `⟨fn:${hex(id, 4)}⟩`);
       observer?.token(TWO_BYTE[id] ? 'function' : 'unknown-function', TWO_BYTE[id] ?? hex(id, 4));

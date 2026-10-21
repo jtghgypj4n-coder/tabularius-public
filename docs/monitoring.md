@@ -10,13 +10,14 @@ HTTP 200 with `Content-Type: application/json; charset=utf-8` and
 `Cache-Control: no-store`:
 
 ```json
-{"status":"ok","uptimeSeconds":123}
+{"status":"ok","uptimeSeconds":123,"serverTime":"2026-01-01T00:00:00.000Z"}
 ```
 
 | Field | Type | Meaning |
 | --- | --- | --- |
 | `status` | string | Always `"ok"` when the handler answers. |
 | `uptimeSeconds` | number | Seconds since this process's metrics instance started, rounded to the nearest second. |
+| `serverTime` | string | The server's clock as an ISO 8601 UTC time, so the browser self-check can estimate the difference from the browser's clock. Added with the self-check page; it is also given to callers who are not signed in. |
 
 This is a liveness check. It does not inspect hosted files, backup results, disk
 space or database readiness, and it discloses no file information.

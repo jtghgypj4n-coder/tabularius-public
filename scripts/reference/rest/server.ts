@@ -51,7 +51,7 @@ export const groups: RestGroup[] = [
         example: {
           request: 'GET /tabularius/health',
           status: 200,
-          response: j({ status: 'ok', uptimeSeconds: 3600 }),
+          response: j({ status: 'ok', uptimeSeconds: 3600, serverTime: '2026-01-01T00:00:00.000Z' }),
         },
         notes: 'Answered for any method, with cache-control: no-store.',
       },
