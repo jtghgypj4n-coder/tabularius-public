@@ -5,7 +5,6 @@ import { auditJsonLine } from '../../store/src/audit-output.ts';
 import '../../store/src/legacy-env.ts';
 import { isLoopbackHost, plainHttpRefusal } from './loopback.ts';
 import { availableParallelism, homedir, tmpdir } from 'node:os';
-import { expiryClock } from '../../store/src/clock.ts';
 import { spawn } from 'node:child_process';
 import { DatabaseSync } from 'node:sqlite';
 import { createServer as createNetServer } from 'node:net';
