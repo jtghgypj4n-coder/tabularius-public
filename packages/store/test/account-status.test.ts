@@ -145,6 +145,27 @@ test('[Guest] comes across switched off even when the file has it on, and switch
       // An administrator who switches it on gets an account no one can sign in to without its password.
       store.setAccountActive('[Guest]', true);
       for (const from of ['127.0.0.1', '203.0.113.9']) for (const password of ['', 'guest', 'Guest']) assert.equal(store.verify('[Guest]', password, from), false, `${JSON.stringify(password)} from ${from}`);
+      assert.equal(store.blankPasswordAccounts().includes('[Guest]'), false);
+      assert.equal(store.hasOwnPassword('[Guest]'), false);
+      store.setPassword('[Guest]', 'a password someone chose');
+      assert.equal(store.hasOwnPassword('[Guest]'), true);
+    } finally {
+      store.close();
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('[Guest] switched on does not sign in through the asynchronous check either', { skip: guestSkip }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'tabularius-guest-async-'));
+  const path = join(dir, 'Portable.openhbam.sqlite');
+  try {
+    importFmp12(guestOnFixture, path);
+    const store = new Store(path, 'Portable');
+    try {
+      store.setAccountActive('[Guest]', true);
+      for (const password of ['', 'guest']) assert.equal(await store.verifyAsync('[Guest]', password, '203.0.113.9'), false);
     } finally {
       store.close();
     }

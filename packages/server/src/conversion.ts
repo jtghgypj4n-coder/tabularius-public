@@ -252,7 +252,7 @@ export function conversionReport(store: Store, hosted: string[] = [], focus?: (w
       ...(users.size ? { usedBy: [...users].sort().slice(0, LIST) } : {}),
     };
   });
-  // The guest account signs in without a password. Accounts with the file's
+  // Accounts with the file's
   // empty password sign in, but only from this computer unless the server allows it.
   // Everything else still on the file's own password (store.accounts()[].hasPassword
   // is true for these too — a passwordVerifier came across either way — so it can't
@@ -358,6 +358,7 @@ function summarize(r: ConversionReport, unparsed: number, broken: number): strin
   if (blank.size) problems.push(`- **Accounts with an empty password**: ${r.accounts.blankPassword.join(', ')}. They sign in from the server's own computer only; set a password with \`tabularius passwd\`, or start the server with \`--allow-blank-passwords\`.`);
   const ext = r.externalContainers;
   if (ext.missing) problems.push(`- **Container files stored outside the file, not found here**: ${ext.missing} of ${ext.files} (e.g. ${ext.examples.join(', ')}). Copy the file's RC_Data_FMS/${r.database} folder from FileMaker Server (or its Files/${r.database} folder from FileMaker Pro) next to the hosted file; \`tabularius migrate-fms\` does it.`);
+  if (r.privileges.assignments.some((a) => a.fileHadItOn)) problems.push('- **[Guest]**: the FileMaker file had it switched on. It comes across switched off, and switched on here it signs nobody in until it is given a password.');
   if (r.privileges.withoutSet.length) problems.push(`- **Accounts with no privilege set**: ${r.privileges.withoutSet.join(', ')}. They have no access until one is assigned (\`tabularius privileges <file> account <name> <set>\`).`);
   out.push(problems.length ? '## Won\'t work yet' : 'Nothing found that won\'t work.', ...problems);
 
