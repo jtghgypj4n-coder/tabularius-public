@@ -8,21 +8,24 @@ export interface Fake {
   port: number;
   commands: string[];
   uploads: Map<string, Buffer>;
+  /** Control connections that have closed. */
+  controlsClosed: number;
   /** Connections made to the data port. */
   dataConnections: number;
   close(): Promise<void>;
 }
 
 /** A passive-mode FTP server on 127.0.0.1. `pasvIp` is what PASV claims the data address is; `epsv` false makes EPSV fail. */
-export async function fakeFtp(options: { password?: string; pasvIp?: string; epsv?: boolean; refuseStor?: boolean; hugeLine?: boolean; reportPort?: (real: number, control: number) => number; tls?: { key: string; cert: string } } = {}): Promise<Fake> {
+export async function fakeFtp(options: { password?: string; pasvIp?: string; epsv?: boolean; refuseStor?: boolean; hugeLine?: boolean; reportPort?: (real: number, control: number) => number; endReply?: string; floodAfterStor?: boolean; tls?: { key: string; cert: string } } = {}): Promise<Fake> {
   const make = (listener?: (s: Socket) => void): Server => (options.tls ? tlsServer(options.tls, listener) : createServer(listener)) as Server;
   const commands: string[] = [];
   const uploads = new Map<string, Buffer>();
   const open = new Set<Socket>();
   let dataConnections = 0;
+  let controlsClosed = 0;
   const server = make((control) => {
     open.add(control);
-    control.on('close', () => open.delete(control));
+    control.on('close', () => { open.delete(control); controlsClosed++; });
     control.on('error', () => {});
     control.setEncoding('utf8');
     const say = (line: string) => control.write(line + '\r\n');
@@ -62,10 +65,17 @@ export async function fakeFtp(options: { password?: string; pasvIp?: string; eps
           case 'STOR': {
             if (options.refuseStor) { say('550 permission denied'); break; }
             say('150 ok to send');
+            if (options.floodAfterStor) {
+              // Bytes with no line break on the control connection, while the data connection is never read.
+              const chunk = 'x'.repeat(256 * 1024);
+              const pump = () => { while (!control.destroyed && control.write(chunk)); if (!control.destroyed) control.once('drain', pump); };
+              pump();
+              break;
+            }
             const data = await dataSocket!;
             const parts: Buffer[] = [];
             data.on('data', (b: Buffer) => parts.push(b));
-            data.on('end', () => { uploads.set(arg, Buffer.concat(parts)); say('226 transfer complete'); data.end(); });
+            data.on('end', () => { uploads.set(arg, Buffer.concat(parts)); say(options.endReply ?? '226 transfer complete'); data.end(); });
             break;
           }
           case 'DELE': say(arg === 'old/file.txt' ? '250 deleted' : '550 no such file'); break;
@@ -81,6 +91,7 @@ export async function fakeFtp(options: { password?: string; pasvIp?: string; eps
     server, commands, uploads,
     get port() { return (server.address() as AddressInfo).port; },
     get dataConnections() { return dataConnections; },
+    get controlsClosed() { return controlsClosed; },
     close: async () => { open.forEach((s) => s.destroy()); await new Promise<void>((r) => server.close(() => r())); },
   };
 }

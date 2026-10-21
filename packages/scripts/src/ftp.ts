@@ -73,9 +73,14 @@ class Control {
   private waiting?: { resolve(): void; reject(e: Error): void };
   private ended?: Error;
   readonly socket: Socket;
+  /** Rejects when the connection fails, so a wait that is not for a reply (the data send) ends too. */
+  readonly failed: Promise<never>;
+  private onFailed!: (e: Error) => void;
 
   constructor(socket: Socket) {
     this.socket = socket;
+    this.failed = new Promise<never>((_, reject) => { this.onFailed = reject; });
+    this.failed.catch(() => {});
     socket.setEncoding('utf8');
     socket.on('data', (chunk: string) => {
       if (this.ended) return;
@@ -100,6 +105,7 @@ class Control {
 
   private fail(e: Error): void {
     this.ended ??= e;
+    this.onFailed(this.ended);
     // Nothing more is read from a connection that has failed.
     this.buffer = '';
     this.socket.destroy();
@@ -247,7 +253,7 @@ export async function ftpTransfer(request: FtpRequest, options: FtpOptions = {})
     // The server's "150" comes as it opens the data connection; the upload is complete at "226".
     const start = await ask(control, `STOR ${where.path}`);
     if (start.code !== 125 && start.code !== 150) { data.destroy(); throw new FtpFailure(`the server would not take the file: ${start.code}`, 25); }
-    await sent;
+    await Promise.race([sent, control.failed]);
     const done = await control.reply();
     if (done.code !== 226 && done.code !== 250) throw new FtpFailure(`the upload did not finish: ${done.code}`, 25);
     void ask(control, 'QUIT').catch(() => {});
