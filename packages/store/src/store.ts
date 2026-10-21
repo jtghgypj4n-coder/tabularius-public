@@ -7346,12 +7346,15 @@ export class Store {
    * nothing: a file that can't be written leaves the database as it was and removes the files already written.
    * Returns the container ids moved, which moveContainersIn takes back.
    */
-  moveContainersOut(table: string, field: string): { moved: number; bytes: number; ids: number[] } {
+  moveContainersOut(table: string, field: string, hooks: {
+    prepare?: () => void;
+    record?: (result: { moved: number; bytes: number; ids: number[] }) => void;
+  } = {}): { moved: number; bytes: number; ids: number[] } {
     const t = this.schema.tables.find((x) => x.name === table);
     const f = t?.fields.find((x) => x.name === field);
     if (!t || !f) throw new StoreError(102, `Field "${table}::${field}" is missing`);
     if (f.type !== 'container') throw new StoreError(102, `Field "${table}::${field}" is not a container`);
-    if (!f.options?.externalStorage || f.options.externalStorage.secure) throw new StoreError(201, `Field "${table}::${field}" doesn't store its files outside the file: set it to open external storage first`);
+    if (!hooks.prepare && (!f.options?.externalStorage || f.options.externalStorage.secure)) throw new StoreError(201, `Field "${table}::${field}" doesn't store its files outside the file: set it to open external storage first`);
     const to = this.schema.tableOccurrences.find((o) => !o.dataSourceId && o.baseTableId === t.id);
     const occ = to && occurrence(this, to.id);
     if (!occ) throw new StoreError(105, `Table "${table}" has no table occurrence`);
@@ -7369,6 +7372,9 @@ export class Store {
     try {
       this.sql.exec('BEGIN IMMEDIATE');
       this.recoverContainersOut();
+      hooks.prepare?.();
+      const prepared = this.schema.tables.find((x) => x.name === table)?.fields.find((x) => x.name === field);
+      if (!prepared?.options?.externalStorage || prepared.options.externalStorage.secure) throw new StoreError(201, `Field "${table}::${field}" doesn't store its files outside the file: set it to open external storage first`);
       const update = this.sql.prepare("UPDATE _fm_containers SET data = x'', external = ?, external_size = ? WHERE id = ?");
       const chunks = this.sql.prepare('DELETE FROM _fm_container_chunks WHERE id = ?');
       for (const [id, recordId] of this.embeddedContainers(table, field)) {
@@ -7389,18 +7395,36 @@ export class Store {
         ids.push(id);
         bytes += file.data.length;
       }
+      hooks.record?.({ moved: ids.length, bytes, ids });
       this.sql.exec('COMMIT');
       committed = true;
       crashPoint('containers-out:after-commit');
       // A different mover can take the lock after COMMIT and replace the
       // journal. Reacquire it before recovery/cleanup so its work stays safe.
-      this.sql.exec('BEGIN IMMEDIATE');
-      this.recoverContainersOut();
-      this.sql.exec('COMMIT');
+      try {
+        this.sql.exec('BEGIN IMMEDIATE');
+        this.recoverContainersOut();
+        this.sql.exec('COMMIT');
+      } catch (cleanupError) {
+        if (this.sql.isTransaction) this.sql.exec('ROLLBACK');
+        // The database commit already contains the undo record. Keep the journal
+        // for startup recovery and report the committed move to the caller.
+        console.warn('Container move committed; journal cleanup is pending', cleanupError);
+      }
     } catch (e) {
-      if (this.sql.isTransaction) {
-        this.sql.exec('ROLLBACK');
-        if (!committed) for (const w of written) rmSync(w, { force: true });
+      if (this.sql.isTransaction) this.sql.exec('ROLLBACK');
+      if (!committed) {
+        for (const w of written) rmSync(w, { force: true });
+        // A failed write can leave a path in the journal before it reaches written.
+        if (pending.length) try {
+          this.sql.exec('BEGIN IMMEDIATE');
+          this.recoverContainersOut();
+          this.sql.exec('COMMIT');
+        } catch (cleanupError) {
+          if (this.sql.isTransaction) this.sql.exec('ROLLBACK');
+          console.warn('Container move rollback left a journal for startup recovery', cleanupError);
+        }
+        this.resetCaches();
       }
       throw e;
     } finally { this.sql.exec(`PRAGMA synchronous = ${synchronous}`); }
@@ -7411,12 +7435,13 @@ export class Store {
    * Puts container files back in the database from their external files (undo of moveContainersOut), then removes
    * the files it copied. A file that isn't found is left as it is, and counted in `missing`.
    */
-  moveContainersIn(ids: number[]): { moved: number; bytes: number; missing: number } {
+  moveContainersIn(ids: number[], record?: (result: { moved: number; bytes: number; missing: number }) => void): { moved: number; bytes: number; missing: number } {
     if (this.heldBy || this.sql.isTransaction) throw new StoreError(301, 'Container files can only be moved with no transaction open');
     if (containerBackupInProgress(dirname(this.path))) throw new StoreError(301, 'Container files cannot be moved back into the file while a backup is in progress');
     const copied: string[] = [];
     let bytes = 0;
     let missing = 0;
+    let committed = false;
     this.sql.exec('SAVEPOINT move_containers_in');
     try {
       const external = this.sql.prepare('SELECT external FROM _fm_containers WHERE id = ?');
@@ -7441,10 +7466,15 @@ export class Store {
         copied.push(at);
         bytes += data.length;
       }
+      record?.({ moved: copied.length, bytes, missing });
       this.sql.exec('RELEASE move_containers_in');
+      committed = true;
       crashPoint('containers-in:after-commit');
     } catch (e) {
-      this.sql.exec('ROLLBACK TO move_containers_in; RELEASE move_containers_in');
+      if (!committed) {
+        if (this.sql.isTransaction) this.sql.exec('ROLLBACK TO move_containers_in; RELEASE move_containers_in');
+        this.resetCaches();
+      }
       throw e;
     }
     // NORMAL-mode WAL commits are not durable until a checkpoint syncs them.
