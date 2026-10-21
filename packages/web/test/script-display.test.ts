@@ -30,6 +30,8 @@ function display(result: Record<string, unknown>, globals: Record<string, unknow
     ensureActionDisplay: async () => undefined,
     // The address bar and tab title are not under test here (see url-state.test.ts); the double has no location or history.
     writeScreenUrl: () => undefined,
+    // Field initialisers do not run on an Object.create double; listeners installed by the constructor read this.
+    sessionLifetime: { signal: new AbortController().signal },
   });
   Object.defineProperty(s, 'record', { value: { recordId: '1' } });
   return s;

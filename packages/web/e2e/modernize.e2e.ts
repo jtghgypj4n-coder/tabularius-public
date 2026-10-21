@@ -68,6 +68,25 @@ test('the modern list searches, sorts, and opens a record to edit, add and delet
   assert.deepEqual(page.errors, []);
 });
 
+test('delete confirmation stays bound to the record whose control was armed', { skip }, async () => {
+  const page = await window(browser);
+  await signIn(page, hosted.url, 'Shop', 'Ann', 'ann-secret-1');
+  await goToLayout(page, 'Customers - Modern list');
+  const frame = frameOf(page);
+  await until(() => frame.locator('tbody tr').count(), (n) => n === 3);
+  await frame.locator('tbody tr', { hasText: 'Ada' }).click();
+  await frame.locator('#del').click();
+  assert.equal(await frame.locator('#del').textContent(), 'Really delete?');
+
+  await frame.locator('tbody tr', { hasText: 'Grace' }).click();
+  assert.equal(await frame.locator('#del').textContent(), 'Delete');
+  await frame.locator('#del').click();
+  assert.equal(await frame.locator('#del').textContent(), 'Really delete?');
+  assert.equal(hosted.store('Shop').find('Customers', { limit: 10 }).records.length, 3);
+  assert.deepEqual(page.errors, []);
+  await page.context().close();
+});
+
 test('the detail layout pages through records, and the split shows the list beside the form', { skip }, async () => {
   const page = await window(browser);
   await signIn(page, hosted.url, 'Shop', 'Ann', 'ann-secret-1');

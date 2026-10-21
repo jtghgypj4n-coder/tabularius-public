@@ -161,6 +161,12 @@ test('Tab follows the layout\'s own tab order, and Shift+Tab goes back along it'
     await until(at, (id) => id === String(NAME));
     await page.keyboard.press('Shift+Tab');
     await until(at, (id) => id === String(CITY));
+    await field(page, NAME).focus();
+    await page.keyboard.press('Tab');
+    assert.equal(await at(), undefined);
+    await field(page, ID).focus();
+    await page.keyboard.press('Shift+Tab');
+    await until(at, (id) => id === undefined);
     assert.deepEqual(page.errors, []);
   } finally {
     await close(page);

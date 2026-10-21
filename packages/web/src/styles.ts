@@ -86,19 +86,20 @@ function rulesCss(selector: string, rules: StyleRule[]): string {
 
 export class StyleSheet {
   private readonly named = new Map<string, number>();
-  private css = '';
+  private baseCss = '';
+  private readonly objectCss = new Map<string, string>();
   private readonly scope: string;
 
   constructor(scope: string, theme: Theme | undefined) {
     this.scope = scope;
     if (!theme) return;
-    for (const [el, rules] of Object.entries(theme.defaults)) this.css += rulesCss(`${scope} .e${el}`, statesFor(Number(el), rules));
-    for (const c of theme.contextual ?? []) this.css += rulesCss(`${scope} ${c.path.map((e) => `.e${e}`).join(' ')}`, c.rules);
+    for (const [el, rules] of Object.entries(theme.defaults)) this.baseCss += rulesCss(`${scope} .e${el}`, statesFor(Number(el), rules));
+    for (const c of theme.contextual ?? []) this.baseCss += rulesCss(`${scope} ${c.path.map((e) => `.e${e}`).join(' ')}`, c.rules);
     theme.styles.forEach((s, i) => {
       this.named.set(`${s.name}|${s.element ?? ''}`, i);
       if (!this.named.has(s.name)) this.named.set(s.name, i);
       // Named styles override the element defaults: one more class in the selector.
-      this.css += rulesCss(`${scope} .fm.s${i}`, statesFor(s.element, s.rules));
+      this.baseCss += rulesCss(`${scope} .fm.s${i}`, statesFor(s.element, s.rules));
     });
   }
 
@@ -120,11 +121,14 @@ export class StyleSheet {
     const other = local.filter((r) => !(r.state === 1 && (r.part === 1 || r.part === 2)));
     if (other.length) {
       el.classList.add(id);
-      this.css += rulesCss(`${this.scope} .fm.${id}`, other);
+      this.objectCss.set(id, rulesCss(`${this.scope} .fm.${id}`, other));
+    } else {
+      el.classList.remove(id);
+      this.objectCss.delete(id);
     }
   }
 
   text(): string {
-    return this.css;
+    return this.baseCss + [...this.objectCss.values()].join('');
   }
 }

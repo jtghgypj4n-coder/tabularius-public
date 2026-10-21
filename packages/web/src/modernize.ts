@@ -581,6 +581,7 @@ const RUNTIME = String.raw`
     }));
   }
   function showForm(rec, isNew) {
+    disarm();
     setDirty(false);
     S.cur = rec; $('#layout').classList.toggle('has-sel', !!rec);
     document.querySelectorAll('#rows tbody tr').forEach(function (tr) { tr.setAttribute('aria-selected', rec && tr.dataset.id === String(rec.recordId) ? 'true' : 'false'); });
@@ -659,11 +660,13 @@ const RUNTIME = String.raw`
       });
     }).catch(invalid);
   }
-  var armed = false;
+  // Armed for one record only: showForm disarms, so another record or a new form starts unarmed.
+  var armed, armT;
+  function disarm() { clearTimeout(armT); armed = 0; ($('#del') || {}).textContent = 'Delete'; }
   function del() {
-    var b = $('#del');
-    if (!armed) { armed = true; b.textContent = 'Really delete?'; setTimeout(function () { armed = false; if (b.isConnected) b.textContent = 'Delete'; }, 4000); return; }
-    armed = false;
+    var id = S.cur.recordId;
+    if (armed !== id) { armed = id; $('#del').textContent = 'Really delete?'; armT = setTimeout(disarm, 4000); return; }
+    disarm();
     tabularius.remove(P.layout, S.cur.recordId).then(function () { setDirty(false); status('Deleted.'); if (P.mode === 'detail') return go(Math.max(0, S.idx - 1)); close(); return load(); }).catch(fail);
   }
   function openRec(rec) { if (discard()) showForm(rec); }
