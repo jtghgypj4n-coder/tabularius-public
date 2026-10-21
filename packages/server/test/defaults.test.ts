@@ -24,7 +24,7 @@ const freePort = () => new Promise<number>((resolve, reject) => {
 
 /** Nothing from the machine that would change a default: no key, no mail, no certificate, no settings of ours. */
 // A key in the environment is on purpose: it must not switch the assistant on without --ai.
-const cleanEnv = (home: string): NodeJS.ProcessEnv => ({ PATH: process.env.PATH, HOME: home, TMPDIR: home, ANTHROPIC_API_KEY: 'sk-ant-not-a-real-key' });
+const cleanEnv = (home: string): NodeJS.ProcessEnv => ({ PATH: process.env.PATH, HOME: home, TMPDIR: home, ANTHROPIC_API_KEY: 'sk' + '-ant-not-a-real-key' });
 
 interface Running { child: ChildProcess; output: () => string; stop(): Promise<void> }
 

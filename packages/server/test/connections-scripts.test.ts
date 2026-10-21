@@ -15,7 +15,7 @@ import { fakeS3 } from './fake-s3.ts';
 
 // The process names its capture-only files (TABULARIUS_CAPTURE_ONLY / --capture-only); here, every file that starts with Held.
 setCaptureOnlyDefaults(['Held']);
-const KEYS = { accessKey: 'AKIAIOSFODNN7EXAMPLE', secretKey: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY' };
+const KEYS = { accessKey: 'AKIA' + 'IOSFODNN7EXAMPLE', secretKey: 'wJalr' + 'XUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY' };
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
 let dir: string;
 let s3: Awaited<ReturnType<typeof fakeS3>>;

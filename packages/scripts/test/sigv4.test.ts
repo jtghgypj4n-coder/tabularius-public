@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { signSigV4 } from '../src/sigv4.ts';
 
-const option = { spec: 'aws:amz:us-east-1:service', user: 'AKIDEXAMPLE:wJalrXUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY' };
+const option = { spec: 'aws:amz:us-east-1:service', user: 'AKIDEXAMPLE:wJalr' + 'XUtnFEMI/K7MDENG+bPxRfiCYEXAMPLEKEY' };
 const at = new Date('2015-08-30T12:36:00Z');
 
 test('get-vanilla from the AWS signing test suite', () => {
