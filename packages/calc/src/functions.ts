@@ -1957,6 +1957,14 @@ const beFtp = (name: string, v: Value[], env: Env): Value | undefined => {
   let bytes: Uint8Array | undefined;
   if (at.file) {
     const given = v[1];
+    if (at.file !== 'container') {
+      // The size is asked first, so a file over the limit is never read into memory.
+      const size = env.ctx.files?.size(T(given, env));
+      if (size !== undefined && size > BE_MAX_UPLOAD) {
+        beErrors.set(env.ctx, `${name}: the file is over ${BE_MAX_UPLOAD / 1024 / 1024} MB`);
+        return beResult(env, 25, num(25));
+      }
+    }
     bytes = at.file === 'container' ? (given?.type === 'container' ? given.data : undefined) : env.ctx.files?.read(T(given, env));
     if (!bytes) {
       beErrors.set(env.ctx, at.file === 'container' ? `${name} needs a container field with a file in it` : `${name}: no file at ${T(given, env)} (paths are inside the Documents folder)`);

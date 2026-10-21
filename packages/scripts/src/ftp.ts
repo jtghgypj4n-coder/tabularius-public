@@ -9,7 +9,7 @@
 
 import { connect as tcp, type Socket } from 'node:net';
 import { connect as tlsConnect, type ConnectionOptions, type TLSSocket } from 'node:tls';
-import { hostRefusal, socketLookup, type OutboundPolicy } from './net-guard.ts';
+import { addressRefusal, hostRefusal, reserveOutbound, socketLookup, type OutboundPolicy } from './net-guard.ts';
 
 export interface FtpRequest {
   op: 'put' | 'delete';
@@ -40,6 +40,8 @@ export interface FtpOptions {
 
 const LINE_MAX = 8192;
 const REPLY_LINES_MAX = 200;
+/** Replies waiting to be read; a server sending more than this while the client is busy elsewhere is cut off. */
+const LINES_WAITING_MAX = 1000;
 const DEFAULT_MS = 30_000;
 
 class FtpFailure extends Error {
@@ -83,6 +85,11 @@ class Control {
         this.buffer = this.buffer.slice(i + 1);
         if (line.length > LINE_MAX) return this.fail(new FtpFailure('the server sent a line that is too long', 7));
         this.lines.push(line);
+      }
+      if (this.lines.length > LINES_WAITING_MAX) {
+        this.lines = [];
+        this.socket.destroy();
+        return this.fail(new FtpFailure('the server sent far more replies than were asked for', 7));
       }
       this.wake();
     });
@@ -160,76 +167,97 @@ export async function ftpTransfer(request: FtpRequest, options: FtpOptions = {})
   const stop = options.signal ? AbortSignal.any([options.signal, timeout]) : timeout;
   const onAbort = () => sockets.forEach((s) => s.destroy());
   stop.addEventListener('abort', onAbort, { once: true });
+  // Whatever step is waiting (a connection, a handshake, a reply), time running out or a stop ends the call.
+  const tooLong = new FtpFailure('the transfer took too long or was stopped', 7);
+  const aborted = new Promise<never>((_, reject) => {
+    if (stop.aborted) reject(tooLong);
+    else stop.addEventListener('abort', () => reject(tooLong), { once: true });
+  });
+  aborted.catch(() => {});
   const policy = options.policy ?? {};
   const lookup = socketLookup(policy);
-  const connection = (host: string, port: number, session?: Buffer): Promise<Socket> => new Promise((resolve, reject) => {
+  /** `name` is the host the person wrote: the data connection goes to the control connection's address, judged under that name. */
+  const connection = (host: string, port: number, name: string, session?: Buffer): Promise<Socket> => new Promise((resolve, reject) => {
     // The lookup is not asked about a host written as an address, so that is checked here.
-    const why = hostRefusal(policy, host);
+    const why = name === host ? hostRefusal(policy, host) : addressRefusal(policy, name, host);
     if (why) return reject(new FtpFailure(why, 7));
     const base = { host, port, lookup, servername: where.host };
     const socket: Socket = where.secure
       ? tlsConnect({ ...base, ...(options.ca ? { ca: options.ca } : {}), ...(session ? { session } : {}) } as ConnectionOptions)
       : tcp({ host, port, lookup });
     sockets.push(socket);
-    const failed = (e: Error) => reject(new FtpFailure(stop.aborted ? 'the transfer took too long or was stopped' : e.message, stop.aborted ? 7 : /cert|TLS|SSL|handshake|self[- ]signed/i.test(e.message) ? 35 : 7));
+    const failed = (e: Error) => reject(new FtpFailure(stop.aborted ? tooLong.message : e.message, stop.aborted ? 7 : /cert|TLS|SSL|handshake|self[- ]signed/i.test(e.message) ? 35 : 7));
+    const closed = () => reject(new FtpFailure(stop.aborted ? tooLong.message : 'the connection closed before it was ready', 7));
     socket.once('error', failed);
-    socket.once(where.secure ? 'secureConnect' : 'connect', () => { socket.off('error', failed); resolve(socket); });
+    socket.once('close', closed);
+    socket.once(where.secure ? 'secureConnect' : 'connect', () => { socket.off('error', failed); socket.off('close', closed); resolve(socket); });
   });
-  try {
-    const control = new Control(await connection(where.host, where.port));
+  let release: (() => void) | undefined;
+  let finished = false;
+  const transfer = async (): Promise<FtpResult> => {
+    const slot = await reserveOutbound(stop);
+    release = slot;
+    if (finished) slot();
+    const control = new Control(await connection(where.host, where.port, where.host));
     const hello = await control.reply();
-    if (hello.code !== 220) throw new FtpFailure(`the server did not accept the connection: ${hello.code} ${hello.text}`, 7);
+    if (hello.code !== 220) throw new FtpFailure(`the server did not accept the connection: ${hello.code}`, 7);
     const user = await ask(control, `USER ${request.user || 'anonymous'}`);
     if (user.code === 331) {
       const pass = await ask(control, `PASS ${request.user ? request.password : request.password || 'anonymous@'}`);
-      if (pass.code !== 230) throw new FtpFailure(`the server refused the login: ${pass.code} ${pass.text}`, 67);
-    } else if (user.code !== 230) throw new FtpFailure(`the server refused the login: ${user.code} ${user.text}`, 67);
+      if (pass.code !== 230) throw new FtpFailure(`the server refused the login: ${pass.code}`, 67);
+    } else if (user.code !== 230) throw new FtpFailure(`the server refused the login: ${user.code}`, 67);
     if (where.secure) {
       for (const command of ['PBSZ 0', 'PROT P']) {
         const r = await ask(control, command);
-        if (r.code >= 400) throw new FtpFailure(`the server would not protect the data connection: ${r.code} ${r.text}`, 35);
+        if (r.code >= 400) throw new FtpFailure(`the server would not protect the data connection: ${r.code}`, 35);
       }
     }
     if (request.op === 'delete') {
       // BaseElements' delete takes the path as the server's login folder sees it: without the leading slash.
       const r = await ask(control, `DELE ${where.path.replace(/^\/+/, '')}`);
-      if (r.code !== 250) throw new FtpFailure(`the server did not delete the file: ${r.code} ${r.text}`, 21);
+      if (r.code !== 250) throw new FtpFailure(`the server did not delete the file: ${r.code}`, 21);
       void ask(control, 'QUIT').catch(() => {});
       return { status: r.code };
     }
     const type = await ask(control, 'TYPE I');
-    if (type.code !== 200) throw new FtpFailure(`the server would not send the file as it is: ${type.code} ${type.text}`, 25);
+    if (type.code !== 200) throw new FtpFailure(`the server would not take the file as it is: ${type.code}`, 25);
     let passive = await ask(control, 'EPSV');
     let port = passive.code === 229 ? dataPort(passive) : undefined;
     if (port === undefined) {
       passive = await ask(control, 'PASV');
       port = passive.code === 227 ? dataPort(passive) : undefined;
     }
-    if (port === undefined || port < 1 || port > 65535) throw new FtpFailure('the server gave no port to send the file to', 25);
+    // A passive port is an unprivileged one, and not the control connection's own: a server can't aim the upload at another service on its host.
+    if (port === undefined || port < 1024 || port > 65535 || port === where.port) throw new FtpFailure('the server gave no port to send the file to', 25);
     // The address that answered the control connection: the reply's own address is ignored.
     const peer = control.socket.remoteAddress;
     if (!peer) throw new FtpFailure('the connection was lost', 7);
     const session = where.secure ? (control.socket as TLSSocket).getSession() : undefined;
-    const data = await connection(peer, port, session);
+    const data = await connection(peer, port, where.host, session);
     const sent = new Promise<void>((resolve, reject) => {
-      data.once('error', (e) => reject(new FtpFailure(e.message, 25)));
+      data.on('error', (e) => reject(new FtpFailure(e.message, 25)));
       data.end(request.bytes ?? new Uint8Array(0), () => resolve());
     });
     // Settled before it is awaited, below, so a failure in between is not an unhandled one.
     sent.catch(() => {});
     // The server's "150" comes as it opens the data connection; the upload is complete at "226".
     const start = await ask(control, `STOR ${where.path}`);
-    if (start.code !== 125 && start.code !== 150) { data.destroy(); throw new FtpFailure(`the server would not take the file: ${start.code} ${start.text}`, 25); }
+    if (start.code !== 125 && start.code !== 150) { data.destroy(); throw new FtpFailure(`the server would not take the file: ${start.code}`, 25); }
     await sent;
     const done = await control.reply();
-    if (done.code !== 226 && done.code !== 250) throw new FtpFailure(`the upload did not finish: ${done.code} ${done.text}`, 25);
+    if (done.code !== 226 && done.code !== 250) throw new FtpFailure(`the upload did not finish: ${done.code}`, 25);
     void ask(control, 'QUIT').catch(() => {});
     return { status: done.code };
+  };
+  try {
+    return await Promise.race([transfer(), aborted]);
   } catch (e) {
     if (e instanceof FtpFailure) return { status: 0, error: e.message, code: e.code };
-    return { status: 0, error: (e as Error).message, code: 7 };
+    return { status: 0, error: stop.aborted ? tooLong.message : (e as Error).message, code: 7 };
   } finally {
     stop.removeEventListener('abort', onAbort);
+    finished = true;
+    release?.();
     // Whatever the outcome, nothing stays open.
     setTimeout(() => sockets.forEach((s) => s.destroy()), 200).unref();
   }

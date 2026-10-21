@@ -333,7 +333,7 @@ type FilePool = { active: number; accounts: Map<string, number>; waiting: Map<st
 const filePools = new Map<string, FilePool>();
 
 /** Eight combined HTTP/HTTPS sockets per file, four per account; FIFO within each account, round-robin between them. */
-function reserveOutbound(signal: AbortSignal): Promise<() => void> {
+export function reserveOutbound(signal: AbortSignal): Promise<() => void> {
   signal.throwIfAborted();
   const identity = outboundContext.getStore();
   if (!identity) return Promise.resolve(() => {}); // Operator webhooks/connections do not share a script tenant's capacity.
