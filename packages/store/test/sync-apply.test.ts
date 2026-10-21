@@ -1180,10 +1180,84 @@ test('an owed file replaces the one FileMaker holds for the same field when they
     theirs.fields.Photo = 'container-theirs';
     theirs.modId++;
     restart(r);
-    await again(r);
+    const res = await again(r);
     assert.deepEqual(sentFields(r), ['u1:Photo']);
     assert.notEqual(r.fm.byUuid('u1')!.fields.Photo, 'container-theirs');
     assert.deepEqual(pendingRows(r.store), []);
+    // The file it replaced is said so, with its size.
+    assert.match(res.tables[0].containers.skipped.map((x) => x.reason).join(), /replaced a different file FileMaker held \(12 bytes/);
+  } finally { cleanup(r); }
+});
+
+test('a retry that cannot compare FileMaker\'s file with its own says it was sent without comparing', async () => {
+  const r = rig();
+  try {
+    withFiles(r, 'u1', { Photo: 'photo bytes' });
+    r.fm.enableFetch();
+    await killed(r, { start: 0 });
+    const theirs = r.fm.byUuid('u1')!;
+    theirs.fields.Photo = 'container-theirs';
+    theirs.modId++;
+    r.fm.fetchSkipped = 'too big';
+    restart(r);
+    const res = await again(r);
+    assert.deepEqual(sentFields(r), ['u1:Photo']);
+    assert.match(res.tables[0].containers.skipped.map((x) => x.reason).join(), /sent without comparing it with the one FileMaker holds: too big/);
+  } finally { cleanup(r); }
+});
+
+test('a record settled for FileMaker gives up the files it owed, and takes FileMaker\'s file', async () => {
+  const r = rig();
+  try {
+    const id = withFiles(r, 'u1', { Photo: 'photo bytes' });
+    r.fm.enableFetch();
+    await killed(r, { start: 0 });
+    const theirs = r.fm.byUuid('u1')!;
+    r.fm.hold('container-theirs', Buffer.from('their file'));
+    theirs.fields.Photo = 'container-theirs';
+    theirs.fields.Name = 'EditedOnFM';
+    theirs.modId++;
+    restart(r);
+    r.store.update('Contacts', id, { Name: 'EditedHere' });
+    const res = await again(r, { pull: true, resolve: 'filemaker-wins' });
+    assert.equal(res.stopped, undefined);
+    assert.equal(r.fm.uploads.length, 0);
+    assert.deepEqual(pendingRows(r.store), []);
+    assert.equal(rows(r.store)[0].Name, 'EditedOnFM');
+    assert.equal(r.store.container(Number(rows(r.store)[0].Photo))?.data.length, 'their file'.length);
+  } finally { cleanup(r); }
+});
+
+test('a record in use (301) keeps its owed file for the next run; a refusal that will not change is forgotten', async () => {
+  const r = rig();
+  try {
+    withFiles(r, 'u1', { Photo: 'photo bytes' });
+    r.fm.enableFetch();
+    r.fm.uploadFailure = new SyncWriteError('Record is in use (error 301)', '301', true);
+    const first = await r.run({ containers });
+    assert.equal(first.stopped, undefined);
+    assert.deepEqual(owedFields(r.store), ['u1:Photo']);
+    await again(r);
+    assert.deepEqual(sentFields(r), ['u1:Photo', 'u1:Photo']);
+    assert.ok(r.fm.byUuid('u1')!.fields.Photo);
+    assert.deepEqual(pendingRows(r.store), []);
+  } finally { cleanup(r); }
+});
+
+test('after a kill that landed after the upload, a run that pulls nothing leaves no false conflict on the next local edit', async () => {
+  const r = rig();
+  try {
+    const id = withFiles(r, 'u1', { Photo: 'photo bytes' });
+    r.fm.enableFetch();
+    await killed(r, { done: 1 });
+    restart(r);
+    await again(r);
+    assert.equal(r.fm.uploads.length, 1);
+    assert.deepEqual(pendingRows(r.store), []);
+    r.store.update('Contacts', id, { Name: 'Annie' });
+    const res = await again(r);
+    assert.equal(res.refused, undefined);
+    assert.equal(r.fm.byUuid('u1')!.fields.Name, 'Annie');
   } finally { cleanup(r); }
 });
 
