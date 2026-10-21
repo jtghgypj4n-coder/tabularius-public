@@ -147,3 +147,48 @@ test('the Data Viewer shows the current record and a watched formula, and follow
     await page.context().close();
   }
 });
+
+test('AR-web-admin-console-07 the Data Viewer Current tab reads the paused scratch run rather than the hosted record', { skip }, async () => {
+  const page = await open();
+  try {
+    hosted.store('Shop').applyDesign([{ op: 'createScript', name: 'Scratch Current', text: [
+      'Set Field [ Customers::Name ; "scratch-new" ]',
+      'Commit Records/Requests [ With dialog: Off ]',
+      'Exit Script',
+    ].join('\n') }] as DesignOp[]);
+    const run = await page.evaluate(async () => {
+      const session = JSON.parse(sessionStorage.getItem('tabularius.session')!);
+      const base = `/tabularius/debug/v1/databases/${encodeURIComponent(session.db)}`;
+      const response = await fetch(`${base}/runs`, { method: 'POST', headers: { authorization: `Bearer ${session.token}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ script: 'Scratch Current', layout: 'Customers', pauseAtStart: false, breakpoints: [{ script: 'Scratch Current', index: 2 }] }) });
+      return response.json();
+    });
+    assert.equal(run.paused.index, 2);
+    assert.equal(hosted.store('Shop').find('Customers', { query: [{ Id: '==1' }] }).records[0].fieldData.Name, 'Ada');
+    const viewer = await page.context().newPage() as Page & { errors: string[] };
+    viewer.errors = [];
+    viewer.on('pageerror', (error) => viewer.errors.push(error.message));
+    const saved = await page.evaluate(() => sessionStorage.getItem('tabularius.session'));
+    await viewer.addInitScript((value) => { if (value) sessionStorage.setItem('tabularius.session', value); }, saved);
+    const runCurrentRequests: string[] = [];
+    viewer.on('request', (request) => { if (request.url().includes('/runs/') && request.url().includes('/current?')) runCurrentRequests.push(request.url()); });
+    await viewer.goto(hosted.url + '/app/dataviewer.html');
+    await viewer.getByRole('heading', { name: 'Data Viewer' }).waitFor();
+    await viewer.getByRole('tab', { name: 'Current' }).click();
+    await until(() => value(viewer, 'Customers::Name'), (v) => v === 'scratch-new');
+    assert.ok(runCurrentRequests.some((url) => url.includes(`/runs/${run.id}/current?`)), 'Current uses the paused run endpoint');
+    assert.equal(hosted.store('Shop').find('Customers', { query: [{ Id: '==1' }] }).records[0].fieldData.Name, 'Ada');
+    await page.evaluate(async (id) => {
+      const session = JSON.parse(sessionStorage.getItem('tabularius.session')!);
+      await fetch(`/tabularius/debug/v1/databases/${encodeURIComponent(session.db)}/runs/${id}/halt`, { method: 'POST', headers: { authorization: `Bearer ${session.token}` } });
+      const channel = new BroadcastChannel(`tabularius.debug.${session.db}`);
+      channel.postMessage({ type: 'run', id, paused: false });
+      channel.close();
+    }, run.id);
+    await until(() => value(viewer, 'Customers::Name'), (v) => v === 'Ada');
+    assert.match(await viewer.locator('.g-status').innerText(), /^Web client window/);
+    assert.deepEqual(page.errors, []);
+    assert.deepEqual(viewer.errors, []);
+    await viewer.close();
+  } finally { await page.context().close(); }
+});

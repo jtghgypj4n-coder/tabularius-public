@@ -58,12 +58,13 @@ export function shortcutText(shortcut: NonNullable<CustomMenuItem['shortcut']>, 
 }
 
 /** The item a key press runs, if a shortcut matches. */
-export function shortcutItem(menus: CustomMenu[], e: { key: string; shiftKey: boolean; metaKey: boolean; ctrlKey: boolean }): CustomMenuItem | undefined {
+export function shortcutItem(menus: CustomMenu[], e: { key: string; shiftKey: boolean; metaKey: boolean; ctrlKey: boolean; altKey: boolean; getModifierState?: (key: string) => boolean }): CustomMenuItem | undefined {
+  if (e.getModifierState?.('AltGraph')) return undefined;
   const mod = e.metaKey || e.ctrlKey;
   const find = (items: CustomMenuItem[]): CustomMenuItem | undefined => {
     for (const it of items) {
       const s = it.shortcut;
-      if (s && s.key.toLowerCase() === e.key.toLowerCase() && !!(s.modifiers & 4) === mod && !!(s.modifiers & 1) === e.shiftKey) return it;
+      if (s && s.key.toLowerCase() === e.key.toLowerCase() && !!(s.modifiers & 4) === mod && !!(s.modifiers & 1) === e.shiftKey && !!(s.modifiers & 8) === e.altKey) return it;
       const sub = it.items && find(it.items);
       if (sub) return sub;
     }

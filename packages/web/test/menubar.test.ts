@@ -13,7 +13,7 @@ const menus: CustomMenu[] = [
 ];
 
 test('custom menu shortcuts and commands', () => {
-  const key = (key: string, mods: { shift?: boolean; ctrl?: boolean } = {}) => ({ key, shiftKey: !!mods.shift, ctrlKey: !!mods.ctrl, metaKey: false });
+  const key = (key: string, mods: { shift?: boolean; ctrl?: boolean; alt?: boolean } = {}) => ({ key, shiftKey: !!mods.shift, ctrlKey: !!mods.ctrl, metaKey: false, altKey: !!mods.alt });
   assert.equal(shortcutItem(menus, key('[', { ctrl: true }))?.title, 'Back');
   assert.equal(shortcutItem(menus, key('['))?.title, undefined);
   assert.equal(shortcutItem(menus, key('r', { ctrl: true, shift: true }))?.command, 'Refresh Window');
@@ -22,6 +22,18 @@ test('custom menu shortcuts and commands', () => {
   assert.deepEqual(commands(menus).get('Find Mode')?.run, [27, 4]);
   assert.equal(shortcutText({ key: 'r', modifiers: 5 }, true), '⇧⌘R');
   assert.equal(shortcutText({ key: '[', modifiers: 4 }, false), 'Ctrl+[');
+});
+
+test('custom shortcuts match Alt as well as the other advertised modifiers', () => {
+  const altOnly: CustomMenu[] = [{ title: 'Custom', items: [
+    { kind: 'command', title: 'Alt command', shortcut: { key: 's', modifiers: 12 } },
+    { kind: 'command', title: 'Plain command', shortcut: { key: 's', modifiers: 4 } },
+  ] }];
+  const event = (altKey: boolean) => ({ key: 's', shiftKey: false, metaKey: false, ctrlKey: true, altKey });
+  assert.equal(shortcutItem(altOnly, event(false))?.title, 'Plain command');
+  assert.equal(shortcutItem(altOnly, event(true))?.title, 'Alt command');
+  assert.equal(shortcutItem([{ title: 'Custom', items: [...altOnly[0].items].reverse() }], event(false))?.title, 'Plain command');
+  assert.equal(shortcutItem(altOnly, { ...event(true), getModifierState: (key) => key === 'AltGraph' }), undefined);
 });
 
 test('standard menus: Records in Browse mode, Requests in Find mode', () => {

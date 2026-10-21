@@ -407,6 +407,28 @@ export class DebugApi {
       if (!run || run.token !== session.token || run.db !== store.name) throw new ApiError(101, 'No such debugging run', 404);
       run.touched = performance.now();
       if (!action && req.method === 'GET') return send(200, this.view(run, run.debugger.state())), true;
+      if (action === 'current' && req.method === 'GET') {
+        const state = run.debugger.state();
+        if (!state.paused) throw new ApiError(3, 'The script is no longer paused', 409);
+        const currentStore = run.scratch?.store ?? store;
+        const layout = state.paused.layout;
+        if (!layout) throw new ApiError(105, 'The paused script has no current layout', 400);
+        const info = currentStore.layout(layout);
+        const recordId = state.paused.mode === 'find' ? undefined : state.paused.recordId;
+        if (recordId !== undefined) currentStore.row(info, recordId);
+        const fields: Record<string, unknown> = {};
+        const to = currentStore.calc.occurrence(info.occurrence);
+        if (recordId !== undefined && to) {
+          const occ = occurrence(currentStore, to.id);
+          if (occ) Object.assign(fields, currentStore.get(currentStore.occurrenceInfo(occ), recordId).fieldData);
+        }
+        const variables = globalsOf(currentStore, session);
+        const redaction = diagnosticsOf(currentStore);
+        learnStoredCredentials(currentStore, redaction);
+        redaction.data(fields);
+        redaction.data(variables);
+        return send(200, { layout, occurrence: info.occurrence, table: info.table, ...(recordId !== undefined ? { recordId } : {}), fields: redaction.data(fields), variables: redaction.data(variables) }), true;
+      }
       if (action === 'breakpoints' && req.method === 'PUT') {
         run.debugger.setBreakpoints(breakpoints((await readJson(req)).breakpoints));
         return send(200, this.view(run, run.debugger.state())), true;

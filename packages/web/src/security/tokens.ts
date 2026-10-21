@@ -5,6 +5,7 @@ import { errorText, type Sec } from './main.ts';
 
 // The last token minted, shown once (only its hash is kept on the server).
 let justMinted: { id: string; token: string } | undefined;
+let tokenCreationPending = false;
 
 function when(iso?: string): string {
   if (!iso) return '—';
@@ -76,10 +77,15 @@ export function tokensTab(sec: Sec): HTMLElement {
     : undefined;
 
   const form = h('form', { class: 'd-inline-form sec-create' }, field('Account', account), label, readOnly.el, expires, surfaces, layoutScope);
-  form.append(button('Create token', () => form.requestSubmit(), { class: 'primary' }));
+  const createButton = button('Create token', () => form.requestSubmit(), { class: 'primary token-create' });
+  createButton.disabled = tokenCreationPending;
+  form.append(createButton);
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
+    if (tokenCreationPending) return;
     if (!account.value) { toast('Add an account first.'); return; }
+    tokenCreationPending = true;
+    createButton.disabled = true;
     try {
       const chosen = surfaceChecks.filter((c) => c.input.checked).map((c) => c.key);
       const chosenLayouts = layoutChecks.filter((c) => c.input.checked).map((c) => c.name);
@@ -94,6 +100,9 @@ export function tokensTab(sec: Sec): HTMLElement {
       sec.set(r.security);
     } catch (err) {
       toast(errorText(err));
+    } finally {
+      tokenCreationPending = false;
+      for (const control of document.querySelectorAll<HTMLButtonElement>('.token-create')) control.disabled = false;
     }
   });
 
