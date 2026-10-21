@@ -1896,6 +1896,10 @@ const beRequest = (name: string, v: Value[], env: Env): Value | undefined => {
         beErrors.set(env.ctx, `${name}: no file at ${file} (paths are inside the Documents folder)`);
         return beResult(env, BE_NO_FILE, num(BE_NO_FILE));
       }
+      if (bodyBytes.length > BE_MAX_UPLOAD) { // grew since the size was asked
+        beErrors.set(env.ctx, `${name}: ${file} is over ${BE_MAX_UPLOAD / 1024 / 1024} MB`);
+        return beResult(env, 7, num(7));
+      }
     }
   }
   if (method === 'POST' && body !== undefined && !('content-type' in headers)) headers['content-type'] = 'application/x-www-form-urlencoded';
