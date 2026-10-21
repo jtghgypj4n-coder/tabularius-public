@@ -19,16 +19,17 @@ let server: Server;
 let base: string;
 let ui: Store;
 let data: Store;
+let other: Store;
 const ids = { people: 0, name: 0, salary: 0 };
 
 before(async () => {
   dir = mkdtempSync(join(tmpdir(), 'tabularius-xfile-calc-'));
-  for (const name of ['UI', 'Data']) createStore(join(dir, `${name}.openhbam.sqlite`));
+  for (const name of ['UI', 'Data', 'Other']) createStore(join(dir, `${name}.openhbam.sqlite`));
   const served = await serve({ dir, port: 0, hostname: '127.0.0.1', sqlPort: 0, watch: false, log: () => {} });
   server = served.server;
   base = served.url;
-  [ui, data] = ['UI', 'Data'].map((n) => served.host.get(n)!);
-  for (const store of [ui, data]) {
+  [ui, data, other] = ['UI', 'Data', 'Other'].map((n) => served.host.get(n)!);
+  for (const store of [ui, data, other]) {
     store.setAiPolicy(false);
     store.savePrivilegeSet({ ...store.privilegeSet('[Full Access]')!, extendedPrivileges: keys });
   }
@@ -37,6 +38,12 @@ before(async () => {
   ids.people = people.id;
   ids.name = people.fields.find((f) => f.name === 'Name')!.id;
   ids.salary = people.fields.find((f) => f.name === 'Salary')!.id;
+  // A third file with a table of the same shape and ids, where the designer may read everything.
+  other.applyDesign([{ op: 'createTable', name: 'People', fields: [{ name: 'Name' }, { name: 'Salary', type: 'number' }] }]);
+  assert.equal(other.schema.tables[0].id, ids.people);
+  other.create('People', { Name: 'Ann', Salary: 1 });
+  other.setPassword('Des', 'pw', '[Full Access]');
+  other.setPassword('Both', 'pw', '[Full Access]');
   data.create('People', { Name: 'Ann', Salary: Number(SALARY) });
   data.create('People', { Name: 'Bob', Salary: Number(BOBS) });
   const open = { view: true, edit: true, create: true, delete: true };
@@ -54,6 +61,11 @@ before(async () => {
     { op: 'createOccurrence', name: 'P', file: 'Data', externalTable: ids.people },
   ], { readOtherFile: () => true });
   ui.applyDesign([{ op: 'createRelationship', left: 'Mine', right: 'P', predicates: [{ left: 'Key', right: ids.name }] }]);
+  ui.applyDesign([
+    { op: 'createDataSource', name: 'Elsewhere', paths: ['file:Other'] },
+    { op: 'createOccurrence', name: 'E', file: 'Elsewhere', externalTable: ids.people },
+    { op: 'createRelationship', left: 'Mine', right: 'E', predicates: [{ left: 'Key', right: ids.name }] },
+  ], { readOtherFile: () => true });
   ui.create('Mine', { Key: 'Ann' });
   ui.create('Mine', { Key: 'Bob' });
   // A calculation its owner wrote that reads the salary, to explain.
@@ -297,4 +309,190 @@ test('Explain This Value: a calculation reading the data file shows no data, no 
   }
   const both = await explain('Both');
   assert.match(both.text, new RegExp(SALARY));
+});
+
+// --- a decision is made on the parsed formula, and on every formula a change reaches ---------------------------------
+
+/** Writes to a Mine record and back, as a user or an import does: stored values are then worked out with full data. */
+function touch(): void {
+  for (const [id, key] of [[1, 'Ann'], [2, 'Bob']] as const) {
+    ui.update('Mine', id, { Key: 'x' });
+    ui.update('Mine', id, { Key: key });
+  }
+}
+const mineHas = (name: string) => ui.schema.tables.find((t) => t.name === 'Mine')!.fields.some((f) => f.name === name);
+const noSalary = (text: string) => assert.doesNotMatch(text, new RegExp(`${SALARY}|${BOBS}`));
+
+test('reading by name or SQL cannot hide behind a comment, spacing, case, a built name or the other SQL spellings', async () => {
+  const formulas = [
+    'GetField/**/( "P::Salary" ) & Key',
+    'Evaluate /* c */ ( "P::Salary" ) & Key',
+    'ExecuteSQL /**/( "SELECT Salary FROM P" ; "" ; "" ) & Key',
+    'ExecuteSQLe ( "SELECT Salary FROM P" ; "" ; "" )',
+    'ExecuteSQLe /* c */ ( "SELECT Salary FROM P" ; "" ; "" )',
+    'BE_FileMakerSQL /**/( "SELECT Salary FROM P" )',
+    'getfield // a line comment\n ( "P::Salary" )',
+    'GetField\t\n( "P::" & "Salary" )',
+    'Let ( n = "P::Sal" & "ary" ; GetField ( n ) )',
+    'Case ( 0 ; "" ; Evaluate ( "P::" & "Salary" ) )',
+  ];
+  for (const calculation of formulas) {
+    const name = field('s');
+    const r = await make('Des', { name, kind: 'calculation', type: 'text', calculation });
+    assert.equal(r.status, 400, `${calculation} ${r.text}`);
+    assert.equal(mineHas(name), false, calculation);
+  }
+  // The same through an update of a field that exists.
+  const own = field('t');
+  assert.equal((await make('Des', { name: own, kind: 'calculation', type: 'text', calculation: 'Key & "!"' })).status, 200);
+  for (const calculation of ['GetField/**/( "P::Salary" ) & Key', 'ExecuteSQLe /**/( "SELECT Salary FROM P" ; "" ; "" )']) {
+    const r = await route('Des', '', { changes: [{ op: 'updateField', table: 'Mine', field: own, calculation }] });
+    assert.equal(r.status, 400, `${calculation} ${r.text}`);
+  }
+  assert.equal(ui.schema.tables.find((t) => t.name === 'Mine')!.fields.find((f) => f.name === own)!.calculation, 'Key & "!"');
+  touch();
+  assert.deepEqual(stored(own), ['Ann!', 'Bob!']);
+  // The account that may read the whole file saves them, and they work.
+  const both = field('u');
+  assert.equal((await make('Both', { name: both, kind: 'calculation', type: 'text', calculation: 'GetField/**/( "P::Salary" )' })).status, 200);
+  assert.deepEqual(stored(both), [SALARY, BOBS]);
+});
+
+test('a name in a comment or a string is not a read of the data file', async () => {
+  for (const calculation of ['/* P::Salary */ Key', '"P::Salary" & Key', 'Key // P::Salary']) {
+    const name = field('v');
+    const r = await make('Des', { name, kind: 'calculation', type: 'text', calculation });
+    assert.equal(r.status, 200, `${calculation} ${r.text}`);
+    assert.deepEqual(stored(name).map((x) => String(x).replace(/P::Salary/, '·')), calculation.startsWith('"') ? ['·Ann', '·Bob'] : ['Ann', 'Bob'], calculation);
+  }
+});
+
+test('a custom function that is changed after a stored calculation calls it is checked against every calculation that calls it', async () => {
+  const fn = (n: string) => `${n}${++named}`;
+  const calm = fn('Calm');
+  const inner = fn('Inner');
+  const outer = fn('Outer');
+  assert.equal((await route('Des', '', { changes: [
+    { op: 'createCustomFunction', name: calm, parameters: [], formula: '"x"' },
+    { op: 'createCustomFunction', name: inner, parameters: [], formula: '"y"' },
+    { op: 'createCustomFunction', name: outer, parameters: [], formula: `${inner} ( ) & "z"` },
+  ] })).status, 200);
+  const direct = field('w');
+  const nested = field('x');
+  const bare = field('y');
+  for (const [name, calculation] of [[direct, `${calm} ( ) & Key`], [nested, `${outer} ( ) & Key`], [bare, `${calm} & Key`]]) {
+    const r = await make('Des', { name, kind: 'calculation', type: 'text', calculation });
+    assert.equal(r.status, 200, `${calculation} ${r.text}`);
+  }
+  const update = (name: string, formula: string) => route('Des', '', { changes: [{ op: 'updateCustomFunction', customFunction: name, formula }] });
+  for (const [name, formula] of [[calm, 'P::Salary'], [inner, 'P::Salary'], [calm, 'GetField/**/( "P::Salary" )'], [inner, 'Evaluate ( "P::Salary" )']]) {
+    const r = await update(name, formula);
+    assert.equal(r.status, 400, `${name} ${formula} ${r.text}`);
+    noSalary(r.text);
+  }
+  assert.equal(ui.schema.customFunctions.find((c) => c.name === calm)!.formula, '"x"');
+  touch();
+  assert.deepEqual(stored(direct), ['xAnn', 'xBob']);
+  assert.deepEqual(stored(nested), ['yzAnn', 'yzBob']);
+  // A change that reads nothing outside is fine, and so is one by an account that may read the data file.
+  assert.equal((await update(calm, '"q" & Key')).status, 200);
+  assert.equal((await route('Both', '', { changes: [{ op: 'updateCustomFunction', customFunction: inner, formula: 'P::Salary' }] })).status, 200);
+  touch();
+  assert.deepEqual(stored(nested), [`${SALARY}zAnn`, `${BOBS}zBob`]);
+});
+
+test('renaming or deleting a custom function is checked the same way: a calculation can come to call another body', async () => {
+  const safe = `Safe${++named}`;
+  const leaky = `Leaky${++named}`;
+  const old = `Old${++named}`;
+  assert.equal((await route('Des', '', { changes: [
+    { op: 'createCustomFunction', name: safe, parameters: [], formula: '"s"' },
+    { op: 'createCustomFunction', name: leaky, parameters: [], formula: 'P::Salary' },
+  ] })).status, 200);
+  const name = field('z');
+  assert.equal((await make('Des', { name, kind: 'calculation', type: 'text', calculation: `${safe} ( ) & Key` })).status, 200);
+  const swap = await route('Des', '', { changes: [
+    { op: 'updateCustomFunction', customFunction: safe, name: old },
+    { op: 'updateCustomFunction', customFunction: leaky, name: safe },
+  ] });
+  assert.equal(swap.status, 400, swap.text);
+  assert.equal(ui.schema.customFunctions.some((c) => c.name === leaky), true, 'nothing was renamed');
+  touch();
+  assert.deepEqual(stored(name), ['sAnn', 'sBob']);
+  // Deleting the leaky one, or the safe one, reads nothing new.
+  assert.equal((await route('Des', '', { changes: [{ op: 'deleteCustomFunction', customFunction: leaky }] })).status, 200);
+});
+
+test('pointing a data source at another file is checked against every formula that reads through it, and every relationship on it', async () => {
+  // Lone is a data source of the third file, where the designer may read all of it; E3 is its table, with no
+  // relationship, so nothing but the stored calculation reads through it.
+  assert.equal((await route('Des', '', { changes: [
+    { op: 'createDataSource', name: 'Lone', paths: ['file:Other'] },
+    { op: 'createOccurrence', name: 'E3', file: 'Lone', externalTable: ids.people },
+  ] })).status, 200);
+  const name = field('A');
+  assert.equal((await make('Des', { name, kind: 'calculation', type: 'text', calculation: 'E3::Salary & Key' })).status, 200);
+  const move = (account: string, source: string, file: string) => route(account, '', { changes: [{ op: 'updateDataSource', dataSource: source, paths: [`file:${file}`] }] });
+  for (const source of ['Lone']) {
+    const r = await move('Des', source, 'Data');
+    assert.equal(r.status, 400, `${source} ${r.text}`);
+    noSalary(r.text);
+    assert.deepEqual(ui.schema.dataSources.find((d) => d.name === source)!.paths, ['file:Other']);
+  }
+  // E, which a relationship of Mine matches through, cannot be pointed at it either.
+  assert.equal((await move('Des', 'Elsewhere', 'Data')).status, 400);
+  touch();
+  assert.deepEqual(stored(name), ['Ann', 'Bob']);
+  // The account that may read the data file can do it.
+  assert.equal((await move('Both', 'Lone', 'Data')).status, 200);
+  assert.equal((await move('Both', 'Lone', 'Other')).status, 200);
+});
+
+test('a stored calculation that reads an unstored calculation reads what that one reads', async () => {
+  // Shown is an unstored calculation of the owner's that reads the salary: a stored value reads it with full data.
+  const via = field('I');
+  const r = await make('Des', { name: via, kind: 'calculation', type: 'text', calculation: 'Shown & Key' });
+  assert.equal(r.status, 400, r.text);
+  noSalary(r.text);
+  assert.equal(mineHas(via), false);
+  // An account that has the field hidden in the data file reads it through the calculation no more than directly.
+  const hidden = await make('Hid', { name: field('M'), kind: 'calculation', type: 'text', calculation: 'Shown & Key' });
+  assert.equal(hidden.status, 400, hidden.text);
+  assert.equal((await make('Both', { name: field('J'), kind: 'calculation', type: 'text', calculation: 'Shown & Key' })).status, 200);
+  // And one made to read the salary after a stored calculation reads it.
+  const plain = field('K');
+  const unstored = field('L');
+  assert.equal((await make('Des', { name: unstored, kind: 'calculation', type: 'text', calculation: 'Key & "?"', options: { unstored: true } })).status, 200);
+  assert.equal((await make('Des', { name: plain, kind: 'calculation', type: 'text', calculation: `${unstored} & Key` })).status, 200);
+  const change = await route('Des', '', { changes: [{ op: 'updateField', table: 'Mine', field: unstored, calculation: 'P::Salary' }] });
+  assert.equal(change.status, 400, change.text);
+  touch();
+  assert.deepEqual(stored(plain), ['Ann?Ann', 'Bob?Bob']);
+});
+
+test('a calculation whose context is an occurrence of the data file reads it through its plain names', async () => {
+  const name = field('B');
+  const r = await make('Des', { name, kind: 'calculation', type: 'text', calculation: 'Salary', calculationContext: 'P' });
+  assert.equal(r.status, 400, r.text);
+  assert.equal(mineHas(name), false);
+  const unreal = await make('Des', { name: field('C'), kind: 'calculation', type: 'text', calculation: 'Wage', calculationContext: 'P' });
+  assert.equal(said(r.text, 'Salary'), said(unreal.text, 'Wage'));
+  assert.equal((await make('Both', { name: field('D'), kind: 'calculation', type: 'text', calculation: 'Salary', calculationContext: 'P' })).status, 200);
+});
+
+test('turning a field into a stored calculation is checked: the kind of the field decides whether its formula is kept', async () => {
+  // An unstored calculation reading the data file is fine; made stored, it is not.
+  const unstoredRead = field('G');
+  assert.equal((await make('Des', { name: unstoredRead, kind: 'calculation', type: 'text', calculation: 'P::Name', options: { unstored: true } })).status, 200);
+  const stores = await route('Des', '', { changes: [{ op: 'updateField', table: 'Mine', field: unstoredRead, options: { unstored: false } }] });
+  assert.equal(stores.status, 400, stores.text);
+  assert.equal(ui.schema.tables.find((t) => t.name === 'Mine')!.fields.find((f) => f.name === unstoredRead)!.options?.unstored, true);
+});
+
+test('a value list made by the owner from the data file is not a way round: ValueListItems in a stored calculation is read by name', async () => {
+  ui.applyDesign([{ op: 'createValueList', name: 'Names', field: { occurrence: 'P', field: ids.name } }] as never, { readOtherFile: () => true });
+  const r = await make('Des', { name: field('N'), kind: 'calculation', type: 'text', calculation: 'ValueListItems ( "" ; "Names" )' });
+  assert.equal(r.status, 400, r.text);
+  const both = field('O');
+  assert.equal((await make('Both', { name: both, kind: 'calculation', type: 'text', calculation: 'ValueListItems ( "" ; "Names" )' })).status, 200);
 });

@@ -89,20 +89,36 @@ resolves.
   field that is not there), when it reads a table of which the account sees only
   some records (use an unstored calculation, which is worked out for each
   reader), or when it reads by name or query (`GetField`, `Evaluate`,
-  `ExecuteSQL`, also through a custom function) and the account cannot read all
+  `ExecuteSQL`, `ExecuteSQLe`, `BE_FileMakerSQL`) and the account cannot read all
   of the other file. A relationship made on another file's field the account
   cannot read is refused the same way. Accounts with Full Access in the other
   file, and changes made without an account (the operator's, the owner's own
   tools), are not restricted.
+- **What counts as reading**: the formula as the calculation engine parses it, so
+  a comment, spacing or the case of a name cannot hide a call, and a name that is
+  only inside a comment or a string is not a read. Custom functions are followed
+  into their bodies (and the ones those call), and an unstored calculation the
+  formula reads is followed into its own formula, because a stored value reads it
+  with full data.
+- **Changes that reach formulas already saved**: changing, renaming or deleting
+  a custom function, changing an unstored calculation, a table occurrence, or the
+  file a data source points at, checks every stored formula that reaches what
+  changed, as the account making the change, and refuses the change if one of
+  them would now read what the account cannot see. A formula that reads by name
+  or query is looked at again when a file the account cannot read in full comes
+  into reach.
 - **Explain This Value and `explain_value`**: what the formula reads in the
   other file is read as the account may, so the result and the steps over it
   hold nothing it cannot see; a field of the other file it cannot see is not
   listed, not even as "hidden".
 
 Not covered: a stored formula or relationship already in the file keeps what
-its author was allowed to write (it is not checked again), record-access rules
-are still worked out with full data, and a relationship the owner built on a
-field an account cannot see still lets that account's own key values probe it.
+its author was allowed to write (it is looked at again only when a change
+reaches it, as above), record-access rules are still worked out with full data,
+a relationship the owner built on a field an account cannot see still lets that
+account's own key values probe it, and the portal filters of layouts are not
+looked at here. `ValueListItems` is treated as a read by name when a value list
+takes its values from a file the account cannot read in full.
 
 ## Value-list membership validation: retained compatibility behavior
 
