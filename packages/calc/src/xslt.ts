@@ -5,6 +5,8 @@
 // the bare text for the text method. xsl:include and xsl:import are not supported; document()
 // only knows document('') (the stylesheet itself); disable-output-escaping is ignored.
 
+import { ResourceLimitError, resourceError, withXmlWorkBudget, workBudget, budgetDepth, budgetReplace } from './work-budget.ts';
+import { checkTextSize } from './text-budget.ts';
 import { rethrowExecutionRefusal } from './execution-refusal.ts';
 import {
   XPathError, bool, coreFunctionNames, compilePattern, compileXPath, evaluateCompiled, expandedName, formatNumber, inDocumentOrder,
@@ -13,6 +15,12 @@ import {
 } from './xpath.ts';
 
 export class XsltError extends Error {}
+
+function xpathFailure(error: XPathError, message = error.message): XsltError {
+  const converted = new XsltError(message);
+  try { rethrowExecutionRefusal(error); } catch { return resourceError(converted); }
+  return converted;
+}
 
 export interface XsltOptions {
   /** Receives the text of each xsl:message (by default messages are dropped). */
@@ -65,14 +73,16 @@ const expandQName = (qname: string, scope: Map<string, string> | null, where: st
  * The namespace declarations to carry over when copying an element. Like libxslt, these are the
  * declarations made on the element itself; the serializer adds any its name and attributes need.
  */
-const copiedNamespaces = (el: XNode): [string, string][] => el.nsDecls.map(([p, u]): [string, string] => [p, u]);
+const copiedNamespaces = (el: XNode): [string, string][] => { workBudget()?.nodes(el.nsDecls.length); return el.nsDecls.map(([p, u]): [string, string] => [p, u]); };
 
 // ---- Result tree building
 
 function addText(parent: XNode, text: string): void {
   if (!text) return;
+  workBudget()?.resultText(text.length);
+  workBudget()?.text(text.length);
   const last = parent.children.at(-1);
-  if (last?.kind === 'text') last.value += text;
+  if (last?.kind === 'text') { workBudget()?.checkText(last.value.length + text.length); last.value += text; }
   else {
     const t = node('text', parent);
     t.value = text;
@@ -88,6 +98,8 @@ function addAttribute(parent: XNode, name: string, prefix: string, local: string
   // Attributes after children, or outside an element, are a recoverable error: they are dropped.
   if (parent.kind !== 'element' || parent.children.length) return;
   const at = parent.attributes.findIndex((a) => a.localName === local && a.namespaceURI === uri);
+  workBudget()?.resultText(value.length);
+  workBudget()?.text(value.length);
   const a = node('attribute', parent);
   Object.assign(a, { name, prefix, localName: local, namespaceURI: uri, value });
   // A replaced attribute moves to the end, as in libxslt.
@@ -95,6 +107,8 @@ function addAttribute(parent: XNode, name: string, prefix: string, local: string
   parent.attributes.push(a);
 }
 function newElement(parent: XNode, prefix: string, local: string, uri: string, nsDecls: [string, string][]): XNode {
+  workBudget()?.text(prefix.length + local.length + uri.length);
+  workBudget()?.nodes(nsDecls.length);
   const el = node('element', parent);
   Object.assign(el, { name: prefix ? `${prefix}:${local}` : local, prefix, localName: local, namespaceURI: uri, nsDecls });
   parent.children.push(el);
@@ -107,20 +121,20 @@ const ROMAN: [number, string][] = [[1000, 'm'], [900, 'cm'], [500, 'd'], [400, '
 function groupDigits(digits: string, sep: string, size: number): string {
   if (!sep || !(size > 0)) return digits;
   let out = '';
-  for (let k = digits.length; k > 0; k -= size) out = digits.slice(Math.max(0, k - size), k) + (out ? sep + out : '');
+  for (let k = digits.length; k > 0; k -= size) { workBudget()?.transformWork(); out = digits.slice(Math.max(0, k - size), k) + (out ? sep + out : ''); }
   return out;
 }
 function formatOne(n: number, token: string, sep: string, size: number): string {
   if (!Number.isFinite(n)) return formatNumber(n);
   if (n >= 1 && (token === 'a' || token === 'A')) {
     let s = '';
-    for (let m = n; m > 0; m = Math.floor((m - 1) / 26)) s = String.fromCharCode(97 + ((m - 1) % 26)) + s;
+    for (let m = n; m > 0; m = Math.floor((m - 1) / 26)) { workBudget()?.transformWork(); s = String.fromCharCode(97 + ((m - 1) % 26)) + s; }
     return token === 'A' ? s.toUpperCase() : s;
   }
   if (n >= 1 && n < 5000 && (token === 'i' || token === 'I')) {
     let s = '';
     let m = n;
-    for (const [v, r] of ROMAN) for (; m >= v; m -= v) s += r;
+    for (const [v, r] of ROMAN) { workBudget()?.transformWork(); for (; m >= v; m -= v) { workBudget()?.transformWork(); s += r; } }
     return token === 'I' ? s.toUpperCase() : s;
   }
   const width = /^0*1$/.test(token) ? token.length : 1;
@@ -133,7 +147,7 @@ function formatNumberList(nums: number[], format: string, sep: string, size: num
   const re = /[\p{L}\p{N}]+/gu;
   let last = 0;
   let prefix = '';
-  for (const m of format.matchAll(re)) {
+  for (const m of format.matchAll(re)) { workBudget()?.transformWork();
     const between = format.slice(last, m.index);
     if (tokens.length) seps.push(between);
     else prefix = between;
@@ -168,9 +182,9 @@ function formatDecimal(x: number, picture: string, f: DecimalFormat): string {
   const parse = (pic: string) => {
     const numeric = new Set([f.digit, f.zero, f.grouping, f.decimal]);
     let start = 0;
-    while (start < pic.length && !numeric.has(pic[start])) start++;
+    while (start < pic.length && !numeric.has(pic[start])) { workBudget()?.transformWork(); start++; }
     let end = start;
-    while (end < pic.length && numeric.has(pic[end])) end++;
+    while (end < pic.length && numeric.has(pic[end])) { workBudget()?.transformWork(); end++; }
     const prefix = pic.slice(0, start).replace(/'/g, '');
     const suffix = pic.slice(end).replace(/'/g, '');
     const body = pic.slice(start, end);
@@ -195,7 +209,7 @@ function formatDecimal(x: number, picture: string, f: DecimalFormat): string {
   const abs = Math.abs(x) * p.scale;
   if (!Number.isFinite(abs)) return p.prefix + f.infinity + p.suffix;
   let [ip, fp = ''] = (Math.round(abs * 10 ** p.maxFrac) / 10 ** p.maxFrac).toFixed(p.maxFrac).split('.');
-  while (fp.length > p.minFrac && fp.endsWith('0')) fp = fp.slice(0, -1);
+  while (fp.length > p.minFrac && fp.endsWith('0')) { workBudget()?.transformWork(); fp = fp.slice(0, -1); }
   if (ip === '0' && p.minInt === 0) ip = '';
   ip = groupDigits(ip.padStart(p.minInt, '0'), f.grouping, p.group);
   const useNeg = (x < 0 || Object.is(x, -0)) && /[1-9]/.test(ip + fp);
@@ -267,7 +281,7 @@ class Transformer {
 
   private topLevel(sheet: XNode): void {
     let index = 0;
-    for (const c of sheet.children) {
+    for (const c of sheet.children) { workBudget()?.transformWork();
       if (c.kind === 'text') fail('Text is not allowed at the top level of a stylesheet');
       if (c.kind !== 'element') continue;
       if (c.namespaceURI !== XSL) {
@@ -318,7 +332,7 @@ class Transformer {
         }
         case 'strip-space':
         case 'preserve-space':
-          for (const t of required(c, 'elements').split(/\s+/).filter(Boolean)) {
+          for (const t of required(c, 'elements').split(/\s+/).filter(Boolean)) { workBudget()?.transformWork();
             const strip = c.localName === 'strip-space';
             if (t === '*') this.space.push({ priority: -0.5, strip, index: this.space.length });
             else if (t.endsWith(':*')) this.space.push({ uri: resolveQName(`${t.slice(0, -2)}:x`, c.scope, false, where).uri, priority: -0.25, strip, index: this.space.length });
@@ -343,7 +357,7 @@ class Transformer {
           o.doctypePublic = get('doctype-public') ?? o.doctypePublic;
           o.doctypeSystem = get('doctype-system') ?? o.doctypeSystem;
           if (get('indent') !== undefined) o.indent = get('indent') === 'yes';
-          for (const q of (get('cdata-section-elements') ?? '').split(/\s+/).filter(Boolean)) {
+          for (const q of (get('cdata-section-elements') ?? '').split(/\s+/).filter(Boolean)) { workBudget()?.transformWork();
             const r = resolveQName(q, c.scope, true, where);
             o.cdata.add(expandedName(r.uri, r.local));
           }
@@ -356,7 +370,7 @@ class Transformer {
             ['decimal', 'decimal-separator'], ['grouping', 'grouping-separator'], ['infinity', 'infinity'], ['minus', 'minus-sign'], ['nan', 'NaN'],
             ['percent', 'percent'], ['perMille', 'per-mille'], ['zero', 'zero-digit'], ['digit', 'digit'], ['pattern', 'pattern-separator'],
           ];
-          for (const [k, a] of map) f[k] = attr(c, a) ?? f[k];
+          for (const [k, a] of map) { workBudget()?.transformWork(); f[k] = attr(c, a) ?? f[k]; }
           this.decimalFormats.set(name === undefined ? '' : expandQName(name, c.scope, where), f);
           break;
         }
@@ -370,13 +384,13 @@ class Transformer {
           if (!this.forwards) fail(`Unknown top-level element xsl:${c.localName}`);
       }
     }
-    for (const list of this.rules.values()) list.sort((a, b) => b.priority - a.priority || b.template.index - a.template.index);
+    for (const list of this.rules.values()) { workBudget()?.transformWork(); list.sort((a, b) => b.priority - a.priority || b.template.index - a.template.index); }
   }
 
   private addTemplate(t: Template): void {
     this.templates.push(t);
     if (t.name !== undefined) this.named.set(t.name, t);
-    for (const pattern of t.match ?? []) {
+    for (const pattern of t.match ?? []) { workBudget()?.transformWork();
       const list = this.rules.get(t.mode) ?? [];
       list.push({ pattern, priority: t.priority ?? pattern.priority, template: t });
       this.rules.set(t.mode, list);
@@ -394,6 +408,7 @@ class Transformer {
       try {
         x = compileXPath(text, el.scope ?? new Map(), { variables: true, functions: XSLT_FUNCTIONS });
       } catch (e) {
+        rethrowExecutionRefusal(e);
         throw this.wrap(e, el, `${name}="${text}"`);
       }
       m.set(name, x);
@@ -408,6 +423,7 @@ class Transformer {
       try {
         p = compilePattern(src, el.scope ?? new Map(), { functions: XSLT_FUNCTIONS, variables: true });
       } catch (e) {
+        rethrowExecutionRefusal(e);
         throw this.wrap(e, el, `${name}="${src}"`);
       }
       m.set(name, p);
@@ -421,7 +437,7 @@ class Transformer {
     if (!parts) {
       parts = [];
       let lit = '';
-      for (let i = 0; i < value.length; i++) {
+      for (let i = 0; i < value.length; i++) { workBudget()?.transformWork();
         const ch = value[i];
         if (ch === '{' && value[i + 1] === '{') {
           lit += '{';
@@ -432,7 +448,7 @@ class Transformer {
         } else if (ch === '}') fail(`Unmatched "}" in attribute value template ${name}="${value}" on ${describe(el)}`);
         else if (ch === '{') {
           let j = i + 1;
-          for (; j < value.length && value[j] !== '}'; j++) {
+          for (; j < value.length && value[j] !== '}'; j++) { workBudget()?.transformWork();
             if (value[j] === '"' || value[j] === "'") {
               const close = value.indexOf(value[j], j + 1);
               if (close < 0) break;
@@ -473,6 +489,7 @@ class Transformer {
     try {
       return evaluateCompiled(x, { node: c.node, pos: c.pos, size: c.size, env: this.env(el, c) });
     } catch (e) {
+      rethrowExecutionRefusal(e);
       throw this.wrap(e, el, `${name}="${x.src}"`);
     }
   }
@@ -489,12 +506,14 @@ class Transformer {
   private avtString(el: XNode, name: string, raw: string, c: Ctx): string {
     const parts = this.avt(el, name, raw);
     let out = '';
-    for (const p of parts) {
-      if (typeof p === 'string') out += p;
+    const append = (s: string): void => { workBudget()?.checkText(out.length + s.length); workBudget()?.text(s.length); out += s; };
+    for (const p of parts) { workBudget()?.transformWork();
+      if (typeof p === 'string') append(p);
       else {
         try {
-          out += str(evaluateCompiled(p, { node: c.node, pos: c.pos, size: c.size, env: this.env(el, c) }));
+          append(str(evaluateCompiled(p, { node: c.node, pos: c.pos, size: c.size, env: this.env(el, c) })));
         } catch (e) {
+          rethrowExecutionRefusal(e);
           throw this.wrap(e, el, `${name}="${raw}"`);
         }
       }
@@ -507,7 +526,7 @@ class Transformer {
   }
 
   private variable(scope: Scope, name: string): XValue | undefined {
-    for (let s = scope; s; s = s.next) if (s.name === name) return s.value;
+    for (let s = scope; s; s = s.next) { workBudget()?.transformWork(); if (s.name === name) return s.value; }
     const g = this.globals.get(name);
     if (!g) return undefined;
     if (g.state === 'done') return g.value;
@@ -561,13 +580,13 @@ class Transformer {
       else if (xs === 'default') preserve = false;
       const strip = el.kind === 'element' && !preserve && this.stripsIn(el);
       if (strip) el.children = el.children.filter((ch) => ch.kind !== 'text' || /[^ \t\r\n]/.test(ch.value));
-      for (const ch of el.children) if (ch.kind === 'element') walk(ch, preserve);
+      for (const ch of el.children) { workBudget()?.transformWork(); if (ch.kind === 'element') walk(ch, preserve); }
     };
     walk(doc, false);
   }
   private stripsIn(el: XNode): boolean {
     let best: SpaceRule | undefined;
-    for (const r of this.space) {
+    for (const r of this.space) { workBudget()?.transformWork();
       if (r.local !== undefined ? r.local !== el.localName || r.uri !== el.namespaceURI : r.uri !== undefined && r.uri !== el.namespaceURI) continue;
       if (!best || r.priority > best.priority || (r.priority === best.priority && r.index > best.index)) best = r;
     }
@@ -575,7 +594,7 @@ class Transformer {
   }
 
   private findRule(n: XNode, mode: string): Template | undefined {
-    for (const r of this.rules.get(mode) ?? []) {
+    for (const r of this.rules.get(mode) ?? []) { workBudget()?.transformWork();
       if (r.pattern.localName !== undefined && r.pattern.localName !== n.localName) continue;
       if (this.matches([r.pattern], n)) return r.template;
     }
@@ -584,6 +603,7 @@ class Transformer {
 
   private applyTo(list: XNode[], _outer: Ctx, mode: string, params: Map<string, XValue>, out: XNode): void {
     list.forEach((n, k) => {
+      workBudget()?.transformWork();
       const c: Ctx = { node: n, pos: k + 1, size: list.length, mode, scope: null };
       const t = this.findRule(n, mode);
       if (t) this.invoke(t, c, params, out);
@@ -591,12 +611,16 @@ class Transformer {
     });
   }
   private builtin(c: Ctx, out: XNode): void {
+    return budgetDepth(() => this.builtinInner(c, out));
+  }
+  private builtinInner(c: Ctx, out: XNode): void {
     const n = c.node;
     if (n.kind === 'document' || n.kind === 'element') this.applyTo(n.children, c, c.mode, new Map(), out);
     else if (n.kind === 'text' || n.kind === 'attribute') addText(out, n.value);
   }
   private invoke(t: Template, c: Ctx, params: Map<string, XValue>, out: XNode): void {
-    if (++this.depth > 3000) fail('XSLT recursion too deep (does a template call itself without end?)');
+    workBudget()?.transformWork();
+    if (++this.depth > 128) throw new ResourceLimitError('XSLT recursion too deep');
     try {
       this.sequence(t.body, { ...c, scope: null }, out, params);
     } finally {
@@ -606,7 +630,7 @@ class Transformer {
 
   private withParams(el: XNode, c: Ctx): Map<string, XValue> {
     const params = new Map<string, XValue>();
-    for (const p of elementChildren(el)) {
+    for (const p of elementChildren(el)) { workBudget()?.transformWork();
       if (!isXsl(p, 'with-param')) continue;
       params.set(expandQName(required(p, 'name'), p.scope, 'xsl:with-param'), this.bindingValue(p, c));
     }
@@ -616,6 +640,7 @@ class Transformer {
   private sorted(el: XNode, list: XNode[], c: Ctx): XNode[] {
     const sorts = elementChildren(el).filter((s) => isXsl(s, 'sort'));
     if (!sorts.length) return list;
+    workBudget()?.nodes(sorts.length * list.length + list.length * 2);
     const keys = sorts.map((s) => {
       const type = this.avtValue(s, 'data-type', c) ?? 'text';
       const desc = (this.avtValue(s, 'order', c) ?? 'ascending') === 'descending';
@@ -633,7 +658,7 @@ class Transformer {
       const la = a.toLowerCase();
       const lb = b.toLowerCase();
       if (la !== lb) return la < lb ? -1 : 1;
-      for (let i = 0; i < a.length; i++) {
+      for (let i = 0; i < a.length; i++) { workBudget()?.transformWork();
         if (a[i] === b[i]) continue;
         const upperA = a[i] !== a[i].toLowerCase();
         return (upperA ? -1 : 1) * (caseOrder === 'lower-first' ? -1 : 1);
@@ -641,7 +666,8 @@ class Transformer {
       return 0;
     };
     idx.sort((x, y) => {
-      for (const k of keys) {
+      workBudget()?.transformWork();
+      for (const k of keys) { workBudget()?.transformWork();
         const a = k.values[x];
         const b = k.values[y];
         let r: number;
@@ -660,7 +686,9 @@ class Transformer {
   /** Runs an element's children as a sequence constructor; xsl:param children take values from `params`. */
   sequence(parent: XNode, c: Ctx, out: XNode, params?: Map<string, XValue>): void {
     let ctx = c;
-    for (const ch of parent.children) {
+    workBudget()?.transformWork();
+    for (const ch of parent.children) { workBudget()?.transformWork();
+      workBudget()?.transformWork();
       if (ch.kind === 'text') addText(out, ch.value);
       else if (ch.kind !== 'element') continue;
       else if (isXsl(ch, 'variable') || isXsl(ch, 'param')) {
@@ -672,6 +700,9 @@ class Transformer {
   }
 
   private instruction(el: XNode, c: Ctx, out: XNode): void {
+    return budgetDepth(() => this.instructionInner(el, c, out));
+  }
+  private instructionInner(el: XNode, c: Ctx, out: XNode): void {
     if (el.namespaceURI !== XSL) {
       if (this.isExtension(el)) return this.fallback(el, c, out, `Unsupported extension element ${describe(el)}`);
       return this.literal(el, c, out);
@@ -694,7 +725,7 @@ class Transformer {
         return;
       case 'for-each': {
         const list = this.sorted(el, this.nodes(el, 'select', c), c);
-        list.forEach((n, k) => this.sequence(el, { node: n, pos: k + 1, size: list.length, mode: c.mode, scope: c.scope }, out));
+        list.forEach((n, k) => { workBudget()?.transformWork(); this.sequence(el, { node: n, pos: k + 1, size: list.length, mode: c.mode, scope: c.scope }, out); });
         return;
       }
       case 'sort':
@@ -709,7 +740,7 @@ class Transformer {
         return;
       case 'copy-of': {
         const v = this.evaluate(el, 'select', c);
-        if (Array.isArray(v)) for (const n of v) this.copy(n, out, true);
+        if (Array.isArray(v)) for (const n of v) { workBudget()?.transformWork(); this.copy(n, out, true); }
         else addText(out, str(v));
         return;
       }
@@ -727,7 +758,7 @@ class Transformer {
         if (bool(this.evaluate(el, 'test', c))) this.sequence(el, c, out);
         return;
       case 'choose': {
-        for (const w of elementChildren(el)) {
+        for (const w of elementChildren(el)) { workBudget()?.transformWork();
           if (isXsl(w, 'when')) {
             if (bool(this.evaluate(w, 'test', c))) return this.sequence(w, c, out);
           } else if (isXsl(w, 'otherwise')) return this.sequence(w, c, out);
@@ -794,16 +825,16 @@ class Transformer {
   }
 
   private isExtension(el: XNode): boolean {
-    for (let a: XNode | null = el; a && a.kind === 'element'; a = a.parent) {
+    for (let a: XNode | null = el; a && a.kind === 'element'; a = a.parent) { workBudget()?.transformWork();
       const list = isXsl(a, 'stylesheet') || isXsl(a, 'transform') ? attr(a, 'extension-element-prefixes') : xslAttr(a, 'extension-element-prefixes');
-      for (const p of (list ?? '').split(/\s+/).filter(Boolean)) if ((p === '#default' ? a.scope?.get('') : a.scope?.get(p)) === el.namespaceURI) return true;
+      for (const p of (list ?? '').split(/\s+/).filter(Boolean)) { workBudget()?.transformWork(); if ((p === '#default' ? a.scope?.get('') : a.scope?.get(p)) === el.namespaceURI) return true; }
     }
     return false;
   }
   private fallback(el: XNode, c: Ctx, out: XNode, msg: string): void {
     const fbs = elementChildren(el).filter((f) => isXsl(f, 'fallback'));
     if (!fbs.length) fail(msg);
-    for (const f of fbs) this.sequence(f, c, out);
+    for (const f of fbs) { workBudget()?.transformWork(); this.sequence(f, c, out); }
   }
 
   /** Namespace URIs not to copy from a literal result element: the XSLT namespace and those excluded on it or its ancestors. */
@@ -812,9 +843,9 @@ class Transformer {
     if (set) return set;
     set = el.parent && el.parent.kind === 'element' ? new Set(this.excludedFor(el.parent)) : new Set([XSL]);
     const sheet = isXsl(el, 'stylesheet') || isXsl(el, 'transform');
-    for (const a of ['exclude-result-prefixes', 'extension-element-prefixes']) {
+    for (const a of ['exclude-result-prefixes', 'extension-element-prefixes']) { workBudget()?.transformWork();
       const list = sheet ? attr(el, a) : el.namespaceURI !== XSL ? xslAttr(el, a) : undefined;
-      for (const p of (list ?? '').split(/\s+/).filter(Boolean)) {
+      for (const p of (list ?? '').split(/\s+/).filter(Boolean)) { workBudget()?.transformWork();
         const uri = p === '#default' ? (el.scope?.get('') ?? '') : el.scope?.get(p);
         if (uri === undefined) fail(`Undeclared namespace prefix "${p}" in ${a}`);
         set.add(uri!);
@@ -830,15 +861,15 @@ class Transformer {
     const nsDecls: [string, string][] = [];
     // The element's own declarations first, then those it inherits (libxslt's order).
     const own = new Set(el.nsDecls.map(([p]) => p));
-    for (const [p, u] of [...el.nsDecls, ...[...(el.scope ?? [])].filter(([q]) => !own.has(q))]) {
+    for (const [p, u] of [...el.nsDecls, ...[...(el.scope ?? [])].filter(([q]) => !own.has(q))]) { workBudget()?.transformWork();
       if (p === 'xml' || !u || excluded.has(u) || this.aliases.has(u) || nsDecls.some(([q]) => q === p)) continue;
       nsDecls.push([p, u]);
     }
-    for (const [from, to] of this.aliases) if ([...(el.scope ?? [])].some(([, u]) => u === from) && to.uri) nsDecls.push([to.prefix, to.uri]);
+    for (const [from, to] of this.aliases) { workBudget()?.transformWork(); if ([...(el.scope ?? [])].some(([, u]) => u === from) && to.uri) nsDecls.push([to.prefix, to.uri]); }
     const me = alias(el.namespaceURI, el.prefix);
     const e = newElement(out, me.uri ? me.prefix : '', el.localName, me.uri, nsDecls);
     this.useAttributeSets(el, xslAttr(el, 'use-attribute-sets'), c, e);
-    for (const a of el.attributes) {
+    for (const a of el.attributes) { workBudget()?.transformWork();
       if (a.namespaceURI === XSL) continue;
       const value = this.avtString(el, a.name, a.value, c);
       const at = alias(a.namespaceURI, a.prefix);
@@ -848,8 +879,8 @@ class Transformer {
   }
 
   private useAttributeSets(el: XNode, names: string | undefined, c: Ctx, out: XNode): void {
-    for (const qn of (names ?? '').split(/\s+/).filter(Boolean)) {
-      for (const a of this.attributeSet(el, qn, c, [])) addAttribute(out, a.name, a.prefix, a.localName, a.namespaceURI, a.value);
+    for (const qn of (names ?? '').split(/\s+/).filter(Boolean)) { workBudget()?.transformWork();
+      for (const a of this.attributeSet(el, qn, c, [])) { workBudget()?.transformWork(); addAttribute(out, a.name, a.prefix, a.localName, a.namespaceURI, a.value); }
     }
   }
   /** One attribute set's attributes: its own first, then those of the sets it uses that it doesn't override (libxslt's merge). */
@@ -858,14 +889,14 @@ class Transformer {
     const sets = this.attributeSets.get(name) ?? fail(`No attribute set named "${qn}"`);
     if (stack.includes(name)) fail(`Attribute set "${qn}" uses itself`);
     const tmp = node('element', null);
-    for (const s of sets) {
+    for (const s of sets) { workBudget()?.transformWork();
       // Attribute sets see only global variables.
-      for (const a of elementChildren(s)) if (isXsl(a, 'attribute')) this.instruction(a, { ...c, scope: null }, tmp);
+      for (const a of elementChildren(s)) { workBudget()?.transformWork(); if (isXsl(a, 'attribute')) this.instruction(a, { ...c, scope: null }, tmp); }
     }
     const own = [...tmp.attributes];
-    for (const s of sets) {
-      for (const used of (attr(s, 'use-attribute-sets') ?? '').split(/\s+/).filter(Boolean)) {
-        for (const a of this.attributeSet(s, used, c, [...stack, name])) {
+    for (const s of sets) { workBudget()?.transformWork();
+      for (const used of (attr(s, 'use-attribute-sets') ?? '').split(/\s+/).filter(Boolean)) { workBudget()?.transformWork();
+        for (const a of this.attributeSet(s, used, c, [...stack, name])) { workBudget()?.transformWork();
           if (own.some((o) => o.localName === a.localName && o.namespaceURI === a.namespaceURI)) continue;
           const at = tmp.attributes.findIndex((o) => o.localName === a.localName && o.namespaceURI === a.namespaceURI);
           if (at >= 0) tmp.attributes.splice(at, 1);
@@ -877,15 +908,18 @@ class Transformer {
   }
 
   private copy(n: XNode, out: XNode, deep: boolean): void {
+    return budgetDepth(() => this.copyInner(n, out, deep));
+  }
+  private copyInner(n: XNode, out: XNode, deep: boolean): void {
     switch (n.kind) {
       case 'document':
-        if (deep) for (const ch of n.children) this.copy(ch, out, true);
+        if (deep) for (const ch of n.children) { workBudget()?.transformWork(); this.copy(ch, out, true); }
         return;
       case 'element': {
         const e = newElement(out, n.prefix, n.localName, n.namespaceURI, copiedNamespaces(n));
         if (!deep) return;
-        for (const a of n.attributes) addAttribute(e, a.name, a.prefix, a.localName, a.namespaceURI, a.value);
-        for (const ch of n.children) this.copy(ch, e, true);
+        for (const a of n.attributes) { workBudget()?.transformWork(); addAttribute(e, a.name, a.prefix, a.localName, a.namespaceURI, a.value); }
+        for (const ch of n.children) { workBudget()?.transformWork(); this.copy(ch, e, true); }
         return;
       }
       case 'attribute':
@@ -901,6 +935,8 @@ class Transformer {
       case 'processing-instruction': {
         const m = addChild(out, node(n.kind, null));
         m.name = m.localName = n.name;
+        workBudget()?.resultText(n.value.length);
+        workBudget()?.text(n.value.length);
         m.value = n.value;
         return;
       }
@@ -930,20 +966,20 @@ class Transformer {
         if (!m.parent || m.kind === 'attribute') return 1;
         const sibs = m.parent.children;
         let k = 1;
-        for (let i = sibs.indexOf(m) - 1; i >= 0; i--) if (counts(sibs[i])) k++;
+        for (let i = sibs.indexOf(m) - 1; i >= 0; i--) { workBudget()?.transformWork(); if (counts(sibs[i])) k++; }
         return k;
       };
       const level = attr(el, 'level') ?? 'single';
       if (level === 'any') {
         let k = 0;
-        for (let m: XNode | null = n; m && m.kind !== 'document'; m = previousInDocument(m)) {
+        for (let m: XNode | null = n; m && m.kind !== 'document'; m = previousInDocument(m)) { workBudget()?.transformWork();
           if (isFrom(m)) break;
           if (counts(m)) k++;
         }
         nums = [k];
       } else if (level === 'single' || level === 'multiple') {
         nums = [];
-        for (let m: XNode | null = n; m && m.kind !== 'document'; m = m.parent) {
+        for (let m: XNode | null = n; m && m.kind !== 'document'; m = m.parent) { workBudget()?.transformWork();
           if (isFrom(m)) break;
           if (counts(m)) {
             nums.unshift(position(m));
@@ -976,7 +1012,7 @@ class Transformer {
       const index = this.keyTable(expandedName(q.uri, q.local), ctx.node, str(args[0]));
       const values = Array.isArray(args[1]) ? args[1].map(stringValue) : [str(args[1])];
       const out: XNode[] = [];
-      for (const v of values) out.push(...(index.get(v) ?? []));
+      for (const v of values) { workBudget()?.transformWork(); const matches = index.get(v) ?? []; workBudget()?.nodes(matches.length); for (const n of matches) { workBudget()?.transformWork(); out.push(n); } }
       return values.length > 1 ? inDocumentOrder(out) : out;
     });
     fns.set('generate-id', (args, ctx) => {
@@ -1033,7 +1069,7 @@ class Transformer {
     let docs = this.keyIndex.get(name);
     if (!docs) this.keyIndex.set(name, (docs = new Map()));
     let root = context;
-    while (root.parent) root = root.parent;
+    while (root.parent) { workBudget()?.transformWork(); root = root.parent; }
     let table = docs.get(root);
     if (table) return table;
     table = new Map();
@@ -1041,19 +1077,20 @@ class Transformer {
     const all: XNode[] = [];
     const walk = (n: XNode): void => {
       all.push(n, ...n.attributes);
-      for (const ch of n.children) walk(ch);
+      for (const ch of n.children) { workBudget()?.transformWork(); walk(ch); }
     };
     walk(root);
-    for (const n of all) {
-      for (const d of defs) {
+    for (const n of all) { workBudget()?.transformWork();
+      for (const d of defs) { workBudget()?.transformWork();
         if (!this.matches(d.match, n)) continue;
         let v: XValue;
         try {
           v = evaluateCompiled(d.use, { node: n, pos: 1, size: 1, env: { functions: this.functions, current: n, namespaces: d.el.scope ?? undefined, variable: (x) => this.variable(null, x) } });
         } catch (e) {
+          rethrowExecutionRefusal(e);
           throw this.wrap(e, d.el, `use="${d.use.src}"`);
         }
-        for (const s of Array.isArray(v) ? v.map(stringValue) : [str(v)]) {
+        for (const s of Array.isArray(v) ? v.map(stringValue) : [str(v)]) { workBudget()?.transformWork();
           const list = table.get(s);
           if (!list) table.set(s, [n]);
           else if (list.at(-1) !== n) list.push(n);
@@ -1072,7 +1109,7 @@ function previousInDocument(n: XNode): XNode | null {
   const k = p.children.indexOf(n);
   if (k <= 0) return p;
   let m = p.children[k - 1];
-  while (m.children.length) m = m.children[m.children.length - 1];
+  while (m.children.length) { workBudget()?.transformWork(); m = m.children[m.children.length - 1]; }
   return m;
 }
 
@@ -1083,16 +1120,16 @@ function stripStylesheet(doc: XNode): void {
     if (xs === 'preserve') preserve = true;
     else if (xs === 'default') preserve = false;
     if (!preserve && !isXsl(el, 'text')) el.children = el.children.filter((c) => c.kind !== 'text' || /[^ \t\r\n]/.test(c.value));
-    for (const c of el.children) if (c.kind === 'element') walk(c, preserve);
+    for (const c of el.children) { workBudget()?.transformWork(); if (c.kind === 'element') walk(c, preserve); }
   };
   walk(doc, false);
 }
 
 // ---- Serialization
 
-const escText = (s: string): string => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\r/g, '&#13;');
-const escAttr = (s: string): string =>
-  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/\n/g, '&#10;').replace(/\r/g, '&#13;').replace(/\t/g, '&#9;');
+const escText = (s: string): string => budgetReplace(s, /[&<>\r]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\r': '&#13;' })[c]!);
+const escAttr = (s: string): string => budgetReplace(s, /[&<>"\n\r\t]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', '\n': '&#10;', '\r': '&#13;', '\t': '&#9;' })[c]!);
+
 
 /** Namespace fix-up for one element: the declarations it needs given what is in scope, and its attributes' written names. */
 function namespaceFixup(el: XNode, inScope: Map<string, string>): { decls: [string, string][]; scope: Map<string, string>; attrs: [string, string][] } {
@@ -1106,7 +1143,7 @@ function namespaceFixup(el: XNode, inScope: Map<string, string>): { decls: [stri
     scope.set(p, u);
   };
   declare(el.namespaceURI ? el.prefix : '', el.namespaceURI);
-  for (const [p, u] of el.nsDecls) {
+  for (const [p, u] of el.nsDecls) { workBudget()?.transformWork();
     if (p === (el.namespaceURI ? el.prefix : '') || p === 'xml') {
       // An explicit xmlns="" copied from the source is kept, as libxslt does.
       if (!p && !u && !el.namespaceURI && !decls.some(([q]) => q === '')) decls.push(['', '']);
@@ -1121,7 +1158,7 @@ function namespaceFixup(el: XNode, inScope: Map<string, string>): { decls: [stri
     let p = a.prefix && scope.get(a.prefix) === a.namespaceURI ? a.prefix : [...scope].find(([q, u]) => q && u === a.namespaceURI)?.[0];
     if (!p) {
       p = a.prefix && !scope.has(a.prefix) ? a.prefix : '';
-      while (!p || scope.has(p)) p = `ns_${++generated}`;
+      while (!p || scope.has(p)) { workBudget()?.transformWork(); p = `ns_${++generated}`; }
       declare(p, a.namespaceURI);
     }
     return [`${p}:${a.localName}`, a.value];
@@ -1131,46 +1168,47 @@ function namespaceFixup(el: XNode, inScope: Map<string, string>): { decls: [stri
 
 function serializeXml(doc: XNode, o: OutputSettings): string {
   let out = '';
+  const append = (text: string): void => { workBudget()?.checkText(out.length + text.length); workBudget()?.text(text.length); out += text; };
   if (!o.omitXmlDeclaration) {
-    out += `<?xml version="${o.version ?? '1.0'}"${o.encoding ? ` encoding="${o.encoding}"` : ''}${o.standalone ? ` standalone="${o.standalone}"` : ''}?>\n`;
+    append(`<?xml version="${o.version ?? '1.0'}"${o.encoding ? ` encoding="${o.encoding}"` : ''}${o.standalone ? ` standalone="${o.standalone}"` : ''}?>\n`);
   }
   const root = doc.children.find((c) => c.kind === 'element');
   if (o.doctypeSystem && root) {
-    out += `<!DOCTYPE ${root.name}${o.doctypePublic ? ` PUBLIC "${o.doctypePublic}" "${o.doctypeSystem}"` : ` SYSTEM "${o.doctypeSystem}"`}>\n`;
+    append(`<!DOCTYPE ${root.name}${o.doctypePublic ? ` PUBLIC "${o.doctypePublic}" "${o.doctypeSystem}"` : ` SYSTEM "${o.doctypeSystem}"`}>\n`);
   }
   const write = (n: XNode, scope: Map<string, string>, level: number, format: boolean): void => {
     switch (n.kind) {
       case 'text': {
         const p = n.parent;
-        if (p && p.kind === 'element' && o.cdata.has(expandedName(p.namespaceURI, p.localName))) out += `<![CDATA[${n.value.replace(/]]>/g, ']]]]><![CDATA[>')}]]>`;
-        else out += escText(n.value);
+        if (p && p.kind === 'element' && o.cdata.has(expandedName(p.namespaceURI, p.localName))) append(`<![CDATA[${budgetReplace(n.value, /]]>/g, () => ']]]]><![CDATA[>')}]]>`);
+        else append(escText(n.value));
         return;
       }
       case 'comment':
-        out += `<!--${n.value}-->`;
+        append(`<!--${n.value}-->`);
         return;
       case 'processing-instruction':
-        out += `<?${n.name}${n.value ? ` ${n.value}` : ''}?>`;
+        append(`<?${n.name}${n.value ? ` ${n.value}` : ''}?>`);
         return;
       case 'element': {
         const fix = namespaceFixup(n, scope);
-        out += `<${n.name}`;
-        for (const [p, u] of fix.decls) out += ` ${p ? `xmlns:${p}` : 'xmlns'}="${escAttr(u)}"`;
-        for (const [name, v] of fix.attrs) out += ` ${name}="${escAttr(v)}"`;
+        append(`<${n.name}`);
+        for (const [p, u] of fix.decls) { workBudget()?.transformWork(); append(` ${p ? `xmlns:${p}` : 'xmlns'}="${escAttr(u)}"`); }
+        for (const [name, v] of fix.attrs) { workBudget()?.transformWork(); append(` ${name}="${escAttr(v)}"`); }
         if (!n.children.length) {
-          out += '/>';
+          append('/>');
           return;
         }
-        out += '>';
+        append('>');
         const fmt = format && !n.children.some((c) => c.kind === 'text');
-        if (fmt) out += '\n';
-        for (const c of n.children) {
-          if (fmt) out += '  '.repeat(level + 1);
+        if (fmt) append('\n');
+        for (const c of n.children) { workBudget()?.transformWork();
+          if (fmt) append('  '.repeat(level + 1));
           write(c, fix.scope, level + 1, fmt);
-          if (fmt) out += '\n';
+          if (fmt) append('\n');
         }
-        if (fmt) out += '  '.repeat(level);
-        out += `</${n.name}>`;
+        if (fmt) append('  '.repeat(level));
+        append(`</${n.name}>`);
         return;
       }
       default:
@@ -1180,9 +1218,9 @@ function serializeXml(doc: XNode, o: OutputSettings): string {
   const top = new Map([['xml', XML_NS]]);
   doc.children.forEach((c, k) => {
     write(c, top, 0, !!o.indent);
-    if (c.kind === 'comment' && k < doc.children.length - 1) out += '\n';
+    if (c.kind === 'comment' && k < doc.children.length - 1) append('\n');
   });
-  if (doc.children.length) out += '\n';
+  if (doc.children.length) append('\n');
   return out;
 }
 
@@ -1202,9 +1240,10 @@ const HTML_URI_ATTRS = new Set(['href', 'action', 'src']);
 
 function serializeHtml(doc: XNode, o: OutputSettings): string {
   let out = '';
+  const append = (text: string): void => { workBudget()?.checkText(out.length + text.length); workBudget()?.text(text.length); out += text; };
   const root = doc.children.find((c) => c.kind === 'element');
   if ((o.doctypePublic || o.doctypeSystem) && root) {
-    out += `<!DOCTYPE ${root.name}${o.doctypePublic ? ` PUBLIC "${o.doctypePublic}"${o.doctypeSystem ? ` "${o.doctypeSystem}"` : ''}` : ` SYSTEM "${o.doctypeSystem}"`}>\n`;
+    append(`<!DOCTYPE ${root.name}${o.doctypePublic ? ` PUBLIC "${o.doctypePublic}"${o.doctypeSystem ? ` "${o.doctypeSystem}"` : ''}` : ` SYSTEM "${o.doctypeSystem}"`}>\n`);
   }
   // libxml2 puts a Content-Type meta at the start of the head, or fixes the charset of the one there.
   const head = root && root.localName.toLowerCase() === 'html' ? root.children.find((c) => c.kind === 'element' && c.localName.toLowerCase() === 'head' && !c.namespaceURI) : undefined;
@@ -1223,53 +1262,56 @@ function serializeHtml(doc: XNode, o: OutputSettings): string {
     head.children.unshift(meta);
   }
   const format = o.indent !== false;
-  const escUri = (s: string): string =>
-    Array.from(new TextEncoder().encode(s), (b) => (b > 0x20 && b < 0x7f && b !== 0x22 && b !== 0x60 && b !== 0x5c && b !== 0x5e && b !== 0x7c && b !== 0x7b && b !== 0x7d ? String.fromCharCode(b) : `%${b.toString(16).toUpperCase().padStart(2, '0')}`)).join('');
+  const escUri = (s: string): string => {
+    workBudget()?.nodes(Buffer.byteLength(s, 'utf8'));
+    workBudget()?.text(Buffer.byteLength(s, 'utf8') * 3);
+    return Array.from(new TextEncoder().encode(s), (b) => (b > 0x20 && b < 0x7f && b !== 0x22 && b !== 0x60 && b !== 0x5c && b !== 0x5e && b !== 0x7c && b !== 0x7b && b !== 0x7d ? String.fromCharCode(b) : `%${b.toString(16).toUpperCase().padStart(2, '0')}`)).join('');
+  };
   const write = (n: XNode, scope: Map<string, string>): void => {
     switch (n.kind) {
       case 'text': {
         const p = n.parent;
         const raw = p && p.kind === 'element' && /^(script|style)$/i.test(p.localName) && !p.namespaceURI;
-        out += raw ? n.value : n.value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        append(raw ? n.value : escText(n.value));
         return;
       }
       case 'comment':
-        out += `<!--${n.value}-->`;
+        append(`<!--${n.value}-->`);
         return;
       case 'processing-instruction':
-        out += `<?${n.name}${n.value ? ` ${n.value}` : ''}>`;
+        append(`<?${n.name}${n.value ? ` ${n.value}` : ''}>`);
         return;
       case 'element': {
         const fix = namespaceFixup(n, scope);
         const lname = n.namespaceURI ? '' : n.localName.toLowerCase();
         const known = HTML_ELEMENTS.has(lname);
         const block = format && known && !HTML_INLINE.has(lname);
-        out += `<${n.name}`;
-        for (const [p, u] of fix.decls) out += ` ${p ? `xmlns:${p}` : 'xmlns'}="${escAttr(u)}"`;
-        for (const [name, v] of fix.attrs) {
+        append(`<${n.name}`);
+        for (const [p, u] of fix.decls) { workBudget()?.transformWork(); append(` ${p ? `xmlns:${p}` : 'xmlns'}="${escAttr(u)}"`); }
+        for (const [name, v] of fix.attrs) { workBudget()?.transformWork();
           const ln = name.toLowerCase();
-          if (!n.namespaceURI && HTML_BOOLEAN.has(ln)) out += ` ${name}`;
-          else if (!n.namespaceURI && (HTML_URI_ATTRS.has(ln) || (ln === 'name' && lname === 'a'))) out += ` ${name}="${escUri(v).replace(/&/g, '&amp;')}"`;
+          if (!n.namespaceURI && HTML_BOOLEAN.has(ln)) append(` ${name}`);
+          else if (!n.namespaceURI && (HTML_URI_ATTRS.has(ln) || (ln === 'name' && lname === 'a'))) append(` ${name}="${budgetReplace(escUri(v), /&/g, () => '&amp;')}"`);
           else {
-            const e = v.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-            out += e.includes('"') && !e.includes("'") ? ` ${name}='${e}'` : ` ${name}="${e.replace(/"/g, '&quot;')}"`;
+            const e = escText(v);
+            append(e.includes('"') && !e.includes("'") ? ` ${name}='${e}'` : ` ${name}="${budgetReplace(e, /"/g, () => '&quot;')}"`);
           }
         }
-        out += '>';
+        append('>');
         if (HTML_VOID.has(lname)) {
           // no content, no end tag
-        } else if (!n.children.length) out += `</${n.name}>`;
+        } else if (!n.children.length) append(`</${n.name}>`);
         else {
           const kids = n.children;
           const nl = block && kids.length > 1 && lname[0] !== 'p';
-          if (nl && kids[0].kind !== 'text') out += '\n';
-          for (const c of kids) write(c, fix.scope);
-          if (nl && kids[kids.length - 1].kind !== 'text') out += '\n';
-          out += `</${n.name}>`;
+          if (nl && kids[0].kind !== 'text') append('\n');
+          for (const c of kids) { workBudget()?.transformWork(); write(c, fix.scope); }
+          if (nl && kids[kids.length - 1].kind !== 'text') append('\n');
+          append(`</${n.name}>`);
         }
         const p = n.parent;
         const next = p ? p.children[p.children.indexOf(n) + 1] : undefined;
-        if (block && next && next.kind !== 'text' && p && p.kind === 'element' && p.localName.toLowerCase()[0] !== 'p') out += '\n';
+        if (block && next && next.kind !== 'text' && p && p.kind === 'element' && p.localName.toLowerCase()[0] !== 'p') append('\n');
         return;
       }
       default:
@@ -1277,8 +1319,8 @@ function serializeHtml(doc: XNode, o: OutputSettings): string {
     }
   };
   const top = new Map([['xml', XML_NS]]);
-  for (const c of doc.children) write(c, top);
-  if (doc.children.length) out += '\n';
+  for (const c of doc.children) { workBudget()?.transformWork(); write(c, top); }
+  if (doc.children.length) append('\n');
   return out;
 }
 
@@ -1303,25 +1345,40 @@ function serialize(doc: XNode, o: OutputSettings): string {
  * stylesheets, XPath errors, unsupported features and xsl:message terminate="yes".
  */
 export function applyXslt(xml: string, xslt: string, options: XsltOptions = {}): string {
-  let style: XNode;
-  try {
-    style = parseXmlDocument(xslt, { processingInstructions: false });
-  } catch (e) {
-    throw new XsltError(`Bad stylesheet: ${(e as Error).message}`);
-  }
-  const t = new Transformer(style, options);
-  let source: XNode;
-  try {
-    source = parseXmlDocument(xml, { processingInstructions: true });
-  } catch (e) {
-    throw new XsltError(`Bad source XML: ${(e as Error).message}`);
-  }
-  try {
-    return serialize(t.run(source), t.output);
-  } catch (e) {
-    rethrowExecutionRefusal(e);
-    if (e instanceof XsltError) throw e;
-    if (e instanceof XPathError) throw new XsltError(e.message);
-    throw e;
-  }
+  return withXmlWorkBudget(() => {
+    try {
+      let style: XNode;
+      try {
+        style = parseXmlDocument(xslt, { processingInstructions: false });
+      } catch (e) {
+        if (e instanceof XPathError) throw xpathFailure(e, `Bad stylesheet: ${e.message}`);
+        rethrowExecutionRefusal(e);
+        throw new XsltError(`Bad stylesheet: ${(e as Error).message}`);
+      }
+      const t = new Transformer(style, options);
+      let source: XNode;
+      try {
+        source = parseXmlDocument(xml, { processingInstructions: true });
+      } catch (e) {
+        if (e instanceof XPathError) throw xpathFailure(e, `Bad source XML: ${e.message}`);
+        rethrowExecutionRefusal(e);
+        throw new XsltError(`Bad source XML: ${(e as Error).message}`);
+      }
+      try {
+        const result = serialize(t.run(source), t.output);
+        try { checkTextSize(result.length); } catch { throw new ResourceLimitError('result is too large'); }
+        return result;
+      } catch (e) {
+        rethrowExecutionRefusal(e);
+        if (e instanceof XsltError) throw e;
+        if (e instanceof XPathError) throw new XsltError(e.message);
+        throw e;
+      }
+    } catch (e) {
+      if (e instanceof XPathError) throw xpathFailure(e);
+      if (e instanceof ResourceLimitError) throw resourceError(new XsltError(e.message));
+      rethrowExecutionRefusal(e);
+      throw e;
+    }
+  });
 }

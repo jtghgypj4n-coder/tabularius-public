@@ -6,7 +6,20 @@
 // plug-in's namespace list), and number literals may carry an exponent.
 // Processing instructions and the DOCTYPE are read past and not kept.
 
+import { rethrowExecutionRefusal } from './execution-refusal.ts';
+import { ResourceLimitError, resourceError, withXmlWorkBudget, workBudget, budgetDepth, budgetReplace } from './work-budget.ts';
+
 export class XPathError extends Error {}
+
+function xpathBudget<T>(fn: () => T): T {
+  return withXmlWorkBudget(() => {
+    try { return fn(); } catch (e) {
+      if (e instanceof ResourceLimitError) throw resourceError(new XPathError(e.message));
+      rethrowExecutionRefusal(e);
+      throw e;
+    }
+  });
+}
 
 export type XNodeKind = 'document' | 'element' | 'attribute' | 'text' | 'comment' | 'namespace' | 'processing-instruction';
 
@@ -43,6 +56,7 @@ const XML_NS = 'http://www.w3.org/XML/1998/namespace';
 
 /** A new, unattached node: for building result trees (XSLT). */
 export function makeNode(kind: XNodeKind, parent: XNode | null, order: number): XNode {
+  workBudget()?.nodes();
   return { kind, name: '', localName: '', prefix: '', namespaceURI: '', value: '', parent, children: [], attributes: [], nsDecls: [], scope: null, cdata: false, order };
 }
 
@@ -58,9 +72,13 @@ export interface ParseOptions {
 
 /** Parses XML (elements, attributes, text, CDATA, comments, processing instructions skipped, entities incl. numeric, xmlns namespace declarations). Throws XPathError on malformed XML. */
 export function parseXmlDocument(xml: string, options?: ParseOptions): XNode {
+  return xpathBudget(() => parseXmlDocumentInner(xml, options));
+}
+function parseXmlDocumentInner(xml: string, options?: ParseOptions): XNode {
   // Bound recursive parsing and namespace-scope copies before V8's stack or
   // heap becomes the limit. These are server limits, not XML/Claris semantics.
   if (xml.length > 8_000_000) throw new XPathError('XML input is too large');
+  workBudget()?.text(xml.length);
   if (/[^\u0009\u000a\u000d\u0020-\ud7ff\ue000-\ufffd\u{10000}-\u{10ffff}]/u.test(xml)) {
     throw new XPathError('XML contains an invalid character');
   }
@@ -169,7 +187,7 @@ export function parseXmlDocument(xml: string, options?: ParseOptions): XNode {
       const decl = an === 'xmlns' ? '' : an.startsWith('xmlns:') ? an.slice(6) : undefined;
       if (decl === undefined) continue;
       if (decl && !v) fail(`empty namespace URI for prefix ${decl}`);
-      if (scope === inherited) scope = new Map(inherited);
+      if (scope === inherited) { workBudget()?.nodes(inherited.size); scope = new Map(inherited); }
       scope.set(decl, v);
       el.nsDecls.push([decl, v]);
     }
@@ -273,11 +291,16 @@ export function parseXmlDocument(xml: string, options?: ParseOptions): XNode {
 
 /** The XPath string-value of a node. */
 export function stringValue(n: XNode): string {
+  return xpathBudget(() => stringValueInner(n));
+}
+function stringValueInner(n: XNode): string {
+  workBudget()?.work();
   if (n.kind !== 'element' && n.kind !== 'document') return n.value;
   let out = '';
   const walk = (m: XNode): void => {
     for (const c of m.children) {
-      if (c.kind === 'text') out += c.value;
+      workBudget()?.work();
+      if (c.kind === 'text') { workBudget()?.checkText(out.length + c.value.length); workBudget()?.text(c.value.length); out += c.value; }
       else if (c.kind === 'element') walk(c);
     }
   };
@@ -311,7 +334,12 @@ function rootOf(n: XNode): XNode {
 
 /** Distinct nodes sorted into document order. */
 export function inDocumentOrder(nodes: Iterable<XNode>): XNode[] {
-  return [...new Set(nodes)].sort((a, b) => a.order - b.order);
+  return xpathBudget(() => inDocumentOrderInner(nodes));
+}
+function inDocumentOrderInner(nodes: Iterable<XNode>): XNode[] {
+  const distinct = new Set<XNode>();
+  for (const n of nodes) { workBudget()?.nodes(); distinct.add(n); }
+  return [...distinct].sort((a, b) => { workBudget()?.work(); return a.order - b.order; });
 }
 
 // ---- XPath tokens
@@ -468,8 +496,20 @@ export interface CompileOptions {
 export const expandedName = (uri: string, local: string): string => (uri ? `{${uri}}${local}` : local);
 
 function compile(src: string, ns: Map<string, string>, opts: CompileOptions = {}): Expr {
+  if (src.length > 20_000) throw new ResourceLimitError('XPath expression is too large');
+  workBudget()?.work(src.length);
   const extra = new Set(opts.functions ?? []);
   const toks = lex(src);
+  let nesting = 0;
+  let operators = 0;
+  for (const t of toks) {
+    if (t.t !== 'op') continue;
+    if (t.v === '(' || t.v === '[') {
+      if (++nesting > 64) throw new ResourceLimitError('XPath expression nests too deeply');
+    } else if (t.v === ')' || t.v === ']') nesting--;
+    if (['-', '+', '*', 'div', 'mod', 'and', 'or', '|', '=', '!=', '<', '>', '<=', '>='].includes(t.v) && ++operators > 256)
+      throw new ResourceLimitError('XPath expression is too complex');
+  }
   let p = 0;
   const peek = (): Tok | undefined => toks[p];
   const isOp = (v: string): boolean => toks[p]?.t === 'op' && toks[p].v === v;
@@ -682,7 +722,9 @@ function compareAtoms(op: string, a: string | number | boolean, b: string | numb
 }
 
 function compare(op: string, a: Val, b: Val): boolean {
+  workBudget()?.work();
   if (isNodes(a) && isNodes(b)) {
+    workBudget()?.nodes(a.length + b.length);
     const as = a.map(stringValue);
     const bs = b.map(stringValue);
     if (op === '=') {
@@ -690,9 +732,19 @@ function compare(op: string, a: Val, b: Val): boolean {
       return as.some((s) => set.has(s));
     }
     if (op === '!=') return as.length > 0 && bs.length > 0 && new Set([...as, ...bs]).size > 1;
-    const an = as.map(toNumber);
-    const bn = bs.map(toNumber);
-    return an.some((x) => bn.some((y) => compareAtoms(op, x, y)));
+    const bounds = (values: string[]): [number, number, boolean] => {
+      let min = Infinity, max = -Infinity, any = false;
+      for (const s of values) {
+        workBudget()?.work();
+        const n = toNumber(s);
+        if (Number.isNaN(n)) continue;
+        any = true; min = Math.min(min, n); max = Math.max(max, n);
+      }
+      return [min, max, any];
+    };
+    const [amin, amax, hasA] = bounds(as), [bmin, bmax, hasB] = bounds(bs);
+    if (!hasA || !hasB) return false;
+    return op === '<' ? amin < bmax : op === '<=' ? amin <= bmax : op === '>' ? amax > bmin : amax >= bmin;
   }
   if (isNodes(a) || isNodes(b)) {
     const left = isNodes(a);
@@ -711,6 +763,7 @@ function compare(op: string, a: Val, b: Val): boolean {
 
 function descendants(n: XNode, out: XNode[]): XNode[] {
   for (const c of n.children) {
+    workBudget()?.nodes();
     out.push(c);
     descendants(c, out);
   }
@@ -719,12 +772,14 @@ function descendants(n: XNode, out: XNode[]): XNode[] {
 /** A subtree in reverse document order: each node after its descendants. */
 function reverseSubtree(n: XNode, out: XNode[]): void {
   for (let k = n.children.length - 1; k >= 0; k--) reverseSubtree(n.children[k], out);
+  workBudget()?.nodes();
   out.push(n);
 }
 const isTreeChild = (n: XNode): boolean => n.kind !== 'attribute' && n.kind !== 'namespace';
 
 /** The nodes on an axis, in the axis' own order (reverse axes nearest first). */
 function axisNodes(n: XNode, axis: Axis): XNode[] {
+  workBudget()?.work();
   switch (axis) {
     case 'child':
       return n.children;
@@ -739,13 +794,14 @@ function axisNodes(n: XNode, axis: Axis): XNode[] {
     case 'ancestor':
     case 'ancestor-or-self': {
       const out = axis === 'ancestor' ? [] : [n];
-      for (let a = n.parent; a; a = a.parent) out.push(a);
+      for (let a = n.parent; a; a = a.parent) { workBudget()?.nodes(); out.push(a); }
       return out;
     }
     case 'following-sibling':
     case 'preceding-sibling': {
       if (!n.parent || !isTreeChild(n)) return [];
       const sibs = n.parent.children;
+      workBudget()?.nodes(sibs.length);
       const at = sibs.indexOf(n);
       return axis === 'following-sibling' ? sibs.slice(at + 1) : sibs.slice(0, at).reverse();
     }
@@ -759,7 +815,9 @@ function axisNodes(n: XNode, axis: Axis): XNode[] {
       }
       for (; m.parent; m = m.parent) {
         const sibs = m.parent.children;
+        workBudget()?.work(sibs.length);
         for (let k = sibs.indexOf(m) + 1; k < sibs.length; k++) {
+          workBudget()?.nodes();
           out.push(sibs[k]);
           descendants(sibs[k], out);
         }
@@ -771,6 +829,7 @@ function axisNodes(n: XNode, axis: Axis): XNode[] {
       let m = isTreeChild(n) ? n : n.parent!;
       for (; m.parent; m = m.parent) {
         const sibs = m.parent.children;
+        workBudget()?.work(sibs.length);
         for (let k = sibs.indexOf(m) - 1; k >= 0; k--) reverseSubtree(sibs[k], out);
       }
       return out;
@@ -783,6 +842,7 @@ function axisNodes(n: XNode, axis: Axis): XNode[] {
 }
 
 function matches(n: XNode, test: Test, axis: Axis): boolean {
+  workBudget()?.work();
   switch (test.t) {
     case 'node':
       return true;
@@ -802,6 +862,7 @@ function matches(n: XNode, test: Test, axis: Axis): boolean {
 
 function filterBy(nodes: XNode[], preds: Expr[], env: XPathEnv | undefined): XNode[] {
   for (const pred of preds) {
+    workBudget()?.nodes(nodes.length);
     const list = nodes;
     nodes = list.filter((node, k) => {
       const r = evaluate(pred, { node, pos: k + 1, size: list.length, env });
@@ -812,6 +873,9 @@ function filterBy(nodes: XNode[], preds: Expr[], env: XPathEnv | undefined): XNo
 }
 
 function evaluate(e: Expr, c: Ctx): Val {
+  return budgetDepth(() => evaluateInner(e, c));
+}
+function evaluateInner(e: Expr, c: Ctx): Val {
   switch (e.k) {
     case 'num':
     case 'str':
@@ -826,6 +890,7 @@ function evaluate(e: Expr, c: Ctx): Val {
       switch (e.op) {
         case '|':
           if (!isNodes(a) || !isNodes(b)) throw new XPathError('"|" needs node-sets on both sides');
+          workBudget()?.nodes(a.length + b.length);
           return inDocumentOrder([...a, ...b]);
         case '+':
           return num(a) + num(b);
@@ -865,8 +930,10 @@ function evaluate(e: Expr, c: Ctx): Val {
       for (const s of e.steps) {
         const out: XNode[] = [];
         for (const n of nodes) {
-          const onAxis = axisNodes(n, s.axis).filter((m) => matches(m, s.test, s.axis));
-          for (const m of filterBy(onAxis, s.preds, c.env)) out.push(m);
+          const axis = axisNodes(n, s.axis);
+          workBudget()?.nodes(axis.length);
+          const onAxis = axis.filter((m) => matches(m, s.test, s.axis));
+          for (const m of filterBy(onAxis, s.preds, c.env)) { workBudget()?.nodes(); out.push(m); }
         }
         nodes = nodes.length === 1 && !REVERSE_AXES.has(s.axis) ? out : inDocumentOrder(out);
       }
@@ -907,8 +974,12 @@ function call(name: string, args: Expr[], c: Ctx): Val {
     }
     case 'string':
       return s(0);
-    case 'concat':
-      return args.map((_, k) => s(k)).join('');
+    case 'concat': {
+      const parts: string[] = []; let size = 0;
+      for (let k = 0; k < args.length; k++) { const part = s(k); size += part.length; workBudget()?.checkText(size); parts.push(part); }
+      workBudget()?.text(size);
+      return parts.join('');
+    }
     case 'starts-with':
       return s(0).startsWith(s(1));
     case 'contains':
@@ -925,24 +996,28 @@ function call(name: string, args: Expr[], c: Ctx): Val {
       return at < 0 ? '' : a.slice(at + b.length);
     }
     case 'substring': {
-      const chars = Array.from(s(0));
+      const input = s(0); workBudget()?.nodes(input.length);
+      const chars = Array.from(input);
       const from = Math.round(num(arg(1)));
       const end = args.length > 2 ? from + Math.round(num(arg(2))) : Infinity;
       return chars.filter((_, k) => k + 1 >= from && k + 1 < end).join('');
     }
-    case 'string-length':
-      return Array.from(s(0)).length;
+    case 'string-length': {
+      const input = s(0); workBudget()?.work(Math.ceil(input.length / 64));
+      let length = 0; for (const _ch of input) length++; return length;
+    }
     case 'normalize-space':
       return s(0).replace(XPATH_SPACE, ' ').replace(/^ | $/g, '');
     case 'translate': {
-      const from = Array.from(s(1));
-      const to = Array.from(s(2));
-      return Array.from(s(0))
-        .map((ch) => {
-          const at = from.indexOf(ch);
-          return at < 0 ? ch : (to[at] ?? '');
-        })
-        .join('');
+      const from = s(1), to = s(2), input = s(0);
+      workBudget()?.nodes(from.length + to.length);
+      const target = Array.from(to), map = new Map<string, string>();
+      let i = 0;
+      for (const ch of from) { if (!map.has(ch)) map.set(ch, target[i] ?? ''); i++; }
+      workBudget()?.text(input.length);
+      let out = '';
+      for (const ch of input) { workBudget()?.work(); out += map.get(ch) ?? ch; }
+      return out;
     }
     case 'boolean':
       return bool(arg(0));
@@ -986,11 +1061,17 @@ export interface CompiledXPath { readonly expr: Expr; readonly src: string }
 
 /** Compiles an expression; `ns` maps prefixes to URIs for prefixed names (unprefixed name tests are in no namespace). Throws XPathError. */
 export function compileXPath(src: string, ns: Map<string, string>, opts?: CompileOptions): CompiledXPath {
+  return xpathBudget(() => compileXPathInner(src, ns, opts));
+}
+function compileXPathInner(src: string, ns: Map<string, string>, opts?: CompileOptions): CompiledXPath {
   return { expr: compile(src, ns, opts), src };
 }
 
 /** Evaluates a compiled expression for a context node, position and size, with optional variables and functions. */
 export function evaluateCompiled(x: CompiledXPath, ctx: XPathContext): XValue {
+  return xpathBudget(() => evaluateCompiledInner(x, ctx));
+}
+function evaluateCompiledInner(x: CompiledXPath, ctx: XPathContext): XValue {
   return evaluate(x.expr, ctx);
 }
 
@@ -1005,6 +1086,9 @@ const badPattern = (src: string): never => {
 
 /** Compiles an XSLT pattern into its "|" alternatives. Throws XPathError on a malformed pattern. */
 export function compilePattern(src: string, ns: Map<string, string>, opts?: CompileOptions): CompiledPattern[] {
+  return xpathBudget(() => compilePatternInner(src, ns, opts));
+}
+function compilePatternInner(src: string, ns: Map<string, string>, opts?: CompileOptions): CompiledPattern[] {
   const e = compile(src, ns, opts);
   const alts: Expr[] = [];
   const split = (x: Expr): void => {
@@ -1037,12 +1121,16 @@ export function compilePattern(src: string, ns: Map<string, string>, opts?: Comp
 
 /** Whether a node matches one pattern alternative. */
 export function matchPattern(p: CompiledPattern, node: XNode, env?: XPathEnv): boolean {
+  return xpathBudget(() => matchPatternInner(p, node, env));
+}
+function matchPatternInner(p: CompiledPattern, node: XNode, env?: XPathEnv): boolean {
   if (p.localName !== undefined && node.localName !== p.localName) return false;
   const c: Ctx = { node, pos: 1, size: 1, env };
   const e = p.expr;
   if (e.k !== 'path') return (evaluate(e, c) as XNode[]).includes(node);
   const steps = e.steps;
   const at = (i: number, n: XNode): boolean => {
+    workBudget()?.work();
     if (i < 0) {
       if (e.start === 'root') return n.kind === 'document';
       if (e.start === 'context') return true;
@@ -1078,9 +1166,12 @@ function namespaceList(list: string | undefined): Map<string, string> {
 
 /** Evaluates an XPath 1.0 expression against a document. `namespaces` is BaseElements' ns list: space-separated `prefix=uri` pairs (also accept `xmlns:prefix=uri` and quoted uris). */
 export function evaluateXPath(doc: XNode, expr: string, namespaces?: string): XPathResult {
+  return xpathBudget(() => evaluateXPathInner(doc, expr, namespaces));
+}
+function evaluateXPathInner(doc: XNode, expr: string, namespaces?: string): XPathResult {
   const v = evaluate(compile(expr, namespaceList(namespaces)), { node: doc, pos: 1, size: 1 });
   if (isNodes(v)) return { type: 'nodeset', nodes: v };
-  if (typeof v === 'string') return { type: 'string', value: v };
+  if (typeof v === 'string') { workBudget()?.checkText(v.length); return { type: 'string', value: v }; }
   if (typeof v === 'number') return { type: 'number', value: v };
   return { type: 'boolean', value: v };
 }
@@ -1107,10 +1198,14 @@ export function formatNumber(n: number): string {
 
 /** libxml2's casts: string-value of the first node in document order ("" for empty set); numbers like xmlXPathCastNumberToString; booleans "true"/"false". */
 export function xpathText(r: XPathResult): string {
+  return xpathBudget(() => xpathTextInner(r));
+}
+function xpathTextInner(r: XPathResult): string {
   switch (r.type) {
     case 'nodeset':
       return r.nodes.length ? stringValue(r.nodes[0]) : '';
     case 'string':
+      workBudget()?.checkText(r.value.length);
       return r.value;
     case 'number':
       return formatNumber(r.value);
@@ -1121,40 +1216,53 @@ export function xpathText(r: XPathResult): string {
 
 /** Each node's string-value, in document order, one per line joined with "\r" (BE_XPathAll). Non-node-sets: xpathText. */
 export function xpathValues(r: XPathResult): string {
-  return r.type === 'nodeset' ? r.nodes.map(stringValue).join('\r') : xpathText(r);
+  return xpathBudget(() => xpathValuesInner(r));
+}
+function xpathValuesInner(r: XPathResult): string {
+  if (r.type !== 'nodeset') return xpathText(r);
+  const parts: string[] = [];
+  for (const n of r.nodes) { const v = stringValue(n); workBudget()?.output(v.length + (parts.length ? 1 : 0)); parts.push(v); }
+  return parts.join('\r');
 }
 
-const escapeText = (s: string): string => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const escapeText = (s: string): string => budgetReplace(s, /[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]!);
 const escapeAttr = (s: string): string =>
-  escapeText(s).replace(/"/g, '&quot;').replace(/\n/g, '&#10;').replace(/\r/g, '&#13;').replace(/\t/g, '&#9;');
+  budgetReplace(s, /[&<>"\n\r\t]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', '\n': '&#10;', '\r': '&#13;', '\t': '&#9;' })[c]!);
 
-function serialize(n: XNode): string {
-  switch (n.kind) {
-    case 'document':
-      return `<?xml version="1.0"?>\n${n.children.map((c) => `${serialize(c)}\n`).join('')}`;
-    case 'element': {
-      // Like xmlNodeDump, only the declarations made on the element itself are written.
-      let out = `<${n.name}`;
-      for (const [prefix, uri] of n.nsDecls) out += ` ${prefix ? `xmlns:${prefix}` : 'xmlns'}="${escapeAttr(uri)}"`;
-      for (const a of n.attributes) out += serialize(a);
-      if (!n.children.length) return `${out}/>`;
-      return `${out}>${n.children.map(serialize).join('')}</${n.name}>`;
+function serialize(root: XNode): string {
+  let out = '';
+  const append = (s: string): void => { workBudget()?.checkText(out.length + s.length); workBudget()?.text(s.length); out += s; };
+  // The document and its leaf text/attributes add two frames to the parser's
+  // supported 256 element levels. Expression recursion keeps its own 128 cap.
+  const write = (n: XNode, depth = 0): void => {
+    workBudget()?.work();
+    if (depth >= 258) throw new ResourceLimitError('XML result nests too deeply');
+    switch (n.kind) {
+      case 'document':
+        append('<?xml version="1.0"?>\n');
+        for (const c of n.children) { write(c, depth + 1); append('\n'); } return;
+      case 'element':
+        append(`<${n.name}`);
+        for (const [prefix, uri] of n.nsDecls) append(` ${prefix ? `xmlns:${prefix}` : 'xmlns'}="${escapeAttr(uri)}"`);
+        for (const a of n.attributes) write(a, depth + 1);
+        if (!n.children.length) { append('/>'); return; }
+        append('>'); for (const c of n.children) write(c, depth + 1); append(`</${n.name}>`); return;
+      case 'attribute': append(` ${n.name}="${escapeAttr(n.value)}"`); return;
+      case 'namespace': append(` ${n.name ? `xmlns:${n.name}` : 'xmlns'}="${escapeAttr(n.value)}"`); return;
+      case 'text': append(n.cdata ? `<![CDATA[${n.value}]]>` : escapeText(n.value)); return;
+      case 'comment': append(`<!--${n.value}-->`); return;
+      case 'processing-instruction': append(`<?${n.name}${n.value ? ` ${n.value}` : ''}?>`); return;
     }
-    case 'attribute':
-      return ` ${n.name}="${escapeAttr(n.value)}"`;
-    case 'namespace':
-      return ` ${n.name ? `xmlns:${n.name}` : 'xmlns'}="${escapeAttr(n.value)}"`;
-    case 'text':
-      return n.cdata ? `<![CDATA[${n.value}]]>` : escapeText(n.value);
-    case 'comment':
-      return `<!--${n.value}-->`;
-    case 'processing-instruction':
-      return `<?${n.name}${n.value ? ` ${n.value}` : ''}?>`;
-  }
+  };
+  write(root);
+  return out;
 }
 
 /** The first node serialized as XML (BE_XPath with asText false); "" for an empty node-set, xpathText for other results. */
 export function xpathXml(r: XPathResult): string {
+  return xpathBudget(() => xpathXmlInner(r));
+}
+function xpathXmlInner(r: XPathResult): string {
   if (r.type !== 'nodeset') return xpathText(r);
   return r.nodes.length ? serialize(r.nodes[0]) : '';
 }

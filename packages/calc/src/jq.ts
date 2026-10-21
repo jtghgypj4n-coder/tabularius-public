@@ -5,6 +5,8 @@
 // + - * / % == != < <= > >= and or not // ; if/elif/else/end ; try/catch ; "as $x |" ; reduce ; foreach ; def ;
 // = |= += -= *= /= %= //= ; and the builtins listed in BUILTINS below. Regular expressions go through the same guard as
 // BE_RegularExpression. Evaluation has a step budget, so `range(1e12)` or a runaway recursion ends with an error.
+import { rethrowExecutionRefusal } from './execution-refusal.ts';
+import { ResourceLimitError, resourceError, withWorkBudget, workBudget, budgetDepth, budgetReplace } from './work-budget.ts';
 import { assertPatternNesting, guardedReplace, guardedSplit, guardedTest } from './regex-guard.ts';
 
 export class JqError extends Error {}
@@ -136,7 +138,7 @@ class Parser {
     return a;
   }
   private nest<T>(f: () => T): T {
-    if (++this.depth > 200) throw new JqError('filter is nested too deeply');
+    if (++this.depth > 200) throw resourceError(new JqError('filter is nested too deeply'));
     try { return f(); } finally { this.depth--; }
   }
   private pipe(): Ast {
@@ -416,22 +418,132 @@ class Parser {
 // ---- values
 
 const isObj = (v: J): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v);
-const newObj = (): Obj => Object.create(null) as Obj;
-const copyObj = (o: Obj): Obj => { const c = newObj(); for (const k of Object.keys(o)) c[k] = o[k]; return c; };
+const newObj = (): Obj => { workBudget()?.nodes(); return Object.create(null) as Obj; };
+const copyObj = (o: Obj): Obj => {
+  const keys = Object.keys(o);
+  workBudget()?.checkNodes(keys.length);
+  // Shallow copies reuse keys and values. Charge the copy work in blocks,
+  // not every retained entry as a new allocation on each reduce iteration.
+  workBudget()?.work(Math.ceil(keys.length / 64));
+  const copy = Object.assign(newObj(), o);
+  workBudget()?.copyNodes(copy, keys.length);
+  return copy;
+};
+
+function put(o: Obj, k: string, v: J): void {
+  if (!has(o, k)) { workBudget()?.nodes(); workBudget()?.text(k.length); }
+  workBudget()?.retainNodes(v);
+  o[k] = v;
+}
+function push<T>(out: T[], ...values: T[]): number {
+  workBudget()?.nodes(values.length);
+  for (const v of values) workBudget()?.retainNodes(v);
+  return out.push(...values);
+}
+function collect<T>(values: Iterable<T>): T[] {
+  const out: T[] = [];
+  for (const v of values) push(out, v);
+  return out;
+}
+function concat(a: string, b: string): string {
+  workBudget()?.checkText(a.length + b.length);
+  // V8 concatenates ropes: the existing prefix is retained, not allocated anew.
+  workBudget()?.text(b.length);
+  return a + b;
+}
+function join(parts: string[], separator: string): string {
+  let size = Math.max(0, parts.length - 1) * separator.length;
+  for (const p of parts) { workBudget()?.work(); size += p.length; workBudget()?.checkText(size); }
+  workBudget()?.text(size);
+  return parts.join(separator);
+}
+// Count the serialized representation before JSON.stringify allocates it,
+// including repeated references, escaped strings, and pretty-print indentation.
+function jsonSize(v: J, pretty = false, depth = 0): number {
+  return budgetDepth(() => {
+    let size = 0;
+    const add = (n: number): void => { size += n; workBudget()?.checkText(size); };
+    if (typeof v === 'string') {
+      add(2);
+      for (let i = 0; i < v.length; i++) {
+        const c = v.charCodeAt(i);
+        if (c === 34 || c === 92 || [8, 9, 10, 12, 13].includes(c)) add(2);
+        else if (c < 32) add(6);
+        else if (c >= 0xd800 && c <= 0xdbff && v.charCodeAt(i + 1) >= 0xdc00 && v.charCodeAt(i + 1) <= 0xdfff) { add(2); i++; }
+        else add(c >= 0xd800 && c <= 0xdfff ? 6 : 1);
+      }
+      workBudget()?.work(Math.ceil(v.length / 64));
+    } else if (Array.isArray(v) || isObj(v)) {
+      const keys = Array.isArray(v) ? null : Object.keys(v);
+      const length = keys ? keys.length : (v as J[]).length;
+      add(2);
+      for (let i = 0; i < length; i++) {
+        workBudget()?.work();
+        if (i) add(1);
+        if (pretty) add(1 + 2 * (depth + 1));
+        if (keys) add(jsonSize(keys[i]) + (pretty ? 2 : 1));
+        add(jsonSize(keys ? (v as Obj)[keys[i]] : (v as J[])[i], pretty, depth + 1));
+      }
+      if (pretty && length) add(1 + 2 * depth);
+    } else add(typeof v === 'number' ? (Number.isFinite(v) ? String(v).length : Number.isNaN(v) ? 4 : v > 0 ? 23 : 24) : v === null ? 4 : v ? 4 : 5);
+    return size;
+  });
+}
+function parseJsonBounded(s: string): J {
+  workBudget()?.text(s.length);
+  // JSON punctuation is counted without treating punctuation inside strings as structure.
+  let quoted = false, escaped = false, depth = 0, nodes = 0;
+  for (const c of s) {
+    if (quoted) { if (escaped) escaped = false; else if (c === '\\') escaped = true; else if (c === '"') quoted = false; }
+    else if (c === '"') { quoted = true; nodes++; }
+    else if (c === '[' || c === '{') { nodes++; if (++depth > 128) throw new ResourceLimitError('JSON nests too deeply'); }
+    else if (c === ']' || c === '}') depth--;
+    else if (c === ',' || c === ':') nodes++;
+  }
+  workBudget()?.nodes(nodes + 1);
+  return JSON.parse(s) as J;
+}
+
 const has = (o: Obj, k: string): boolean => Object.prototype.hasOwnProperty.call(o, k);
 const typeOf = (v: J): string => (v === null ? 'null' : Array.isArray(v) ? 'array' : typeof v === 'object' ? 'object' : typeof v);
 const order = (v: J): number => ({ null: 0, boolean: v === true ? 2 : 1, number: 3, string: 4, array: 5, object: 6 }[typeOf(v)] ?? 0);
 const keysOf = (o: Obj): string[] => Object.keys(o).sort(cmpStr);
+
+function appendItems<T>(out: T[], values: Iterable<T>): void {
+  for (const v of values) push(out, v);
+}
+function mapItems<T, U>(items: T[], fn: (v: T, i: number, a: T[]) => U): U[] {
+  workBudget()?.nodes(items.length);
+  return items.map(fn);
+}
+function filterItems<T>(items: T[], fn: (v: T, i: number, a: T[]) => unknown): T[] {
+  workBudget()?.nodes(items.length);
+  return items.filter(fn);
+}
+function chars(s: string): string[] { workBudget()?.nodes(s.length); return Array.from(s); }
+function nativeInput(v: J): void {
+  if (typeof v === 'string') { workBudget()?.checkText(v.length); workBudget()?.work(Math.ceil(v.length / 64)); }
+  else if (Array.isArray(v)) workBudget()?.work(v.length);
+  else if (isObj(v)) workBudget()?.work(Object.keys(v).length);
+}
+
 function cmpStr(a: string, b: string): number {
-  const x = Array.from(a);
-  const y = Array.from(b);
-  for (let i = 0; i < Math.min(x.length, y.length); i++) {
-    const d = x[i].codePointAt(0)! - y[i].codePointAt(0)!;
-    if (d) return d;
+  // Compare code points directly; sorting must not allocate two character
+  // arrays (and charge them) on every comparison.
+  let i = 0, j = 0, compared = 0;
+  while (i < a.length && j < b.length) {
+    if (compared++ % 64 === 0) workBudget()?.work();
+    const x = a.codePointAt(i)!, y = b.codePointAt(j)!;
+    if (x !== y) return x - y;
+    i += x > 0xffff ? 2 : 1;
+    j += y > 0xffff ? 2 : 1;
   }
-  return x.length - y.length;
+  return (i < a.length ? 1 : 0) - (j < b.length ? 1 : 0);
 }
 export function jqCompare(a: J, b: J): number {
+  return withWorkBudget(() => budgetDepth(() => compareInner(a, b)));
+}
+function compareInner(a: J, b: J): number {
   const oa = order(a);
   const ob = order(b);
   if (oa !== ob) return oa - ob;
@@ -463,6 +575,7 @@ const show = (v: J): string => {
   return s.length > 11 ? s.slice(0, 10) + '...' : s;
 };
 function toJson(v: J): string {
+  workBudget()?.text(jsonSize(v));
   if (typeof v === 'number' && !Number.isFinite(v)) return Number.isNaN(v) ? 'null' : v > 0 ? '1.7976931348623157e+308' : '-1.7976931348623157e+308';
   return JSON.stringify(v, (_k, x: unknown) => (typeof x === 'number' && !Number.isFinite(x) ? (Number.isNaN(x) ? null : x > 0 ? Number.MAX_VALUE : -Number.MAX_VALUE) : x))!;
 }
@@ -491,7 +604,8 @@ class Run {
   steps = 0;
   depth = 0;
   tick(): void {
-    if (++this.steps > MAX_STEPS) throw new JqError('the filter took too many steps');
+    workBudget()?.work();
+    if (++this.steps > MAX_STEPS) throw resourceError(new JqError('the filter took too many steps'));
   }
 
   *ev(a: Ast, input: J, env: Env): Gen<J> {
@@ -512,17 +626,19 @@ class Run {
       case 'field': case 'index': {
         for (const t of this.ev(a.t, input, env)) {
           for (const key of this.ev(a.k === 'field' ? a.name : a.i, input, env)) {
-            try { yield indexValue(t, key); } catch (e) { if (!(e instanceof JqError) || !a.opt) throw e; }
+            try { yield indexValue(t, key); } catch (e) {
+              rethrowExecutionRefusal(e); if (!(e instanceof JqError) || !a.opt) throw e; }
           }
         }
         return;
       }
       case 'slice': {
         for (const t of this.ev(a.t, input, env)) {
-          const tos = a.to ? [...this.ev(a.to, input, env)] : [null];
-          const froms = a.from ? [...this.ev(a.from, input, env)] : [null];
+          const tos = a.to ? collect(this.ev(a.to, input, env)) : [null];
+          const froms = a.from ? collect(this.ev(a.from, input, env)) : [null];
           for (const to of tos) for (const from of froms) {
-            try { yield sliceValue(t, from, to); } catch (e) { if (!(e instanceof JqError) || !a.opt) throw e; }
+            try { yield sliceValue(t, from, to); } catch (e) {
+              rethrowExecutionRefusal(e); if (!(e instanceof JqError) || !a.opt) throw e; }
           }
         }
         return;
@@ -548,7 +664,8 @@ class Run {
         let any = false;
         try {
           for (const x of this.ev(a.a, input, env)) if (truthy(x)) { any = true; yield x; }
-        } catch (e) { if (!(e instanceof JqError)) throw e; }
+        } catch (e) {
+          rethrowExecutionRefusal(e); if (!(e instanceof JqError)) throw e; }
         if (!any) yield* this.ev(a.b, input, env);
         return;
       }
@@ -564,12 +681,13 @@ class Run {
         try {
           yield* this.ev(a.body, input, env);
         } catch (e) {
+          rethrowExecutionRefusal(e);
           if (!(e instanceof JqError) || e instanceof BreakError) throw e;
           if (a.handler) yield* this.ev(a.handler, errorValue(e), env);
         }
         return;
       }
-      case 'array': yield a.a ? [...this.ev(a.a, input, env)] : []; return;
+      case 'array': yield a.a ? collect(this.ev(a.a, input, env)) : []; return;
       case 'object': yield* this.object(a.entries, 0, newObj(), input, env); return;
       case 'as': {
         for (const v of this.ev(a.src, input, env)) yield* this.ev(a.body, input, new Env(env, new Map([[a.name, v]])));
@@ -623,8 +741,8 @@ class Run {
   *interpolate(parts: (string | Ast)[], at: number, acc: string, input: J, env: Env, fmt?: string): Gen<J> {
     if (at === parts.length) { yield acc; return; }
     const p = parts[at];
-    if (typeof p === 'string') { yield* this.interpolate(parts, at + 1, acc + p, input, env, fmt); return; }
-    for (const v of this.ev(p, input, env)) yield* this.interpolate(parts, at + 1, acc + (fmt ? formatText(fmt, v) : tostr(v)), input, env, fmt);
+    if (typeof p === 'string') { yield* this.interpolate(parts, at + 1, concat(acc, p), input, env, fmt); return; }
+    for (const v of this.ev(p, input, env)) yield* this.interpolate(parts, at + 1, concat(acc, fmt ? formatText(fmt, v) : tostr(v)), input, env, fmt);
   }
 
   *object(entries: { key: Ast; value?: Ast }[], at: number, acc: Obj, input: J, env: Env): Gen<J> {
@@ -635,7 +753,7 @@ class Run {
       const values = e.value ? this.ev(e.value, input, env) : this.ev({ k: 'field', t: { k: 'id' }, name: { k: 'lit', v: k }, opt: false }, input, env);
       for (const v of values) {
         const next = copyObj(acc);
-        next[k] = v;
+        put(next, k, v);
         yield* this.object(entries, at + 1, next, input, env);
       }
     }
@@ -653,7 +771,8 @@ class Run {
           for (const key of this.ev(a.k === 'field' ? a.name : a.i, input, env)) {
             if (typeof key !== 'string' && typeof key !== 'number') throw new JqError(`Invalid path component ${show(key)}`);
             let child: J;
-            try { child = indexValue(v, key); } catch (e) { if (e instanceof JqError && a.opt) continue; throw e; }
+            try { child = indexValue(v, key); } catch (e) {
+              rethrowExecutionRefusal(e); if (e instanceof JqError && a.opt) continue; throw e; }
             yield [[...p, key], child];
           }
         }
@@ -679,12 +798,14 @@ class Run {
       }
       case 'alt': {
         let any = false;
-        try { for (const r of this.paths(a.a, input, env, base, value)) if (truthy(r[1])) { any = true; yield r; } } catch (e) { if (!(e instanceof JqError)) throw e; }
+        try { for (const r of this.paths(a.a, input, env, base, value)) if (truthy(r[1])) { any = true; yield r; } } catch (e) {
+          rethrowExecutionRefusal(e); if (!(e instanceof JqError)) throw e; }
         if (!any) yield* this.paths(a.b, input, env, base, value);
         return;
       }
       case 'try': {
-        try { yield* this.paths(a.body, input, env, base, value); } catch (e) { if (!(e instanceof JqError)) throw e; }
+        try { yield* this.paths(a.body, input, env, base, value); } catch (e) {
+          rethrowExecutionRefusal(e); if (!(e instanceof JqError)) throw e; }
         return;
       }
       case 'as': {
@@ -736,13 +857,13 @@ class Run {
   *assign(a: Extract<Ast, { k: 'assign' }>, input: J, env: Env): Gen<J> {
     if (a.op === '|=') {
       let out = input;
-      const targets = [...this.paths(a.a, input, env)];
+      const targets = collect(this.paths(a.a, input, env));
       const deletes: Path[] = [];
       for (const [p] of targets) {
         const cur = getPath(out, p);
         let next: J | undefined;
         for (const x of this.ev(a.b, cur, env)) { next = x; break; }
-        if (next === undefined) deletes.push(p);
+        if (next === undefined) push(deletes, p);
         else out = setPath(out, p, next);
       }
       yield deletePaths(out, deletes);
@@ -781,9 +902,9 @@ class Run {
     // User definitions and closure parameters first: they shadow builtins.
     const f = env.func(`${a.name}/${n}`);
     if (f) {
-      if (++this.depth > MAX_DEPTH) { this.depth--; throw new JqError('the filter recurses too deeply'); }
+      if (++this.depth > MAX_DEPTH) { this.depth--; throw resourceError(new JqError('the filter recurses too deeply')); }
       try {
-        const valueParams = f.params.map((p, i) => [p, i] as const).filter(([p]) => p.startsWith('$'));
+        const valueParams = filterItems(mapItems(f.params, (p, i) => [p, i] as const), ([p]) => p.startsWith('$'));
         if (valueParams.length) {
           yield* this.callWithValues(f, a, valueParams, 0, new Map(), input, env);
         } else {
@@ -797,7 +918,7 @@ class Run {
       if (c) { yield* this.ev(c.ast, input, c.env); return; }
     }
     const b = BUILTINS[`${a.name}/${n}`];
-    if (b) { yield* b(this, a.args, input, env); return; }
+    if (b) { nativeInput(input); yield* b(this, a.args, input, env); return; }
     throw new JqError(`${a.name}/${n} is not defined`);
   }
   *callWithValues(f: Func, a: Extract<Ast, { k: 'call' }>, vp: (readonly [string, number])[], at: number, vals: Map<string, J>, input: J, env: Env): Gen<J> {
@@ -840,25 +961,27 @@ function indexValue(t: J, key: J): J {
 function indicesOf(t: J[], sub: J[]): J {
   const out: number[] = [];
   if (!sub.length) return null;
-  for (let i = 0; i + sub.length <= t.length; i++) if (sub.every((x, j) => jqCompare(t[i + j], x) === 0)) out.push(i);
+  for (let i = 0; i + sub.length <= t.length; i++) if (sub.every((x, j) => jqCompare(t[i + j], x) === 0)) push(out, i);
   return out;
 }
 function sliceValue(t: J, from: J, to: J): J {
   if (t === null) return null;
   if (typeof t !== 'string' && !Array.isArray(t)) throw new JqError(`Cannot index ${typeOf(t)} with object`);
   if ((from !== null && typeof from !== 'number') || (to !== null && typeof to !== 'number')) throw new JqError('Start and end indices of an array slice must be numbers');
-  const chars = typeof t === 'string' ? Array.from(t) : t;
-  const len = chars.length;
+  if (Array.isArray(t)) workBudget()?.nodes(t.length);
+  const items = typeof t === 'string' ? chars(t) : t;
+  const len = items.length;
   let s = from === null ? 0 : Math.floor(from);
   let e = to === null ? len : Math.ceil(to);
   if (s < 0) s = Math.max(0, len + s);
   if (e < 0) e = Math.max(0, len + e);
   s = Math.min(s, len);
   e = Math.min(Math.max(e, s), len);
-  return typeof t === 'string' ? (chars as string[]).slice(s, e).join('') : (chars as J[]).slice(s, e);
+  return typeof t === 'string' ? join((items as string[]).slice(s, e), '') : (items as J[]).slice(s, e);
 }
 
 function binary(op: string, l: J, r: J): J {
+  workBudget()?.work();
   switch (op) {
     case '==': return jqCompare(l, r) === 0;
     case '!=': return jqCompare(l, r) !== 0;
@@ -870,13 +993,20 @@ function binary(op: string, l: J, r: J): J {
       if (l === null) return r;
       if (r === null) return l;
       if (typeof l === 'number' && typeof r === 'number') return l + r;
-      if (typeof l === 'string' && typeof r === 'string') return l + r;
-      if (Array.isArray(l) && Array.isArray(r)) return [...l, ...r];
-      if (isObj(l) && isObj(r)) { const o = copyObj(l); for (const k of Object.keys(r)) o[k] = r[k]; return o; }
+      if (typeof l === 'string' && typeof r === 'string') return concat(l, r);
+      if (Array.isArray(l) && Array.isArray(r)) {
+        workBudget()?.checkNodes(l.length + r.length);
+        workBudget()?.work(Math.ceil(l.length / 64));
+        workBudget()?.nodes(r.length);
+        const copy = [...l, ...r];
+        workBudget()?.copyNodes(copy, l.length);
+        return copy;
+      }
+      if (isObj(l) && isObj(r)) { const o = copyObj(l); for (const k of Object.keys(r)) put(o, k, r[k]); return o; }
       break;
     case '-':
       if (typeof l === 'number' && typeof r === 'number') return l - r;
-      if (Array.isArray(l) && Array.isArray(r)) return l.filter((x) => !r.some((y) => jqCompare(x, y) === 0));
+      if (Array.isArray(l) && Array.isArray(r)) return filterItems(l, (x) => !r.some((y) => jqCompare(x, y) === 0));
       break;
     case '*':
       if (typeof l === 'number' && typeof r === 'number') return l * r;
@@ -884,7 +1014,7 @@ function binary(op: string, l: J, r: J): J {
         const [s, n] = typeof l === 'string' ? [l, r as number] : [r as string, l];
         if (n <= 0) return null;
         const times = Math.max(1, Math.floor(n));
-        if (s.length * times > 10_000_000) throw new JqError('Repeat string result too long');
+        workBudget()?.text(s.length * times);
         return s.repeat(times);
       }
       if (isObj(l) && isObj(r)) return deepMerge(l, r);
@@ -909,13 +1039,19 @@ function binary(op: string, l: J, r: J): J {
   throw new JqError(`${typeOf(l)} (${show(l)}) and ${typeOf(r)} (${show(r)}) cannot be ${verb}`);
 }
 function deepMerge(l: Obj, r: Obj): Obj {
-  const o = copyObj(l);
-  for (const k of Object.keys(r)) o[k] = isObj(o[k]) && isObj(r[k]) ? deepMerge(o[k] as Obj, r[k] as Obj) : r[k];
-  return o;
+  return budgetDepth(() => {
+    const o = copyObj(l);
+    for (const k of Object.keys(r)) put(o, k, isObj(o[k]) && isObj(r[k]) ? deepMerge(o[k] as Obj, r[k] as Obj) : r[k]);
+    return o;
+  });
 }
 function splitString(s: string, sep: string): J {
   if (s === '') return [];
-  return sep === '' ? Array.from(s) : s.split(sep);
+  let count = 0;
+  if (!sep) count = s.length;
+  else for (let at = s.indexOf(sep); at >= 0; at = s.indexOf(sep, at + sep.length)) { workBudget()?.work(); count++; }
+  workBudget()?.nodes(count + 1); workBudget()?.text(s.length);
+  return sep === '' ? chars(s) : s.split(sep);
 }
 
 function getPath(v: J, p: Path): J {
@@ -924,26 +1060,28 @@ function getPath(v: J, p: Path): J {
   return cur;
 }
 function setPath(v: J, p: Path, x: J): J {
-  if (!p.length) return x;
-  const [k, ...rest] = p;
-  if (typeof k === 'string') {
-    if (v !== null && !isObj(v)) throw new JqError(`Cannot index ${typeOf(v)} with "${k}"`);
-    const o = v === null ? newObj() : copyObj(v);
-    o[k] = setPath(has(o, k) ? o[k] : null, rest, x);
-    return o;
-  }
-  if (v !== null && !Array.isArray(v)) throw new JqError(`Cannot index ${typeOf(v)} with number`);
-  const arr = v === null ? [] : [...v];
-  const i = Math.floor(k);
-  const at = i < 0 ? arr.length + i : i;
-  if (at < 0) throw new JqError('Out of bounds negative array index');
-  if (at > 10_000_000) throw new JqError('Array index too large');
-  while (arr.length < at) arr.push(null);
-  arr[at] = setPath(at < arr.length ? arr[at] : null, rest, x);
-  return arr;
+  return budgetDepth(() => {
+    if (!p.length) return x;
+    const [k, ...rest] = p;
+    if (typeof k === 'string') {
+      if (v !== null && !isObj(v)) throw new JqError(`Cannot index ${typeOf(v)} with "${k}"`);
+      const o = v === null ? newObj() : copyObj(v);
+      put(o, k, setPath(has(o, k) ? o[k] : null, rest, x));
+      return o;
+    }
+    if (v !== null && !Array.isArray(v)) throw new JqError(`Cannot index ${typeOf(v)} with number`);
+    const arr = v === null ? [] : collect(v);
+    const i = Math.floor(k);
+    const at = i < 0 ? arr.length + i : i;
+    if (at < 0) throw new JqError('Out of bounds negative array index');
+    workBudget()?.nodes(Math.max(0, at + 1 - arr.length));
+    while (arr.length < at) arr.push(null);
+    arr[at] = setPath(at < arr.length ? arr[at] : null, rest, x);
+    return arr;
+  });
 }
 function deletePaths(v: J, paths: Path[]): J {
-  const sorted = [...paths].sort((a, b) => jqCompare(b as J[], a as J[]));
+  const sorted = collect(paths).sort((a, b) => jqCompare(b as J[], a as J[]));
   let out = v;
   for (const p of sorted) out = deletePath(out, p);
   return out;
@@ -961,7 +1099,7 @@ function deletePath(v: J, p: Path): J {
   if (Array.isArray(v) && typeof k === 'number') {
     const i = Math.floor(k);
     const at = i < 0 ? v.length + i : i;
-    return at >= 0 && at < v.length ? v.filter((_x, j) => j !== at) : v;
+    return at >= 0 && at < v.length ? filterItems(v, (_x, j) => j !== at) : v;
   }
   throw new JqError(`Cannot delete field at ${typeof k === 'string' ? 'object' : 'array'} index of ${typeOf(v)}`);
 }
@@ -972,28 +1110,28 @@ function formatText(name: string, v: J): string {
   switch (name) {
     case 'text': return tostr(v);
     case 'json': return toJson(v);
-    case 'html': return tostr(v).replace(/[<>&'"]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', "'": '&#39;', '"': '&quot;' })[c]!);
-    case 'uri': return Array.from(Buffer.from(tostr(v), 'utf8')).map((b) => (/[A-Za-z0-9\-_.~]/.test(String.fromCharCode(b)) ? String.fromCharCode(b) : '%' + b.toString(16).toUpperCase().padStart(2, '0'))).join('');
+    case 'html': return budgetReplace(tostr(v), /[<>&'"]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', "'": '&#39;', '"': '&quot;' })[c]!);
+    case 'uri': workBudget()?.nodes(Buffer.byteLength(tostr(v), 'utf8')); return join(mapItems(Array.from(Buffer.from(tostr(v), 'utf8')), (b) => (/[A-Za-z0-9\-_.~]/.test(String.fromCharCode(b)) ? String.fromCharCode(b) : '%' + b.toString(16).toUpperCase().padStart(2, '0'))), '');
     case 'csv': case 'tsv': {
       if (!Array.isArray(v)) throw new JqError(`${typeOf(v)} (${show(v)}) cannot be ${name}-formatted, only an array can be`);
-      return v.map((x) => {
+      return join(mapItems(v, (x) => {
         if (typeof x === 'number') return toJson(x);
         if (typeof x === 'boolean') return x ? 'true' : 'false';
         if (x === null) return '';
-        if (typeof x === 'string') return name === 'csv' ? '"' + x.replace(/"/g, '""') + '"' : x.replace(/[\\\t\n\r]/g, (c) => ({ '\\': '\\\\', '\t': '\\t', '\n': '\\n', '\r': '\\r' })[c]!);
+        if (typeof x === 'string') return name === 'csv' ? concat(concat('"', budgetReplace(x, /"/g, () => '""')), '"') : budgetReplace(x, /[\\\t\n\r]/g, (c) => ({ '\\': '\\\\', '\t': '\\t', '\n': '\\n', '\r': '\\r' })[c]!);
         throw new JqError(`${typeOf(x)} (${show(x)}) is not valid in a csv row`);
-      }).join(name === 'csv' ? ',' : '\t');
+      }), name === 'csv' ? ',' : '\t');
     }
     case 'sh': {
       const one = (x: J): string => {
-        if (typeof x === 'string') return `'${x.replace(/'/g, `'\\''`)}'`;
+        if (typeof x === 'string') return concat(concat("'", budgetReplace(x, /'/g, () => `'\\''`)), "'");
         if (Array.isArray(x) || isObj(x)) throw new JqError(`${typeOf(x)} (${show(x)}) can not be escaped for shell`);
         return toJson(x);
       };
-      return Array.isArray(v) ? v.map(one).join(' ') : one(v);
+      return Array.isArray(v) ? join(mapItems(v, one), ' ') : one(v);
     }
-    case 'base64': return Buffer.from(tostr(v), 'utf8').toString('base64');
-    case 'base64d': return Buffer.from(tostr(v), 'base64').toString('utf8');
+    case 'base64': { const s = tostr(v); workBudget()?.text(Math.ceil(Buffer.byteLength(s, 'utf8') / 3) * 4); return Buffer.from(s, 'utf8').toString('base64'); }
+    case 'base64d': { const s = tostr(v); workBudget()?.text(s.length); return Buffer.from(s, 'base64').toString('utf8'); }
     default: throw new JqError(`${name} is not a valid format`);
   }
 }
@@ -1019,37 +1157,41 @@ const lengthOf = (v: J): number => {
   if (v === null) return 0;
   if (typeof v === 'boolean') throw new JqError(`boolean (${show(v)}) has no length`);
   if (typeof v === 'number') return Math.abs(v);
-  if (typeof v === 'string') return Array.from(v).length;
+  if (typeof v === 'string') { let size = 0; workBudget()?.work(Math.ceil(v.length / 64)); for (const _ch of v) size++; return size; }
   if (Array.isArray(v)) return v.length;
   return Object.keys(v).length;
 };
-const containsInner = (a: J, b: J): boolean => {
+const containsInner = (a: J, b: J): boolean => budgetDepth(() => {
+  workBudget()?.work();
   if (isObj(a) && isObj(b)) return Object.keys(b).every((k) => has(a, k) && containsInner(a[k], b[k]));
   if (Array.isArray(a) && Array.isArray(b)) return b.every((y) => a.some((x) => containsInner(x, y)));
   if (typeof a === 'string' && typeof b === 'string') return a.includes(b);
   return jqCompare(a, b) === 0;
-};
+});
 const containsV = (a: J, b: J): boolean => {
   if (typeOf(a) !== typeOf(b)) throw new JqError(`${typeOf(a)} (${show(a)}) and ${typeOf(b)} (${show(b)}) cannot have their containment checked`);
   return containsInner(a, b);
 };
 function sortKeyed(items: J[], keys: J[]): J[] {
-  return items.map((x, i) => [x, keys[i]] as const).sort((p, q) => jqCompare(p[1], q[1])).map((p) => p[0]);
+  return mapItems(mapItems(items, (x, i) => [x, keys[i]] as const).sort((p, q) => jqCompare(p[1], q[1])), (p) => p[0]);
 }
 function groupKeyed(items: J[], keys: J[]): J[][] {
-  const sorted = items.map((x, i) => [x, keys[i]] as const).sort((p, q) => jqCompare(p[1], q[1]));
+  const sorted = mapItems(items, (x, i) => [x, keys[i]] as const).sort((p, q) => jqCompare(p[1], q[1]));
   const groups: J[][] = [];
   let last: J | undefined;
   for (const [x, k] of sorted) {
-    if (groups.length && last !== undefined && jqCompare(last, k) === 0) groups[groups.length - 1].push(x);
-    else { groups.push([x]); last = k; }
+    if (groups.length && last !== undefined && jqCompare(last, k) === 0) push(groups[groups.length - 1], x);
+    else { push(groups, [x]); last = k; }
   }
   return groups;
 }
 function flatten(a: J[], depth: number): J[] {
   if (depth < 0) throw new JqError('flatten depth must not be negative');
   const out: J[] = [];
-  for (const x of a) { if (Array.isArray(x) && depth > 0) out.push(...flatten(x, depth - 1)); else out.push(x); }
+  const visit = (items: J[], d: number): void => budgetDepth(() => {
+    for (const x of items) { workBudget()?.work(); if (Array.isArray(x) && d > 0) visit(x, d - 1); else push(out, x); }
+  });
+  visit(a, depth);
   return out;
 }
 const toNumber = (v: J): J => {
@@ -1073,7 +1215,7 @@ function regexOf(re: J, flags: J): RegExp {
       else throw new JqError(`${flags} is not a valid modifier string`);
     }
   }
-  try { return new RegExp(src, [...new Set(f)].join('')); } catch { throw new JqError(`${src} (at offset 0) is not a valid regex`); }
+  try { return new RegExp(src, join(collect(new Set(f)), '')); } catch (e) { rethrowExecutionRefusal(e); throw new JqError(`${src} (at offset 0) is not a valid regex`); }
 }
 const gen = function* <T>(v: T): Gen<T> { yield v; };
 
@@ -1100,14 +1242,14 @@ BUILTINS['recurse/1'] = function* (r, args, input, env) {
 };
 BUILTINS['map/1'] = function* (r, args, input, env) {
   const out: J[] = [];
-  if (Array.isArray(input)) for (const x of input) out.push(...r.ev(args[0], x, env));
-  else if (isObj(input)) for (const k of Object.keys(input)) out.push(...r.ev(args[0], input[k], env));
+  if (Array.isArray(input)) for (const x of input) appendItems(out, r.ev(args[0], x, env));
+  else if (isObj(input)) for (const k of Object.keys(input)) appendItems(out, r.ev(args[0], input[k], env));
   else throw new JqError(`Cannot iterate over ${typeOf(input)}${input === null ? '' : ` (${show(input)})`}`);
   yield out;
 };
 BUILTINS['map_values/1'] = function* (r, args, input, env) {
-  if (Array.isArray(input)) { const out: J[] = []; for (const x of input) { for (const y of r.ev(args[0], x, env)) { out.push(y); break; } } yield out; return; }
-  if (isObj(input)) { const o = newObj(); for (const k of Object.keys(input)) for (const y of r.ev(args[0], input[k], env)) { o[k] = y; break; } yield o; return; }
+  if (Array.isArray(input)) { const out: J[] = []; for (const x of input) { for (const y of r.ev(args[0], x, env)) { push(out, y); break; } } yield out; return; }
+  if (isObj(input)) { const o = newObj(); for (const k of Object.keys(input)) for (const y of r.ev(args[0], input[k], env)) { put(o, k, y); break; } yield o; return; }
   throw new JqError(`Cannot iterate over ${typeOf(input)}`);
 };
 BUILTINS['range/1'] = function* (r, args, input, env) { for (const n of r.ev(args[0], input, env)) { const to = num(n, 'range'); for (let i = 0; i < to; i++) { r.tick(); yield i; } } };
@@ -1186,40 +1328,40 @@ BUILTINS['any/2'] = function* (r, args, input, env) { for (const x of r.ev(args[
 BUILTINS['all/2'] = function* (r, args, input, env) { for (const x of r.ev(args[0], input, env)) for (const c of r.ev(args[1], x, env)) if (!truthy(c)) { yield false; return; } yield true; };
 BUILTINS['add/0'] = (_r, _a, i) => {
   let acc: J = null;
-  const items = Array.isArray(i) ? i : isObj(i) ? Object.keys(i).map((k) => i[k]) : (() => { throw new JqError(`Cannot iterate over ${typeOf(i)}`); })();
+  const items = Array.isArray(i) ? i : isObj(i) ? mapItems(Object.keys(i), (k) => i[k]) : (() => { throw new JqError(`Cannot iterate over ${typeOf(i)}`); })();
   for (const x of items) acc = binary('+', acc, x);
   return gen(acc);
 };
 BUILTINS['add/1'] = function* (r, args, input, env) { let acc: J = null; for (const x of r.ev(args[0], input, env)) acc = binary('+', acc, x); yield acc; };
 BUILTINS['sort_by/1'] = function* (r, args, input, env) {
   const a = arr(input, 'cannot be sorted, as it is not an array');
-  yield sortKeyed(a, a.map((x) => [...r.ev(args[0], x, env)]));
+  yield sortKeyed(a, mapItems(a, (x) => collect(r.ev(args[0], x, env))));
 };
 BUILTINS['group_by/1'] = function* (r, args, input, env) {
   const a = arr(input, 'cannot be grouped, as it is not an array');
-  yield groupKeyed(a, a.map((x) => [...r.ev(args[0], x, env)]));
+  yield groupKeyed(a, mapItems(a, (x) => collect(r.ev(args[0], x, env))));
 };
 BUILTINS['unique_by/1'] = function* (r, args, input, env) {
   const a = arr(input, 'cannot be grouped, as it is not an array');
-  yield groupKeyed(a, a.map((x) => [...r.ev(args[0], x, env)])).map((g) => g[0]);
+  yield mapItems(groupKeyed(a, mapItems(a, (x) => collect(r.ev(args[0], x, env)))), (g) => g[0]);
 };
 BUILTINS['min_by/1'] = function* (r, args, input, env) {
   const a = arr(input, 'cannot be iterated over');
-  const keys = a.map((x) => [...r.ev(args[0], x, env)] as J);
+  const keys = mapItems(a, (x) => collect(r.ev(args[0], x, env)) as J);
   let best = -1;
   a.forEach((_x, i) => { if (best < 0 || jqCompare(keys[i], keys[best]) < 0) best = i; });
   yield best < 0 ? null : a[best];
 };
 BUILTINS['max_by/1'] = function* (r, args, input, env) {
   const a = arr(input, 'cannot be iterated over');
-  const keys = a.map((x) => [...r.ev(args[0], x, env)] as J);
+  const keys = mapItems(a, (x) => collect(r.ev(args[0], x, env)) as J);
   let best = -1;
   a.forEach((_x, i) => { if (best < 0 || jqCompare(keys[i], keys[best]) >= 0) best = i; });
   yield best < 0 ? null : a[best];
 };
 BUILTINS['to_entries/0'] = (_r, _a, i) => {
   if (!isObj(i)) throw new JqError(`${typeOf(i)} (${show(i)}) has no keys`);
-  return gen(Object.keys(i).sort(cmpStr).map((k) => { const e = newObj(); e.key = k; e.value = i[k]; return e; }));
+  return gen(mapItems(Object.keys(i).sort(cmpStr), (k) => { const e = newObj(); put(e, 'key', k); put(e, 'value', i[k]); return e; }));
 };
 BUILTINS['from_entries/0'] = (_r, _a, i) => {
   const o = newObj();
@@ -1228,24 +1370,24 @@ BUILTINS['from_entries/0'] = (_r, _a, i) => {
     const pick = (...names: string[]) => { for (const n of names) if (has(e, n) && e[n] !== null && e[n] !== false) return e[n]; for (const n of names) if (has(e, n)) return e[n]; return null; };
     const k = pick('key', 'k', 'name', 'Name', 'Key', 'K');
     const v = has(e, 'value') ? e.value : has(e, 'Value') ? e.Value : has(e, 'v') ? e.v : has(e, 'V') ? e.V : null;
-    if (typeof k === 'string') o[k] = v;
-    else if (typeof k === 'number' || typeof k === 'boolean') o[String(k)] = v;
-    else if (k === null) o['null'] = v;
+    if (typeof k === 'string') put(o, k, v);
+    else if (typeof k === 'number' || typeof k === 'boolean') put(o, String(k), v);
+    else if (k === null) put(o, 'null', v);
     else throw new JqError(`Cannot use ${typeOf(k)} (${show(k)}) as object key`);
   }
   return gen(o);
 };
 BUILTINS['with_entries/1'] = function* (r, args, input, env) {
-  const entries = [...BUILTINS['to_entries/0'](r, [], input, env)][0] as J[];
+  const entries = collect(BUILTINS['to_entries/0'](r, [], input, env))[0] as J[];
   const out: J[] = [];
-  for (const e of entries) out.push(...r.ev(args[0], e, env));
+  for (const e of entries) appendItems(out, r.ev(args[0], e, env));
   yield* BUILTINS['from_entries/0'](r, [], out, env);
 };
 BUILTINS['paths/0'] = function* (r, _a, input) { for (const [p] of r.recursePaths([], input)) if (p.length) yield p; };
 BUILTINS['paths/1'] = function* (r, args, input, env) { for (const [p, v] of r.recursePaths([], input)) if (p.length) for (const c of r.ev(args[0], v, env)) if (truthy(c)) { yield p; break; } };
 BUILTINS['leaf_paths/0'] = function* (r, _a, input) { for (const [p, v] of r.recursePaths([], input)) if (p.length && typeof v !== 'object') yield p; else if (p.length && v === null) yield p; };
 BUILTINS['path/1'] = function* (r, args, input, env) { for (const [p] of r.paths(args[0], input, env)) yield p; };
-BUILTINS['del/1'] = function* (r, args, input, env) { yield deletePaths(input, [...r.paths(args[0], input, env)].map(([p]) => p)); };
+BUILTINS['del/1'] = function* (r, args, input, env) { yield deletePaths(input, mapItems(collect(r.paths(args[0], input, env)), ([p]) => p)); };
 BUILTINS['delpaths/1'] = function* (r, args, input, env) { for (const ps of r.ev(args[0], input, env)) yield deletePaths(input, arr(ps, 'Paths must be specified as an array') as Path[]); };
 BUILTINS['getpath/1'] = function* (r, args, input, env) {
   for (const p of r.ev(args[0], input, env)) { let cur = input; for (const k of arr(p, 'Path must be specified as an array')) { if (cur === null) break; cur = indexValue(cur, k); } yield cur; }
@@ -1259,7 +1401,7 @@ BUILTINS['splits/2'] = function* (r, args, input, env) { for (const re of r.ev(a
 BUILTINS['tostream/0'] = function* (r, _a, input) {
   const walk = function* (v: J, p: Path, top: boolean): Gen<J> {
     r.tick();
-    const kids = Array.isArray(v) ? v.map((x, i) => [i, x] as const) : isObj(v) ? Object.keys(v).map((k) => [k, v[k]] as const) : null;
+    const kids = Array.isArray(v) ? mapItems(v, (x, i) => [i, x] as const) : isObj(v) ? mapItems(Object.keys(v), (k) => [k, v[k]] as const) : null;
     if (!kids || !kids.length) { yield [p, v]; }
     else {
       for (let i = 0; i < kids.length; i++) yield* walk(kids[i][1], [...p, kids[i][0]], false);
@@ -1277,8 +1419,8 @@ BUILTINS['walk/1'] = function* (r, args, input, env) {
   const walk = function* (v: J): Gen<J> {
     r.tick();
     let inner: J = v;
-    if (Array.isArray(v)) { const out: J[] = []; for (const x of v) for (const y of walk(x)) out.push(y); inner = out; }
-    else if (isObj(v)) { const o = newObj(); for (const k of Object.keys(v)) for (const y of walk(v[k])) { o[k] = y; break; } inner = o; }
+    if (Array.isArray(v)) { const out: J[] = []; for (const x of v) for (const y of walk(x)) push(out, y); inner = out; }
+    else if (isObj(v)) { const o = newObj(); for (const k of Object.keys(v)) for (const y of walk(v[k])) { put(o, k, y); break; } inner = o; }
     yield* r.ev(args[0], inner, env);
   };
   yield* walk(input);
@@ -1292,12 +1434,12 @@ fn0('length', (v) => lengthOf(v));
 fn0('utf8bytelength', (v) => Buffer.byteLength(str(v, 'only strings have UTF-8 byte length')));
 fn0('keys', (v) => {
   if (isObj(v)) return keysOf(v);
-  if (Array.isArray(v)) return v.map((_x, i) => i);
+  if (Array.isArray(v)) return mapItems(v, (_x, i) => i);
   throw new JqError(`${typeOf(v)} (${show(v)}) has no keys`);
 });
 fn0('keys_unsorted', (v) => {
   if (isObj(v)) return Object.keys(v);
-  if (Array.isArray(v)) return v.map((_x, i) => i);
+  if (Array.isArray(v)) return mapItems(v, (_x, i) => i);
   throw new JqError(`${typeOf(v)} (${show(v)}) has no keys`);
 });
 BUILTINS['values/0'] = function* (_r, _a, input) { if (input !== null) yield input; };
@@ -1308,9 +1450,9 @@ for (const [name, test] of Object.entries({
   scalars: (v: J) => typeof v !== 'object' || v === null,
 })) BUILTINS[`${name}/0`] = function* (_r, _a, input) { if (test(input)) yield input; };
 fn0('type', (v) => typeOf(v));
-fn0('reverse', (v) => (typeof v === 'string' ? Array.from(v).reverse().join('') : v === null ? [] : [...arr(v, 'cannot be reversed, as it is not an array')].reverse()));
-fn0('sort', (v) => [...arr(v, 'cannot be sorted, as it is not an array')].sort(jqCompare));
-fn0('unique', (v) => groupKeyed(arr(v, 'cannot be sorted, as it is not an array'), v as J[]).map((g) => g[0]));
+fn0('reverse', (v) => (typeof v === 'string' ? join(chars(v).reverse(), '') : v === null ? [] : collect(arr(v, 'cannot be reversed, as it is not an array')).reverse()));
+fn0('sort', (v) => collect(arr(v, 'cannot be sorted, as it is not an array')).sort(jqCompare));
+fn0('unique', (v) => mapItems(groupKeyed(arr(v, 'cannot be sorted, as it is not an array'), v as J[]), (g) => g[0]));
 fn0('min', (v) => { const a = arr(v, 'cannot be iterated over'); return a.length ? a.reduce((m, x) => (jqCompare(x, m) < 0 ? x : m)) : null; });
 fn0('max', (v) => { const a = arr(v, 'cannot be iterated over'); return a.length ? a.reduce((m, x) => (jqCompare(x, m) >= 0 ? x : m)) : null; });
 fn0('flatten', (v) => flatten(arr(v, 'cannot be flattened'), 1e9));
@@ -1333,12 +1475,13 @@ fn0('tonumber', toNumber);
 fn0('tojson', (v) => toJson(v));
 fn0('fromjson', (v) => {
   const s = str(v, 'only strings can be parsed');
-  try { return JSON.parse(s) as J; } catch (e) { throw new JqError(`${(e as Error).message} (while parsing '${s}')`); }
+  try { return parseJsonBounded(s); } catch (e) {
+    rethrowExecutionRefusal(e); throw new JqError(`${(e as Error).message} (while parsing '${s}')`); }
 });
 fn0('ascii_downcase', (v) => str(v, 'cannot be lowercased, as it is not a string').replace(/[A-Z]/g, (c) => c.toLowerCase()));
 fn0('ascii_upcase', (v) => str(v, 'cannot be uppercased, as it is not a string').replace(/[a-z]/g, (c) => c.toUpperCase()));
-fn0('explode', (v) => Array.from(str(v, 'cannot be exploded')).map((c) => c.codePointAt(0)!));
-fn0('implode', (v) => arr(v, 'cannot be imploded').map((c) => String.fromCodePoint(num(c, 'implode'))).join(''));
+fn0('explode', (v) => mapItems(chars(str(v, 'cannot be exploded')), (c) => c.codePointAt(0)!));
+fn0('implode', (v) => join(mapItems(arr(v, 'cannot be imploded'), (c) => String.fromCodePoint(num(c, 'implode'))), ''));
 fn0('trim', (v) => str(v, 'cannot be trimmed').trim());
 fn0('ltrim', (v) => str(v, 'cannot be trimmed').trimStart());
 fn0('rtrim', (v) => str(v, 'cannot be trimmed').trimEnd());
@@ -1350,6 +1493,7 @@ fn0('isnormal', (v) => { const n = num(v, 'isnormal'); return Number.isFinite(n)
 fn0('transpose', (v) => {
   const rows = arr(v, 'cannot be transposed');
   const width = rows.reduce((m: number, r) => Math.max(m, (Array.isArray(r) ? r : []).length), 0);
+  workBudget()?.nodes(width * (rows.length + 1));
   return Array.from({ length: width }, (_x, i) => rows.map((r) => (Array.isArray(r) && i < r.length ? r[i] : null)));
 });
 fn0('input_filename', () => null);
@@ -1379,7 +1523,7 @@ fn2('split', (v, re, flags) => guardedSplit(regexOf(re, flags), str(v, 'cannot b
 fn1('join', (v, sep) => {
   const a = arr(v, 'cannot be iterated over');
   const s = str(sep, 'is not a valid separator');
-  return a.map((x) => (x === null ? '' : typeof x === 'string' ? x : typeof x === 'number' || typeof x === 'boolean' ? toJson(x) : (() => { throw new JqError(`${typeOf(x)} (${show(x)}) and string cannot be added`); })())).join(s);
+  return join(mapItems(a, (x) => (x === null ? '' : typeof x === 'string' ? x : typeof x === 'number' || typeof x === 'boolean' ? toJson(x) : (() => { throw new JqError(`${typeOf(x)} (${show(x)}) and string cannot be added`); })())), s);
 });
 fn1('test', (v, re) => guardedTest(regexOf(Array.isArray(re) ? re[0] : re, Array.isArray(re) ? re[1] : null), str(v, 'cannot be matched, as it is not a string')));
 fn2('test', (v, re, flags) => guardedTest(regexOf(re, flags), str(v, 'cannot be matched, as it is not a string')));
@@ -1397,13 +1541,13 @@ BUILTINS['gsub/3'] = function* (r, args, input, env) {
 };
 fn1('index', (v, s) => {
   if (v === null) return null;
-  if (typeof v === 'string' && typeof s === 'string') { const i = v.indexOf(s); return i < 0 ? null : Array.from(v.slice(0, i)).length; }
+  if (typeof v === 'string' && typeof s === 'string') { const i = v.indexOf(s); return i < 0 ? null : chars(v.slice(0, i)).length; }
   const r = indexValue(v, s);
   return Array.isArray(r) ? (r.length ? r[0] : null) : r;
 });
 fn1('rindex', (v, s) => {
   if (v === null) return null;
-  if (typeof v === 'string' && typeof s === 'string') { const i = v.lastIndexOf(s); return i < 0 ? null : Array.from(v.slice(0, i)).length; }
+  if (typeof v === 'string' && typeof s === 'string') { const i = v.lastIndexOf(s); return i < 0 ? null : chars(v.slice(0, i)).length; }
   const r = indexValue(v, s);
   return Array.isArray(r) ? (r.length ? r[r.length - 1] : null) : r;
 });
@@ -1412,10 +1556,10 @@ fn1('indices', (v, s) => {
   if (typeof v === 'string' && typeof s === 'string') {
     if (s === '') return null;
     const out: number[] = [];
-    for (let i = v.indexOf(s); i >= 0; i = v.indexOf(s, i + 1)) out.push(Array.from(v.slice(0, i)).length);
+    for (let i = v.indexOf(s); i >= 0; i = v.indexOf(s, i + 1)) push(out, chars(v.slice(0, i)).length);
     return out;
   }
-  if (Array.isArray(v)) return Array.isArray(s) ? indicesOf(v, s) : v.map((x, i) => (jqCompare(x, s) === 0 ? i : -1)).filter((i) => i >= 0);
+  if (Array.isArray(v)) return Array.isArray(s) ? indicesOf(v, s) : filterItems(mapItems(v, (x, i) => (jqCompare(x, s) === 0 ? i : -1)), (i) => i >= 0);
   throw new JqError(`Cannot determine indices of ${typeOf(s)} in ${typeOf(v)}`);
 });
 BUILTINS['todate/0'] = (_r, _a, i) => gen(new Date(num(i, 'todate') * 1000).toISOString().replace(/\.\d+Z$/, 'Z'));
@@ -1427,7 +1571,7 @@ BUILTINS['fromdate/0'] = (_r, _a, i) => {
 BUILTINS['fromdateiso8601/0'] = BUILTINS['fromdate/0'];
 BUILTINS['todateiso8601/0'] = BUILTINS['todate/0'];
 BUILTINS['combinations/0'] = function* (r, _a, input) {
-  const rows = arr(input, 'cannot be iterated over').map((x) => arr(x, 'cannot be iterated over'));
+  const rows = mapItems(arr(input, 'cannot be iterated over'), (x) => arr(x, 'cannot be iterated over'));
   const walk = function* (at: number, acc: J[]): Gen<J> {
     r.tick();
     if (at === rows.length) { yield acc; return; }
@@ -1444,24 +1588,37 @@ export interface JqOptions { compact?: boolean; raw?: boolean; join?: boolean }
 
 /** Runs a filter over JSON text and gives each output as jq prints it, one per line, with no newline after the last (inferred: the BaseElements reference does not say). Throws JqError for anything it cannot do. */
 export function runJq(jsonText: string, filter: string, options: JqOptions = {}): string {
-  if (filter.length > MAX_FILTER) throw new JqError('the filter is too long');
-  let input: J;
-  try { input = JSON.parse(jsonText) as J; } catch (e) { throw new JqError(`${(e as Error).message} (while parsing the input)`); }
-  const ast = new Parser(lex(filter)).parseProgram();
-  const run = new Run();
-  const outputs: string[] = [];
-  let count = 0;
-  try {
-    for (const v of run.ev(ast, input, new Env(null))) {
-      if (++count > MAX_OUTPUTS) throw new JqError('the filter gave too many results');
-      outputs.push(options.raw && typeof v === 'string' ? v : options.compact ? toJson(v) : prettyJson(v));
+  return withWorkBudget(() => {
+    try {
+      if (filter.length > MAX_FILTER) throw resourceError(new JqError('the filter is too long'));
+      let input: J;
+      try { input = parseJsonBounded(jsonText); } catch (e) {
+        rethrowExecutionRefusal(e); throw new JqError(`${(e as Error).message} (while parsing the input)`); }
+      const ast = new Parser(lex(filter)).parseProgram();
+      const run = new Run();
+      const outputs: string[] = [];
+      let count = 0;
+      try {
+        for (const v of run.ev(ast, input, new Env(null))) {
+          if (++count > MAX_OUTPUTS) throw resourceError(new JqError('the filter gave too many results'));
+          const raw = options.raw && typeof v === 'string';
+          workBudget()?.output((raw ? v.length : jsonSize(v, !options.compact)) + (count > 1 && !options.join ? 1 : 0));
+          push(outputs, raw ? v : options.compact ? toJson(v) : prettyJson(v));
+        }
+      } catch (e) {
+        rethrowExecutionRefusal(e);
+        if (e instanceof RangeError) throw resourceError(new JqError('the filter nests too deeply'));
+        throw e;
+      }
+      return join(outputs, options.join ? '' : '\n');
+    } catch (e) {
+      if (e instanceof ResourceLimitError) throw resourceError(new JqError(e.message));
+      rethrowExecutionRefusal(e);
+      throw e;
     }
-  } catch (e) {
-    if (e instanceof RangeError) throw new JqError('the filter nests too deeply');
-    throw e;
-  }
-  return outputs.join(options.join ? '' : '\n');
+  });
 }
 function prettyJson(v: J): string {
+  workBudget()?.text(jsonSize(v, true));
   return JSON.stringify(v, (_k, x: unknown) => (typeof x === 'number' && !Number.isFinite(x) ? (Number.isNaN(x) ? null : x > 0 ? Number.MAX_VALUE : -Number.MAX_VALUE) : x), 2)!;
 }
