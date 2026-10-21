@@ -25,7 +25,7 @@
 // goes in a header instead of the URL.
 
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { DESIGN_TABLE, DESIGN_SCRIPTS, DESIGN_TABLES, isDesignTable, StoreError, type Change, type Store } from '../../store/src/index.ts';
+import { DESIGN_TABLE, DESIGN_SCRIPTS, DESIGN_TABLES, isDesignTable, StoreError, type Change, type Privileges, type Store } from '../../store/src/index.ts';
 import { ApiError, badPathError, readJson, sessionPrivileges, type DataApi, type Session } from './dataapi.ts';
 import type { Host } from './host.ts';
 import { sameSecret } from './secrets.ts';
@@ -63,6 +63,13 @@ export class Live {
     this.host = host;
     this.api = api;
     this.api.endListeners.add((token) => this.closeToken(token));
+    // Stored accounts cover ordinary and fmDataSource readers. External sign-ins can have distinct account names;
+    // include their principals from every worker so a delete's row rules are evaluated while the row still exists.
+    const watch = (store: Store) => store.deleteReaders.add(() =>
+      [...api.own(() => 0), ...(api.others?.() ?? [])].map((s) =>
+        store.privileges(s.account, s.via, s.externalIdentity?.person)));
+    for (const store of host.openStores()) watch(store);
+    host.onAdd.push(watch);
   }
 
   private closeToken(token: string): void {
@@ -135,14 +142,14 @@ export class Live {
         return true;
       }
       if (m[2] === 'locks' && method === 'GET') {
-        const locks = [...this.files(store)].flatMap((s) => s.locks.all().filter((l) => s.canViewRecord(l.table, l.recordId, privileges)).map((l) => ({
+        const locks = [...this.files(store)].flatMap((s) => s.locks.all().filter((l) => this.visibleRecord(store, s, l.table, l.recordId, privileges, session)).map((l) => ({
           file: s.name, table: l.table, recordId: l.recordId, account: l.account, self: sameSecret(l.owner, session.token),
         })));
         send(200, { locks });
         return true;
       }
       if (m[2] === 'viewers' && method === 'GET') {
-        const viewers = [...this.files(store)].flatMap((s) => s.locks.viewers().filter((v) => isDesignTable(v.table) ? s === store && privileges.full : s.canViewRecord(v.table, v.recordId, privileges)).map((v) => ({
+        const viewers = [...this.files(store)].flatMap((s) => s.locks.viewers().filter((v) => this.visibleRecord(store, s, v.table, v.recordId, privileges, session)).map((v) => ({
           file: s.name, table: v.table, recordId: v.recordId, account: v.account, self: sameSecret(v.owner, session.token),
         })));
         send(200, { viewers });
@@ -253,6 +260,26 @@ export class Live {
     return out;
   }
 
+  private visibleRecord(home: Store, file: Store, table: string, id: number | undefined, p: Privileges, session: Session, deletedVisibility?: Change['deletedVisibility']): boolean {
+    if (isDesignTable(table)) return home === file && p.full;
+    const owner = p.in(file);
+    const rule = owner.table(table).view;
+    if (deletedVisibility) {
+      // A changed rule never inherits an earlier grant. Layout scope and account validity are still checked below
+      // and at flush time; reused record ids cannot change the decision for the row that was actually deleted.
+      if (rule !== true && !deletedVisibility.some((grant) => grant.account === owner.account && grant.rule === rule)) return false;
+    } else if (id === undefined ? rule !== true : !file.canViewRecord(table, id, p)) return false;
+    if (!session.layoutScope) return true;
+    return session.layoutScope.some((name) => {
+      try {
+        const info = home.layout(name);
+        const access = p.layout(info.name);
+        return info.owner === file && info.table === table && access.layout !== 'none' && access.records !== 'none'
+          && (deletedVisibility !== undefined || id === undefined || home.canView(info, id, p));
+      } catch { return false; }
+    });
+  }
+
   private stream(req: IncomingMessage, res: ServerResponse, store: Store, session: Session): void {
     if (req.socket.destroyed || res.destroyed || res.writableEnded || !this.api.alive(session.token)) return;
     const token = session.token;
@@ -276,47 +303,67 @@ export class Live {
       'x-accel-buffering': 'no', // let nginx pass events straight through
     });
     res.write(`retry: 3000\n\n`);
+    // The text of one change for this session, worked out against its privileges as they are now: a record it may not view
+    // is left out (a bulk change keeps only the ids it may view), and a change with nothing left to show is dropped.
+    const render = (c: Change): string | undefined => {
+      try {
+        const file = [...files].find((f) => f.name === c.file);
+        if (!file) return undefined;
+        const p = sessionPrivileges(store, session);
+        let ids = c.ids;
+        // Design changes and who is in design mode: only for accounts that can change this file's design.
+        if (isDesignTable(c.table)) {
+          if (file !== store || !p.full) return undefined;
+        } else {
+          const seen = (id: number | undefined, deleted?: Change['deletedVisibility']) => this.visibleRecord(store, file, c.table, id, p, session, deleted);
+          if (c.recordId !== undefined) {
+            if (!seen(c.recordId, c.kind === 'delete' ? c.deletedVisibility : undefined)) return undefined;
+          } else if (!ids?.length && !seen(undefined)) return undefined;
+          if (ids) {
+            ids = ids.filter((id) => seen(id));
+            if (!ids.length) return undefined;
+          }
+        }
+        const event = {
+          kind: c.kind, file: c.file, table: c.table, recordId: c.recordId, modId: c.modId,
+          account: c.account, self: sameSecret(c.owner, token), ...(ids ? { ids } : {}),
+        };
+        return `event: change\ndata: ${JSON.stringify(event)}\n\n`;
+      } catch { return undefined; }
+    };
     const listener = (c: Change) => {
       if (stopped || res.writableEnded) return;
       // An account turned off gets no more changes: its window is told to sign in again instead.
       if (this.api.accountDisabled(token)) return expire();
       // Privileges are read per event, so a revoke applies at once; changes to tables the account can't see are left out.
-      let visible: boolean;
-      let ids = c.ids;
-      try {
-        const file = [...files].find((f) => f.name === c.file);
-        const privileges = sessionPrivileges(store, session);
-        // Design changes and who is in design mode: only for accounts that can change this file's design.
-        visible = !!file && (isDesignTable(c.table) ? file === store && privileges.full : file.tableVisible(c.table, privileges));
-        if (visible && file && !isDesignTable(c.table)) {
-          if (c.recordId !== undefined) visible = file.canViewRecord(c.table, c.recordId, privileges);
-          if (ids) {
-            ids = ids.filter((id) => file.canViewRecord(c.table, id, privileges));
-            if (!ids.length) visible = false;
-          }
-        }
-      } catch {
-        visible = false;
+      const text = render(c);
+      if (text === undefined) return;
+      // Internal visibility evidence also counts against the buffer bound and is released at flush.
+      pendingBytes += Buffer.byteLength(text) + (c.deletedVisibility ? Buffer.byteLength(JSON.stringify(c.deletedVisibility)) : 0);
+      if (pendingBytes > MAX_STREAM_BUFFER) {
+        pending = [];
+        pendingBytes = 0;
+        res.destroy();
+        stop();
+        return;
       }
-      if (!visible) return;
-      const event = {
-        kind: c.kind, file: c.file, table: c.table, recordId: c.recordId, modId: c.modId,
-        account: c.account, self: sameSecret(c.owner, token), ...(ids ? { ids } : {}),
-      };
       // Events from one moment go out in one write: with many people connected, a write per event per stream is most of the work.
-      if (!pending) queueMicrotask(flush);
-      pending += `event: change\ndata: ${JSON.stringify(event)}\n\n`;
+      if (!pending.length) queueMicrotask(flush);
+      pending.push({ ...c, ids: c.ids?.slice() });
     };
-    let pending = '';
+    let pending: Change[] = [];
+    let pendingBytes = 0;
     const flush = () => {
       if (stopped || res.writableEnded) return;
       if (!this.api.alive(token)) {
         expire();
-        pending = '';
         return;
       }
-      putStream(res, pending);
-      pending = '';
+      // Asked again now: access that changed since the event was queued applies to what goes out.
+      const text = pending.map(render).filter((t): t is string => t !== undefined).join('');
+      pending = [];
+      pendingBytes = 0;
+      if (text) putStream(res, text);
     };
     const files = this.files(store);
     for (const s of files) s.listeners.add(listener);
@@ -334,12 +381,13 @@ export class Live {
       putStream(res, `event: expired\ndata: {}\n\n`);
       res.end();
       stop();
-      pending = '';
     };
     const stop = () => {
       if (stopped) return;
       stopped = true;
       delete (res as ServerResponse & { closeStream?: () => void }).closeStream;
+      pending = [];
+      pendingBytes = 0;
       this.streams.delete(res);
       const set = this.byToken.get(token);
       if (set && (set.delete(res), set.size === 0)) this.byToken.delete(token);

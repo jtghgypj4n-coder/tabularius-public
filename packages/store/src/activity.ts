@@ -146,6 +146,8 @@ export interface Change {
   fields?: string[];
   /** Design mode: the layouts a design change touched, or the objects someone has selected. */
   ids?: number[];
+  /** Row-rule grants evaluated before deletion. Internal, including across cluster workers; never sent to clients. */
+  deletedVisibility?: { account: string; rule: string }[];
   /** Made by another server process of a cluster (passed on here), not this one. */
   remote?: boolean;
 }

@@ -6,7 +6,7 @@
 // access to are left out, and secret-looking values are hidden from the model.
 
 import type { Field, Table } from '../../fmp12/src/index.ts';
-import { keyValue, maskValue, occurrence, relatedRows, type Occurrence, type Privileges, type Store } from '../../store/src/index.ts';
+import { keyValue, maskValue, occurrence, relatedRows, relationPath, type Occurrence, type Privileges, type Store } from '../../store/src/index.ts';
 import { secretName } from './ai-output.ts';
 
 const HIDDEN = '‹hidden from AI tools›';
@@ -146,6 +146,17 @@ export function describeRecord(
 
   const related: RelatedGroup[] = [];
   for (const toId of wanted.slice(0, MAX_RELATIONS)) {
+    const hops = relationPath(home.schema, fromTo.id, toId);
+    if (!hops || !hops.every(({ rel }) => {
+      const left = occurrence(home, rel.leftTableOccurrenceId);
+      const right = occurrence(home, rel.rightTableOccurrenceId);
+      if (!left || !right) return false;
+      const readable = (o: Occurrence, id: number) => {
+        const field = o.table.fields.find((f) => f.id === id);
+        return !!field && (!p || p.in(o.store).field(o.table.name, field.name) !== 'none');
+      };
+      return rel.predicates.every((pr) => readable(left, pr.leftFieldId) && readable(right, pr.rightFieldId));
+    })) continue;
     const far = occurrence(home, toId);
     if (!far) continue;
     const theirs = p?.in(far.store);
@@ -155,12 +166,12 @@ export function describeRecord(
     let rows: Record<string, unknown>[];
     let count: number;
     if (!viewable) {
-      const r = relatedRows(home, fromTo.id, row, toId, { limit });
+      const r = relatedRows(home, fromTo.id, row, toId, { limit, privileges: p });
       if (!r) continue;
       rows = r.rows;
       count = r.count;
     } else {
-      const r = relatedRows(home, fromTo.id, row, toId);
+      const r = relatedRows(home, fromTo.id, row, toId, { privileges: p });
       if (!r) continue;
       const ok = new Set(viewable);
       const all = r.rows.filter((x) => ok.has(Number(x._fm_record_id)));

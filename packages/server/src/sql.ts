@@ -100,7 +100,7 @@ export class SqlEndpoint {
       if (format !== 'json' && format !== 'csv') throw new ApiError(960, 'format must be json or csv', 400);
 
       // A table of another file the account may not read answers as one that isn't there, so the answer does not name the file.
-      const { sql: text, target } = store.calc.translateSQL(sql, undefined, undefined, (file) => p.in(file).readsEverything);
+      const { sql: text, target } = store.calc.translateSQL(sql, undefined, undefined, (file) => p.in(file).readsEverything, p);
       this.checkReadsEverything(p.in(target), target);
       const refused = secondFileSqlRefusal(p, target, store);
       if (refused) throw new ApiError(9, refused, 403);
@@ -188,6 +188,9 @@ export async function signIn(req: IncomingMessage, store: Store, api: DataApi, v
   if (bearer?.startsWith('ohbt_')) {
     const bound = store.apiToken(bearer);
     if (!bound) throw new ApiError(212, 'Invalid API token', 401);
+    if (!store.signInLocationAllowed(bound.account, req.socket.remoteAddress ?? '')) {
+      throw new ApiError(9, 'This account may be used only from the server itself', 403);
+    }
     if (bound.surfaces && !bound.surfaces.includes(extended)) throw new ApiError(9, `This API token is not scoped for ${what} (${extended})`, 403);
     // A layout-scoped token is limited to specific Data API layouts; the
     // table-oriented surfaces (OData, SQL) go through no layout, so the scope
