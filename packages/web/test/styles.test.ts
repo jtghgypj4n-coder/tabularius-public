@@ -37,3 +37,16 @@ test('a theme\'s text box insets the text, and a portal\'s rows take its row col
   assert.match(css, /\.l \.e83 > \.fm-portal-rows > \.fm-portal-row\.fm-alt\{background-color:gray\}/);
   assert.match(css, /\.l \.e83 > \.fm-portal-rows > \.fm-portal-row:is\(:focus-within, \.fm-portal-current\)\{background-color:blue\}/);
 });
+
+test('repeated rendering of one object keeps one copy of its local CSS', () => {
+  const sheet = new StyleSheet('.layout', undefined);
+  const element = {
+    classList: { add() {}, remove() {} },
+    style: { setProperty() {} },
+  } as unknown as HTMLElement;
+  const style = { rules: [{ part: 1, state: 2, css: { color: 'red' } }] };
+  for (let i = 0; i < 1000; i++) sheet.apply(element, style, 61, 'o1');
+  const css = sheet.text();
+  assert.equal(css.match(/\.layout \.fm\.o1:hover\{color:red\}/g)?.length, 1);
+  assert.ok(css.length < 100, `stylesheet grew to ${css.length} bytes`);
+});

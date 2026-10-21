@@ -34,6 +34,8 @@ function setup(start = '?db=Links&layout=People&record=1&mode=browse&view=form')
     urlReady: true, scripting: false, restoringUrlState: false, popDuringOpen: false,
     windows: new Map(), windowId: 'w1', windowName: 'Links', menuItems: [{ open: true, name: 'People' }, { open: true, name: 'Orders' }],
     content: { replaceChildren: () => undefined }, render: () => undefined, allows: () => true, reload: async () => undefined,
+    // Field initialisers do not run on an Object.create double; listeners installed by the constructor read this.
+    sessionLifetime: { signal: new AbortController().signal },
     commit: async () => true, showMissingRecord: () => undefined, goToLayout: async () => undefined, enterBrowse: async () => undefined, enterFind: async () => undefined, enterPreview: async () => undefined,
   });
   // `record` is derived from the cache in the app; the double lets a test set it.

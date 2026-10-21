@@ -6,6 +6,7 @@
 const PASSKEY_SECOND_FACTOR_REQUIRED = 9000;
 
 import { ViewerState, viewerKey, viewerMessage, restoreViewer, type ViewerAction } from './web-viewer.ts';
+import { SessionLifetime } from './session-lifetime.ts';
 import { mergeObjectState, mergeObjectRecord, mergeFoundObjectRows, refreshMatches, checkpointCache, foundPortalPage, foundPortalRange } from './refresh.ts';
 import { Api, ApiError, PIECED_FROM, listDatabases, retryableRequest, retrying, unreachableRequest, type ExportFormat } from './api.ts';
 import { OfflineCopy, copyKey, deriveBits, exportKey, importKey, indexedDbShelf, newSalt, type OfflineKey, type QueuedEdit } from './offline.ts';
@@ -500,6 +501,17 @@ function sessionStorageSet(key: string, value: string | undefined): void {
     else sessionStorage.setItem(key, value);
   } catch {
     // private mode: the session just won't survive a reload
+  }
+}
+
+function currentSessionToken(): string | undefined {
+  const saved = sessionStorageGet('tabularius.session');
+  if (!saved) return undefined;
+  try {
+    const token = (JSON.parse(saved) as { token?: unknown }).token;
+    return typeof token === 'string' ? token : undefined;
+  } catch {
+    return undefined;
   }
 }
 
@@ -1004,6 +1016,9 @@ class Session implements Host {
 
   private toolbar = h('div', { class: 'toolbar' });
   private windowChannel?: BroadcastChannel;
+  private readonly sessionLifetime = new SessionLifetime();
+  private disposed = false;
+  private readonly pageHandler: { show: () => void };
   /** This file's windows in this browser (Window > Show Window), kept up to date over a BroadcastChannel. */
   private windows = new Map<string, { title: string }>();
   private windowsChannel?: BroadcastChannel;
@@ -1041,13 +1056,17 @@ class Session implements Host {
     // Closing the tab says so at once, rather than leaving others seeing this window until it times out.
     // One session at a time: signing in again replaces the last one's handlers.
     livePresences.add(this.presence);
-    pageHandlers = { show: () => this.renderToolbar() };
+    this.pageHandler = { show: () => this.renderToolbar() };
+    pageHandlers = this.pageHandler;
     this.stopPageCalls = answerPageCalls((id, method, args) => this.pageCall(id, method, args));
     api.onExpired = () => {
+      if (this.disposed) return;
       if (this.accountName) clearWatches(this.api.db, this.accountName);
       // The session is gone: nothing here may keep talking to the server (presence, lock renewals), and the keys are the login page's.
       this.teardown();
       this.locks.dispose();
+      const currentToken = currentSessionToken();
+      if (currentToken && currentToken !== api.token) return;
       offlineHooks = undefined;
       sessionStorageSet('tabularius.session', undefined);
       showLogin('Your session ended. Please log in again.');
@@ -1088,11 +1107,11 @@ class Session implements Host {
       if (String(state?.generation) !== frame.dataset.viewerGeneration) return;
       if (e.data.tabularius === 'scroll') state?.scrolled(e.data.x, e.data.y);
       else state?.navigate(e.data.hash, { x: e.data.x, y: e.data.y }, e.data.previous);
-    });
-    this.content.addEventListener('input', (e) => this.editStart(e.target as HTMLElement), true);
-    this.content.addEventListener('compositionstart', () => (this.composing = true), true);
-    this.content.addEventListener('compositionend', () => (this.composing = false), true);
-    this.content.addEventListener('focusout', () => void this.editEnd());
+    }, { signal: this.sessionLifetime.signal });
+    this.content.addEventListener('input', (e) => this.editStart(e.target as HTMLElement), { capture: true, signal: this.sessionLifetime.signal });
+    this.content.addEventListener('compositionstart', () => (this.composing = true), { capture: true, signal: this.sessionLifetime.signal });
+    this.content.addEventListener('compositionend', () => (this.composing = false), { capture: true, signal: this.sessionLifetime.signal });
+    this.content.addEventListener('focusout', () => void this.editEnd(), { signal: this.sessionLifetime.signal });
     // Where the cursor was in the last field, for the Insert menu (opening a menu takes the focus).
     this.content.addEventListener('focusout', (e) => {
       const t = e.target as HTMLElement;
@@ -1100,7 +1119,7 @@ class Session implements Host {
         const box = t as HTMLInputElement;
         this.lastInput = { el: box, ...this.placeOf(box), start: box.selectionStart ?? box.value.length, end: box.selectionEnd ?? box.value.length };
       }
-    });
+    }, { signal: this.sessionLifetime.signal });
     // The field the cursor was last in, for the assistant ("explain this field").
     this.content.addEventListener('focusin', (e) => {
       const el = (e.target as HTMLElement).closest<HTMLElement>('[data-id]');
@@ -1108,9 +1127,9 @@ class Session implements Host {
       this.focusedField = o ? this.renderer!.fieldKey(o) : undefined;
       this.activeObjectId = Number((e.target as HTMLElement).closest<HTMLElement>('.fm[data-id]')?.dataset.id) || undefined;
       this.portalRow = (e.target as HTMLElement).closest<HTMLElement>('.fm-portal-row[data-row]') ?? undefined;
-    });
-    this.content.addEventListener('contextmenu', (e) => this.fieldMenu(e));
-    this.content.addEventListener('scroll', () => this.onScroll(), { passive: true });
+    }, { signal: this.sessionLifetime.signal });
+    this.content.addEventListener('contextmenu', (e) => this.fieldMenu(e), { signal: this.sessionLifetime.signal });
+    this.content.addEventListener('scroll', () => this.onScroll(), { passive: true, signal: this.sessionLifetime.signal });
     // ⌘C with no field active and nothing selected copies the record, as Edit > Copy does.
     document.addEventListener('copy', (e) => {
       const active = document.activeElement;
@@ -1118,12 +1137,12 @@ class Session implements Host {
       if (!document.getSelection()?.isCollapsed) return;
       e.preventDefault();
       void this.copyRecord();
-    });
+    }, { signal: this.sessionLifetime.signal });
     // Clicking in a portal row selects it, even on a field that can't be entered; clicking elsewhere deselects it.
     this.content.addEventListener('mousedown', (e) => {
       this.activeObjectId = Number((e.target as HTMLElement).closest<HTMLElement>('.fm[data-id]')?.dataset.id) || undefined;
       this.portalRow = (e.target as HTMLElement).closest<HTMLElement>('.fm-portal-row[data-row]') ?? undefined;
-    });
+    }, { signal: this.sessionLifetime.signal });
     // As in FileMaker, clicking anywhere outside an open popover closes it (its button toggles it itself).
     this.content.addEventListener('pointerdown', (e) => {
       let p = this.popover;
@@ -1133,7 +1152,7 @@ class Session implements Host {
       if (!t.closest('input.fm-input, textarea.fm-input')) setTimeout(() => { this.lastInput = undefined; });
       while (p && !p.el.contains(t) && !t.closest(`[data-id="${p.button}"]`)) p = p.parent;
       if (p !== this.popover) this.closePopover(p?.id);
-    });
+    }, { signal: this.sessionLifetime.signal });
   }
 
   /** The field the cursor was last in on this layout. */
@@ -1611,19 +1630,21 @@ class Session implements Host {
       this.renderToolbar();
     }, () => {});
     window.addEventListener('resize', () => {
+      if (this.disposed) return;
       this.render();
       // OnLayoutSizeChange: once the window has stopped changing size, as FileMaker runs it after a resize.
       clearTimeout(this.resized);
       this.resized = setTimeout(() => {
+        if (this.disposed) return;
         // Not while someone types: a phone's keyboard opening resizes the window too.
         const active = document.activeElement as HTMLElement | null;
         if (active && this.content.contains(active) && active.matches('input, textarea, select, [contenteditable]')) return;
         void this.fire('OnLayoutSizeChange');
       }, 300);
-    });
+    }, { signal: this.sessionLifetime.signal });
     // Turning a phone or tablet: hide conditions such as Get ( WindowOrientation ) = 1 are worked out again.
-    matchMedia('(orientation: landscape)').addEventListener('change', () => void this.windowChanged());
-    window.addEventListener('keydown', this.onKeys);
+    matchMedia('(orientation: landscape)').addEventListener('change', () => { if (!this.disposed) void this.windowChanged(); }, { signal: this.sessionLifetime.signal });
+    window.addEventListener('keydown', this.onKeys, { signal: this.sessionLifetime.signal });
     // A new login opens like FileMaker opens the file: on the layout File Options
     // names, then its OnFirstWindowOpen script. A reload keeps the layout it was on.
     const opening = sessionStorageGet('tabularius.opened') !== this.api.token;
@@ -1815,20 +1836,38 @@ class Session implements Host {
 
   /** Stops everything this window does on its own, for a session that ended or a window that closed. Locks are the caller's: released when the session is still good. */
   private teardown(): void {
+    if (this.disposed) return;
+    this.disposed = true;
     this.stopPageCalls?.();
     this.stopPageCalls = undefined;
+    this.sessionLifetime.dispose();
+    this.timer = undefined;
+    clearTimeout(this.resized); this.resized = undefined;
+    clearTimeout(this.viewersTimer); this.viewersTimer = undefined;
+    clearTimeout(this.flushTimer); this.flushTimer = undefined;
+    clearTimeout(this.prefRetry); this.prefRetry = undefined;
+    clearTimeout(this.recentTimer); this.recentTimer = undefined;
+    if (this.scrollFrame) cancelAnimationFrame(this.scrollFrame);
+    this.scrollFrame = 0;
     this.stopLive?.();
     this.stopLive = undefined;
     this.presence.stop();
     livePresences.delete(this.presence);
-    pageHandlers = undefined;
+    if (pageHandlers === this.pageHandler) pageHandlers = undefined;
     this.changesChannel?.close();
     this.changesChannel = undefined;
+    this.windowsChannel?.close();
+    this.windowsChannel = undefined;
+    this.windowChannel?.close();
+    this.windowChannel = undefined;
     this.api.wrote = undefined;
     window.removeEventListener('keydown', this.onKeys);
     if (this.onPop) window.removeEventListener('popstate', this.onPop);
-    liveDown = false;
-    showOnline();
+    const currentToken = currentSessionToken();
+    if (!currentToken || currentToken === this.api.token) {
+      liveDown = false;
+      showOnline();
+    }
   }
 
   /**
@@ -1864,8 +1903,8 @@ class Session implements Host {
     };
     channel.postMessage({ type: 'who', id: this.windowId });
     here();
-    addEventListener('pagehide', () => channel.postMessage({ type: 'gone', id: this.windowId }));
-    addEventListener('pageshow', (e) => { if (e.persisted) here(); });
+    addEventListener('pagehide', () => channel.postMessage({ type: 'gone', id: this.windowId }), { signal: this.sessionLifetime.signal });
+    addEventListener('pageshow', (e) => { if (e.persisted) here(); }, { signal: this.sessionLifetime.signal });
   }
 
   /** Window > Show Window: brings that window forward (the browser may only let the window that opened it do so). */
@@ -3438,7 +3477,7 @@ class Session implements Host {
   }
 
   private sendPrefs(): void {
-    if (this.loadingPrefs || this.api.copyOnly || this.api.isOffline) return;
+    if (this.disposed || this.loadingPrefs || this.api.copyOnly || this.api.isOffline) return;
     for (const key of [...this.unsentPrefs]) {
       this.unsentPrefs.delete(key);
       void this.sendPref(key);
@@ -3452,12 +3491,15 @@ class Session implements Host {
   private async sendPref(key: PrefName): Promise<void> {
     try {
       const server = (await this.api.prefs())[key];
+      if (this.disposed) return;
       const merged = mergePrefs(key, server, this.serverPrefs[key], this.prefs[key]);
       (this.prefs as Record<string, unknown>)[key] = merged;
       localStorageSet(key === 'finds' ? this.findsKey() : this.prefKey(key), JSON.stringify(merged));
       await this.api.setPref(key, merged);
+      if (this.disposed) return;
       this.serverPrefs[key] = structuredClone(merged);
     } catch {
+      if (this.disposed) return;
       // Offline or the server is down: kept in this browser, and sent when the connection is back or on the next change (or in a moment).
       this.unsentPrefs.add(key);
       clearTimeout(this.prefRetry);
@@ -3514,7 +3556,7 @@ class Session implements Host {
     clearTimeout(this.recentTimer);
     this.prefs.recent = [entry, ...recent].slice(0, 15);
     // Moving through records quickly writes once, when the person settles.
-    this.recentTimer = setTimeout(() => this.savePref('recent', this.prefs.recent!), 2000);
+    this.recentTimer = setTimeout(() => { if (!this.disposed) this.savePref('recent', this.prefs.recent!); }, 2000);
   }
 
   private recentTimer?: ReturnType<typeof setTimeout>;
@@ -5872,10 +5914,10 @@ class Session implements Host {
 
   /** Runs timer `id` every `seconds`, replacing the window's timer; no id or 0 seconds stops it. */
   private installTimer(seconds: number, id?: string): void {
-    if (this.timer !== undefined) clearInterval(this.timer);
+    this.sessionLifetime.clearInterval(this.timer);
     this.timer = undefined;
     if (!id || !(seconds > 0)) return;
-    this.timer = setInterval(() => void this.fireTimer(id), Math.max(seconds * 1000, 50));
+    this.timer = this.sessionLifetime.setInterval(() => void this.fireTimer(id), Math.max(seconds * 1000, 50));
   }
 
   /**
@@ -5885,12 +5927,14 @@ class Session implements Host {
    * tries again.
    */
   private async fireTimer(id: string): Promise<void> {
+    if (this.disposed) return;
     const active = document.activeElement as HTMLElement | null;
     if (this.scripting || !this.meta || (active && this.content.contains(active) && active.matches('input, textarea, select, [contenteditable]'))) return;
     try {
       this.timerRun = this.runButton(undefined, undefined, undefined, { timer: id });
       await this.timerRun;
     } catch (e) {
+      if (this.disposed) return;
       // The server no longer has it (it restarted, or the session ended): stop asking.
       this.installTimer(0);
       toast(errorText(e));
@@ -6582,9 +6626,9 @@ class Session implements Host {
   /**
    * Tab and Shift-Tab follow the layout's Set Tab Order: the next object in
    * it that is showing, in the current record (and the current portal row
-   * for portal fields), wrapping round as FileMaker does. Returns false to
-   * leave the key to the browser (no tab order, or the cursor isn't on the
-   * layout).
+   * for portal fields. At either end, focus moves to the skip link so the
+   * configured order cannot trap keyboard users in the record. Returns false
+   * when the key should keep its native browser behavior.
    */
   private tabNext(back: boolean): boolean {
     const order = this.meta?.design.tabOrder;
@@ -6604,7 +6648,15 @@ class Session implements Host {
     }
     if (!stops.length) return false;
     const at = stops.findIndex((x) => x === active || x.contains(active) || active.contains(x));
-    const next = at < 0 ? (back ? stops.length - 1 : 0) : (at + (back ? -1 : 1) + stops.length) % stops.length;
+    const next = at < 0 ? (back ? stops.length - 1 : 0) : at + (back ? -1 : 1);
+    if (next < 0 || next >= stops.length) {
+      // DOM order need not match FileMaker's configured order, so native Tab can
+      // land on another record field at the boundary. Give users a reliable exit.
+      const exit = document.querySelector<HTMLElement>('.skip');
+      if (!exit) return false;
+      exit.focus();
+      return true;
+    }
     stops[next].focus();
     if (stops[next] instanceof HTMLInputElement || stops[next] instanceof HTMLTextAreaElement) (stops[next] as HTMLInputElement).select();
     return true;

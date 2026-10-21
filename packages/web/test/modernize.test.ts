@@ -253,7 +253,8 @@ test('modernize: the pages of a small table keep their bytes in every mode and v
     }
   }
   // Pins the pages as the restyle (pills, initials badges, floating panels) made them; re-pin when the templates change on purpose.
-  assert.equal(createHash('sha256').update(JSON.stringify(pages)).digest('hex'), 'f2144cd2c2ac7ecdd07f9e678448f68abb56a916592cae54bdb5a6a456924f9f');
+  // Then the delete confirmation became per record (it no longer carries over to another record or a new form).
+  assert.equal(createHash('sha256').update(JSON.stringify(pages)).digest('hex'), '6dcc2b4a1726a892420dc4536ccffb1be00670bf4b0416062565324f6272e459');
 });
 
 for (const native of [true, false]) for (const type of ['date', 'timestamp'] as const) {
