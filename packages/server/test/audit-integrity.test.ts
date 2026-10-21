@@ -63,7 +63,7 @@ test('signed record anchors detect whole-file replacement and normal extension p
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('audit finding: the exported anchor helper can sign a broken chain; callers must verify first', () => {
+test('the exported anchor helper refuses to sign a chain that fails verification', () => {
   const dir = mkdtempSync(join(tmpdir(), 'tabularius-audit-anchor-gap-'));
   const path = join(dir, 'Test.openhbam.sqlite');
   try {
@@ -72,6 +72,6 @@ test('audit finding: the exported anchor helper can sign a broken chain; callers
     store.sql.exec("UPDATE _fm_audit SET account = 'edited'");
     store.close();
     assert.equal(verifySecurityAudit(path).ok, false);
-    assert.ok(anchorHead(path, 'security', key), 'open finding: helper ignores the verification failure');
+    assert.throws(() => anchorHead(path, 'security', key), /audit chain verification failed/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
