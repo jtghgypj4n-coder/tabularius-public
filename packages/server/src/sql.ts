@@ -98,7 +98,7 @@ export class SqlEndpoint {
       if (!Number.isInteger(max) || max < 1 || max > MAX_LIMIT) throw new ApiError(960, `limit must be 1 to ${MAX_LIMIT}`, 400);
       if (format !== 'json' && format !== 'csv') throw new ApiError(960, 'format must be json or csv', 400);
 
-      const { sql: text, target } = store.calc.translateSQL(sql, p);
+      const { sql: text, target } = store.calc.translateSQL(sql, p, undefined, true);
       this.checkReadsEverything(p.in(target), target);
       if (format === 'csv' && (!p.canExport || !p.in(target).canExport)) {
         throw new ApiError(9, 'Insufficient privileges: this account may not export records', 403);
@@ -184,7 +184,7 @@ export async function signIn(req: IncomingMessage, store: Store, api: DataApi, v
   if (bearer?.startsWith('ohbt_')) {
     const bound = store.apiToken(bearer);
     if (!bound) throw new ApiError(212, 'Invalid API token', 401);
-    if (!store.signInLocationAllowed(bound.account, req.socket.remoteAddress ?? '')) {
+    if (!store.signInLocationAllowed(bound.account, clientAddress(req))) {
       throw new ApiError(9, 'This account may be used only from the server itself', 403);
     }
     if (bound.surfaces && !bound.surfaces.includes(extended)) throw new ApiError(9, `This API token is not scoped for ${what} (${extended})`, 403);

@@ -146,14 +146,20 @@ test('AR-server-data-apis-03 events', async (t) => {
   await Promise.resolve();
   assert.deepEqual(stream.events.map((e) => e.recordId), [f.a]);
   stream.text = '';
-  // A bulk change keeps only the ids the account can see; a table-wide change with no visible row says nothing.
+  // A bulk change keeps only the ids the account can see; a table-wide change goes to everyone who can see the table.
   f.store.notify('update', 'Items', undefined, undefined, undefined, undefined, [f.a, f.b]);
   await Promise.resolve();
   assert.deepEqual(stream.events.map((e) => e.ids), [[f.a]]);
   stream.text = '';
   f.store.notify('truncate', 'Items');
   await Promise.resolve();
-  assert.equal(stream.events.length, 0);
+  assert.deepEqual(stream.events.map((e) => [e.kind, e.table]), [['truncate', 'Items']]);
+  stream.text = '';
+  f.store.notify('truncate', 'Parents');
+  f.store.notify('truncate', 'PrivateTable');
+  await Promise.resolve();
+  assert.equal(stream.events.length, 2, 'a table the account may see, in any file it reads, is announced');
+  stream.text = '';
   f.store.notify('update', 'Items', undefined, undefined, undefined, undefined, [f.a]);
   await Promise.resolve();
   assert.deepEqual(stream.events.map((e) => e.ids), [[f.a]]);
@@ -350,17 +356,25 @@ test('AR-server-data-apis-03 scope and current privileges', async (t) => {
   assert.deepEqual(allowed.events.map((e) => e.recordId), [f.a]);
 });
 
-test('AR-server-data-apis-03 pending buffer', async (t) => {
+test('AR-server-data-apis-03 a burst is delivered, a stalled reader is cut off', async (t) => {
   const f = fixture(t);
   const stream = await request(f.live, '/tabularius/live/v1/databases/Main/events', f.token);
   t.after(() => stream.destroy());
-  const subscribed = f.store.listeners.size;
-  f.store.notify('update', 'Items', f.a, undefined, { account: 'a'.repeat(MAX_STREAM_BUFFER + 1) });
+  // An import or script publishes thousands of changes in one tick: more than the buffer's bound, and all of it is sent.
+  const ids = Array.from({ length: 3000 }, () => f.store.create('Items', { Tenant: 'A' }).recordId);
+  assert.ok(ids.length * 100 > MAX_STREAM_BUFFER, 'the burst is larger than the buffer bound');
   await Promise.resolve();
-  assert.equal(stream.destroyed, true);
-  assert.equal(f.live.streamCount, 0);
+  assert.deepEqual(stream.events.map((e) => e.recordId), ids);
+  assert.equal(stream.destroyed, false);
+  const slow = await request(f.live, '/tabularius/live/v1/databases/Main/events', f.fresh());
+  t.after(() => slow.destroy());
+  const subscribed = f.store.listeners.size;
+  slow.writableLength = MAX_STREAM_BUFFER + 1;
+  f.store.update('Items', f.a, { Title: 'nobody is reading' });
+  await Promise.resolve();
+  assert.equal(slow.destroyed, true);
   assert.equal(f.store.listeners.size, subscribed - 1);
-  assert.equal(stream.events.length, 0);
+  assert.equal(stream.events.length, ids.length + 1);
 });
 
 test('AR-server-data-apis-04 HTTP', async (t) => {
@@ -422,4 +436,154 @@ test('AR-server-data-apis-05', async (t) => {
   assert.equal((await request(f.api, path + '?layout.response=Items', token)).body.messages[0].code, '200');
   assert.equal((await request(f.api, `/fmi/data/vLatest/databases/Main/layouts/Items/records/${f.a}`, token)).status, 200);
   assert.equal((await request(f.api, `/fmi/data/vLatest/databases/Main/layouts/Items/records/${f.a}?layout.response=BlockedRecords`, token)).body.messages[0].code, '200');
+});
+
+// The checks below act while a stream is open and no privilege change has expired it, so the stream itself must refuse.
+test('AR-server-data-apis-03 a layout-scoped stream gets only its layout\'s table', async (t) => {
+  const f = fixture(t);
+  const stream = await request(f.live, '/tabularius/live/v1/databases/Main/events', f.fresh({ layouts: ['Items'] }));
+  t.after(() => stream.destroy());
+  const external = f.other.create('PrivateTable', { PublicColumn: 'other file' }).recordId;
+  f.store.update('Parents', f.parent, { Title: 'other table' });
+  f.other.update('PrivateTable', external, { PublicColumn: 'changed' });
+  f.store.update('Items', f.a, { Title: 'in scope' });
+  await Promise.resolve();
+  assert.deepEqual(stream.events.map((e) => [e.file, e.table, e.recordId]), [['Main', 'Items', f.a]]);
+  stream.text = '';
+  f.store.delete('Parents', f.parent);
+  f.store.delete('Items', f.b);
+  await Promise.resolve();
+  assert.deepEqual(stream.events.map((e) => [e.kind, e.table, e.recordId]), [['delete', 'Items', f.b]]);
+});
+
+test('AR-server-data-apis-03 a layout the account has no record access to is not streamed', async (t) => {
+  const f = fixture(t);
+  f.store.savePrivilegeSet({ ...definition, layoutAccess: { Items: { layout: 'viewOnly', records: 'none' } } });
+  const scoped = await request(f.live, '/tabularius/live/v1/databases/Main/events', f.fresh({ layouts: ['Items'] }));
+  t.after(() => scoped.destroy());
+  f.store.update('Items', f.a, { Title: 'changed' });
+  f.store.delete('Items', f.b);
+  await Promise.resolve();
+  assert.equal(scoped.events.length, 0);
+});
+
+test('AR-server-data-apis-03 one rule shared by two accounts grants a delete to the owner of the row only', async (t) => {
+  const f = fixture(t);
+  f.store.savePrivilegeSet({ ...definition, tables: { Items: { ...all, view: 'Tenant = Get ( AccountName )' } } });
+  f.store.setPassword('Reader', 'test-password', 'Reader');
+  f.store.setPassword('Second', 'test-password', 'Reader');
+  const mine = f.store.create('Items', { Tenant: 'Reader' }).recordId;
+  const theirs = f.store.create('Items', { Tenant: 'Second' }).recordId;
+  const first = await request(f.live, '/tabularius/live/v1/databases/Main/events', f.store.createApiToken('Reader'));
+  const second = await request(f.live, '/tabularius/live/v1/databases/Main/events', f.store.createApiToken('Second'));
+  t.after(() => { first.destroy(); second.destroy(); });
+  f.store.delete('Items', mine);
+  f.store.delete('Items', theirs);
+  await Promise.resolve();
+  assert.deepEqual(first.events.map((e) => [e.kind, e.recordId]), [['delete', mine]]);
+  assert.deepEqual(second.events.map((e) => [e.kind, e.recordId]), [['delete', theirs]]);
+});
+
+test('AR-server-data-apis-03 a delete is judged by the rule that was recorded for it', async (t) => {
+  const f = fixture(t);
+  f.store.savePrivilegeSet({ ...definition, tables: { Items: { ...all, view: 'Tenant = "A"' } } });
+  const stream = await request(f.live, '/tabularius/live/v1/databases/Main/events', f.fresh());
+  t.after(() => stream.destroy());
+  // Evidence for another account, or recorded under another rule, does not stand for this one.
+  f.store.notify('delete', 'Items', f.a, undefined, undefined, undefined, undefined, [{ account: 'Someone', rule: 'Tenant = "A"' }]);
+  f.store.notify('delete', 'Items', f.a, undefined, undefined, undefined, undefined, [{ account: 'Reader', rule: 'Tenant = "B"' }]);
+  f.store.notify('delete', 'Items', f.a, undefined, undefined, undefined, undefined, []);
+  await Promise.resolve();
+  assert.equal(stream.events.length, 0);
+  f.store.notify('delete', 'Items', f.a, undefined, undefined, undefined, undefined, [{ account: 'Reader', rule: 'Tenant = "A"' }]);
+  await Promise.resolve();
+  assert.equal(stream.events.length, 1);
+});
+
+test('AR-server-data-apis-03 a delete is judged before its cascade removes what the rule counts', async (t) => {
+  const f = fixture(t);
+  f.store.applyDesign([
+    { op: 'createTable', name: 'Boss', fields: [{ name: 'Link' }] },
+    { op: 'createTable', name: 'Staff', fields: [{ name: 'Link' }] },
+    { op: 'createRelationship', left: 'Boss', right: 'Staff', predicates: [{ left: 'Link', right: 'Link' }], rightDelete: true },
+  ]);
+  const boss = f.store.create('Boss', { Link: 'x' }).recordId;
+  f.store.create('Staff', { Link: 'x' });
+  f.store.create('Staff', { Link: 'x' });
+  f.store.savePrivilegeSet({ ...definition, tables: { Boss: { ...all, view: 'ExecuteSQL ( "SELECT COUNT(*) FROM Staff" ; "" ; "" ) > 0' } } });
+  const stream = await request(f.live, '/tabularius/live/v1/databases/Main/events', f.fresh());
+  t.after(() => stream.destroy());
+  f.store.delete('Boss', boss);
+  await Promise.resolve();
+  assert.deepEqual(stream.events.filter((e) => e.kind === 'delete' && e.table === 'Boss').map((e) => e.recordId), [boss]);
+  assert.equal(stream.events.filter((e) => e.table === 'Staff').length, 2, 'the cascade ran');
+});
+
+test('AR-server-data-apis-03 deleting costs nothing for accounts nobody is streaming', async (t) => {
+  const f = fixture(t);
+  f.store.savePrivilegeSet({ ...definition, tables: { Items: { ...all, view: 'ExecuteSQL ( "SELECT COUNT(*) FROM Items" ; "" ; "" ) > 0' } } });
+  for (let i = 0; i < 30; i++) f.store.setPassword(`Idle${i}`, 'test-password', 'Reader');
+  const evaluated: string[] = [];
+  const original = f.store.privileges.bind(f.store);
+  t.mock.method(f.store, 'privileges', (...args: Parameters<typeof f.store.privileges>) => { evaluated.push(String(args[0])); return original(...args); });
+  const seen: Change[] = [];
+  f.store.listeners.add((c) => seen.push(c));
+  f.store.delete('Items', f.a);
+  assert.deepEqual(evaluated.filter((name) => name.startsWith('Idle')), []);
+  assert.deepEqual(seen[0].deletedVisibility, []);
+});
+
+test('AR-server-data-apis-04 a table denied in another file is not listed on the wire', async (t) => {
+  const f = fixture(t);
+  const pg = new PgServer(f.host, { port: 0 });
+  t.after(() => pg.close());
+  const c = await PgClient.open({ port: await pg.listen(), user: 'Reader', password: 'test-password', database: 'Main' });
+  t.after(() => c.close());
+  const query = "SELECT table_name FROM information_schema.tables WHERE table_name = 'ExternalPrivate'";
+  f.other.savePrivilegeSet(definition);
+  f.other.setPassword('Reader', 'other-password', 'Reader');
+  assert.deepEqual((await c.simple(query)).rows, [['ExternalPrivate']]);
+  f.other.savePrivilegeSet({ ...definition, tables: { PrivateTable: { ...all, view: false } } });
+  assert.deepEqual((await c.simple(query)).rows, []);
+  assert.deepEqual((await c.simple("SELECT column_name FROM information_schema.columns WHERE table_name = 'ExternalPrivate'")).rows, []);
+});
+
+test('AR-server-data-apis-04 an account that reads everything may name a schema', async (t) => {
+  const f = fixture(t);
+  const sql = (token: string) => request(f.sql, '/tabularius/sql/v1/databases/Main?q=' + encodeURIComponent('SELECT * FROM main.Items'), token);
+  assert.equal((await sql(f.token)).status, 200);
+  const pg = new PgServer(f.host, { port: 0 });
+  t.after(() => pg.close());
+  const c = await PgClient.open({ port: await pg.listen(), user: 'Reader', password: 'test-password', database: 'Main' });
+  t.after(() => c.close());
+  assert.equal((await c.simple('SELECT * FROM main.Items')).error, undefined);
+  // Once a row rule limits the account it is refused, and the message names the SQL surface rather than ExecuteSQL.
+  f.store.savePrivilegeSet({ ...definition, tables: { Items: { ...all, view: 'Tenant = "A"' } } });
+  const limited = await sql(f.fresh());
+  assert.equal(limited.status, 400);
+  assert.match(limited.text, /SQL can't use a schema name/);
+  assert.doesNotMatch(limited.text, /ExecuteSQL/);
+});
+
+test('AR-server-data-apis-05 a related table reached through a field the account cannot read is left out', (t) => {
+  const f = fixture(t);
+  const follow = (link: 'Parents' | 'Children') => {
+    f.store.savePrivilegeSet({ ...definition, tables: { [link]: { ...all, fields: { Link: 'none' } } } });
+    return describeRecord(f.store, 'Parents', f.parent, { privileges: f.store.privileges('Reader'), follow: ['Grandchildren'] }).related;
+  };
+  assert.deepEqual(follow('Children'), []);
+  assert.deepEqual(follow('Parents'), []);
+});
+
+test('AR-server-data-apis-05 a related table with a row rule is not reached through a masked key', (t) => {
+  const f = fixture(t);
+  const follow = (masked: boolean) => {
+    f.store.savePrivilegeSet({ ...definition, tables: {
+      Parents: { ...all, fields: masked ? { Link: 'masked' } : {} },
+      Children: { ...all, view: 'Title = "child"' },
+    } });
+    return describeRecord(f.store, 'Parents', f.parent, { privileges: f.store.privileges('Reader'), follow: ['Children'] }).related;
+  };
+  assert.equal(follow(false)[0].count, 1);
+  assert.deepEqual(follow(true).flatMap((g) => g.records), []);
 });

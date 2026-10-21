@@ -769,7 +769,7 @@ class Connection {
         if (code.slice(offset, offset + text.length) !== text) return text;
         return call ? values[call.toLowerCase()] : `'${this.user.replace(/'/g, "''")}'`;
       });
-    const translated = this.store!.calc.translateSQL(pgFunctions, this.privileges);
+    const translated = this.store!.calc.translateSQL(pgFunctions, this.privileges, undefined, true);
     let { sql: text } = translated;
     const { target } = translated;
     if (!this.privileges!.in(target).readsEverything) {
