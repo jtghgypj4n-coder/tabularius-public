@@ -823,6 +823,8 @@ async function applySyncRun(store: SyncLocal & Partial<Pick<Store, 'present' | '
       const agreed: string[] = [];
       const retrying = new Set((store.sql.prepare('SELECT field FROM _fm_sync_container_pending WHERE table_key = ? AND uuid = ?').all(key, local.uuid) as { field: string }[]).map((r) => r.field));
       for (const field of sendFileFields) {
+        // A record retried only for the files it owes sends those: another file that differs from FileMaker's is a change for a pull.
+        if (retryOnly.has(local.uuid) && !retrying.has(field)) continue;
         const had = Number(local.fields[field]);
         if (!Number.isInteger(had) || had <= 0) {
           // Nothing here. A container emptied here isn't emptied on FileMaker: the file there is left and the run says so.
