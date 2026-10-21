@@ -74,6 +74,8 @@ export const MAX_REPLAY_CLAIMS = 100_000;
 export const MAX_BODY = 256 * 1024;
 /** How far a call's timestamp may be from the server's clock. */
 const SKEW_S = 300;
+/** Tolerate a full timestamp window of rollback, plus one skew interval; recover from larger clock faults. */
+const MAX_CLOCK_ROLLBACK_MS = 3 * SKEW_S * 1000;
 /** Calls shown per hook, and lines kept in the calls file before it is trimmed. */
 const CALLS_SHOWN = 20;
 const CALLS_KEPT = 1000;
@@ -280,8 +282,11 @@ export class InboundHooks {
         CREATE TABLE IF NOT EXISTS clock (id INTEGER PRIMARY KEY CHECK (id = 1), high_water INTEGER NOT NULL);
         INSERT OR IGNORE INTO clock VALUES (1, 0);
         BEGIN IMMEDIATE`);
-      // Expired claims never become valid again after a backward clock adjustment.
-      const now = Math.max(Date.now(), Number(db.prepare('SELECT high_water FROM clock WHERE id = 1').get()!.high_water));
+      const wall = Date.now();
+      const highWater = Number(db.prepare('SELECT high_water FROM clock WHERE id = 1').get()!.high_water);
+      // Preserve expiration through ordinary rollback, but don't pin every hook to a faulty clock for hours.
+      // Recovery keeps the claim ledger: signatures still recorded there remain consumed.
+      const now = highWater - wall > MAX_CLOCK_ROLLBACK_MS ? wall : Math.max(wall, highWater);
       db.prepare('UPDATE clock SET high_water = ? WHERE id = 1').run(now);
       db.prepare('DELETE FROM claims WHERE expires < ?').run(now);
       let result: 'claimed' | 'replay' | 'expired' | 'full';
