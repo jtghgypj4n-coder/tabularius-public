@@ -1316,7 +1316,7 @@ $('signin-form').addEventListener('submit', async (e) => {
   refresh();
 });
 
-const outcome = (r) => `<span class="${r.error ? 'bad' : 'ok'}">${r.error ? `error ${r.error}${r.message ? ', ' + esc(r.message) : ''}` : 'done'}</span>`;
+const outcome = (r) => `<span class="${r.error ? 'bad' : 'ok'}">${r.error ? `error ${esc(r.error)}${r.message ? ', ' + esc(r.message) : ''}` : 'done'}</span>`;
 
 // Inbound hooks: each one's address, and the calls it got (never their bodies).
 let callsOf;
