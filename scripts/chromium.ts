@@ -29,6 +29,7 @@ export function findChromium(): string | undefined {
     }
   } catch { /* no such dir */ }
   for (const p of [
+    '/opt/google/chrome/chrome', // the real binary: /usr/bin/google-chrome is a shell script that needs readlink, dirname, mkdir and cat on the PATH
     '/usr/bin/google-chrome', '/usr/bin/chromium', '/usr/bin/chromium-browser',
     '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome', '/Applications/Chromium.app/Contents/MacOS/Chromium',
   ]) if (existsSync(p)) return p;

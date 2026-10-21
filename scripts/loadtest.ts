@@ -1,7 +1,7 @@
 // Load test: many people using one hosted file at once.
 //
-//   node scripts/loadtest.ts <file.fmp12> [--users 50] [--seconds 30] [--layout L] [--field F] [--records N]
-//                            [--hot N] [--counter F] [--profile] [--workers N]
+//   node scripts/loadtest.ts <file.fmp12>|--synthetic [--users 50] [--seconds 30] [--layout L] [--field F] [--records N]
+//                            [--hot N] [--counter F] [--profile] [--workers N] [--rate finds-per-second]
 //
 // Copies the file to a temporary folder, hosts it in a separate process (so
 // the clients here don't slow the server down), and has each simulated user
@@ -140,8 +140,8 @@ class Stats {
 
 async function main(): Promise<void> {
   const file = process.argv[2];
-  if (!file || file.startsWith('--')) {
-    console.error('usage: node scripts/loadtest.ts <file.fmp12> [--users 50] [--seconds 30] [--layout L] [--field F] [--records N] [--hot N] [--counter F] [--profile] [--workers N]');
+  if (!file || (file.startsWith('--') && file !== '--synthetic')) {
+    console.error('usage: node scripts/loadtest.ts <file.fmp12>|--synthetic [--users 50] [--seconds 30] [--layout L] [--field F] [--records N] [--hot N] [--counter F] [--profile] [--workers N] [--rate finds-per-second]');
     process.exit(2);
   }
   const users = Number(arg('--users', '50'));
@@ -149,7 +149,18 @@ async function main(): Promise<void> {
   const dir = mkdtempSync(join(tmpdir(), 'tabularius-load-'));
   let server: ChildProcess | undefined;
   try {
-    copyFileSync(file, join(dir, basename(file)));
+    if (file === '--synthetic') {
+      const { createStore, Store } = await import('../packages/store/src/index.ts');
+      const { STORE_EXT } = await import('../packages/server/src/host.ts');
+      const path = join(dir, 'Synthetic' + STORE_EXT);
+      createStore(path);
+      const synthetic = new Store(path, 'Synthetic');
+      try {
+        synthetic.applyDesign([{ op: 'createTable', name: 'Items', fields: [{ name: 'Name' }, { name: 'Counter', type: 'number' }] }]);
+        const records = Math.max(100, Number(arg('--records', '2000')));
+        for (let i = 0; i < records; i++) synthetic.create('Items', { Name: `synthetic item ${i % 100} search`, Counter: 0 });
+      } finally { synthetic.close(); }
+    } else copyFileSync(file, join(dir, basename(file)));
     const t = await prepare(dir, users);
     console.log(`${users} users for ${seconds}s on ${t.db} / layout "${t.layout}" (${t.ids.length} records), editing "${t.field}"`);
 
@@ -160,6 +171,16 @@ async function main(): Promise<void> {
       server!.once('exit', (code) => fail(new Error(`server exited (${code})`)));
     });
     const stats = new Stats();
+    const memory: number[] = [];
+    const sampleMemory = async () => {
+      try {
+        const report = await (await fetch(`${base}/tabularius/admin/v1/metrics`)).text();
+        const match = /^process_resident_memory_bytes (\d+)/m.exec(report);
+        if (match) memory.push(Number(match[1]));
+      } catch { /* The load still runs if metrics are unavailable. */ }
+    };
+    await sampleMemory();
+    const memoryTimer = setInterval(() => void sampleMemory(), 500);
     const end = Date.now() + seconds * 1000;
     let events = 0;
     const aborts: AbortController[] = [];
@@ -200,6 +221,47 @@ async function main(): Promise<void> {
         stats.error(`${kind}: ${(e as Error).message}`);
         return undefined;
       }
+    }
+
+    // A fixed offered rate, independent of completion time. This avoids
+    // mistaking closed-loop throughput collapse for a safe arrival rate.
+    const rate = Number(arg('--rate', '0'));
+    if (rate) {
+      if (!Number.isInteger(rate) || rate < 1 || rate > 5000) throw new Error('--rate must be an integer from 1 to 5000');
+      const tokens = await Promise.all(Array.from({ length: users }, async (_, i) => {
+        const response = await fetch(`${base}/fmi/data/vLatest/databases/${db}/sessions`, {
+          method: 'POST', headers: { authorization: 'Basic ' + btoa(`load${i + 1}:${PASSWORD}`), 'content-type': 'application/json' }, body: '{}',
+        });
+        if (!response.ok) throw new Error(`load account ${i + 1} could not sign in: HTTP ${response.status}`);
+        return ((await response.json()) as { response: { token: string } }).response.token;
+      }));
+      let sent = 0;
+      const pending: Promise<unknown>[] = [];
+      const started = performance.now();
+      while (performance.now() < started + seconds * 1000) {
+        const due = started + sent * 1000 / rate;
+        if (due > performance.now()) await new Promise((resolve) => setTimeout(resolve, due - performance.now()));
+        if (performance.now() >= started + seconds * 1000) break;
+        const v = pick(t.values).match(/\w{3,}/)?.[0] ?? 'synthetic';
+        const token = tokens[sent % tokens.length];
+        pending.push(timed('find', `${layoutUrl}/_find`, {
+          method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+          body: JSON.stringify({ query: [{ [t.field]: v }], limit: 20 }),
+        }));
+        sent++;
+      }
+      await Promise.all(pending);
+      clearInterval(memoryTimer);
+      await sampleMemory();
+      console.log(`offered finds: ${sent} in ${seconds}s (${(sent / seconds).toFixed(1)}/s); ${users} signed-in sessions`);
+      console.log(stats.report(seconds));
+      if (memory.length) console.log(`server RSS MiB: first ${(memory[0] / 1048576).toFixed(1)}, peak ${(Math.max(...memory) / 1048576).toFixed(1)}, last ${(memory.at(-1)! / 1048576).toFixed(1)}`);
+      if (stats.errors.size) {
+        for (const [what, n] of stats.errors) console.log(`  ${n} × ${what}`);
+        process.exitCode = 1;
+      }
+      await Promise.all(tokens.map((token) => fetch(`${base}/fmi/data/vLatest/databases/${db}/sessions/${token}`, { method: 'DELETE' }).catch(() => {})));
+      return;
     }
 
     async function user(n: number): Promise<void> {
@@ -283,6 +345,8 @@ async function main(): Promise<void> {
     const started = performance.now();
     const logouts: Array<() => Promise<Response | undefined>> = [];
     await Promise.all(Array.from({ length: users }, (_, i) => user(i + 1)));
+    clearInterval(memoryTimer);
+    await sampleMemory();
     const elapsed = (performance.now() - started) / 1000;
     // Live updates for the last saves may still be on their way (from the other
     // worker, in a cluster): give them up to 2 s before closing the streams.
@@ -291,6 +355,7 @@ async function main(): Promise<void> {
     await Promise.all(logouts.map((logout) => logout()));
     for (const a of aborts) a.abort();
     console.log(stats.report(elapsed));
+    if (memory.length) console.log(`server RSS MiB: first ${(memory[0] / 1048576).toFixed(1)}, peak ${(Math.max(...memory) / 1048576).toFixed(1)}, last ${(memory.at(-1)! / 1048576).toFixed(1)}`);
     console.log(`live update events received: ${events}`);
 
     const failures: string[] = [];

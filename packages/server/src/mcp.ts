@@ -1072,7 +1072,7 @@ export function createMcpServer(host: Host, who: McpIdentity = { admin: true }, 
     readsEverything(p);
     if (p && recordId !== undefined) s.get(layout, recordId, 'iso', undefined, p, { fields: [] });
     else if (p) s.find(layout, { limit: 0, privileges: p });
-    const result: Record<string, unknown> = s.evaluate(layout, formula, recordId, { account: p?.account });
+    const result: Record<string, unknown> = s.evaluate(layout, formula, recordId, { account: p?.account, ...(p ? { privileges: p } : {}) });
     const info = s.layout(layout);
     const toId = s.calc.occurrence(info.occurrence)?.id;
     const fields = checkFormula(s, toId, formula).fields.filter((f) => f.found);

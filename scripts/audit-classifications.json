@@ -362,6 +362,8 @@
   "route HEAD /fmi/webd/{database}": "record-partial",
   "route GET /app": "record-partial",
   "route GET /app/{path...}": "record-partial",
+  "route GET /next": "record-partial",
+  "route GET /next/": "record-partial",
   "route GET /tabularius/images/{database}/{id}": "record-partial",
   "route GET /tabularius/app/v1/databases/{database}/layouts": "record-partial",
   "route GET /tabularius/app/v1/databases/{database}/layouts/{layout}": "record-partial",

@@ -1,0 +1,10 @@
+{
+  "id": "synthetic-server-tour",
+  "steps": [
+    { "action": "go", "path": "/admin/#connected", "target": { "selector": "#session-minutes[data-loaded]" }, "caption": "Open the local server console." },
+    { "action": "wait", "target": { "selector": "#session-minutes[data-loaded]" }, "caption": "Find the session timeout field." },
+    { "action": "type", "target": { "selector": "#session-minutes[data-loaded]" }, "value": "20", "caption": "Enter a sample timeout without saving it." },
+    { "action": "press", "target": { "selector": "#session-minutes[data-loaded]" }, "value": "Escape", "caption": "Close any transient control." },
+    { "action": "click", "target": { "role": "link", "name": "Backups" }, "caption": "Open the backup section." }
+  ]
+}
