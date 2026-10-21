@@ -549,8 +549,8 @@ export function registerDesignTools(server: McpServer, host: Host, guard: (s: St
     inputSchema: { database: db },
     annotations: { readOnlyHint: true },
   }, async ({ database }) => withStore(database, (s) => {
-    const { accounts, privilegeSets, importApproximations, passwordPolicy, apiTokens } = securityOf(s);
-    return { database: s.name, accounts, privilegeSets, importApproximations, passwordPolicy, apiTokens: apiTokens.map(({ id: _, ...t }) => t) };
+    const { accounts, privilegeSets, importApproximations, passwordPolicy, minPasswordLength, apiTokens } = securityOf(s);
+    return { database: s.name, accounts, privilegeSets, importApproximations, passwordPolicy, minPasswordLength, apiTokens: apiTokens.map(({ id: _, ...t }) => t) };
   }));
 
   server.registerTool('review_privileges', {
@@ -784,8 +784,8 @@ export function registerDesignTools(server: McpServer, host: Host, guard: (s: St
     if (changes.some((c) => 'password' in c)) throw new Error('Passwords are not set through AI tools: the account holder sets it, or the administrator uses tabularius passwd');
     if (changes.some((c) => c.op === 'revokeApiToken')) throw new Error('API tokens are managed in Manage Security, not through AI tools');
     applySecurityChanges(s, changes as unknown as Parameters<typeof applySecurityChanges>[1], 'AI');
-    const { accounts, privilegeSets, importApproximations, passwordPolicy, apiTokens } = securityOf(s);
-    return { database: s.name, accounts, privilegeSets, importApproximations, passwordPolicy, apiTokens: apiTokens.map(({ id: _, ...t }) => t) };
+    const { accounts, privilegeSets, importApproximations, passwordPolicy, minPasswordLength, apiTokens } = securityOf(s);
+    return { database: s.name, accounts, privilegeSets, importApproximations, passwordPolicy, minPasswordLength, apiTokens: apiTokens.map(({ id: _, ...t }) => t) };
   }));
 
   server.registerTool('create_database', {
