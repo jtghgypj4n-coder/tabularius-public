@@ -4782,9 +4782,6 @@ export class Store {
     return this.securityChange(() => {
       const d = this.privilegeError(() => validateDefinition(definition));
       const existing = this.privilegeSet(d.name);
-      if (!existing && this.privilegeSets().some((p) => foldSecurityName(p.name) === foldSecurityName(d.name))) {
-        throw new StoreError(960, `Privilege set "${d.name}" already exists`);
-      }
       // A set keeps its name's spelling and its id in the file; an id can't be taken from another set.
       const name = existing?.name ?? d.name;
       const id = existing ? existing.id : d.id !== undefined && this.privilegeSets().some((p) => p.id === d.id) ? undefined : d.id;
@@ -4867,7 +4864,10 @@ export class Store {
         switch (op.op) {
           case 'createAccount': {
             if (this.accounts().some((a) => foldSecurityName(a.name) === foldSecurityName(op.name))) throw new StoreError(960, `Account "${op.name}" already exists`);
-            if (op.kind === 'password') this.setPassword(op.name, op.password ?? '', op.privilegeSet, { mustChange: op.mustChange });
+            if (op.kind === 'password') {
+              if (typeof op.password !== 'string') throw new StoreError(960, `Give "${op.name}" a password to create it`);
+              this.setPassword(op.name, op.password, op.privilegeSet, { mustChange: op.mustChange });
+            }
             else if (op.kind === 'external') this.setExternalAccount(op.name, op.privilegeSet);
             else if (op.kind === 'agent') this.setAgentAccount(op.name, op.privilegeSet, { createdBy: op.createdBy, needsApproval: op.needsApproval });
             else throw new StoreError(960, 'Account creation kind is invalid');

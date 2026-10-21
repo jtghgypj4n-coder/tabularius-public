@@ -24,3 +24,10 @@ test('store security changes create accounts and privilege sets, and reject dupl
   assert.throws(() => store.applySecurity([{ op: 'createAccount', kind: 'password', name: 'cASEY', password: 'another-secret', privilegeSet: 'Auditors' }]), /already exists/i);
   assert.throws(() => store.applySecurity([{ op: 'createPrivilegeSet', set: set('aUDITORS') }]), /already exists/i);
 }));
+
+test('creating a password account needs a password given as text; nothing is created without one', () => withStore((store) => {
+  for (const password of [undefined, null, 7]) {
+    assert.throws(() => store.applySecurity([{ op: 'createAccount', kind: 'password', name: 'Pat', password: password as unknown as string, privilegeSet: '[Full Access]' }]), /password/i);
+    assert.equal(store.accounts().some((a) => a.name === 'Pat'), false);
+  }
+}));
