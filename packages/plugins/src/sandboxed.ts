@@ -96,6 +96,7 @@ function pluginHost(manifest: PluginManifest, fn: string, env: Env, secrets: () 
         const s = (k: string) => String(m[k] ?? '');
         const mail = { from: s('from'), to: s('to'), cc: s('cc'), bcc: s('bcc'), subject: s('subject'), body: s('body'),
           attachments: Array.isArray(m.attachments) ? m.attachments.map(String) : [] };
+        for (const attachment of mail.attachments) requirePluginFileAccess(manifest, attachment, 'read');
         // Where the operator switched sending on, the message is sent through their account (the host decides who it
         // comes from, and refuses capture-only files); otherwise only outbound test mode takes it, and records it.
         if (env.ctx.mailer) { env.ctx.mailer.send(via, mail); return true; }

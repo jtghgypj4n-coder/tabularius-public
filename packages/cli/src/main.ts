@@ -17,6 +17,7 @@ import { defaultBundleName, diagnostics, writeBundle } from './diagnostics.ts';
 import { doctorText, runDoctor } from './doctor.ts';
 import { startDemo } from './demo.ts';
 import { checkPort, defaults, installed, installService, serviceFile, uninstallService, upgrade, validateServicePublicUrl, type Platform, type ServiceOptions } from './service.ts';
+import { claimFolder } from '../../server/src/backup.ts';
 import { FmpDatabase, fileSource, encryptionInfo, readLayoutDesigns, segmentOf, inspectText, type Schema } from '../../fmp12/src/index.ts';
 import { BUILT_IN_EXTENDED_PRIVILEGES, addCensus, styleCensus, styleCensusText, calcFidelity, censusText, exportSql, exportSqlSummary, planImportTables, importTables, importTablesSummary, notionMarkdownSheet, MAX_IMPORT_ROWS, type SheetInput, type ColumnOverrides, type ColumnKind, findStaleCalcs, layoutCensus, type LayoutCensus, createStore, designReport, importFmp12, PASSWORD_POLICY, reconvert, reconvertCheck, verifySecurityAudit, verifyRecordAudit, anchorHead, checkAnchor, Store, syncPlan, openForPlanning, applySync, readSyncLog, releaseHeldTables, type ConflictPolicy, writeBackKit, designText, writeDesignText, diffDesigns, planDesignApply, readDesignFolder, type DesignOp, type ReconvertPreview, csvField } from '../../store/src/index.ts';
 import { xlsxSheetNames } from '../../scripts/src/xlsx.ts';
@@ -499,6 +500,9 @@ Hosting (point it at a folder of .fmp12 files; each is converted once):
                                              Raw path tree, for format research
 `;
 
+/** Every option the usage text names: a value that is one of these in a secret's or label's place is a mistyped command line. */
+const KNOWN_OPTIONS = new Set(USAGE.match(/--[a-z][a-z0-9-]*/g));
+
 /** What design-text did, in a line. */
 function designTextSummary(out: string, r: { written: string[]; unchanged: number; removed: string[] }, total: number): string {
   if (!r.written.length && !r.removed.length) return `${out}: ${total} files, nothing changed`;
@@ -507,7 +511,10 @@ function designTextSummary(out: string, r: { written: string[]; unchanged: numbe
 
 /** Files to keep from AI: --ai-exclude A,B, or TABULARIUS_AI_EXCLUDE. */
 function aiExcludeFrom(args: string[]): string[] {
-  return (flag(args, '--ai-exclude') ?? process.env.TABULARIUS_AI_EXCLUDE ?? '').split(',').map((n) => n.trim()).filter(Boolean);
+  const given = flag(args, '--ai-exclude');
+  // A misspelled option written after --ai-exclude would become the list of names and leave the real option unread.
+  if (given?.startsWith('-')) throw new Error(`--ai-exclude needs a list of names (or '' for none), found ${given}`);
+  return (given ?? process.env.TABULARIUS_AI_EXCLUDE ?? '').split(',').map((n) => n.trim()).filter(Boolean);
 }
 
 /** Browser origins besides the server's own that may call /mcp: `--mcp-origin https://files.example.com` (repeatable) and TABULARIUS_MCP_ORIGINS (comma separated). */
@@ -529,6 +536,26 @@ function flag(args: string[], name: string): string | undefined {
   if (i < 0) return undefined;
   const v = args[i + 1];
   args.splice(i, 2);
+  return v;
+}
+
+/**
+ * An option whose value must be there: for restrictions and secrets, where a blank, a missing value or a
+ * neighbouring option taken as the value would quietly widen access. Other options keep `flag`'s lenient
+ * reading, so a scripted empty value (`--prefix ''`, `--ai-exclude ''`) still works. A secret may begin with a dash,
+ * but not look like the next option (`--mcp-token --port 9000`).
+ */
+function strictFlag(args: string[], name: string, allowLeadingDash = false): string | undefined {
+  // `--name=value` is not read as the option: for a secret that would start the server without it.
+  if (allowLeadingDash && args.some((a) => a.startsWith(`${name}=`))) throw new Error(`${name}=value is not read; write the option and its value as two words (${name} VALUE)`);
+  const i = args.indexOf(name);
+  if (i < 0) return undefined;
+  const v = args[i + 1];
+  if (v === undefined || !v.trim() || (!allowLeadingDash && v.startsWith('-'))) throw new Error(`${name} needs a non-empty value`);
+  // A secret may begin with a dash, but not be an option the usage names (--port, --allow-script-network) or look like one with a word after it.
+  if (allowLeadingDash && (KNOWN_OPTIONS.has(v) || (/^--[a-z][a-z0-9-]*$/.test(v) && args[i + 2] !== undefined && !args[i + 2].startsWith('-')))) throw new Error(`${name} needs a value, found the option ${v}`);
+  args.splice(i, 2);
+  if (args.includes(name)) throw new Error(`${name} was given more than once`);
   return v;
 }
 
@@ -665,6 +692,14 @@ function optionValue(args: string[], name: string, what: string): string | undef
   const v = args[i + 1];
   if (v === undefined || v.startsWith('-')) throw new Error(`${name} needs ${what}`);
   return v;
+}
+
+function expiryDays(args: string[], command: string): string | undefined {
+  const error = () => new Error(`${command}: --expires-days takes a number of days above zero`);
+  let days: string | undefined;
+  try { days = strictFlag(args, '--expires-days'); } catch { throw error(); }
+  if (days !== undefined && !(/^\d+(\.\d+)?$/.test(days) && Number(days) > 0)) throw error();
+  return days;
 }
 
 /** Commands that open a .fmp12 file: anything else with a file after it is a mistyped command, not a missing file. */
@@ -1179,7 +1214,7 @@ function main(argv: string[]): number {
       const port = Number(portText);
       if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error(`serve: ${portFlag !== undefined ? '--port' : 'the PORT variable'} takes a port number from 1 to 65535, not "${portText}"`);
       const hostname = flag(args, '--host') ?? process.env.TABULARIUS_HOST ?? (acme ? '0.0.0.0' : '127.0.0.1');
-      const mcpToken = flag(args, '--mcp-token') ?? process.env.TABULARIUS_MCP_TOKEN;
+      const mcpToken = strictFlag(args, '--mcp-token', true) ?? process.env.TABULARIUS_MCP_TOKEN;
       // Scripts stay offline unless asked: Insert from URL could reach mail, SMS or payment services.
       const scriptNetwork = bool(args, '--allow-script-network');
       // Scripts' requests never reach this machine's own network (loopback, 10/8, 192.168/16 and so on) unless listed here.
@@ -1256,7 +1291,7 @@ function main(argv: string[]): number {
       const sqlPort = sqlPortText ? Number(sqlPortText) : undefined;
       if (sqlPort !== undefined && !(Number.isInteger(sqlPort) && sqlPort >= 0 && sqlPort < 65536)) throw new Error('serve: --sql-port must be a port number');
       // Standby servers follow this one's changes, signing in with this token.
-      const replicationToken = flag(args, '--replication-token') ?? process.env.TABULARIUS_REPLICATION_TOKEN;
+      const replicationToken = strictFlag(args, '--replication-token', true) ?? process.env.TABULARIUS_REPLICATION_TOKEN;
       if (replicationToken !== undefined && replicationToken.length < 16) throw new Error('serve: --replication-token must be at least 16 characters');
       // Sign-in through an identity provider (OpenID Connect) for external accounts.
       const issuer = flag(args, '--oidc-issuer') ?? process.env.TABULARIUS_OIDC_ISSUER;
@@ -1585,7 +1620,7 @@ function main(argv: string[]): number {
     }
     case 'standby': {
       const primary = flag(args, '--primary') ?? process.env.TABULARIUS_PRIMARY;
-      const token = flag(args, '--token') ?? process.env.TABULARIUS_REPLICATION_TOKEN;
+      const token = strictFlag(args, '--token', true) ?? process.env.TABULARIUS_REPLICATION_TOKEN;
       if (!primary || !token) throw new Error('standby: give --primary URL and --token (the main server\'s --replication-token)');
       const standby = new Standby({ folder: path, primary, token, overwrite: bool(args, '--overwrite'), log: (m) => console.log(m) });
       standby.start();
@@ -1609,36 +1644,53 @@ function main(argv: string[]): number {
       const key = process.env.TABULARIUS_ENCRYPTION_KEY;
       if (!key) throw new Error(`${cmd}: set TABULARIUS_ENCRYPTION_KEY to the passphrase`);
       if (!existsSync(path)) throw new Error(`${cmd}: ${path} does not exist`);
-      let n = 0;
-      if (cmd === 'encrypt') {
-        for (const f of readdirSync(path)) {
-          if (!f.endsWith(STORE_EXT)) continue;
-          const working = join(path, f);
-          const enc = working + ENCRYPTED_EXT;
-          if (existsSync(enc)) { console.log(`${f} is already encrypted`); continue; }
-          const store = new Store(working); // fold the WAL in so the file alone is complete
-          store.checkpoint();
-          store.close();
-          // The shared results beside it hold values worked out from the data: they go too.
-          for (const side of ['-wal', '-shm', '.results', '.results-wal', '.results-shm']) rmSync(working + side, { force: true });
-          encryptFileSync(working, enc + '.partial', key);
-          renameSync(enc + '.partial', enc);
-          rmSync(working, { force: true });
-          console.log(`encrypted ${f}`);
-          n++;
+      const release = claimFolder(path, 'restore');
+      try {
+        let n = 0;
+        if (cmd === 'encrypt') {
+          for (const f of readdirSync(path)) {
+            if (!f.endsWith(STORE_EXT)) continue;
+            const working = join(path, f);
+            const enc = working + ENCRYPTED_EXT;
+            rmSync(enc + '.partial', { force: true });
+            if (existsSync(enc)) {
+              // Both a plaintext database and an encrypted copy: the plaintext may be the newer one (a server that unlocked the file and stopped without locking it again), or an earlier encrypt may have stopped before removing it. Nothing says which, so nothing is removed.
+              if (existsSync(working)) throw new Error(`${f}: a plaintext database and an encrypted copy (${basename(enc)}) both exist, and the plaintext may be newer. This database was not changed. Keep the one you want and remove the other (and its -wal, -shm and .results files with it), then run encrypt again`);
+              console.log(`${f} is already encrypted`);
+              continue;
+            }
+            const store = new Store(working); // fold the WAL in so the file alone is complete
+            try { store.checkpoint(); } finally { store.close(); }
+            // The shared results beside it hold values worked out from the data: they go too.
+            for (const side of ['-wal', '-shm', '.results', '.results-wal', '.results-shm']) rmSync(working + side, { force: true });
+            encryptFileSync(working, enc + '.partial', key);
+            renameSync(enc + '.partial', enc);
+            rmSync(working, { force: true });
+            console.log(`encrypted ${f}`);
+            n++;
+          }
+        } else {
+          for (const f of readdirSync(path)) {
+            if (!f.endsWith(STORE_EXT + ENCRYPTED_EXT)) continue;
+            const working = join(path, f.slice(0, -ENCRYPTED_EXT.length));
+            if (existsSync(working)) { console.log(`${basename(working)} is already decrypted; remove it first if you mean to replace it`); continue; }
+            // Into a partial file first: a wrong key or a damaged file leaves nothing behind that a later run would take for the decrypted database.
+            const partial = working + '.partial';
+            rmSync(partial, { force: true });
+            try {
+              decryptFileSync(join(path, f), partial, key);
+              renameSync(partial, working);
+            } catch (e) {
+              rmSync(partial, { force: true });
+              throw e;
+            }
+            rmSync(join(path, f));
+            console.log(`decrypted ${f}`);
+            n++;
+          }
         }
-      } else {
-        for (const f of readdirSync(path)) {
-          if (!f.endsWith(STORE_EXT + ENCRYPTED_EXT)) continue;
-          const working = join(path, f.slice(0, -ENCRYPTED_EXT.length));
-          if (existsSync(working)) { console.log(`${basename(working)} is already decrypted; remove it first if you mean to replace it`); continue; }
-          decryptFileSync(join(path, f), working, key);
-          rmSync(join(path, f));
-          console.log(`decrypted ${f}`);
-          n++;
-        }
-      }
-      console.log(n ? `${cmd}ed ${n} database${n > 1 ? 's' : ''}` : 'nothing to do');
+        console.log(n ? `${cmd}ed ${n} database${n > 1 ? 's' : ''}` : 'nothing to do');
+      } finally { release(); }
       return 0;
     }
     case 'admin-password': {
@@ -1730,10 +1782,18 @@ function main(argv: string[]): number {
       return 0;
     }
     case 'mcp': {
-      const account = flag(args, '--account');
+      const account = strictFlag(args, '--account');
       const password = process.env.TABULARIUS_PASSWORD;
       if (account && password === undefined) throw new Error('mcp: put the account\'s password in TABULARIUS_PASSWORD');
-      serveStdio(path, account ? { account, password: password! } : { admin: true }, { aiExclude: aiExcludeFrom(args) });
+      const aiExcludeAt = args.indexOf('--ai-exclude');
+      if (aiExcludeAt >= 0 && args[aiExcludeAt + 1] === undefined) throw new Error('mcp: --ai-exclude needs a list of names (or \'\' for none)');
+      const aiExclude = aiExcludeFrom(args);
+      // An option written --name=value or misspelled would otherwise be ignored, and the server would start as administrator or without the exclusion.
+      const stray = args.find((a) => a.startsWith('-'));
+      if (stray !== undefined) throw new Error(`mcp: ${stray} is not an option it knows; write an option and its value as two words (--account Review)`);
+      // A word left over (mcp DIR Review) would be ignored and the server would start as administrator.
+      if (args.length) throw new Error(`mcp: "${args[0]}" is not understood here; the account goes after --account, for example --account Review`);
+      serveStdio(path, account ? { account, password: password! } : { admin: true }, { aiExclude });
       return 0;
     }
     case 'test-scripts': {
@@ -2397,22 +2457,35 @@ function main(argv: string[]): number {
     case 'token': {
       const [database, action, rest] = args;
       if (!database || !action) throw new Error('token: give a database and an action (create, list, revoke)');
+      const days = action === 'create' ? expiryDays(args, 'token create') : undefined;
+      const surfaces = action === 'create' ? strictFlag(args, '--surfaces') : undefined;
+      const layouts = action === 'create' ? strictFlag(args, '--layouts') : undefined;
+      // --read-only is taken before --label, so a label can't swallow it and leave the token writable.
+      const readOnly = action === 'create' && bool(args, '--read-only');
+      const label = action === 'create' ? flag(args, '--label') : undefined;
+      if (label !== undefined && KNOWN_OPTIONS.has(label)) throw new Error(`token create: --label needs a label, found the option ${label}`);
+      const scope = (value: string | undefined, name: string) => {
+        if (value === undefined) return undefined;
+        const entries = value.split(',').map((s) => s.trim()).filter(Boolean);
+        if (!entries.length) throw new Error(`${name} needs at least one value`);
+        return entries;
+      };
+      const tokenSurfaces = scope(surfaces, '--surfaces');
+      const tokenLayouts = scope(layouts, '--layouts');
+      // An option written --name=value, or one this command doesn't know, would otherwise be ignored and the token made without the restriction.
+      const stray = action === 'create' ? args.slice(3).find((a) => a.startsWith('-')) : undefined;
+      if (stray !== undefined) throw new Error(`token create: ${stray} is not an option it knows; write an option and its value as two words (--surfaces fmrest)`);
       const store = openDatabase(path, database);
       try {
         if (action === 'create') {
           const account = rest;
           if (!account) throw new Error('token create: give the account the token acts as');
-          const days = flag(args, '--expires-days');
-          if (days !== undefined && !(/^\d+(\.\d+)?$/.test(days) && Number(days) > 0)) throw new Error(`token create: --expires-days takes a number of days above zero, not "${days}"`);
-          const readOnly = bool(args, '--read-only');
-          const surfaces = flag(args, '--surfaces');
-          const layouts = flag(args, '--layouts');
           const token = store.createApiToken(account, {
-            label: flag(args, '--label'),
+            label,
             readOnly,
             expires: days ? new Date(expiryClock.now() + Number(days) * 86_400_000) : undefined,
-            surfaces: surfaces ? surfaces.split(',').map((s) => s.trim()).filter(Boolean) : undefined,
-            layouts: layouts ? layouts.split(',').map((s) => s.trim()).filter(Boolean) : undefined,
+            surfaces: tokenSurfaces,
+            layouts: tokenLayouts,
             provenance: 'service',
           });
           console.log(token);
@@ -2441,8 +2514,7 @@ function main(argv: string[]): number {
           const layout = flag(args, '--layout');
           const start = flag(args, '--start');
           if (!layout || !start) throw new Error('calendar-feed create: give --layout and --start (a date or timestamp field)');
-          const days = flag(args, '--expires-days');
-          if (days !== undefined && !(/^\d+(\.\d+)?$/.test(days) && Number(days) > 0)) throw new Error(`calendar-feed create: --expires-days takes a number of days above zero, not "${days}"`);
+          const days = expiryDays(args, 'calendar-feed create');
           const limit = flag(args, '--limit');
           if (limit !== undefined && !/^\d+$/.test(limit)) throw new Error(`calendar-feed create: --limit takes a whole number, not "${limit}"`);
           const publicUrl = flag(args, '--public-url');

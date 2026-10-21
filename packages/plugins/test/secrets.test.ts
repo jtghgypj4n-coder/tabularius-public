@@ -1,10 +1,15 @@
 // Plug-in secrets (plugins/src/secrets.ts): the file only the server's user can read, and what a damaged one says.
-import { test } from 'node:test';
+import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { readPluginSecrets, writePluginSecret } from '../src/secrets.ts';
+import { pluginStatus, readPlugin } from '../src/index.ts';
+import { evaluate } from '../../calc/src/index.ts';
+import { stopJavaScript } from '../../store/src/javascript.ts';
+
+after(() => stopJavaScript());
 
 const posix = process.platform === 'win32' ? { skip: 'file modes' } : {};
 
@@ -61,4 +66,83 @@ test('a damaged file says so without its contents, and only text values are kept
   put(dir, 'org.example.d', '{"A":"text","B":5,"C":null,"D":{"x":"y"},"E":true}');
   assert.deepEqual(readPluginSecrets(dir, 'org.example.d'), { A: 'text' });
   assert.equal(existsSync(join(dir, 'plugins', 'secrets', 'org.example.d.json.tmp')), false);
+}));
+
+test('AR-cli-plugins-tooling-04', () => withData((dir) => {
+  const text = 'SENTINEL_SECRET';
+  put(dir, 'org.example.a', text);
+  const folder = join(dir, 'plugins', 'secrets');
+  chmodSync(folder, 0o755);
+  const previous = process.umask(0o022);
+  try {
+    for (const action of [() => readPluginSecrets(dir, 'org.example.a'), () => writePluginSecret(dir, 'org.example.a', 'K', 'new')]) {
+      assert.throws(action, (e: Error) => {
+        assert.match(e.message, /isn't JSON/);
+        assert.equal(e.message.includes(text), false);
+        assert.equal(e.cause, undefined);
+        return true;
+      });
+    }
+    for (const name of readdirSync(folder)) {
+      if (process.platform !== 'win32') assert.equal(statSync(join(folder, name)).mode & 0o077, 0, name);
+    }
+    if (process.platform !== 'win32') assert.equal(statSync(folder).mode & 0o077, 0);
+    assert.equal(readFileSync(join(folder, 'org.example.a.json'), 'utf8'), text);
+  } finally { process.umask(previous); }
+}));
+
+test('AR-cli-plugins-tooling-04 recovery', () => withData((dir) => {
+  put(dir, 'org.example.a', 'SENTINEL_SECRET');
+  const folder = join(dir, 'plugins', 'secrets');
+  const previous = process.umask(0o022);
+  try {
+    assert.throws(() => readPluginSecrets(dir, 'org.example.a'));
+    const copies = readdirSync(folder).filter((name) => name.includes('.damaged-'));
+    assert.equal(copies.length, 1);
+    const copy = join(folder, copies[0]);
+    assert.equal(readFileSync(copy, 'utf8'), 'SENTINEL_SECRET');
+    if (process.platform !== 'win32') assert.equal(statSync(copy).mode & 0o777, 0o600);
+    chmodSync(copy, 0o644);
+    assert.throws(() => readPluginSecrets(dir, 'org.example.a'));
+    if (process.platform !== 'win32') assert.equal(statSync(copy).mode & 0o777, 0o600);
+  } finally { process.umask(previous); }
+}));
+
+test('AR-cli-plugins-tooling-04 deleted recovery copy preserves the content-free error', () => withData((dir) => {
+  const text = 'SENTINEL_SECRET';
+  const id = 'org.example.a';
+  put(dir, id, text);
+  const folder = join(dir, 'plugins', 'secrets');
+  const checkError = (e: Error) => {
+    assert.equal(e.message, `plugins/secrets/${id}.json isn't JSON; repair or replace the file`);
+    assert.equal(e.message.includes(text), false);
+    assert.equal(e.cause, undefined);
+    return true;
+  };
+  assert.throws(() => readPluginSecrets(dir, id), checkError);
+  const copies = readdirSync(folder).filter((name) => name.includes('.damaged-'));
+  assert.equal(copies.length, 1);
+  rmSync(join(folder, copies[0]));
+  assert.throws(() => readPluginSecrets(dir, id), checkError);
+  assert.throws(() => writePluginSecret(dir, id, 'K', 'new'), checkError);
+  assert.equal(readFileSync(join(folder, `${id}.json`), 'utf8'), text);
+}));
+
+test('AR-cli-plugins-tooling-04 consumers', () => withData((dir) => {
+  const id = 'org.example.a';
+  const plugin = join(dir, 'plugins', 'a');
+  mkdirSync(plugin, { recursive: true });
+  writeFileSync(join(plugin, 'plugin.json'), JSON.stringify({ id, name: 'Probe', version: '1.0.0', api: '^1.0', publisher: 'Test', main: 'main.js',
+    functions: [{ name: 'Secret_Probe', min: 0 }], permissions: { secrets: ['KEY'] } }));
+  writeFileSync(join(plugin, 'main.js'), 'const functions = { Secret_Probe: () => tabularius.secrets.get("KEY") };');
+  put(dir, id, 'SENTINEL_SECRET');
+  const status = pluginStatus(dir);
+  assert.ok(status.problems.some((p) => p.includes("isn't JSON")));
+  assert.equal(JSON.stringify(status).includes('SENTINEL_SECRET'), false);
+  const { calls } = readPlugin(plugin, dir);
+  assert.throws(() => evaluate('Secret_Probe ()', { plugin: () => ({ min: 0, call: calls.Secret_Probe }) }), (e: Error) => {
+    assert.match(e.message, /isn't JSON/);
+    assert.equal(e.message.includes('SENTINEL_SECRET'), false);
+    return true;
+  });
 }));

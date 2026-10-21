@@ -100,7 +100,7 @@ export async function encryptFile(src: string, dest: string, passphrase: string,
 /** Writes the decrypted `src` to `dest`, without giving way to other work: for small files. */
 export function decryptFileSync(src: string, dest: string, passphrase: string): void {
   const input = openSync(src, 'r');
-  const output = openSync(dest, 'w');
+  const output = openSync(dest, 'w', 0o600); // plaintext: private to this account, whatever the umask
   try {
     const head = Buffer.alloc(MAGIC.length + 24);
     const got = readSync(input, head, 0, head.length, 0);

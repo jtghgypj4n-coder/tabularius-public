@@ -2,7 +2,7 @@
 // <data folder>/plugins/secrets/<plug-in id>.json, readable by the server's user alone. A plug-in reads one with
 // tabularius.secrets.get ( "NAME" ), and only names its plugin.json lists. Values are never logged or shown.
 
-import { existsSync, mkdirSync, statSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { readJsonStateSync, updateJsonStateSync } from '../../store/src/durable.ts';
 
@@ -12,14 +12,16 @@ const secretsFile = (dataDir: string, id: string) => join(secretsDir(dataDir), `
 /** A plug-in's secrets, or none. Throws (without the values) when the file can be read by other users or is damaged. */
 export function readPluginSecrets(dataDir: string, id: string): Record<string, string> {
   const file = secretsFile(dataDir, id);
+  // Tighten a folder an earlier version left open; one this account may not change (or a read-only disk) is left as it is, and the file's own mode check below still applies.
+  if (existsSync(secretsDir(dataDir)) && process.platform !== 'win32') { try { chmodSync(secretsDir(dataDir), 0o700); } catch { /* not ours to change */ } }
   if (!existsSync(file)) return {};
   if (process.platform !== 'win32' && statSync(file).mode & 0o077) {
     throw new Error(`plugins/secrets/${id}.json can be read by other users (chmod 600)`);
   }
   let raw: unknown;
-  try { raw = readJsonStateSync(file); }
+  try { raw = readJsonStateSync(file, { sensitive: true }); }
   catch (e) {
-    if (e instanceof Error && e.cause instanceof SyntaxError) throw new Error(`plugins/secrets/${id}.json isn't JSON (${file}): ${e.cause.message}`, { cause: e });
+    if (e instanceof Error && e.cause instanceof SyntaxError) throw new Error(`plugins/secrets/${id}.json isn't JSON; repair or replace the file`);
     throw e;
   }
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) throw new Error(`plugins/secrets/${id}.json isn't an object`);
@@ -37,5 +39,5 @@ export function writePluginSecret(dataDir: string, id: string, name: string, val
     if (value === undefined) delete secrets[name];
     else secrets[name] = value;
     return secrets;
-  }, { mode: 0o600 });
+  }, { mode: 0o600, sensitive: true });
 }

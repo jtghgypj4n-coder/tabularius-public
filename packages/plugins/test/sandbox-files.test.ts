@@ -141,3 +141,36 @@ test('source grep lists every plug-in file entry point and checks both layers of
   // read shares the readBase64 branch; a new statement there would need its own guard.
   assert.equal(cases.find((n) => n.expression.getText() === "'read'")!.statements.length, 0);
 });
+
+test('AR-cli-plugins-tooling-03 host', () => {
+  for (const path of ['/Documents/note.txt', '/Temporary/note.txt', 'filewin:\\Temporary\\note.txt']) {
+    for (const channel of ['mailer', 'outbound'] as const) {
+      const manifest = PluginManifest.parse({ id: 'org.test.attachments', name: 'Probe', version: '1.0.0', api: '^1.0', publisher: 'Test', main: 'main.js',
+        functions: [{ name: 'Probe', min: 0 }], permissions: { mail: true, files: [] } });
+      const code = `const functions = { Probe: () => tabularius.mail.send({ to: 'test@example.invalid', attachments: [${JSON.stringify(path)}] }) };`;
+      const call = sandboxedCalls(manifest, code).Probe;
+      let sent = 0;
+      const ctx = { plugin: () => ({ min: 0, call }),
+        ...(channel === 'mailer' ? { mailer: { send: () => { sent++; } } } : { outbound: { mail: () => { sent++; }, request: () => {} } }) };
+      assert.throws(() => evaluate('Probe ()', ctx), /may not read/);
+      assert.equal(sent, 0);
+    }
+  }
+});
+
+test('AR-cli-plugins-tooling-03 engine', async () => {
+  writeFileSync(join(docs, 'attachment.txt'), 'synthetic attachment bytes');
+  for (const allowed of [false, true]) {
+    const manifest = PluginManifest.parse({ id: 'org.test.engine-attachments', name: 'Probe', version: '1.0.0', api: '^1.0', publisher: 'Test', main: 'main.js',
+      functions: [{ name: 'Probe', min: 0 }], permissions: { mail: true, files: allowed ? ['documents:read'] : [] } });
+    const call = sandboxedCalls(manifest, `const functions = { Probe: () => tabularius.mail.send({ to: 'test@example.invalid', attachments: ['/Documents/attachment.txt'] }) };`).Probe;
+    store.plugin = () => ({ min: 0, call });
+    store.pluginsUseMail = () => true;
+    const sent: Uint8Array[] = [];
+    const run = await runScript(store, { id: 1, name: 'Probe', steps: [{ stepId: 103, name: 'Exit Script', enabled: true, params: { calculation: 'Probe ()' } }] },
+      { documents: docs, mail: async (m) => { sent.push(...(m.attachments ?? []).map((a) => a.data)); } });
+    assert.equal(run.result, allowed ? '1' : '?');
+    assert.equal(sent.length, allowed ? 1 : 0);
+    if (allowed) assert.equal(Buffer.from(sent[0]).toString(), 'synthetic attachment bytes');
+  }
+});

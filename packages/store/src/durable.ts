@@ -1,4 +1,4 @@
-import { closeSync, existsSync, fsyncSync, lstatSync, openSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, closeSync, existsSync, fsyncSync, lstatSync, openSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import { basename, dirname, join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -46,6 +46,8 @@ export function atomicWrite(path: string, data: string): void {
 const damagedStates = new Map<string, { hash: string; message: string; cause: unknown }>();
 
 export interface StateWriteOptions {
+  /** Redact parse diagnostics and keep recovery copies private for credential state. */
+  sensitive?: boolean;
   mode?: number;
   /** How long to wait for another process's write to the same file; default 30 s. */
   lockWaitMs?: number;
@@ -212,7 +214,7 @@ export function writeStateFileSync(file: string, data: string | Uint8Array, opti
 }
 
 /** Preserve malformed state once per distinct content before reporting it; never silently turn it into an empty value. */
-export function readJsonStateSync<T>(file: string): T {
+export function readJsonStateSync<T>(file: string, options: Pick<StateWriteOptions, 'sensitive'> = {}): T {
   sweepStateDirectoryOnce(file);
   let bytes: string;
   try { bytes = readFileSync(file, 'utf8'); }
@@ -225,21 +227,35 @@ export function readJsonStateSync<T>(file: string): T {
   }
   const hash = createHash('sha256').update(bytes).digest('hex');
   const cached = damagedStates.get(file);
-  if (cached?.hash === hash) throw new Error(cached.message, { cause: cached.cause });
+  const damaged = `${file}.damaged-${hash}`;
+  const privateError = () => new Error(`${basename(file)} could not be read: not valid JSON`, { cause: new SyntaxError('Invalid JSON') });
+  if (cached?.hash === hash) {
+    if (options.sensitive) {
+      if (process.platform !== 'win32') {
+        try { chmodSync(damaged, 0o600); }
+        catch (e) {
+          // The operator may have removed the recovery copy since the first read.
+          if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
+        }
+      }
+      throw privateError();
+    }
+    throw new Error(cached.message, { cause: cached.cause });
+  }
   try {
     const value = JSON.parse(bytes) as T;
     damagedStates.delete(file);
     return value;
   }
   catch (e) {
-    const message = `${file} could not be read: not valid JSON (${(e as Error).message})`;
-    const damaged = `${file}.damaged-${hash}`;
-    try { writeFileSync(damaged, bytes, { flag: 'wx' }); }
+    const error = options.sensitive ? privateError() : new Error(`${file} could not be read: not valid JSON (${(e as Error).message})`, { cause: e });
+    try { writeFileSync(damaged, bytes, { flag: 'wx', ...(options.sensitive ? { mode: 0o600 } : {}) }); }
     catch (copyError) {
-      if ((copyError as NodeJS.ErrnoException).code !== 'EEXIST') throw new Error(`${file} could not be read: ${(copyError as Error).message}`, { cause: e });
+      if ((copyError as NodeJS.ErrnoException).code !== 'EEXIST') throw new Error(`${file} could not be read: ${(copyError as Error).message}`, { cause: error.cause });
     }
-    damagedStates.set(file, { hash, message, cause: e });
-    throw new Error(message, { cause: e });
+    if (options.sensitive && process.platform !== 'win32') chmodSync(damaged, 0o600);
+    damagedStates.set(file, { hash, message: error.message, cause: error.cause });
+    throw error;
   }
 }
 
@@ -251,7 +267,7 @@ export function writeJsonStateSync(file: string, value: unknown, options: StateW
 export function updateJsonStateSync<T>(file: string, fallback: T, update: (current: T) => T, options: StateWriteOptions = {}): T {
   return withStateLock<T>(file, () => {
     let current: T;
-    try { current = readJsonStateSync<T>(file); }
+    try { current = readJsonStateSync<T>(file, options); }
     catch (e) {
       if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
       current = fallback;
