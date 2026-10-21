@@ -21,7 +21,7 @@ before(async () => {
   dir = mkdtempSync(join(tmpdir(), 'tabularius-mcp-hosted-'));
   copyFileSync(fixture, join(dir, 'Charts.fmp12'));
   copyFileSync(fixture, join(dir, 'Secret.fmp12'));
-  const s = await serve({ dir, port: 0, log: () => {} });
+  const s = await serve({ mcpToken: 'test-admin-token', dir, port: 0, log: () => {} });
   server = s.server;
   base = s.url;
   store = s.host.get('Charts')!;
@@ -38,7 +38,7 @@ async function text(auth?: string, name = 'find_records', arguments_: Record<str
     method: 'POST',
     headers: {
       'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-protocol-version': '2025-06-18',
-      ...(auth ? { authorization: 'Basic ' + btoa(auth) } : {}),
+      authorization: auth ? 'Basic ' + btoa(auth) : 'Bearer test-admin-token',
     },
     body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: arguments_ } }),
   });
