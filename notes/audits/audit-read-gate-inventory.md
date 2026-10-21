@@ -870,11 +870,11 @@ The following reasons apply to the exact enumerated expressions in each named fu
 | [packages/store/src/sync-apply.ts:258](../../packages/store/src/sync-apply.ts#L258) `releaseHeldTables` | `SQLite.prepare` (258); `Store.sql` (258) | OPERATOR |
 | [packages/store/src/sync-apply.ts:267](../../packages/store/src/sync-apply.ts#L267) `readSyncLog` | `SQLite.get` (267); `SQLite.prepare` (267, 269, 270); `Store.sql` (267, 269, 270); `SQLite.all` (269, 270) | OPERATOR |
 | [packages/store/src/sync-apply.ts:311](../../packages/store/src/sync-apply.ts#L311) `recordsIn` | `SQLite.get` (311); `SQLite.prepare` (311); `Store.sql` (311) | OPERATOR |
-| [packages/store/src/sync-apply.ts:351](../../packages/store/src/sync-apply.ts#L351) `applySyncRun` | `Store.container` (351, 352, 382); `Store.containerInfo` (368); `SQLite.prepare` (463, 755, 778); `Store.sql` (463, 755, 778); `SQLite.get` (755, 778) | OPERATOR |
+| [packages/store/src/sync-apply.ts:351](../../packages/store/src/sync-apply.ts#L351) `applySyncRun` | `Store.container` (351, 352, 382); `Store.containerInfo` (368); `SQLite.prepare` (463, 758, 782); `Store.sql` (463, 758, 782); `SQLite.get` (758, 782) | OPERATOR |
 | [packages/store/src/sync-apply.ts:484](../../packages/store/src/sync-apply.ts#L484) `applySyncRun/fail` | `SQLite.get` (484); `SQLite.prepare` (484); `Store.sql` (484) | OPERATOR |
-| [packages/store/src/sync-apply.ts:579](../../packages/store/src/sync-apply.ts#L579) `applySyncRun/pullWouldChange` | `Store.container` (579, 583) | OPERATOR |
-| [packages/store/src/sync-apply.ts:672](../../packages/store/src/sync-apply.ts#L672) `applySyncRun/containerChanges` | `Store.container` (672) | OPERATOR |
-| [packages/store/src/sync-apply.ts:811](../../packages/store/src/sync-apply.ts#L811) `applySyncRun/filesToSend` | `SQLite.all` (811); `SQLite.prepare` (811); `Store.sql` (811); `Store.containerInfo` (820); `Store.container` (825) | OPERATOR |
+| [packages/store/src/sync-apply.ts:577](../../packages/store/src/sync-apply.ts#L577) `applySyncRun/pullWouldChange` | `Store.container` (577, 581) | OPERATOR |
+| [packages/store/src/sync-apply.ts:673](../../packages/store/src/sync-apply.ts#L673) `applySyncRun/containerChanges` | `Store.container` (673) | OPERATOR |
+| [packages/store/src/sync-apply.ts:817](../../packages/store/src/sync-apply.ts#L817) `applySyncRun/filesToSend` | `SQLite.all` (817); `SQLite.prepare` (817); `Store.sql` (817); `Store.containerInfo` (826); `Store.container` (831) | OPERATOR |
 | [packages/store/src/sync.ts:45](../../packages/store/src/sync.ts#L45) `openForPlanning` | `SQLite.get` (45); `SQLite.prepare` (45) | OPERATOR |
 | [packages/store/src/sync.ts:188](../../packages/store/src/sync.ts#L188) `tableExists` | `SQLite.get` (188); `SQLite.prepare` (188); `Store.sql` (188) | OPERATOR |
 | [packages/store/src/sync.ts:198](../../packages/store/src/sync.ts#L198) `ensureSyncTables` | `Store.sql` (198, 212, 222, 230) | OPERATOR |
