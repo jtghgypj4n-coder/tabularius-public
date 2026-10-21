@@ -443,7 +443,7 @@ export interface Schema {
   fileOptions?: FileOptions;
   /** The file's page setup (Print Setup), from the last Mac that set it. */
   pageSetup?: PageSetup;
-  /** tabularius: ids of deleted tables, fields, occurrences and relationships, kept out of use so restoring one brings back the same id. */
+  /** tabularius: ids of deleted design objects, kept out of use so references cannot bind to an unrelated replacement. */
   retiredIds?: Record<string, number[]>;
 }
 
