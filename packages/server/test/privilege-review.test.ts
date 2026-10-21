@@ -100,3 +100,15 @@ test('on the console\'s Security health report, and as an MCP tool for [Full Acc
   const seller = await call('seller:Seller-pw-123456');
   assert.ok(seller.error || seller.result?.isError, JSON.stringify(seller).slice(0, 300));
 });
+
+test('[Guest] with a password is a bigger finding than one imported with none', { skip }, () => {
+  const guest = () => reviewPrivileges(store).findings.find((f) => f.kind === 'guest')!;
+  const before = guest();
+  assert.match(before.title, /^The \[Guest\] account is on/);
+  assert.doesNotMatch(before.title, /has a password/);
+  store.setPassword('[Guest]', 'Guest-pw-123456');
+  const after = guest();
+  assert.match(after.title, /has a password/);
+  assert.notEqual(after.severity, 'low');
+  assert.ok(['low', 'medium', 'high'].indexOf(after.severity) > ['low', 'medium', 'high'].indexOf(before.severity));
+});

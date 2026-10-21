@@ -1134,6 +1134,11 @@ export class Store {
     }
   }
 
+  /** Whether the account has a password set in Tabularius (an empty one included), not only the file's own verifier. */
+  hasOwnPassword(account: string): boolean {
+    return (this.sql.prepare('SELECT password_hash FROM _fm_accounts WHERE name = ? COLLATE NOCASE').get(account) as { password_hash: string | null } | undefined)?.password_hash != null;
+  }
+
   /** Whether the FileMaker file had its built-in [Guest] switched on when it was converted (it comes across off either way). */
   fileHadGuestOn(): boolean {
     return this.meta('accountStatus')?.guestWasOn === true;

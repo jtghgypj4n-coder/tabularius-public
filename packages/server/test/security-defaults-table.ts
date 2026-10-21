@@ -177,7 +177,7 @@ export const ROWS: Row[] = [
   },
   {
     id: 'anonymous', section: 'Sign-in and accounts', setting: 'Anonymous access',
-    default: 'None: every Data API, web client and SQL route needs an account and its password. A converted FileMaker file keeps its built-in [Guest] account but switched off, even if the file had it on, and switched on it still signs nobody in without a password it does not have (the conversion report says when the file had it on)',
+    default: 'None: every Data API, web client and SQL route needs an account. A file converted by this version keeps its built-in [Guest] account switched off, even if the FileMaker file had it on (the conversion report says so); switched on, it still signs nobody in until it is given a password',
     changedBy: 'Nothing needed. [Guest] can be switched on in Manage Security, and the privilege review then lists it; giving it a password makes it a shared account. Accounts with no password are the other way in (above)',
     risk: 'A shared account is only as private as its password. A file that grants a privilege set to a blank-password account is open to this computer\'s users',
     how: 'probed', expect: 'none',

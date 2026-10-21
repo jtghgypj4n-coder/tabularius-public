@@ -104,10 +104,16 @@ export function reviewPrivileges(store: Store, opts: { unusedDays?: number } = {
     const reads = store.schema.tables.filter((t) => p.table(t.name).view !== false).map((t) => t.name);
     if (!reads.length && !p.full) continue;
     const surfaces = Object.keys(SURFACES).filter((e) => p.has(e));
+    // Imported from the file, [Guest] has no password that can pass. One set here, an empty one included, signs in from anywhere.
+    const works = store.hasOwnPassword(a.name) || blank.has(a.name.toLowerCase());
+    const strong = p.full || surfaces.length > 0;
     findings.push({
-      severity: p.full || surfaces.length ? 'medium' : 'low', kind: 'guest', account: a.name, privilegeSet: a.privilegeSet,
-      title: p.full ? 'The [Guest] account is on, with full access.' : `The [Guest] account is on, with a set that reads ${plural(reads.length, 'table')}${reads.length <= 6 ? ` (${list(reads)})` : ''}.`,
-      detail: 'This server never lets anyone in without an account name and a password, so [Guest] opens nothing until someone gives it a password, and then it is a shared account. ' +
+      severity: works ? (strong ? 'high' : 'medium') : (strong ? 'medium' : 'low'), kind: 'guest', account: a.name, privilegeSet: a.privilegeSet,
+      title: works
+        ? `The [Guest] account is on and has a password${p.full ? ', with full access' : `, with a set that reads ${plural(reads.length, 'table')}`}: anyone who knows it can sign in.`
+        : p.full ? 'The [Guest] account is on, with full access.' : `The [Guest] account is on, with a set that reads ${plural(reads.length, 'table')}${reads.length <= 6 ? ` (${list(reads)})` : ''}.`,
+      detail: (works ? 'It has a password, so it is a shared account that signs in with it (check that the password is not empty or easy to guess). '
+        : 'Imported from the file, [Guest] has no password that can pass, so it opens nothing until someone gives it one. ') +
         (surfaces.length ? `Its set also opens ${list(surfaces.map((s) => SURFACES[s]))}, so that would reach past the web client. ` : '') +
         'Turn the [Guest] account off in Manage Security unless you use it, or give its set read-only access to just what it needs.',
     });
