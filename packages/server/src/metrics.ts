@@ -176,7 +176,7 @@ export class Metrics {
   /** The health check's answer. */
   health(res: ServerResponse): void {
     res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' })
-      .end(JSON.stringify({ status: 'ok', uptimeSeconds: Math.round((performance.now() - this.startedTick) / 1000) }));
+      .end(JSON.stringify({ status: 'ok', uptimeSeconds: Math.round((performance.now() - this.startedTick) / 1000), serverTime: new Date().toISOString() }));
   }
 
   /** Everything, in Prometheus's text format (version 0.0.4). */
