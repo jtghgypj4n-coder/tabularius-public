@@ -1205,8 +1205,9 @@ wrong. They do not stop someone who can write the backup folder: that person can
 change a copy and write the matching checksum, so an unencrypted set is protected
 against accidents only. With `TABULARIUS_BACKUP_KEY` set, a set is also protected
 against someone who can write the folder but does not know the passphrase: each
-copy is authenticated, and the list of checksums, the finish times and the
-container-file checksums are signed with the passphrase. A restore, whole-set or to
+copy is authenticated, and the list of checksums, the finish times, each
+container file's checksum, size and modification time, and, for restoring to a
+moment, how many logs were saved and a chain over them are signed with the passphrase. A restore, whole-set or to
 a moment, refuses a set whose signature does not match, a copy that is swapped,
 renamed, or taken from an older set, and, while the passphrase is set, a set with no
 signature at all (including a set someone put in the folder), unless you say
@@ -1218,14 +1219,15 @@ signature and all, is still a valid set, so a restore says which files had chang
 after the backup was taken (those changes are not in the restored file) and leaves the
 choice to you.
 
-Not covered: the saved changes for restoring to a moment (the logs). Their records
-are encrypted and bound to their time and file when the set is encrypted, and a signed
-set refuses a log that is not encrypted, but the manifest does not list the logs, so a
-whole log file removed from a set, or the tail of one cut off at a record boundary, is
-not noticed (the restore goes to the last point it finds); and a log made before this
-version carries no binding to its time or file. Also not covered: file names that the
-operating system treats as another (reserved names on Windows), and anyone who has the
-passphrase and write access to the folder, who can make a set that restores.
+A restore to a moment of a signed set replays only the logs the signature counts, and
+refuses the set if one of them was removed, replaced, changed or cut off at a record
+boundary, if a log in the old format or one that is not encrypted is among them, or
+if the logs were not saved by this backup. A log the signature does not count yet (the
+server writes a log before it signs it, so a crash between the two leaves one) is
+ignored. Also not covered: a log made before this version carries no binding to its
+time or file, file names that the operating system treats as another (reserved names
+on Windows), and anyone who has the passphrase and write access to the folder, who can
+make a set that restores.
 
 The hosted stores themselves can be encrypted at rest too. Set
 `TABULARIUS_ENCRYPTION_KEY` to a passphrase and each store is kept as

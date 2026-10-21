@@ -6,8 +6,10 @@
 // write checksums to match. The restore would take the result.
 //
 // The signature is an HMAC-SHA256, keyed from the backup passphrase with a salt kept beside it, over the parts of
-// the manifest a restore trusts: each file's checksum, when each copy was finished, and each container file's
-// checksum. The rest of the manifest (the check and test-restore results the server writes back) is not signed.
+// the manifest a restore trusts: each file's checksum, when each copy was finished, each container file's checksum,
+// size and modification time (the next backup links a container file it finds unchanged by those), and, for each
+// file with point-in-time logs, how many logs were saved and a chain over them (see backup-log-chain.ts). The rest of
+// the manifest (the check and test-restore results the server writes back) is not signed.
 // It does not name the set's folder, so a set copied or fetched under another name still restores.
 //
 // What it does not do: an unencrypted set has no key to sign with, so it is checked against accident only; and a
@@ -16,18 +18,21 @@
 
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { readdirSync } from 'node:fs';
-import { deriveKey, ENCRYPTED_EXT } from './encrypt.ts';
+import { join } from 'node:path';
+import { deriveKey, deriveKeySync, ENCRYPTED_EXT } from './encrypt.ts';
 import { readBackupInfo, updateBackupInfo } from './backup-info.ts';
 import { STORE_EXT } from './host.ts';
 
-interface SignedParts {
+export interface SignedParts {
   sha256?: Record<string, string>;
   finished?: Record<string, string>;
-  external?: Record<string, { sha256?: string }>;
+  external?: Record<string, { size?: number; mtimeMs?: number; sha256?: string }>;
+  /** Per hosted file (without its extension): the point-in-time logs saved for it. */
+  logs?: Record<string, { n?: number; head?: string }>;
   auth?: { v?: number; salt?: string; mac?: string };
 }
 
-const DOMAIN = 'tabularius-backup-manifest-v1';
+const DOMAIN = 'tabularius-backup-manifest-v2';
 
 const sorted = (o: Record<string, unknown> | undefined): [string, unknown][] =>
   Object.entries(o ?? {}).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
@@ -37,7 +42,8 @@ const plainObject = (v: unknown): v is Record<string, unknown> => !!v && typeof 
 /**
  * The parts a restore trusts must be what they claim to be before a signature over them means anything: a checksum list
  * and a list of finish times that are objects of strings (a missing, null, false or empty list would sign as the same bytes),
- * and container-file entries that each carry a checksum. A signed manifest that is not shaped like this is refused.
+ * and container-file entries that each carry a checksum, a size and a modification time, and log inventories that each carry a count
+ * and a chain head. A signed manifest that is not shaped like this is refused.
  */
 function shapeProblem(info: SignedParts): string | undefined {
   if (!plainObject(info.sha256)) return 'has no list of checksums';
@@ -46,7 +52,17 @@ function shapeProblem(info: SignedParts): string | undefined {
   for (const [name, at] of Object.entries(info.finished)) if (typeof at !== 'string' || Number.isNaN(Date.parse(at))) return `has no usable finish time for ${name}`;
   if (info.external !== undefined) {
     if (!plainObject(info.external)) return 'has a list of container files that is not a list';
-    for (const [rel, entry] of Object.entries(info.external)) if (!plainObject(entry) || typeof entry.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(entry.sha256)) return `has no usable checksum for container file ${rel}`;
+    for (const [rel, entry] of Object.entries(info.external)) {
+      if (!plainObject(entry) || typeof entry.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(entry.sha256)) return `has no usable checksum for container file ${rel}`;
+      if (typeof entry.size !== 'number' || !Number.isSafeInteger(entry.size) || entry.size < 0) return `has no usable size for container file ${rel}`;
+      if (typeof entry.mtimeMs !== 'number' || !Number.isFinite(entry.mtimeMs)) return `has no usable modification time for container file ${rel}`;
+    }
+  }
+  if (info.logs !== undefined) {
+    if (!plainObject(info.logs)) return 'has a list of saved logs that is not a list';
+    for (const [name, log] of Object.entries(info.logs)) {
+      if (!plainObject(log) || typeof log.n !== 'number' || !Number.isSafeInteger(log.n) || log.n < 0 || typeof log.head !== 'string' || !/^[0-9a-f]{64}$/.test(log.head)) return `has no usable list of saved logs for ${name}`;
+    }
   }
   return undefined;
 }
@@ -57,7 +73,8 @@ function signedBytes(info: SignedParts): Buffer {
     DOMAIN,
     sorted(info.sha256),
     sorted(info.finished),
-    sorted(info.external).map(([rel, e]) => [rel, (e as { sha256: string }).sha256]),
+    sorted(info.external).map(([rel, e]) => { const x = e as { sha256: string; size: number; mtimeMs: number }; return [rel, x.sha256, x.size, x.mtimeMs]; }),
+    sorted(info.logs).map(([name, l]) => [name, (l as { n: number }).n, (l as { head: string }).head]),
   ]));
 }
 
@@ -72,10 +89,13 @@ export async function prepareSigner(passphrase: string): Promise<(info: SignedPa
   };
 }
 
-/** Signs a set's manifest in place. Call after every change to its checksums, times or container files. */
-export async function signManifest(setDir: string, passphrase: string): Promise<void> {
+/** Signs a set's manifest in place, after `change` if given. Call after every change to its checksums, times or container files. */
+export async function signManifest(setDir: string, passphrase: string, change?: (info: SignedParts) => void): Promise<void> {
   const sign = await prepareSigner(passphrase);
-  updateBackupInfo<SignedParts>(setDir, sign);
+  updateBackupInfo<SignedParts>(setDir, (info) => {
+    change?.(info);
+    sign(info);
+  });
 }
 
 export type ManifestSignature = 'signed' | 'unsigned';
@@ -93,21 +113,99 @@ export function isEncryptedSet(setDir: string): boolean {
  */
 export async function readVerified(setDir: string, passphrase: string | undefined): Promise<{ state: ManifestSignature; info: SignedParts & Record<string, unknown> }> {
   const info = readBackupInfo<SignedParts & Record<string, unknown>>(setDir, true);
-  const auth = info.auth;
-  if (auth === undefined) return { state: 'unsigned', info };
-  const bad = (why: string) => new Error(`${setDir}${setDir.endsWith('/') ? '' : '/'}backup.json ${why}`);
-  if (!auth || typeof auth !== 'object' || auth.v !== 1 || typeof auth.salt !== 'string' || typeof auth.mac !== 'string' || !/^[0-9a-f]{32}$/.test(auth.salt) || !/^[0-9a-f]{64}$/.test(auth.mac)) {
-    throw bad('has a signature in a form this version does not read, so the set is not trusted');
-  }
+  if (info.auth === undefined) return { state: 'unsigned', info };
+  const { salt, mac } = authFields(setDir, info.auth);
   if (!passphrase) throw new Error(`${setDir} is encrypted: set TABULARIUS_BACKUP_KEY to the passphrase the set was made with`);
-  const problem = shapeProblem(info);
-  if (problem) throw bad(`${problem}, so the set is not trusted`);
-  const key = await deriveKey(passphrase, Buffer.from(auth.salt, 'hex'));
-  const expected = createHmac('sha256', key).update(signedBytes(info)).digest();
-  if (!timingSafeEqual(expected, Buffer.from(auth.mac, 'hex'))) {
-    throw bad('does not match its signature: wrong passphrase (not the one the set was made with), or backup.json was edited, or it is not from this set');
-  }
+  checkShape(setDir, info);
+  checkMac(setDir, info, await deriveKey(passphrase, salt), mac);
   return { state: 'signed', info };
+}
+
+const bad = (setDir: string, why: string) => new Error(`${setDir}${setDir.endsWith('/') ? '' : '/'}backup.json ${why}`);
+
+/** The salt and signature of a manifest that has them in the form this version reads. */
+function authFields(setDir: string, auth: SignedParts['auth']): { salt: Buffer; mac: Buffer } {
+  if (!auth || typeof auth !== 'object' || auth.v !== 1 || typeof auth.salt !== 'string' || typeof auth.mac !== 'string' || !/^[0-9a-f]{32}$/.test(auth.salt) || !/^[0-9a-f]{64}$/.test(auth.mac)) {
+    throw bad(setDir, 'has a signature in a form this version does not read, so the set is not trusted');
+  }
+  return { salt: Buffer.from(auth.salt, 'hex'), mac: Buffer.from(auth.mac, 'hex') };
+}
+
+function checkShape(setDir: string, info: SignedParts): void {
+  const problem = shapeProblem(info);
+  if (problem) throw bad(setDir, `${problem}, so the set is not trusted`);
+}
+
+const macOf = (key: Buffer, info: SignedParts): Buffer => createHmac('sha256', key).update(signedBytes(info)).digest();
+
+function checkMac(setDir: string, info: SignedParts, key: Buffer, mac: Buffer): void {
+  if (!timingSafeEqual(macOf(key, info), mac)) {
+    throw bad(setDir, 'does not match its signature: wrong passphrase (not the one the set was made with), or backup.json was edited, or it is not from this set');
+  }
+}
+
+/** Changes made to a signed manifest by the server that made the set, each one checked against the signature first. */
+export interface Amender {
+  /**
+   * Under the manifest's lock: checks the manifest as it is on disk against its signature, applies `change`, signs the
+   * result. Throws, leaving the manifest as it was, when the manifest was edited since it was signed: a signature is
+   * never put on a manifest nobody has checked.
+   */
+  amend(change: (info: SignedParts & Record<string, unknown>) => void): void;
+}
+
+/**
+ * Opens a signed set's manifest for changes (saving a file's point-in-time logs into it, adding a file to it). The key is derived
+ * once, here, so the changes themselves are synchronous and can run inside the server's log rounds. A set that has a copy in it
+ * but no signature is refused: signing it would vouch for whatever is in it. A set with nothing in it yet (one made again after
+ * another backup removed it) starts a signature of its own. The manifest as it is now is checked before this returns.
+ */
+export async function openAmender(setDir: string, passphrase: string): Promise<Amender> {
+  const { first, salt } = beginAmending(setDir);
+  return finishAmending(setDir, first, salt, await deriveKey(passphrase, salt));
+}
+
+/** As openAmender, for a caller that cannot wait (the key takes a moment to derive): the server follows a new set from the next round on. */
+export function openAmenderSync(setDir: string, passphrase: string): Amender {
+  const { first, salt } = beginAmending(setDir);
+  return finishAmending(setDir, first, salt, deriveKeySync(passphrase, salt));
+}
+
+const listsNothing = (info: SignedParts) => info.auth === undefined && !Object.keys(info.sha256 ?? {}).length;
+
+function beginAmending(setDir: string): { first: SignedParts; salt: Buffer } {
+  const first = readBackupInfo<SignedParts>(setDir, true);
+  const holdsCopies = () => readdirSync(setDir).some((f) => f.endsWith(STORE_EXT) || f.endsWith(STORE_EXT + ENCRYPTED_EXT));
+  if (first.auth === undefined && !(listsNothing(first) && !holdsCopies())) {
+    throw new Error(`${join(setDir, 'backup.json')} has no signature, so nothing is added to this set: signing it would vouch for what is already in it`);
+  }
+  return { first, salt: first.auth === undefined ? randomBytes(16) : authFields(setDir, first.auth).salt };
+}
+
+function finishAmending(setDir: string, first: SignedParts, salt: Buffer, key: Buffer): Amender {
+  const fresh = first.auth === undefined;
+  if (first.auth !== undefined) {
+    checkShape(setDir, first);
+    checkMac(setDir, first, key, authFields(setDir, first.auth).mac);
+  }
+  return {
+    amend(change) {
+      updateBackupInfo<SignedParts & Record<string, unknown>>(setDir, (info) => {
+        if (info.auth === undefined) {
+          // The copy being added is already in place by now; what matters is that the set never had a manifest of its own.
+          if (!listsNothing(info) || !fresh) throw bad(setDir, 'lost its signature, so nothing is added to this set');
+        } else {
+          const fields = authFields(setDir, info.auth);
+          if (!fields.salt.equals(salt)) throw bad(setDir, 'was signed again by someone else, so nothing is added to this set');
+          checkShape(setDir, info);
+          checkMac(setDir, info, key, fields.mac);
+        }
+        change(info);
+        checkShape(setDir, info);
+        info.auth = { v: 1, salt: salt.toString('hex'), mac: macOf(key, info).toString('hex') };
+      });
+    },
+  };
 }
 
 /** Whether the manifest is signed and matches; see readVerified. */

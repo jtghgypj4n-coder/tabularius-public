@@ -6,20 +6,21 @@
 // - An unencrypted set carries SHA-256 checksums beside the files, so accidents are caught, but whoever can write
 //   the set can also write matching checksums. It is not tamper-proof.
 // - An encrypted set (TABULARIUS_BACKUP_KEY) authenticates each file with AES-GCM, and its manifest carries a
-//   signature made with the same passphrase over the checksums, the times and the container files. Swapping,
-//   renaming, mixing or rolling back files inside it needs the passphrase. While the passphrase is set a set with
-//   no signature is refused, so a set cannot be downgraded to a plain one. The saved logs for point-in-time
-//   restores are not listed in the manifest (a removed log file or a cut tail is not noticed); see the README.
+//   signature made with the same passphrase over the checksums, the times, the container files (checksum, size and
+//   time) and, for point-in-time restores, how many logs were saved and a chain over them. Swapping, renaming,
+//   mixing or rolling back files inside it, or removing or cutting a log, needs the passphrase. While the passphrase
+//   is set a set with no signature is refused, so a set cannot be downgraded to a plain one.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { DatabaseSync } from 'node:sqlite';
+import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createStore } from '../../store/src/index.ts';
+import { createStore, Store } from '../../store/src/index.ts';
 import { Host } from '../src/host.ts';
-import { backupFolder, restoreAt, restoreBackup, scheduleProgressive, type ChangedSince } from '../src/backup.ts';
+import { backupFolder, restoreAt, restorePoint, restorePointTo, restoreBackup, scheduleProgressive, type ChangedSince } from '../src/backup.ts';
 import { checksum, describeCheck, verifySet } from '../src/backup-verify.ts';
 
 const KEY = 'correct horse battery staple';
@@ -542,4 +543,180 @@ test('verify-backup --sign signs the one set named (or the only one), never seve
   const several = run('--from', dest, '--sign');
   assert.equal(several.status, 1);
   assert.match(several.stderr, /name the one backup set/);
+});
+
+// Found by the second security review of the signing change: four ways round it that these tests keep shut. Each of them
+// fails when the fix it names is taken out.
+
+test('container files: a recorded size and time that were edited to match a changed file do not make the next backup reuse the old copy', async (t) => {
+  const w = await world(t, KEY, { external: true });
+  const rel = Object.keys(manifest(w.set).external)[0];
+  const live = join(w.folder, ...rel.split('/'));
+  writeFileSync(live, 'a different container file, of another length');
+  const now = statSync(live);
+  // Whoever can write the set makes its record of the file say what the live file looks like now (checksum and copy untouched).
+  const info = manifest(w.set);
+  info.external[rel].size = now.size;
+  info.external[rel].mtimeMs = now.mtimeMs;
+  writeManifest(w.set, info);
+  await refused(w, /signature|doesn't match|does not match|altered/i, 'size and time are signed');
+  const next = (await backupFolder(w.folder, join(w.root, 'dest'), 0, KEY)).dir;
+  rmSync(join(w.folder, 'Files'), { recursive: true });
+  await restoreBackup(w.folder, next, undefined, KEY);
+  assert.equal(readFileSync(live, 'utf8'), 'a different container file, of another length', 'the new set holds the file as it is, not the old copy linked in under its name');
+});
+
+test('encrypted: a file hosted while point-in-time backups run is not signed into a set whose manifest was edited', async (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'backup-tamper-add-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const folder = join(root, 'live');
+  const dest = join(root, 'dest');
+  mkdirSync(folder);
+  createStore(join(folder, 'A.openhbam.sqlite'));
+  process.env.TABULARIUS_BACKUP_KEY = KEY;
+  t.after(() => { delete process.env.TABULARIUS_BACKUP_KEY; });
+  const host = new Host(folder);
+  const messages: string[] = [];
+  const p = await scheduleProgressive(host, { every: 3_600_000, dest, log: (m) => messages.push(m) });
+  const set = p.set()!;
+  // Someone with write access changes a signed part (when the copy was finished) without the passphrase.
+  const info = manifest(set);
+  info.finished['A.openhbam.sqlite'] = new Date(0).toISOString();
+  writeManifest(set, info);
+  // A second file is dropped into the folder; the server copies it into the set and would list it, and sign the manifest.
+  createStore(join(folder, 'B.openhbam.sqlite'));
+  host.add(join(folder, 'B.openhbam.sqlite'));
+  p.run(); // starts following it
+  host.get('B')!.applyDesign([{ op: 'createTable', name: 'Notes' }]); // a change to follow
+  for (let i = 0; i < 20 && !messages.some((m) => /point-in-time backup of B failed/.test(m)); i++) {
+    p.run();
+    await sleep(100);
+  }
+  assert.ok(messages.some((m) => /point-in-time backup of B failed.*signature/.test(m)), messages.join('\n'));
+  assert.equal(existsSync(join(set, 'B.openhbam.sqlite.enc')), false, 'the copy that could not be listed is not left in the set');
+  assert.equal(manifest(set).sha256['B.openhbam.sqlite'], undefined, 'and is not listed');
+  p.stop();
+  host.close();
+  mkdirSync(join(root, 'elsewhere'));
+  await assert.rejects(restoreBackup(join(root, 'elsewhere'), set, undefined, KEY), /signature|does not match/i, 'the edited manifest was not signed over');
+});
+
+/** Point-in-time backups with a new log file at every round, so the set has several. */
+async function manyLogs(t: { after(fn: () => void): void }): Promise<Timeline & { times: number[] }> {
+  const root = mkdtempSync(join(tmpdir(), 'backup-tamper-logs-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const folder = join(root, 'live');
+  const dest = join(root, 'dest');
+  mkdirSync(folder);
+  createStore(join(folder, 'A.openhbam.sqlite'));
+  process.env.TABULARIUS_BACKUP_KEY = KEY;
+  t.after(() => { delete process.env.TABULARIUS_BACKUP_KEY; });
+  const host = new Host(folder);
+  const p = await scheduleProgressive(host, { every: 1, dest });
+  await sleep(20);
+  const times: number[] = [];
+  for (const table of ['First', 'Second', 'Third']) {
+    host.get('A')!.applyDesign([{ op: 'createTable', name: table }]);
+    await sleep(20);
+    p.run();
+    await sleep(20);
+    times.push(Date.now());
+    await sleep(20);
+  }
+  p.stop();
+  host.close();
+  const set = join(dest, readdirSync(dest).filter((n) => /^\d{4}-/.test(n)).sort().at(-1)!);
+  const logs = readdirSync(join(set, 'progressive', 'A')).sort().map((f) => join(set, 'progressive', 'A', f));
+  return { root, folder, dest, set, at: times.at(-1)!, logs, key: KEY, times };
+}
+
+const tablesAfter = (folder: string) => {
+  const s = new Store(join(folder, 'A.openhbam.sqlite'), 'A');
+  try { return s.schema.tables.map((x) => x.name).sort(); } finally { s.close(); }
+};
+
+test('encrypted: the saved logs are counted in the signature, so removing the last log or cutting a file at a record is refused, not restored to an earlier time', async (t) => {
+  const w = await manyLogs(t);
+  assert.ok(w.logs.length >= 3, `a log file for each round: ${w.logs.length}`);
+  assert.ok(manifest(w.set).logs.A.n >= 3, 'the manifest says how many logs were saved');
+  // The control: every log is there.
+  await restoreAt(w.folder, w.dest, w.at, 'A', KEY);
+  assert.deepEqual(tablesAfter(w.folder).filter((n) => ['First', 'Second', 'Third'].includes(n)), ['First', 'Second', 'Third']);
+  const before = readFileSync(join(w.folder, 'A.openhbam.sqlite'));
+  const last = w.logs.at(-1)!;
+  const original = readFileSync(last);
+  rmSync(last);
+  await assert.rejects(restoreAt(w.folder, w.dest, w.at, 'A', KEY), /incomplete|recorded/i, 'the last log removed');
+  assert.ok(readFileSync(join(w.folder, 'A.openhbam.sqlite')).equals(before), 'the live file is untouched');
+  // A log file cut after a whole record is a valid file that saved less.
+  const { logRecords } = await import('../src/logs.ts');
+  const first = w.logs[0];
+  const firstBytes = readFileSync(first);
+  const records = logRecords(first);
+  writeFileSync(last, original);
+  if (records.length > 1) {
+    writeFileSync(first, firstBytes.subarray(0, records[records.length - 1].offset - 16));
+    await assert.rejects(restoreAt(w.folder, w.dest, w.at, 'A', KEY), /incomplete|recorded/i, 'a file cut at a record boundary');
+    writeFileSync(first, firstBytes);
+  }
+  // One log file replaced by a copy of another: every record is genuine, and the set is not what was saved.
+  writeFileSync(w.logs[1], firstBytes);
+  await assert.rejects(restoreAt(w.folder, w.dest, w.at, 'A', KEY), /not the ones|recorded|damaged/i, 'a log file replaced by another');
+  writeFileSync(w.logs[1], readFileSync(w.logs[1]));
+});
+
+test('encrypted: a genuine sealed log that the manifest does not list is not replayed (it may be left by a crash, or planted by someone who has the passphrase)', async (t) => {
+  const w = await manyLogs(t);
+  const { startLog, writeLog } = await import('../src/logs.ts');
+  const forged = join(w.root, 'forged.sqlite');
+  const db = new DatabaseSync(forged);
+  db.exec('PRAGMA journal_mode = WAL; CREATE TABLE forged (v TEXT); INSERT INTO forged VALUES (1)');
+  const wal = readFileSync(forged + '-wal');
+  db.close();
+  const planted = join(w.set, 'progressive', 'A', '9999-12-31_235959.000.log.enc');
+  const writer = startLog(planted, KEY, 'A');
+  writeLog(writer, { at: w.at - 1, seq: 0, data: wal });
+  // The planted file is the latest record there is, and would be the point restored to; it is neither replayed nor refused.
+  const done = await restoreAt(w.folder, w.dest, w.at, 'A', KEY);
+  assert.equal(done.length, 1);
+  assert.ok(done[0].time < w.at, 'the restored point is the last logged change, not the planted record');
+  const check = new DatabaseSync(join(w.folder, 'A.openhbam.sqlite'), { readOnly: true });
+  try { assert.equal(check.prepare("SELECT count(*) AS n FROM sqlite_master WHERE name = 'forged'").get()!.n, 0, 'the planted log was not replayed'); } finally { check.close(); }
+});
+
+test('verify-backup --sign counts the logs a set holds into the signature it makes, so a log removed afterwards is noticed', async (t) => {
+  const w = await manyLogs(t);
+  const info = manifest(w.set);
+  const counted = info.logs;
+  delete info.auth;
+  delete info.logs;
+  writeManifest(w.set, info);
+  const signed = await verifySet(w.set, KEY, { sign: true });
+  assert.equal(signed.ok, true);
+  assert.deepEqual(manifest(w.set).logs, counted, 'the same count and chain as the server saved');
+  await restoreAt(w.folder, w.dest, w.at, 'A', KEY);
+  rmSync(w.logs.at(-1)!);
+  await assert.rejects(restoreAt(w.folder, w.dest, w.at, 'A', KEY), /incomplete|recorded/i);
+});
+
+/** A container file nobody backed up, put in the set with the manifest made to list it: what someone with write access to the set would do between the check and the use. */
+function plantContainerFile(set: string): void {
+  const dir = join(set, 'Files', 'A', 'Docs');
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, 'planted.txt'), 'planted');
+  const info = manifest(set);
+  info.external = { ...info.external, 'Files/A/Docs/planted.txt': { size: 7, mtimeMs: 1, sha256: createHash('sha256').update('planted').digest('hex') } };
+  writeManifest(set, info);
+}
+
+test('encrypted: a point-in-time restore uses the container files of the manifest it checked, not a second read of it', async (t) => {
+  // The manifest is changed after the restore has checked it (the setter stands in for a second process).
+  const w = await timeline(t, KEY);
+  const point = restorePoint(w.dest, 'A.openhbam.sqlite', w.at)!;
+  const target = join(w.folder, 'A.openhbam.sqlite');
+  await restorePointTo({ copy: point.copy, get logs() { plantContainerFile(w.set); return point.logs; } }, target, KEY);
+  assert.equal(existsSync(join(w.folder, 'Files', 'A', 'Docs', 'planted.txt')), false, 'restorePointTo');
+  const again = await timeline(t, KEY);
+  await restoreAt(again.folder, again.dest, again.at, 'A', KEY, { get signal() { plantContainerFile(again.set); return undefined; } } as never);
+  assert.equal(existsSync(join(again.folder, 'Files', 'A', 'Docs', 'planted.txt')), false, 'restoreAt');
 });

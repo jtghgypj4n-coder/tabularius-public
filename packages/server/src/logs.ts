@@ -199,11 +199,13 @@ export function startLog(path: string, passphrase?: string, database = ''): LogW
   return { path, database, key: deriveKeySync(passphrase, salt), prefix, n: 0 };
 }
 
-/** Adds a record to a log file. */
-export function writeLog(w: LogWriter, r: LogRecord): void {
+/** Adds a record to a log file. Returns the bytes appended, as stored. */
+export function writeLog(w: LogWriter, r: LogRecord): Buffer {
   const data = w.key ? sealRecord(w.key, w.prefix!, w.n, r.data, recordAad(r.at, w.database)) : r.data;
-  appendFileSync(w.path, encodeRecord({ ...r, data }));
+  const stored = encodeRecord({ ...r, data });
+  appendFileSync(w.path, stored);
   w.n++;
+  return stored;
 }
 
 /** A log file's records' times and places, without reading the logs themselves. */
