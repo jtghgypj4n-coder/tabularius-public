@@ -7,7 +7,7 @@
 import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, sign, verify } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { readJsonStateSync, updateJsonStateSync } from '../../store/src/durable.ts';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { unzip, zip, type ZipEntry } from '../../calc/src/zip.ts';
 import { parseManifest, type PluginManifest } from './manifest.ts';
 
@@ -134,6 +134,7 @@ export function readJsonFile(path: string): unknown {
 }
 
 const pluginsDir = (dataDir: string) => join(dataDir, 'plugins');
+export const discoverablePluginFolder = (name: string): boolean => name.length > 0 && !name.startsWith('.');
 const trustedPath = (dataDir: string) => join(pluginsDir(dataDir), 'trusted-publishers.json');
 
 /** Publisher fingerprints the admin trusts, with the name they gave. */
@@ -235,6 +236,7 @@ export function installPackage(dataDir: string, bytes: Uint8Array, opts: Install
 
 /** Throws when a package-installed plug-in's files are not the ones installed (a plug-in put there by hand has no record). */
 export function checkInstalled(dir: string): InstallRecord | undefined {
+  if (!discoverablePluginFolder(basename(dir))) throw new Error('an internal plug-in folder is not installed');
   const file = join(dir, INSTALL);
   if (!existsSync(file)) return undefined;
   const record = readJsonFile(file) as InstallRecord;
@@ -250,7 +252,7 @@ export function uninstallPlugin(dataDir: string, id: string, enabledFor: string[
   if (enabledFor.length) throw new Error(`${id} is enabled for ${enabledFor.join(', ')}; turn it off first`);
   const root = pluginsDir(dataDir);
   const folder = existsSync(root) ? readdirSync(root, { withFileTypes: true }).find((e) => {
-    if (!e.isDirectory() || !existsSync(join(root, e.name, 'plugin.json'))) return false;
+    if (!e.isDirectory() || !discoverablePluginFolder(e.name) || !existsSync(join(root, e.name, 'plugin.json'))) return false;
     try { return (JSON.parse(readFileSync(join(root, e.name, 'plugin.json'), 'utf8')) as { id?: unknown }).id === id; } catch { return false; }
   }) : undefined;
   if (!folder) throw new Error(`${id} isn't installed in ${root}`);

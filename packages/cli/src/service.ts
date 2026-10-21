@@ -41,6 +41,7 @@ import { dirname, join, resolve } from 'node:path';
 import { request as httpsRequest } from 'node:https';
 import { request as httpRequest } from 'node:http';
 import { createServer as createNetServer } from 'node:net';
+import { isSea } from 'node:sea';
 import { readJsonStateSync, updateJsonStateSync } from '../../store/src/durable.ts';
 import { nodeSupports } from './node-version.cjs';
 import { closedBy, refusalFor } from './newer-files.ts';
@@ -58,6 +59,8 @@ export interface ServiceOptions {
   /** The Node and the command line program the service runs. */
   node: string;
   main: string;
+  /** The distributed single-file program handles CLI arguments itself. */
+  singleFile?: boolean;
   user: string;
   /** Where the service's own files (macOS console output, service.json) go. */
   home: string;
@@ -73,11 +76,12 @@ const STOP_GRACE_SECONDS = 30;
 const LABEL = 'org.openhbam.server';
 const TASK = 'openhbam';
 
-export function defaults(platform: Platform = process.platform as Platform): Pick<ServiceOptions, 'platform' | 'node' | 'main' | 'user' | 'home'> {
+export function defaults(platform: Platform = process.platform as Platform): Pick<ServiceOptions, 'platform' | 'node' | 'main' | 'singleFile' | 'user' | 'home'> {
   return {
     platform,
     node: process.execPath,
     main: resolve(import.meta.dirname, 'main.ts'),
+    singleFile: isSea(),
     user: platform === 'win32' && process.env.USERDOMAIN ? `${process.env.USERDOMAIN}\\${userInfo().username}` : userInfo().username,
     home: process.env.TABULARIUS_HOME ?? join(homedir(), '.openhbam'),
   };
@@ -99,6 +103,7 @@ const serviceEntry = [
 
 /** The service's command line, as arguments. */
 function command(o: ServiceOptions): string[] {
+  if (o.singleFile) return [o.node, '--no-warnings', 'serve', o.folder, '--port', String(o.port), '--host', o.host, ...o.extra];
   return [o.node, '--no-warnings', '--eval', serviceEntry, o.main, 'serve', o.folder, '--port', String(o.port), '--host', o.host, ...o.extra];
 }
 
@@ -816,7 +821,13 @@ export async function upgrade(opts: { backup?: (folder: string, extra: string[])
   let backedUpTo: string | undefined;
   if (opts.backup) {
     say(`Backing up ${s.folder} first`);
-    backedUpTo = await opts.backup(s.folder, s.extra);
+    try {
+      backedUpTo = await opts.backup(s.folder, s.extra);
+    } catch (e) {
+      fetched.rollback();
+      installDependencies(app);
+      throw e;
+    }
     say(`Backed up to ${backedUpTo}`);
   }
   const url = healthUrl(s);

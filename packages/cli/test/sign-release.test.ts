@@ -1,12 +1,38 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { isProgramFile, signingPlan, type Step } from '../../../scripts/sign-release.ts';
+import { execute, isProgramFile, signingPlan, type Step } from '../../../scripts/sign-release.ts';
 
 const plan = (platform: NodeJS.Platform, env: Record<string, string>) => signingPlan(platform, '/dist/tabularius', env, '/repo/packaging/entitlements.plist', '/tmp/work');
 const commands = (steps: Step[]) => steps.flatMap((s) => ('run' in s ? [s.run[0]] : ['write']));
+
+test('AR-cli-plugins-tooling-08', (t) => {
+  const work = mkdtempSync(join(tmpdir(), 'tabularius-sign-test-'));
+  t.after(() => rmSync(work, { recursive: true, force: true }));
+  for (const failure of ['none', 'set', 'sign'] as const) {
+    const p = signingPlan('darwin', '/dist/tabularius', { APPLE_SIGNING_IDENTITY: 'Synthetic', APPLE_CERTIFICATE_P12_BASE64: 'AAAA', APPLE_CERTIFICATE_PASSWORD: 'synthetic' }, '/repo/packaging/entitlements.plist', work);
+    const original = ['/synthetic/login.keychain-db', '/synthetic/custom.keychain-db'];
+    let current = original.slice();
+    let deleted = false;
+    const runner = (cmd: string, args: string[], capture: boolean) => {
+      if (cmd === 'security' && args[0] === 'list-keychains' && args.includes('-s')) {
+        current = args.slice(args.indexOf('-s') + 1);
+        if (failure === 'set' && current[0] === join(work, 'build.keychain-db')) return { status: 1 };
+      }
+      if (cmd === 'security' && args[0] === 'list-keychains' && !args.includes('-s')) return { status: 0, stdout: current.map((path) => `    ${JSON.stringify(path)}`).join('\n') };
+      if (cmd === 'security' && args[0] === 'delete-keychain') deleted = true;
+      if (failure === 'sign' && cmd === 'codesign' && args[0] === '--force') return { status: 1 };
+      return { status: 0, stdout: capture ? '' : undefined };
+    };
+    if (failure !== 'none') assert.throws(() => execute(p, runner), /failed/);
+    else execute(p, runner);
+    assert.deepEqual(current, original);
+    assert.equal(deleted, true);
+  }
+});
 
 test('with no certificates there is nothing to do, and the plan says why', () => {
   for (const platform of ['darwin', 'win32', 'linux'] as const) {
