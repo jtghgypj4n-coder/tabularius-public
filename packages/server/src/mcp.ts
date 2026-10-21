@@ -73,7 +73,12 @@ const sessions = new WeakMap<Host, Map<string, ScriptSession>>();
  */
 export function sessionFor(host: Host, database: string, who: McpIdentity): ScriptSession {
   let byKey = sessions.get(host);
-  if (!byKey) sessions.set(host, (byKey = new Map()));
+  if (!byKey) {
+    sessions.set(host, (byKey = new Map()));
+    host.onClose.push((store) => {
+      for (const key of byKey!.keys()) if (String(JSON.parse(key)[0]).toLowerCase() === store.name.toLowerCase()) byKey!.delete(key);
+    });
+  }
   const key = JSON.stringify([
     database,
     'admin' in who ? '' : who.account.toLowerCase(),

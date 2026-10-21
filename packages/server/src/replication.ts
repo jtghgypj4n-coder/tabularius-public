@@ -99,6 +99,12 @@ export class Replication {
       },
     };
     shipper.add(this.follower);
+    host.onClose.push((store) => {
+      const followed = this.files.get(store);
+      this.files.delete(store);
+      for (const wake of followed?.waiting ?? []) wake();
+      for (const [key, entry] of this.clients) if (entry.client.file === store.name) this.clients.delete(key);
+    });
   }
 
   private closing = false;
@@ -108,6 +114,9 @@ export class Replication {
   close(): void {
     this.closing = true;
     for (const f of this.files.values()) for (const wake of f.waiting) wake();
+    this.files.clear();
+    this.clients.clear();
+    this.shipper.remove(this.follower);
   }
 
   /** Standbys that asked for changes in the last minute. */
@@ -221,16 +230,23 @@ export class Replication {
     const address = clientAddress(req);
     const id = req.headers['x-tabularius-standby-id'];
     const from = typeof id === 'string' && /^[a-f0-9]{16}$/.test(id) ? `${address}#${id}` : address;
-    this.clients.set(`${from}\0${store.name}`, {
+    const key = `${from}\0${store.name}`;
+    if (!this.clients.has(key)) {
+      if (this.clients.size >= 1024) this.standbys();
+      while (this.clients.size >= 1024) this.clients.delete(this.clients.keys().next().value!);
+    }
+    this.clients.set(key, {
       client: { from, file: store.name, seq: after, behind: f.seq - after, at: Date.now() },
       seen: monotonicClock.now(),
     });
     if (after === f.seq && wait > 0) {
+      if (f.waiting.size >= 256) return fail(503, 'Too many replication requests are waiting; try again later');
       // Nothing new yet: answer when there is, or when the wait is over.
       await new Promise<void>((resolve) => {
         const done = () => {
           clearTimeout(timer);
           f.waiting.delete(done);
+          res.off('close', done);
           resolve();
         };
         const timer = setTimeout(done, wait * 1000);

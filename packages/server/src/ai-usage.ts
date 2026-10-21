@@ -78,19 +78,40 @@ export const oldUsageWaiting = (dir: string): boolean => !usageFileExists(dir) &
 export class MemoryUsage implements UsageCounts {
   private days = new Map<string, number>();
   private months = new Map<string, MonthUsage>();
+  private day = dayOf();
+  private saturated = false;
   private latest: QuestionRecord[] = [];
+  private rollDay(): void {
+    const day = dayOf();
+    if (day !== this.day) {
+      this.days.clear();
+      this.saturated = false;
+      this.day = day;
+    }
+  }
   today(who = SERVER): number {
-    return this.days.get(`${dayOf()}\0${who}`) ?? 0;
+    this.rollDay();
+    return this.days.get(`${this.day}\0${who}`) ?? (this.saturated ? this.days.get(`${this.day}\0${SERVER}`) ?? 0 : 0);
   }
   month(): MonthUsage {
     const month = monthOf();
+    for (const key of this.months.keys()) if (key !== month) this.months.delete(key);
     return { ...(this.months.get(month) ?? { month, tokens: 0, costUsd: 0, questions: 0, unpriced: 0 }) };
   }
   recent(): QuestionRecord[] {
     return [...this.latest].reverse();
   }
   add(who: string, tokens: number, costUsd: number): void {
-    for (const w of who === SERVER ? [SERVER] : [SERVER, who]) this.days.set(`${dayOf()}\0${w}`, this.today(w) + tokens);
+    this.rollDay();
+    for (const w of who === SERVER ? [SERVER] : [SERVER, who]) {
+      const key = `${this.day}\0${w}`;
+      if (!this.days.has(key) && this.days.size >= 1024) {
+        // Do not hand forgotten accounts another allowance: the server total is a conservative fallback.
+        this.saturated = true;
+        continue;
+      }
+      this.days.set(key, (this.days.get(key) ?? 0) + tokens);
+    }
     const m = this.month();
     this.months.set(m.month, { ...m, tokens: m.tokens + tokens, costUsd: m.costUsd + costUsd });
   }

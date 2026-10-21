@@ -821,6 +821,10 @@ export class ODataEndpoint {
   constructor(host: Host, api: DataApi) {
     this.host = host;
     this.api = api;
+    host.onClose.push((store) => {
+      for (const key of this.sessions.keys()) if (key.startsWith(store.name.toLowerCase() + '\0')) this.sessions.delete(key);
+      this.verified.clear();
+    });
   }
 
   /** Returns false when the request is not for OData. */

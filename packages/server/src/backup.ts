@@ -177,11 +177,14 @@ function recordFinished(setDir: string, file: string, at: number): void {
 export function backupFolder(folder: string, dest = defaultBackupDir(folder), keep = 7, passphrase = backupKey(), options: { now?: () => number; stoppable?: boolean; signal?: AbortSignal; statfs?: StatFs; platform?: NodeJS.Platform } = {}): Promise<BackupResult> {
   // One at a time per destination (a scheduled backup and "Back up now" at once would pick the same name).
   const key = options.platform === 'win32' || (!options.platform && process.platform === 'win32') ? resolve(dest).toLowerCase() : resolve(dest);
+  if (pendingBackups >= 32) return Promise.reject(new Error('Too many backups are running or waiting; try again when one finishes'));
+  pendingBackups++;
   // A backup the administrator may stop (the scheduled ones and Back up now; not the one taken before a restore).
   const stop = options.stoppable ? new AbortController() : undefined;
   if (stop) stoppable.add(stop);
   const scope = cancellationScope([stop?.signal, options.signal]);
   const run = (backingUp.get(key) ?? Promise.resolve()).then(() => backupOnce(folder, dest, keep, passphrase, options.now ?? Date.now, scope.signal, options.statfs, options.platform)).finally(() => {
+    pendingBackups--;
     scope.dispose();
     if (stop) stoppable.delete(stop);
   });
@@ -194,6 +197,7 @@ export function backupFolder(folder: string, dest = defaultBackupDir(folder), ke
 
 const backingUp = new Map<string, Promise<void>>();
 const stoppable = new Set<AbortController>();
+let pendingBackups = 0;
 
 /** A backup the administrator stopped: its half-made set is removed and no old set is pruned. */
 export class BackupStopped extends Error {

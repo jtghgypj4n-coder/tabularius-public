@@ -169,7 +169,7 @@ export class Live {
           const table = WHERE[kind];
           const selection = Array.isArray(body.selection) ? body.selection.filter((x: unknown) => Number.isInteger(x)).slice(0, 500) as number[] : [];
           for (const v of mine()) if (v.table !== table || v.recordId !== at) store.locks.leave(v.table, v.recordId, session.token);
-          store.locks.view(table, at, session.token, session.account);
+          this.view(store, table, at, session);
           store.notify('designer', table, at, undefined, { owner: session.token, account: session.account }, undefined, selection);
           send(200, {});
         } else if (method === 'DELETE') {
@@ -187,7 +187,7 @@ export class Live {
           if (owner.locks.leave(info.table, id, session.token)) owner.notify('leave', info.table, id);
         } else {
           if (!store.canView(info, id, privileges)) throw new ApiError(200, 'Record access is denied', 403);
-          if (owner.locks.view(info.table, id, session.token, session.account)) owner.notify('view', info.table, id);
+          if (this.view(owner, info.table, id, session)) owner.notify('view', info.table, id);
         }
         send(200, {});
         return true;
@@ -204,6 +204,10 @@ export class Live {
           return true;
         }
         store.checkEditable(info, id, privileges); // 101 when the record is missing, 200 when the account can't edit it
+        const locks = owner.locks.all(); // Expire stale locks, but never evict an active edit.
+        if (locks.length >= 4096 && !locks.some((lock) => lock.table === info.table && lock.recordId === id)) {
+          throw new ApiError(301, 'Too many records are locked; release a lock before taking another', 503);
+        }
         const r = owner.locks.acquire(info.table, id, session.token, session.account);
         if (!r.ok) throw new ApiError(301, `Record is in use by another user (${r.lock.account})`, 409);
         if (r.fresh) owner.notify('lock', info.table, id);
@@ -225,6 +229,17 @@ export class Live {
       putStream(res, `event: shutdown\ndata: {"reason":"restart"}\n\n`);
       res.end();
     }
+  }
+
+  private view(store: Store, table: string, id: number, session: Session): boolean {
+    const held = store.locks.viewers(); // Also expires abandoned presence.
+    if (!held.some((v) => v.table === table && v.recordId === id && v.owner === session.token)) {
+      for (const old of held.slice(0, Math.max(0, held.length - 4095))) {
+        store.locks.leave(old.table, old.recordId, old.owner);
+        store.notify('leave', old.table, old.recordId);
+      }
+    }
+    return store.locks.view(table, id, session.token, session.account);
   }
 
   /** The file and the other hosted files its layouts show tables from. */
@@ -323,11 +338,14 @@ export class Live {
     const stop = () => {
       if (stopped) return;
       stopped = true;
+      delete (res as ServerResponse & { closeStream?: () => void }).closeStream;
       this.streams.delete(res);
       const set = this.byToken.get(token);
       if (set && (set.delete(res), set.size === 0)) this.byToken.delete(token);
       clearInterval(beat);
       for (const s of files) s.listeners.delete(listener);
+      req.off('close', stop);
+      res.off('close', stop);
     };
     (res as ServerResponse & { closeStream?: () => void }).closeStream = expire;
     req.on('close', stop);
