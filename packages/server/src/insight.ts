@@ -29,6 +29,8 @@ export interface Refs {
   unparsed?: string;
   /** Reader IDs and structural shapes only; literals and user-defined names are omitted. */
   unknownTokens?: UnknownCalcToken[];
+  /** Known design names present in text that could not be parsed. */
+  unindexedNames?: Set<string>;
 }
 
 export type SiteKind = 'field' | 'script' | 'layout' | 'relationship' | 'customFunction' | 'valueList' | 'menu' | 'fileOptions';
@@ -68,6 +70,7 @@ class Catalog {
   readonly toName = new Map<number, string>();
   readonly names: NameTable;
   readonly customFunctions: Set<string>;
+  readonly bareCustomFunctions: Set<string>;
   private readonly contextNames = new Map<number, NameTable>();
 
   constructor(store: Store) {
@@ -82,6 +85,7 @@ class Catalog {
     }
     this.names = new NameTable({ occurrences });
     this.customFunctions = new Set(s.customFunctions.map((c) => lower(c.name)));
+    this.bareCustomFunctions = new Set(s.customFunctions.filter((c) => !c.parameters.length).map((c) => lower(c.name)));
   }
 
   /** Name table for formulas evaluated from a table occurrence (unqualified names are its fields). */
@@ -128,6 +132,14 @@ class Catalog {
       node = parse(formula, this.contextFor(contextToId), locals);
     } catch (e) {
       refs.unparsed ??= (e as Error).message;
+      const candidates = [
+        ...this.store.schema.tableOccurrences.map((x) => x.name), ...this.store.schema.scripts.map((x) => x.name),
+        ...this.store.schema.layouts.map((x) => x.name), ...this.store.schema.valueLists.map((x) => x.name),
+        ...this.store.schema.customFunctions.map((x) => x.name),
+        ...this.store.schema.tables.flatMap((t) => [t.name, ...t.fields.map((f) => f.name)]),
+      ];
+      const source = lower(formula);
+      for (const name of candidates) if (name && source.includes(lower(name))) (refs.unindexedNames ??= new Set()).add(lower(name));
       // Not parseable (yet): fall back to "TO::Field" text matches.
       for (const [to, table] of this.toTable) {
         const at = lower(formula).indexOf(`${to}::`);
@@ -147,7 +159,7 @@ class Catalog {
       const unknown = unknownCalcTokens(node);
       if (unknown.length) (refs.unknownTokens ??= []).push(...unknown);
     }
-    walk(node, (n) => {
+    walkFormula(node, (n, bound) => {
       if (n.k === 'field') {
         if (n.occurrence) {
           refs.occurrences.add(lower(n.occurrence));
@@ -160,8 +172,10 @@ class Catalog {
       } else if (n.k === 'str' && SQL_TEXT.test(n.value)) {
         // Query text kept in a variable first (Set Variable [ $sql ; "SELECT ... FROM Invoices" ]).
         this.sqlText(n.value, refs);
-      } else if (n.k === 'var' && PLUGIN_CALLS.has(lower(n.name)) && !this.tableHasField(ctxTable, n.name)) {
-        // A plug-in function without parameters is written without parentheses (EmailVersion).
+      } else if (n.k === 'var' && !n.name.startsWith('$') && !bound.has(lower(n.name)) &&
+        !this.tableHasField(ctxTable, n.name) && (PLUGIN_CALLS.has(lower(n.name)) ||
+          (!FUNCTIONS.has(lower(n.name)) && this.bareCustomFunctions.has(lower(n.name))))) {
+        // A zero-parameter function can be written without parentheses.
         refs.functions.add(lower(n.name));
       }
     });
@@ -218,6 +232,22 @@ function walk(n: Node, fn: (n: Node) => void): void {
     case 'let': n.binds.forEach(([, b, rep]) => { walk(b, fn); if (rep) walk(rep, fn); }); walk(n.body, fn); break;
     case 'unary': walk(n.a, fn); break;
     case 'bin': walk(n.a, fn); walk(n.b, fn); break;
+  }
+}
+
+function walkFormula(n: Node, fn: (n: Node, bound: Set<string>) => void, bound = new Set<string>()): void {
+  fn(n, bound);
+  switch (n.k) {
+    case 'field': case 'var': if (n.rep) walkFormula(n.rep, fn, bound); break;
+    case 'call': n.args.forEach((a) => walkFormula(a, fn, bound)); break;
+    case 'let': {
+      const inner = new Set([...bound, ...n.binds.map(([name]) => lower(name))]);
+      n.binds.forEach(([, value, rep]) => { walkFormula(value, fn, inner); if (rep) walkFormula(rep, fn, inner); });
+      walkFormula(n.body, fn, inner);
+      break;
+    }
+    case 'unary': walkFormula(n.a, fn, bound); break;
+    case 'bin': walkFormula(n.a, fn, bound); walkFormula(n.b, fn, bound); break;
   }
 }
 
@@ -339,6 +369,19 @@ function fieldSites(cat: Catalog, table: Table, out: Site[]): void {
   for (const f of table.fields) {
     const where = `Field ${table.name}::${f.name}`;
     const ctx = f.calculationContextId ?? cat.defaultOccurrence(table);
+    const lookup = f.options?.autoEnter?.lookup;
+    if (lookup) {
+      const refs = emptyRefs();
+      const from = lookup.fromId ?? cat.defaultOccurrence(table);
+      const source = cat.toName.get(lookup.occurrenceId);
+      if (from !== undefined) refs.occurrences.add(lower(cat.toName.get(from) ?? ''));
+      if (source) {
+        refs.occurrences.add(lower(source));
+        const field = cat.store.calc.occurrenceTable(lookup.occurrenceId)?.table.fields.find((x) => x.id === lookup.fieldId);
+        if (field) cat.fieldRef({ tableOccurrence: source, field: field.name }, refs);
+      }
+      out.push({ kind: 'field', where: `${where} (lookup)`, text: `lookup from ${source ?? `occurrence ${lookup.occurrenceId}`}`, refs });
+    }
     if (f.calculation !== undefined) {
       const refs = emptyRefs();
       cat.formula(f.calculation, refs, ctx);
@@ -368,6 +411,8 @@ function fieldSites(cat: Catalog, table: Table, out: Site[]): void {
 
 export interface Index {
   sites: Site[];
+  /** False when a calculation could not be indexed completely. */
+  referenceComplete: boolean;
   /** Script name (lower) -> the scripts it performs, and who performs it. */
   calls: Map<string, Set<string>>;
   callers: Map<string, Set<string>>;
@@ -378,6 +423,12 @@ export interface Index {
   /** Script name (lower) -> how it reaches outside the solution: steps, and plug-in functions it calls. */
   outbound: Map<string, Set<string>>;
   catalog: Catalog;
+}
+
+/** Whether an incomplete calculation could still name this particular design item. */
+export function canVerifyUnused(index: Index, name: string): boolean {
+  const key = lower(name);
+  return index.sites.every((site) => !site.refs.unknownTokens?.length && !site.refs.unindexedNames?.has(key));
 }
 
 const indexes = new WeakMap<Store, { schema: Store['schema']; index: Index }>();
@@ -509,7 +560,8 @@ export function solutionIndex(store: Store): Index {
 
   // Secrets written into scripts and formulas (passwords, API keys) never reach a model or a document.
   for (const site of sites) site.text = redactSecrets(cat.ext(site.text));
-  const index: Index = { sites, calls, callers, buttons, starters, outbound, catalog: cat };
+  const referenceComplete = !sites.some((site) => site.refs.unparsed || site.refs.unknownTokens?.length);
+  const index: Index = { sites, referenceComplete, calls, callers, buttons, starters, outbound, catalog: cat };
   indexes.set(store, { schema: store.schema, index });
   return index;
 }
@@ -1155,7 +1207,7 @@ export function solutionOverview(store: Store, opts: { counts?: boolean } = {}):
     if (folders.length) out.push(`Folders: ${list([...new Set(folders)], 40)}.`);
     if (entry.length) out.push(`Started by buttons: ${list(entry.map((x) => `${x.name} (${list([...index.buttons.get(lower(x.name))!], 3)})`), 20)}.`);
     if (started.length) out.push(`Started by triggers, menus or File Options: ${list(started.map((x) => `${x.name} (${list([...index.starters.get(lower(x.name))!], 3)})`), 20)}.`);
-    if (top.length) out.push(`Not called by other scripts, buttons, triggers, custom menus or File Options (run from the Scripts menu, by URL or another file, or unused): ${list(top.map((x) => x.name), 30)}.`);
+    if (top.length) out.push(`Not called by other scripts, buttons, triggers, custom menus or File Options (run from the Scripts menu, by URL or another file${index.referenceComplete ? ', or unused' : '; unused status cannot be verified'}): ${list(top.map((x) => x.name), 30)}.`);
     const hubs = [...index.callers].filter(([, c]) => c.size >= 3).sort((a, b) => b[1].size - a[1].size).slice(0, 10);
     if (hubs.length) out.push(`Most called: ${hubs.map(([n, c]) => `${s.scripts.find((x) => lower(x.name) === n)?.name ?? n} (${c.size} callers)`).join(', ')}.`);
     if (outbound.length) {
