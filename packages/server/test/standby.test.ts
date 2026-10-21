@@ -1,9 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
+import { DatabaseSync } from 'node:sqlite';
 import { STANDBY_STATE, STORE_EXT, Standby, serve } from '../src/index.ts';
 import { decodeRecords, encodeRecord, logReader, logRecords, startLog, writeLog } from '../src/logs.ts';
 import { Store } from '../../store/src/index.ts';
@@ -32,6 +33,153 @@ function contents(path: string): string {
     s.close();
   }
 }
+
+function tinyDb(path: string, value: string): void {
+  const db = new DatabaseSync(path);
+  try {
+    db.exec('CREATE TABLE _fm_meta (key TEXT PRIMARY KEY, json TEXT); CREATE TABLE rows (value TEXT)');
+    db.prepare('INSERT INTO rows VALUES (?)').run(value);
+  } finally { db.close(); }
+}
+
+function tinyValue(path: string): string {
+  const db = new DatabaseSync(path, { readOnly: true });
+  try { return (db.prepare('SELECT value FROM rows').get() as { value: string }).value; }
+  finally { db.close(); }
+}
+
+function savedTinyState(root: string, primary: string): void {
+  const saved = statSync(join(root, 'Local' + STORE_EXT));
+  writeFileSync(join(root, STANDBY_STATE), JSON.stringify({ primary, files: {
+    Local: { run: 'old-run', seq: 1, wholeAfter: 1, size: saved.size, mtimeMs: saved.mtimeMs, at: Date.now() },
+  } }));
+}
+
+test('a file changed here since the last copy stops the standby at start', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'tabularius-standby-divergence-'));
+  const file = join(root, 'Local' + STORE_EXT);
+  const primary = 'http://127.0.0.1:1';
+  let standby: Standby | undefined;
+  try {
+    tinyDb(file, 'replicated');
+    savedTinyState(root, primary);
+
+    const changed = new DatabaseSync(file);
+    changed.exec("UPDATE rows SET value = 'local edit'");
+    changed.close();
+    standby = new Standby({ folder: root, primary, token: TOKEN, log: () => {} });
+    assert.throws(() => standby!.start(), /Local.*changed|changed.*Local/);
+    assert.equal(tinyValue(file), 'local edit');
+  } finally {
+    await standby?.stop();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a known file that is missing here, with a sidecar left, stops the standby at start', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'tabularius-standby-missing-'));
+  const file = join(root, 'Local' + STORE_EXT);
+  const primary = 'http://127.0.0.1:1';
+  let standby: Standby | undefined;
+  try {
+    tinyDb(file, 'replicated');
+    savedTinyState(root, primary);
+    rmSync(file);
+    writeFileSync(file + '-wal', 'local sidecar');
+    standby = new Standby({ folder: root, primary, token: TOKEN, log: () => {} });
+    assert.throws(() => standby!.start(), /Local.*changed|changed.*Local/);
+    assert.equal(readFileSync(file + '-wal', 'utf8'), 'local sidecar');
+  } finally {
+    await standby?.stop();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('--overwrite replaces a file changed here with the primary copy', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'tabularius-standby-overwrite-'));
+  const file = join(root, 'Local' + STORE_EXT);
+  const source = join(root, 'source.sqlite');
+  const primary = 'http://primary.invalid';
+  let standby: Standby | undefined;
+  try {
+    tinyDb(file, 'replicated');
+    tinyDb(source, 'primary copy');
+    savedTinyState(root, primary);
+    const db = new DatabaseSync(file);
+    try { db.exec("UPDATE rows SET value = 'local edit'"); }
+    finally { db.close(); }
+    standby = new Standby({ folder: root, primary, token: TOKEN, overwrite: true, wait: 0, log: () => {} });
+    Object.assign(standby, { get: async (path: string): Promise<Response> => {
+      if (path.endsWith('/files')) return Response.json({ files: [{ name: 'Local' }] });
+      if (path.endsWith('/copy')) return new Response(new Uint8Array(readFileSync(source)), { headers: {
+        'x-tabularius-run': 'new-run', 'x-tabularius-seq': '0', 'x-tabularius-whole-after': '0',
+      } });
+      if (path.includes('/changes?')) {
+        await sleep(100);
+        return new Response(new Uint8Array());
+      }
+      throw new Error(`unexpected request: ${path}`);
+    } });
+    standby.start();
+    await until('the authorized copy', () => tinyValue(file) === 'primary copy', 5000);
+  } finally {
+    await standby?.stop();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a resync copy never replaces a file or sidecar changed here, unless it is untouched', async () => {
+  for (const editDuringCopy of [false, true]) {
+    const root = mkdtempSync(join(tmpdir(), 'tabularius-standby-resync-'));
+    const file = join(root, 'Local' + STORE_EXT);
+    const source = join(root, 'source.sqlite');
+    const primary = 'http://primary.invalid';
+    const lines: string[] = [];
+    let standby: Standby | undefined;
+    let localDb: DatabaseSync | undefined;
+    try {
+      tinyDb(file, 'replicated');
+      tinyDb(source, 'primary copy');
+      savedTinyState(root, primary);
+      standby = new Standby({ folder: root, primary, token: TOKEN, log: (m) => void lines.push(m), wait: 0 });
+      let copyRequests = 0;
+      Object.assign(standby, { get: async (path: string): Promise<Response> => {
+        if (path.endsWith('/files')) return Response.json({ files: [{ name: 'Local' }] });
+        if (path.includes('/changes?')) {
+          if (path.includes('run=new-run')) {
+            await sleep(100);
+            return new Response(new Uint8Array());
+          }
+          return Response.json({ error: 'new run' }, { status: 409 });
+        }
+        if (path.endsWith('/copy')) {
+          copyRequests++;
+          if (editDuringCopy) {
+            localDb = new DatabaseSync(file);
+            localDb.exec('PRAGMA journal_mode=WAL');
+            localDb.exec("UPDATE rows SET value = 'local edit'");
+            assert.equal(existsSync(file + '-wal'), true);
+          }
+          return new Response(new Uint8Array(readFileSync(source)), { headers: {
+            'x-tabularius-run': 'new-run', 'x-tabularius-seq': '0', 'x-tabularius-whole-after': '0',
+          } });
+        }
+        throw new Error(`unexpected request: ${path}`);
+      } });
+      standby.start();
+      await until('the resync attempt', () => editDuringCopy
+        ? !!standby!.problem?.includes('changed here')
+        : lines.some((line) => line === 'copied Local'), 5000);
+      assert.equal(copyRequests, 1);
+      assert.equal(tinyValue(file), editDuringCopy ? 'local edit' : 'primary copy');
+      assert.equal(existsSync(file + '-wal'), editDuringCopy);
+    } finally {
+      await standby?.stop();
+      localDb?.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+});
 
 test('a standby follows the main server, survives restarts on both sides, and takes over', { skip }, async () => {
   const root = mkdtempSync(join(tmpdir(), 'tabularius-standby-'));

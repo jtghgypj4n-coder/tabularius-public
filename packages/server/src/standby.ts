@@ -10,7 +10,7 @@
 // carries on where it stopped. A file changed by anything else since (it was
 // served after a takeover, say) is never overwritten unless asked.
 
-import { createWriteStream, existsSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { createWriteStream, existsSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { readJsonStateSync, updateJsonStateSync } from '../../store/src/durable.ts';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
@@ -82,6 +82,7 @@ export class Standby {
   private readonly abort = new AbortController();
   private readonly clientId = randomBytes(8).toString('hex');
   private readonly following = new Map<string, Promise<void>>();
+  private readonly resync = new Set<string>();
   private release?: () => void;
   private lister?: Promise<void>;
   private flushTimer?: NodeJS.Timeout;
@@ -100,6 +101,9 @@ export class Standby {
     const theirs = readdirSync(this.opts.folder).filter((f) => f.endsWith(STORE_EXT) && !(f.slice(0, -STORE_EXT.length) in this.state.files));
     if (theirs.length && !this.opts.overwrite) {
       throw new Error(`${this.opts.folder} already has files this standby didn't copy (${theirs.join(', ')}): use an empty folder, or --overwrite to replace them`);
+    }
+    if (!this.opts.overwrite) {
+      for (const name of Object.keys(this.state.files)) this.assertCopyAllowed(name);
     }
     this.release = claimFolder(this.opts.folder);
     this.save();
@@ -207,6 +211,14 @@ export class Standby {
     return s.size === f.size && s.mtimeMs === f.mtimeMs && !existsSync(this.path(name) + '-wal');
   }
 
+  /** Check again after network I/O, before a copy can replace local bytes or sidecars. */
+  private assertCopyAllowed(name: string): void {
+    if (this.opts.overwrite) return;
+    const target = this.path(name);
+    if (!existsSync(target) && !this.state.files[name] && !existsSync(target + '-wal') && !existsSync(target + '-shm')) return;
+    if (!this.untouched(name)) throw new Error(`${name} changed here since it was last updated: use --overwrite to replace it`);
+  }
+
   private mark(name: string, f: StandbyFile): void {
     const s = statSync(this.path(name));
     this.state.files[name] = { ...f, size: s.size, mtimeMs: s.mtimeMs };
@@ -217,8 +229,8 @@ export class Standby {
     let delay = 1000;
     while (!this.abort.signal.aborted) {
       try {
-        if (!this.untouched(name)) {
-          if (this.state.files[name]) this.log(`${name} changed here since it was last updated: copying it again`);
+        this.assertCopyAllowed(name);
+        if (this.resync.has(name) || !this.untouched(name)) {
           await this.copy(name);
         }
         await this.catchUp(name);
@@ -237,6 +249,7 @@ export class Standby {
   }
 
   private async copy(name: string): Promise<void> {
+    this.assertCopyAllowed(name);
     const res = await this.get(`/tabularius/replication/v1/files/${encodeURIComponent(name)}/copy`, 3600);
     if (!res.ok || !res.body) throw new Error(`copying it: the main server answered ${res.status}`);
     // Each position must be present and plain digits: a missing or blank one would read as zero, and "0x10" or "1e3" as other numbers.
@@ -260,6 +273,7 @@ export class Standby {
       } finally {
         db.close();
       }
+      this.assertCopyAllowed(name);
       for (const x of ['-wal', '-shm']) rmSync(partial + x, { force: true });
       for (const x of ['-wal', '-shm']) rmSync(target + x, { force: true });
       // Noted before the file appears, and saved now rather than in a moment: a crash between the two must not leave a
@@ -273,6 +287,7 @@ export class Standby {
       throw e;
     }
     this.mark(name, { run, seq, wholeAfter, size: 0, mtimeMs: 0, at: Date.now() });
+    this.resync.delete(name);
     this.log(`copied ${name}`);
   }
 
@@ -285,7 +300,8 @@ export class Standby {
       if (res.status === 409 || res.status === 410) {
         // The main server restarted, or this fell too far behind: start again from a fresh copy.
         this.log(`${name}: ${((await res.json()) as { error: string }).error}`);
-        this.state.files[name] = { ...f, size: -1 };
+        this.assertCopyAllowed(name);
+        this.resync.add(name);
         return;
       }
       if (!res.ok) throw new Error(`the main server answered ${res.status}`);
