@@ -38,3 +38,25 @@ test('AR-store-core-03: cycles fail clearly and stay bounded', () => {
   assert.equal(child.error, undefined, String(child.error));
   assert.equal(child.status, 0, child.stderr);
 });
+
+test('AR-store-core-03: an auto-enter calculation that names its own field is not a cycle', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'tabularius-recalc-self-'));
+  try {
+    const path = join(dir, 'S.sqlite');
+    createStore(path);
+    const store = new Store(path, 'S');
+    try {
+      store.applyDesign([{ op: 'createTable', name: 'T', fields: [
+        { name: 'Status', type: 'text', calculation: 'If ( IsEmpty ( Status ) ; "new" ; Status ) & N', options: { autoEnter: { calculation: true } } },
+        { name: 'Tag', type: 'text', calculation: 'Tag & "x" & N', options: { autoEnter: { calculation: true, replaceExisting: true } } },
+        { name: 'Shown', type: 'text', kind: 'calculation', calculation: 'Status & "/" & Tag' },
+        { name: 'N', type: 'number' },
+      ] }] as never);
+      const id = store.create('T', { N: '1' }).recordId;
+      const data = () => store.get('T', id).fieldData;
+      assert.deepEqual([data().Status, data().Tag, data().Shown], ['new1', 'x1', 'new1/x1']);
+      store.update('T', id, { N: '3' });
+      assert.deepEqual([data().Status, data().Tag, data().Shown], ['new1', 'x1x3', 'new1/x1x3']);
+    } finally { store.close(); }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
