@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readJsonStateSync, syncPath, type DurableFs, updateJsonStateSync, writeDurable, writeJsonStateSync, writeStateFileSync, withStateLock } from '../src/durable.ts';
 import { createRequire, syncBuiltinESMExports } from 'node:module';
 import { spawn } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -290,4 +290,21 @@ test('a directory sync error is reported but does not fail an already replaced s
     syncBuiltinESMExports();
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('sensitive state that is not JSON reports a file name with no path, no parse text and no contents, and keeps a private recovery copy', { skip: process.platform === 'win32' ? 'file modes' : false }, () => {
+  const dir = mkdtempSync(join(tmpdir(), 'tabularius-sensitive-'));
+  try {
+    const file = join(dir, 'secrets.json');
+    writeFileSync(file, '{"K": "synthetic-secret-value"', { mode: 0o600 });
+    for (let read = 0; read < 2; read++) {
+      assert.throws(() => readJsonStateSync(file, { sensitive: true }), (e: Error) => {
+        const shown = `${e.message} ${(e.cause as Error | undefined)?.message ?? ''}`;
+        return e.message === 'secrets.json could not be read: not valid JSON' && !shown.includes(dir) && !shown.includes('synthetic-secret-value') && !/position|Unexpected|token/i.test(shown);
+      }, `read ${read + 1}`);
+    }
+    const copies = readdirSync(dir).filter((name) => name.startsWith('secrets.json.damaged-'));
+    assert.equal(copies.length, 1, 'one recovery copy for this content, however often it is read');
+    assert.equal(statSync(join(dir, copies[0])).mode & 0o077, 0, 'the recovery copy is private to its owner');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });

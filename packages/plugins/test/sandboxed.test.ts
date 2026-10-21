@@ -295,7 +295,7 @@ test('a plug-in reads and writes files through the host, only in the folders its
 
 test('a plug-in\'s web requests and mail are recorded in outbound test mode, only for the hosts it asks for', () => {
   const d = plugin('web', {
-    id: 'org.example.web', permissions: { network: ['api.example.com', '*.example.net'], mail: true },
+    id: 'org.example.web', permissions: { network: ['api.example.com', '*.example.net'], mail: true, files: ['documents:read'] },
     functions: [{ name: 'Web_Post', min: 2, max: 2 }, { name: 'Web_Mail', min: 1, max: 1 }],
   }, `const functions = {
     Web_Post: (url, body) => { const r = tabularius.http.request({ method: 'post', url, body }); return r.status + ':' + r.recorded; },
