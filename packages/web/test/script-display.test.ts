@@ -28,6 +28,8 @@ function display(result: Record<string, unknown>, globals: Record<string, unknow
     api: { button: async () => result, continueRun: async () => ({ actions: [] }), answerSort: async () => ({ actions: [] }), answerDialog: async () => ({ actions: [] }) },
     renderToolbar: () => s.pausedRun?.(true), renderKeepingTyping: () => undefined,
     ensureActionDisplay: async () => undefined,
+    // The address bar and tab title are not under test here (see url-state.test.ts); the double has no location or history.
+    writeScreenUrl: () => undefined,
   });
   Object.defineProperty(s, 'record', { value: { recordId: '1' } });
   return s;
@@ -1479,4 +1481,11 @@ for (const target of ['outer', 'inner', 'outside', 'inner opener', 'outer opener
     assert.deepEqual(collapsed, [962]);
     assert.equal(s.popover, outer, 'toggling the child closed retains its parent');
   }
+});
+
+test('the window name scripts select by does not follow the tab title', () => {
+  const s = display({}, { document: { activeElement: null, title: 'A - Notes - Record 1' } });
+  s.windowName = 'A';
+  const frontWindow = Object.getPrototypeOf(s).frontWindow as () => { name: string };
+  assert.equal(frontWindow.call(s).name, 'A');
 });
