@@ -127,10 +127,17 @@ test('with no policy of its own a file takes the server\'s default minimum; its 
     assert.throws(() => store.createAccount('Clerk', 'short', '[Data Entry Only]'), (e) => e instanceof StoreError && e.code === 960);
     store.setPassword('Admin', 'twelve-chars');
     assert.equal(store.verify('Admin', 'twelve-chars'), true);
-    // A blank password still means "no password" (an account that works from this computer only).
-    store.setPassword('Admin', '');
+    // A blank password, spaces around a short one, and one made of several-unit characters are no way round the minimum:
+    // a password set here works from any address.
+    for (const weak of ['', ' '.repeat(12), `a${' '.repeat(11)}`, '😀'.repeat(6)]) {
+      assert.throws(() => store.setPassword('Admin', weak), (e) => e instanceof StoreError && e.code === 960, JSON.stringify(weak));
+    }
+    store.setPassword('Admin', '😀'.repeat(12));
+    assert.equal(store.verify('Admin', '😀'.repeat(12), '203.0.113.9'), true);
+    store.setPassword('Admin', 'twelve-chars');
     // The existing password of an account is not touched by a stricter default; only a new one is held to it.
     assert.equal(store.passwordPolicy().minLength, undefined);
+    assert.throws(() => store.setPasswordPolicy({ minLength: 5000 }), (e) => e instanceof StoreError && e.code === 960);
 
     // The file's own minimum wins over the default, whichever way it points.
     store.setPasswordPolicy({ minLength: 0 });

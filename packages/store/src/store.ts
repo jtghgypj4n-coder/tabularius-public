@@ -2931,10 +2931,7 @@ export class Store {
   setPassword(account: string, password: string, privilegeSet?: string, opts: { mustChange?: boolean } = {}): void {
     return this.securityChange(() => {
       account = this.canonicalAccount(account) ?? account;
-      const min = this.minPasswordLength();
-      if (min && password.length > 0 && password.length < min) {
-        throw new StoreError(960, `Password must be at least ${min} characters`);
-      }
+      this.checkPasswordLength(password);
       // Checked before anything is written, so a mistyped set name neither adds an
       // account with no privilege set nor changes an existing account's password.
       if (privilegeSet !== undefined && !this.privilegeSet(privilegeSet)) throw new StoreError(960, `No privilege set "${privilegeSet}"`);
@@ -2964,8 +2961,7 @@ export class Store {
   createAccount(account: string, password: string, privilegeSet: string, opts: { inactive?: boolean; mustChange?: boolean } = {}): void {
     return this.securityChange(() => {
       account = this.canonicalAccount(account) ?? account;
-      const min = this.minPasswordLength();
-      if (min && password.length > 0 && password.length < min) throw new StoreError(960, `Password must be at least ${min} characters`);
+      this.checkPasswordLength(password);
       const set = this.privilegeSet(privilegeSet);
       if (!set) throw new StoreError(960, `No privilege set "${privilegeSet}"`);
       if (isFullAccess(set)) throw new StoreError(960, 'A new account cannot be assigned Full Access');
@@ -3015,7 +3011,17 @@ export class Store {
    */
   minPasswordLength(): number {
     const own = this.passwordPolicy().minLength;
-    return own === undefined ? defaultMinPasswordLength() : own;
+    return typeof own === 'number' ? own : defaultMinPasswordLength();
+  }
+
+  /**
+   * Refuses a new password shorter than the minimum, counting characters (not UTF-16 units) and not the spaces at either end.
+   * With a minimum in force an empty password is refused too: one set here works from any address, unlike the empty password
+   * a converted file's account keeps, which only works from this computer.
+   */
+  private checkPasswordLength(password: string): void {
+    const min = this.minPasswordLength();
+    if (min && [...password.trim()].length < min) throw new StoreError(960, `Password must be at least ${min} characters (spaces at either end don't count)`);
   }
 
   /** Sets the file's password policy. A 0 minLength is kept (no minimum, on purpose); a missing one leaves the server's default; a 0 or missing maxAgeDays means no expiry. */
@@ -3026,6 +3032,7 @@ export class Store {
         const v = policy[key];
         if (v === undefined || v === null) continue;
         if (!Number.isInteger(v) || v < 0) throw new StoreError(960, `${key} must be a whole number${key === 'minLength' ? ' of characters' : ' of days'}, or 0 for none`);
+        if (key === 'minLength' && v > 1000) throw new StoreError(960, 'minLength must be 1000 characters or fewer, or 0 for none');
         if (v > 0 || key === 'minLength') clean[key] = v;
       }
       this.sql.prepare(`INSERT INTO _fm_meta VALUES ('passwordPolicy', ?) ON CONFLICT(key) DO UPDATE SET json = excluded.json`).run(JSON.stringify(clean));

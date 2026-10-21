@@ -299,7 +299,7 @@ function queryInteger(p: URLSearchParams, name: string, max: number, min = 1): n
 /** Why a password may not be the admin console's (shorter than the minimum for new passwords), or undefined. */
 export function adminPasswordProblem(password: string): string | undefined {
   const min = defaultMinPasswordLength();
-  return password.length < min ? `the admin console password needs at least ${min} characters (TABULARIUS_MIN_PASSWORD_LENGTH sets another minimum)` : undefined;
+  return min && [...password.trim()].length < min ? `the admin console password needs at least ${min} characters, not counting spaces at either end (TABULARIUS_MIN_PASSWORD_LENGTH sets another minimum)` : undefined;
 }
 
 /** Sets the admin console password for a hosted folder. */

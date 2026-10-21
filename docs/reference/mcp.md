@@ -5404,6 +5404,7 @@ Result:
     }
   ],
   "passwordPolicy": {},
+  "minPasswordLength": 12,
   "apiTokens": []
 }
 ```
@@ -6037,6 +6038,7 @@ Result:
     }
   ],
   "passwordPolicy": {},
+  "minPasswordLength": 12,
   "apiTokens": []
 }
 ```
