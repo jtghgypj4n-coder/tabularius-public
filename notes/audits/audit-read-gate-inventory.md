@@ -874,7 +874,7 @@ The following reasons apply to the exact enumerated expressions in each named fu
 | [packages/store/src/sync-apply.ts:484](../../packages/store/src/sync-apply.ts#L484) `applySyncRun/fail` | `SQLite.get` (484); `SQLite.prepare` (484); `Store.sql` (484) | OPERATOR |
 | [packages/store/src/sync-apply.ts:577](../../packages/store/src/sync-apply.ts#L577) `applySyncRun/pullWouldChange` | `Store.container` (577, 581) | OPERATOR |
 | [packages/store/src/sync-apply.ts:673](../../packages/store/src/sync-apply.ts#L673) `applySyncRun/containerChanges` | `Store.container` (673) | OPERATOR |
-| [packages/store/src/sync-apply.ts:817](../../packages/store/src/sync-apply.ts#L817) `applySyncRun/filesToSend` | `SQLite.all` (817); `SQLite.prepare` (817); `Store.sql` (817); `Store.containerInfo` (826); `Store.container` (831) | OPERATOR |
+| [packages/store/src/sync-apply.ts:821](../../packages/store/src/sync-apply.ts#L821) `applySyncRun/filesToSend` | `SQLite.all` (821); `SQLite.prepare` (821); `Store.sql` (821); `Store.containerInfo` (830); `Store.container` (835) | OPERATOR |
 | [packages/store/src/sync.ts:45](../../packages/store/src/sync.ts#L45) `openForPlanning` | `SQLite.get` (45); `SQLite.prepare` (45) | OPERATOR |
 | [packages/store/src/sync.ts:188](../../packages/store/src/sync.ts#L188) `tableExists` | `SQLite.get` (188); `SQLite.prepare` (188); `Store.sql` (188) | OPERATOR |
 | [packages/store/src/sync.ts:198](../../packages/store/src/sync.ts#L198) `ensureSyncTables` | `Store.sql` (198, 212, 222, 230) | OPERATOR |

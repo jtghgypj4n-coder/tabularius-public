@@ -809,6 +809,10 @@ async function applySyncRun(store: SyncLocal & Partial<Pick<Store, 'present' | '
     // The local container files a record being sent needs sent too: the ones FileMaker lacks or holds differently
     // (compared by fetching its file, for a record that exists there). A file that can't be sent is listed, not an error.
     const maxFile = opts.containers?.maxBytes ?? 0;
+    // Whether a retried record leaves behind a file FileMaker holds that was neither found the same nor replaced by ours: its
+    // version is then not the baseline, so that a pull brings the file (the uploads of this run move FileMaker's modId too).
+    const leftDifferent = (uuid: string, rem: RemoteRecord, work: { agreed: string[] }, uploaded: string[]): boolean =>
+      [...(owedBy.get(uuid) ?? [])].some((f) => !work.agreed.includes(f) && !uploaded.includes(f) && (rem.fields[f] ?? '') !== '');
     const filesToSend = async (local: LocalRecord, rem: RemoteRecord | undefined): Promise<{ files: { field: string; file: RemoteFile }[]; satisfied: string[]; agreed: string[] }> => {
       const out: { field: string; file: RemoteFile }[] = [];
       const satisfied: string[] = [];
@@ -859,9 +863,10 @@ async function applySyncRun(store: SyncLocal & Partial<Pick<Store, 'present' | '
     // Sends the files to a record on FileMaker. A refused file is listed and the rest go on; anything that isn't one
     // file's problem (the account, the network, a changed review) comes back as `fatal` for the caller to raise after
     // it has recorded the record.
-    const sendFilesTo = async (uuid: string, layout: string, recordId: string, files: { field: string; file: RemoteFile }[], beforeSend: () => void): Promise<{ modId?: string; fatal?: unknown; completed: string[] }> => {
+    const sendFilesTo = async (uuid: string, layout: string, recordId: string, files: { field: string; file: RemoteFile }[], beforeSend: () => void): Promise<{ modId?: string; fatal?: unknown; completed: string[]; uploaded: string[] }> => {
       let modId: string | undefined;
       const completed: string[] = [];
+      const uploaded: string[] = [];
       for (const f of files) {
         try {
           const up = await w.uploadContainer!(layout, recordId, f.field, f.file, beforeSend);
@@ -870,6 +875,7 @@ async function applySyncRun(store: SyncLocal & Partial<Pick<Store, 'present' | '
           modId = up.modId;
           t.containers.sent++;
           completed.push(f.field);
+          uploaded.push(f.field);
         } catch (e) {
           assertWritable();
           if (e instanceof SyncWriteError && e.recordLevel && e.code !== 'stale-review') {
@@ -878,10 +884,10 @@ async function applySyncRun(store: SyncLocal & Partial<Pick<Store, 'present' | '
             if (e.code === '301') t.failed.push({ uuid, op: 'container', error: `${f.field}: ${e.message} (it is tried again by the next run)` });
             else completed.push(f.field);
           }
-          else return { modId, fatal: e, completed };
+          else return { modId, fatal: e, completed, uploaded };
         }
       }
-      return { modId, completed };
+      return { modId, completed, uploaded };
     };
     const order = { create: 0, update: 1, delete: 2 };
     for (const item of progressItems([...d.plan.pushes].sort((a, b) => order[a.op] - order[b.op] || (a.uuid < b.uuid ? -1 : 1)))) {
@@ -964,7 +970,7 @@ async function applySyncRun(store: SyncLocal & Partial<Pick<Store, 'present' | '
             upsertMap(store, key, { uuid: item.uuid, localRecordId: local.recordId, lastLocalModId: local.modId, remoteRecordId: made.recordId, lastRemoteModId: back!.modId, lastRemoteModTs: back!.modTimestamp ?? null });
           });
           // The files go to the record just made. Whatever happens to them, the record is recorded.
-          const sent = files.length ? await sendFilesTo(item.uuid, layout, made.recordId, files, beforeSend) : { completed: [] as string[] };
+          const sent = files.length ? await sendFilesTo(item.uuid, layout, made.recordId, files, beforeSend) : { completed: [] as string[], uploaded: [] as string[] };
           const finalMod = sent.modId ?? back.modId;
           atomically(store, () => {
             clearContainersPending(store, key, item.uuid, [...fileWork.satisfied, ...sent.completed]);
@@ -987,7 +993,7 @@ async function applySyncRun(store: SyncLocal & Partial<Pick<Store, 'present' | '
             // Nothing is left to send for it: no request, no log row, and what can no longer be sent is forgotten. When every file
             // owed was found the same on FileMaker, FileMaker's version (moved by the upload that did land) is the baseline now; when
             // one was forgotten unsent (too big, missing here), FileMaker's record is left as a change for a pull to bring.
-            const agreedAll = [...(owedBy.get(item.uuid) ?? [])].every((f) => fileWork.agreed.includes(f));
+            const agreedAll = !leftDifferent(item.uuid, rem, fileWork, []);
             atomically(store, () => {
               clearContainersPending(store, key, item.uuid, fileWork.satisfied);
               if (agreedAll) upsertMap(store, key, { uuid: item.uuid, localRecordId: local.recordId, lastLocalModId: local.modId, remoteRecordId: rem.recordId, lastRemoteModId: rem.modId, lastRemoteModTs: rem.modTimestamp ?? null });
@@ -1026,11 +1032,13 @@ async function applySyncRun(store: SyncLocal & Partial<Pick<Store, 'present' | '
           atomically(store, () => {
             upsertMap(store, key, { uuid: item.uuid, localRecordId: local.recordId, lastLocalModId: local.modId, remoteRecordId: rem.recordId, lastRemoteModId: modId, lastRemoteModTs: null });
           });
-          const sent = files.length ? await sendFilesTo(item.uuid, layout, rem.recordId, files, beforeSend) : { completed: [] as string[] };
+          const sent = files.length ? await sendFilesTo(item.uuid, layout, rem.recordId, files, beforeSend) : { completed: [] as string[], uploaded: [] as string[] };
           modId = sent.modId ?? modId;
+          // A retried record keeps the version it was read at when a file owed was left unsent and FileMaker's differs.
+          const baseline = retryOnly.has(item.uuid) && leftDifferent(item.uuid, rem, fileWork, sent.uploaded) ? rem.modId : modId;
           atomically(store, () => {
             clearContainersPending(store, key, item.uuid, [...fileWork.satisfied, ...sent.completed]);
-            upsertMap(store, key, { uuid: item.uuid, localRecordId: local.recordId, lastLocalModId: local.modId, remoteRecordId: rem.recordId, lastRemoteModId: modId, lastRemoteModTs: null });
+            upsertMap(store, key, { uuid: item.uuid, localRecordId: local.recordId, lastLocalModId: local.modId, remoteRecordId: rem.recordId, lastRemoteModId: baseline, lastRemoteModTs: null });
             finishRow(store, rowId, 'ok', { after: modId });
             crashPoint('sync-push:after-map');
           });
