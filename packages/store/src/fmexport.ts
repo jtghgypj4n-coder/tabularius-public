@@ -57,28 +57,31 @@ export interface ExportRow {
  * side-effect-free so it is unit-testable without a Store.
  */
 export function fmpXmlResult(databaseName: string, fields: ExportField[], rows: ExportRow[]): string {
+  return fmpXmlHeader(databaseName, fields, rows.length) + rows.map(fmpXmlRow).join('') + fmpXmlFooter();
+}
+
+/** Pieces of FMPXMLRESULT for exports that cannot retain every record in memory. */
+export function fmpXmlHeader(databaseName: string, fields: ExportField[], count: number): string {
   const meta = fields
     .map((f) => `<FIELD EMPTYOK="YES" MAXREPEAT="${Math.max(1, f.maxRepeat ?? 1)}" NAME="${esc(f.name)}" TYPE="${FIELD_TYPE[f.type]}"/>`)
-    .join('');
-  const rowsXml = rows
-    .map((r) => {
-      const cols = r.cells
-        .map((cell) => `<COL>${(cell.length ? cell : ['']).map((v) => `<DATA>${esc(v)}</DATA>`).join('')}</COL>`)
-        .join('');
-      return `<ROW MODID="${r.modId}" RECORDID="${r.recordId}">${cols}</ROW>`;
-    })
     .join('');
   return (
     `<?xml version="1.0" encoding="UTF-8"?>` +
     `<FMPXMLRESULT xmlns="http://www.filemaker.com/fmpxmlresult">` +
     `<ERRORCODE>0</ERRORCODE>` +
     `<PRODUCT BUILD="" NAME="tabularius" VERSION=""/>` +
-    `<DATABASE DATEFORMAT="yyyy-MM-dd" LAYOUT="" NAME="${esc(databaseName)}" RECORDS="${rows.length}" TIMEFORMAT="HH:mm:ss"/>` +
+    `<DATABASE DATEFORMAT="yyyy-MM-dd" LAYOUT="" NAME="${esc(databaseName)}" RECORDS="${count}" TIMEFORMAT="HH:mm:ss"/>` +
     `<METADATA>${meta}</METADATA>` +
-    `<RESULTSET FOUND="${rows.length}">${rowsXml}</RESULTSET>` +
-    `</FMPXMLRESULT>`
+    `<RESULTSET FOUND="${count}">`
   );
 }
+
+export function fmpXmlRow(r: ExportRow): string {
+  const cols = r.cells.map((cell) => `<COL>${(cell.length ? cell : ['']).map((v) => `<DATA>${esc(v)}</DATA>`).join('')}</COL>`).join('');
+  return `<ROW MODID="${r.modId}" RECORDID="${r.recordId}">${cols}</ROW>`;
+}
+
+export function fmpXmlFooter(): string { return '</RESULTSET></FMPXMLRESULT>'; }
 
 /** One field of an FMPDSORESULT export: its name as the layout shows it, and whether it exports a DATA per repetition. */
 export interface DsoField {

@@ -1987,7 +1987,8 @@ Source: `packages/server/src/webclient.ts`
 | POST | [`/tabularius/app/v1/databases/{database}/layouts/{layout}/undo-import`](#web-client-post-tabularius-app-v1-databases-database-layouts-layout-undo-import) | Takes back an import made with `columns`: deletes the records it added and puts back what it overwrote, leaving records changed since. |
 | POST | [`/tabularius/app/v1/databases/{database}/layouts/{layout}/ai-replace`](#web-client-post-tabularius-app-v1-databases-database-layouts-layout-ai-replace) | Replace Field Contents with AI: the field gets, in each record of the found set, what the assistant writes from an instruction and that record's visible values; journaled so it can be undone. |
 | POST | [`/tabularius/app/v1/databases/{database}/runs/{id}/file`](#web-client-post-tabularius-app-v1-databases-database-runs-id-file) | Answers a button script that is waiting: a file for Insert File, Continue/Cancel for Pause, a button for Show Custom Dialog, an order for Sort Records, what Insert from Device captured, or the device's location; returns the rest of the run. |
-| POST | [`/tabularius/app/v1/databases/{database}/runs/stop`](#web-client-post-tabularius-app-v1-databases-database-runs-stop) | Stops the scripts this session is running in the file, as Esc does in FileMaker: each halts at its next step, or at once in a timed pause. |
+| POST | [`/tabularius/app/v1/databases/{database}/runs/stop`](#web-client-post-tabularius-app-v1-databases-database-runs-stop) | Asks this session's running scripts, imports, and streamed exports to stop. |
+| GET | [`/tabularius/app/v1/databases/{database}/runs/progress`](#web-client-get-tabularius-app-v1-databases-database-runs-progress) | Counts for this session's active bulk operations. |
 | GET | [`/tabularius/app/v1/databases/{database}/prefs`](#web-client-get-tabularius-app-v1-databases-database-prefs) | The signed-in account's own saved finds, saved sorts and recent records in this file. |
 | PUT | [`/tabularius/app/v1/databases/{database}/prefs/{key}`](#web-client-put-tabularius-app-v1-databases-database-prefs-key) | Keeps one of the account's saved finds, saved sorts or recent records, replacing it; a null or missing value clears it. |
 
@@ -3316,7 +3317,7 @@ A Pause is continued by {} (or an empty body). A Device wait is answered with te
 
 ### `POST /tabularius/app/v1/databases/{database}/runs/stop`
 
-Stops the scripts this session is running in the file, as Esc does in FileMaker: each halts at its next step, or at once in a timed pause.
+Asks this session's running scripts, imports, and streamed exports to stop.
 
 **Permissions:** Any session of the file (Data API session token or ohbt_ API token); it reaches only the scripts that same session started.
 
@@ -3345,7 +3346,45 @@ Response `200`:
 }
 ```
 
-stopped counts the runs asked to stop (0 when none is running). A script that has Allow User Abort off ignores the ask (one made after it turns it back on counts), as does one waiting on the person (a dialog, Pause, Insert File), which their Cancel through …/runs/{id}/file stops instead. The stopped run's own …/button (or …/file) request answers as usual, with a Halt Script action whose reason is "canceled by the user". Only POST is answered (405 code 3).
+Scripts honor Allow User Abort; imports keep their completed records, and a stopped streamed export can leave a partial download. stopped counts the runs asked to stop (0 when none is running). A script that has Allow User Abort off ignores the ask (one made after it turns it back on counts), as does one waiting on the person (a dialog, Pause, Insert File), which their Cancel through …/runs/{id}/file stops instead. The stopped run's own …/button (or …/file) request answers as usual, with a Halt Script action whose reason is "canceled by the user". Only POST is answered (405 code 3).
+
+<a id="web-client-get-tabularius-app-v1-databases-database-runs-progress"></a>
+
+### `GET /tabularius/app/v1/databases/{database}/runs/progress`
+
+Counts for this session's active bulk operations.
+
+**Permissions:** Any session of the file (Data API session token or ohbt_ API token); it sees only the operations that same session started.
+
+**Parameters:**
+
+| Name | In | Type | Required | Description |
+| --- | --- | --- | --- | --- |
+| `database` | path | string | yes | Hosted file name |
+| `Authorization` | header | string | yes | Bearer {token}: a Data API session token or an ohbt_ API token (X-FM-Data-Access-Token also works) |
+
+**Example:**
+
+```http
+GET /tabularius/app/v1/databases/Invoices/runs/progress
+Authorization: Bearer 2f1c…
+```
+
+Response `200`:
+
+```json
+{
+  "runs": [
+    {
+      "operation": "Import Records",
+      "completed": 500,
+      "total": 0
+    }
+  ]
+}
+```
+
+Returns only this authenticated session's active operations. Each entry has operation, completed, and total counts; total is 0 when the source iterator has no known length. An empty runs array means this session has no active operation. The response is private and has Cache-Control: no-store.
 
 <a id="web-client-get-tabularius-app-v1-databases-database-prefs"></a>
 

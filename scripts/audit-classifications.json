@@ -387,6 +387,7 @@
   "route POST /tabularius/app/v1/databases/{database}/layouts/{layout}/ai-replace": "record-partial",
   "route POST /tabularius/app/v1/databases/{database}/runs/{id}/file": "record-partial",
   "route POST /tabularius/app/v1/databases/{database}/runs/stop": "record-partial",
+  "route GET /tabularius/app/v1/databases/{database}/runs/progress": "record-partial",
   "route GET /tabularius/app/v1/databases/{database}/prefs": "record-partial",
   "route PUT /tabularius/app/v1/databases/{database}/prefs/{key}": "record-partial",
   "route GET /tabularius/live/v1/databases/{database}/events": "record-partial",

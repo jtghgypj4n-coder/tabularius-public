@@ -46,7 +46,7 @@ import { applyXslt, XsltError } from '../../calc/src/xslt.ts';
 import { stepLocates } from './location-use.ts';
 import { localeElements } from './locale.ts';
 import { denialOf, retainDenial, explainAccessDenial, type AccessDenial } from '../../store/src/access-denial.ts';
-import { Privileges, PrivilegeError, StoreError, designReport, isFullAccess, dataSourceFile, endTransaction, type Transaction, summarize, serialNext, type FieldData, type FindRequest, type LayoutInfo, type SessionGlobals, type SortSpec, type Store, writer, lintScript, tableDDL, schemaVisibility, fmpXmlResult, fmpDsoResult, dsoElementName, type ExportField, type ExportRow, customFunctionDef, occurrence as occurrenceOf, rowsById, relatedCondition, designFunction, NO_FILE_ARGUMENT, containerValue, errorMeaning } from '../../store/src/index.ts';
+import { Privileges, PrivilegeError, StoreError, designReport, isFullAccess, dataSourceFile, endTransaction, type Transaction, summarize, serialNext, type FieldData, type FindRequest, type LayoutInfo, type SessionGlobals, type SortSpec, type Store, writer, lintScript, tableDDL, schemaVisibility, fmpXmlResult, fmpXmlHeader, fmpXmlRow, fmpXmlFooter, fmpDsoResult, dsoElementName, type ExportField, type ExportRow, customFunctionDef, occurrence as occurrenceOf, rowsById, relatedCondition, designFunction, NO_FILE_ARGUMENT, containerValue, errorMeaning } from '../../store/src/index.ts';
 import type { SqlValue } from '../../store/src/find.ts';
 import { valueListOrder } from '../../store/src/value-list-sort.ts';
 import { recordSortKey, recordSortLanguage } from '../../calc/src/collation.ts';
@@ -325,6 +325,8 @@ export interface ClientCheckpoint {
 }
 
 export interface RunOptions {
+  /** Aggregate work completed by a long record operation; contains no record values. */
+  onProgress?: (event: { operation: string; completed: number; total: number }) => void;
   /** @internal Explicit test-only permission to inject a custom fetch transport. */
   [TEST_ONLY_CUSTOM_FETCH]?: true;
   /** Apply ordered screen actions at their script point, then acknowledge automatically. No commit or focus change. */
@@ -3213,6 +3215,24 @@ export class ScriptEngine {
   }
 
   /** Sorts record ids; a related field (TO::field) sorts by the first related record's value. */
+  private async sortIdsCooperative(win: Window, info: LayoutInfo, ids: number[], sort: SortSpec[], f: Frame): Promise<number[]> {
+    const pv = this.privileges?.in(info.owner);
+    const complex = sort.some((x) => x.fieldName.includes('::') || (!!pv && pv.field(info.table, x.fieldName.replace(/\(\d+\)$/, '')) === 'none'));
+    if (complex) return this.sortIds(win, info, ids, sort, f);
+    this.opts.beforeFile?.(info.owner);
+    const work = info.owner.sortIdsProgress(info, ids, sort, {
+      privileges: this.privileges, valueLists: { store: win.store, recordId: this.currentId(win) },
+    });
+    try {
+      for (let step = work.next();; step = work.next()) {
+        if (step.done) return step.value;
+        this.bulkProgress('Sort Records', step.value, ids.length);
+        await this.checkpoint(f);
+      }
+    } finally { work.return([]); }
+  }
+
+  /** Sorts record ids; a related field (TO::field) sorts by the first related record's value. */
   private sortIds(win: Window, info: LayoutInfo, ids: number[], sort: SortSpec[], f?: Frame): number[] {
     this.opts.beforeFile?.(info.owner);
     // The store sorts on the stored values, so a field the account can't read (hidden or masked) is sorted here, where it reads as empty.
@@ -4069,7 +4089,10 @@ export class ScriptEngine {
         if (!sort?.length) return undefined;
         const fs = this.foundSet(win);
         const id = fs.ids[fs.index];
-        fs.ids = this.sortIds(win, info, fs.ids, sort, f);
+        this.bulkProgress('Sort Records', 0, fs.ids.length);
+        await this.checkpoint(f);
+        fs.ids = await this.sortIdsCooperative(win, info, fs.ids, sort, f);
+        this.bulkProgress('Sort Records', fs.ids.length, fs.ids.length);
         fs.semi = undefined;
         fs.sort = sort;
         this.lastSorts.set(key, sort);
@@ -4086,8 +4109,9 @@ export class ScriptEngine {
         const fs = this.foundSet(win);
         const n = s.stepId === 26 ? Math.max(1, Math.trunc(asNumber(calc(p.calculation ?? '1')))) : 1;
         if (!fs.ids.length) throw new ScriptError(ERROR.recordMissing, 'No record to omit');
-        fs.ids.splice(fs.index, n);
+        const omitted = fs.ids.splice(fs.index, n).length;
         fs.index = Math.min(fs.index, Math.max(0, fs.ids.length - 1));
+        this.bulkProgress('Omit Multiple', omitted, omitted);
         return undefined;
       }
       case 27: { // Show Omitted Only
@@ -4483,7 +4507,7 @@ export class ScriptEngine {
         win.requestIndex = win.requests.length - 1;
         return undefined;
       case 128: // Perform Find/Replace
-        this.findReplace(f, p);
+        await this.findReplace(f, p);
         return undefined;
       case 155: // Find Matching Records
         this.findMatching(f, p);
@@ -5171,6 +5195,12 @@ export class ScriptEngine {
     if ((this.checkpoints++ & 255) === 0) await new Promise<void>((resolve) => setImmediate(resolve));
     this.canceled(f.script.name);
     this.poll(f);
+  }
+
+  private bulkProgress(operation: string, completed: number, total: number): void {
+    if (completed === 0 || completed === total || (completed & 255) === 0) {
+      this.opts.onProgress?.({ operation, completed, total });
+    }
   }
 
   private poll(f: Frame): void {
@@ -6270,6 +6300,7 @@ export class ScriptEngine {
       if (asks.length) throw new NeedEmbedding(asks);
     }
     try {
+      this.bulkProgress('Replace Field Contents', 0, fs.ids.length);
       for (let i = 0; i < fs.ids.length; i++) {
         fs.index = i;
         await this.checkpoint(f);
@@ -6286,6 +6317,7 @@ export class ScriptEngine {
         }
         this.setField(f, set, v);
         this.commit(win);
+        this.bulkProgress('Replace Field Contents', i + 1, fs.ids.length);
       }
     } finally {
       fs.index = keep;
@@ -6338,7 +6370,7 @@ export class ScriptEngine {
    * searches that field (as Claris's Go to Field example does), otherwise all
    * fields. No match isn't an error, as in FileMaker.
    */
-  private findReplace(f: Frame, p: StepParams): void {
+  private async findReplace(f: Frame, p: StepParams): Promise<void> {
     const win = this.current;
     const o = p.findReplace;
     if (!o) throw new ScriptError(ERROR.unavailable, 'Perform Find/Replace names nothing to find');
@@ -6437,11 +6469,12 @@ export class ScriptEngine {
     // Replace All.
     this.commit(win);
     const keep = fs.index;
-    const indexes = o.currentRecord ? [keep] : fs.ids.map((_, i) => i);
+    const total = o.currentRecord ? 1 : fs.ids.length;
     try {
-      for (const i of indexes) {
-        fs.index = i;
-        this.poll(f);
+      this.bulkProgress('Replace All', 0, total);
+      for (let i = 0; i < total; i++) {
+        fs.index = o.currentRecord ? keep : i;
+        await this.checkpoint(f);
         this.readCache.clear();
         let changed = false;
         for (const x of editable) {
@@ -6453,6 +6486,7 @@ export class ScriptEngine {
           }
         }
         if (changed) this.commit(win);
+        this.bulkProgress('Replace All', i + 1, total);
       }
     } finally {
       fs.index = keep;
@@ -7219,17 +7253,20 @@ export class ScriptEngine {
       });
       const fs = this.foundSet(win);
       const index = fs.index;
+      this.bulkProgress('Export Records', 0, fs.ids.length);
       const records = function* (this: ScriptEngine): Generator<Value[][]> {
         try {
           for (let i = 0; i < fs.ids.length; i++) {
             fs.index = i;
             this.poll(f);
-            yield refs.map((r, k) => {
+            const values = refs.map((r, k) => {
               const values = [this.readField(win, r) ?? text('')];
               for (let n = 2; n <= repetitions[k]; n++) values.push(this.readField(win, { ...r, repetition: n }) ?? text(''));
               while (values.length > 1 && asText(values[values.length - 1]) === '') values.pop();
               return values;
             });
+            this.bulkProgress('Export Records', i + 1, fs.ids.length);
+            yield values;
           }
         } finally {
           fs.index = index;
@@ -7276,6 +7313,20 @@ export class ScriptEngine {
         if (p.xmlGrammar === 'FMPDSORESULT') {
           const bad = fields.find((x) => dsoElementName(x.name) === undefined);
           if (bad) throw new ScriptError(ERROR.xmlGrammar, `Field "${bad.name}" cannot be an FMPDSORESULT element (names must not start with a number or hold punctuation other than spaces and colons)`);
+        }
+        if (p.xmlGrammar !== 'FMPDSORESULT' && sheet === undefined) {
+          const fd = openSync(path, 'w');
+          try {
+            writeSync(fd, fmpXmlHeader(win.store.name, fields, fs.ids.length));
+            for (const record of records) {
+              await this.checkpoint(f);
+              writeSync(fd, fmpXmlRow({ recordId: fs.ids[fs.index], modId: 0,
+                cells: record.map((values) => values.map((v) => v.type === 'date' || v.type === 'time' || v.type === 'timestamp' ? String(toStored(v, v.type) ?? '') : asText(v, win.store.dateOrder))) }));
+            }
+            writeSync(fd, fmpXmlFooter());
+          } finally { closeSync(fd); }
+          complete('Export Records');
+          return;
         }
         const out: ExportRow[] = [];
         // A repeating field's values are one DATA each.
@@ -7894,7 +7945,7 @@ export class ScriptEngine {
     const hosted = !p.importFolder && p.importFormat === 'FMPR' ? this.fileMakerSource(f, p) : undefined;
     const file = !p.importFolder && p.importFormat !== 'FMPR' ? this.documentFile(f, p, 'Import Records') : undefined;
     pv?.checkImport(info.table, action, p.addRemaining);
-    const source: { rows: (string | number)[][]; excel: boolean; files?: Map<string, { filename: string; data: Uint8Array }> } = p.importFolder ? this.folderRows(f, p, folder)
+    const source: { rows: Iterable<(string | number)[]>; excel: boolean; files?: Map<string, { filename: string; data: Uint8Array }> } = p.importFolder ? this.folderRows(f, p, folder)
       : p.importFormat === 'FMPR' ? { rows: this.fileMakerRows(f, p, hosted), excel: false } : this.textRows(f, p, file);
     const rows = source.rows;
     this.commit(win);
@@ -7948,11 +7999,16 @@ export class ScriptEngine {
     let failure: StoreError | PrivilegeError | undefined;
     // Skip auto-enter options on the open transaction overrides the import's own Perform auto-enter options.
     const write = { ...this.write, performAutoEnter: this.tx?.skipAutoEnter ? false : p.performAutoEnter };
-    for (const [position, row] of rows.entries()) {
+    const total = Array.isArray(rows) ? rows.length : 0;
+    let position = 0;
+    this.bulkProgress('Import Records', 0, total);
+    for (const row of rows) {
       await this.checkpoint(f);
+      const rowPosition = position++;
+      this.bulkProgress('Import Records', position, total);
       const values = matches.map((i) => value(row, i));
       if (action === 'update' && values.every((v) => v === '')) continue;
-      const existing = action === 'update' ? byKey.get(key(values)) ?? [] : action === 'replace' ? targets.slice(position, position + 1) : [];
+      const existing = action === 'update' ? byKey.get(key(values)) ?? [] : action === 'replace' ? targets.slice(rowPosition, rowPosition + 1) : [];
       const adding = !existing.length && (action === 'add' || p.addRemaining);
       if (!existing.length && !adding) continue;
       const data: FieldData = {};
@@ -8032,15 +8088,15 @@ export class ScriptEngine {
   }
 
   /** Rows of a comma- or tab-separated file, an Excel workbook or FileMaker XML in the documents folder. */
-  private textRows(f: Frame, p: StepParams, file = this.documentFile(f, p, 'Import Records')): { rows: (string | number)[][]; excel: boolean } {
+  private textRows(f: Frame, p: StepParams, file = this.documentFile(f, p, 'Import Records')): { rows: Iterable<(string | number)[]>; excel: boolean } {
     const { dir, name } = file;
     const stylesheet = p.xslt === undefined ? undefined : this.documentFile(f, { ...p, filePaths: [p.xslt] }, 'Import Records');
     const data = readFileSync(join(dir, name));
     // Claris: error 731, "The import file has no data". Only a file with nothing in it; a header alone still imports as before.
     if (!decodeText(data).trim()) throw new ScriptError(ERROR.noImportData, 'The import file has no data');
-    const rows = importFileRows(name, data, p.importFormat, stylesheet && readFileSync(join(stylesheet.dir, stylesheet.name), 'utf8'), { worksheet: p.worksheet });
+    const rows = importFileRowIterator(name, data, p.importFormat, stylesheet && readFileSync(join(stylesheet.dir, stylesheet.name), 'utf8'), { worksheet: p.worksheet });
     // A merge file's first record names the fields (Claris: "The first record is a header that lists the field names").
-    if (isMerge(name, p.importFormat)) rows.shift();
+    if (isMerge(name, p.importFormat)) rows.next();
     return {
       rows,
       excel: /\.xlsx$/i.test(name) || !!p.importFormat?.startsWith('XLX'),
@@ -8235,11 +8291,13 @@ export class ScriptEngine {
     const ids = [...this.foundSet(win).ids];
     const gone: number[] = [];
     try {
+      this.bulkProgress('Delete All Records', 0, ids.length);
       for (const id of ids) {
         await this.checkpoint(f);
         this.late(f);
         this.via(info).delete(info, id, this.write);
         gone.push(id);
+        this.bulkProgress('Delete All Records', gone.length, ids.length);
       }
     } finally {
       this.forget(info, gone);
@@ -8350,6 +8408,7 @@ export class ScriptEngine {
       }
     }
     if (!fs.ids.length) throw new ScriptError(ERROR.recordMissing, 'No records in the found set');
+    if (b.enclosingEnd.has(pc)) this.bulkProgress('Script loop position', fs.index + 1, fs.ids.length);
     return undefined;
   }
 

@@ -724,6 +724,10 @@ export class Api {
     return this.call('POST', `/tabularius/app/v1/databases/${enc(this.db)}/runs/stop`, {});
   }
 
+  runningProgress(): Promise<{ runs: { operation: string; completed: number; total: number }[] }> {
+    return this.call('GET', `/tabularius/app/v1/databases/${enc(this.db)}/runs/progress`);
+  }
+
   /** Continues a paused script (Pause/Resume Script), or cancels it, which halts it; returns what the script does next. */
   continueRun(run: string, go: boolean, display: Record<string, unknown> = {}): Promise<ScriptRun> {
     return this.call('POST', `/tabularius/app/v1/databases/${enc(this.db)}/runs/${enc(run)}/file`, go ? display : { cancel: true });
