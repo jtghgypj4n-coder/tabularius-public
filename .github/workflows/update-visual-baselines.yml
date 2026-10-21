@@ -1,0 +1,32 @@
+# Regenerates the Linux visual-regression baselines on the same GitHub-hosted runner image the
+# browser-tests job uses (the committed set was drawn on another machine, so every screen differs by 1-8%).
+# Run it from the Actions tab (workflow_dispatch). It pushes the new images to the branch
+# ci/linux-baselines; open a pull request from that branch and look at the images before merging.
+name: update-visual-baselines
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm run fixtures
+      - name: Draw the baselines
+        env:
+          TABULARIUS_CHROMIUM: /opt/google/chrome/chrome
+        run: npm run test:visual -- --update
+      - name: Push them to a branch
+        run: |
+          git config user.name "Tabularius contributors"
+          git config user.email "noreply@tabularius.invalid"
+          git checkout -b ci/linux-baselines
+          git add packages/web/test/visual-regression/linux
+          git commit -m "Redraw the Linux visual baselines on the hosted runner"
+          git push --force origin ci/linux-baselines

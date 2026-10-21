@@ -41,7 +41,7 @@ claude mcp add --transport http tabularius http://SERVER:8080/mcp --header "Auth
 To also teach Claude Code how to use the tools well (read before writing, show before changing, preview and undo, what to do when a tool refuses), install the Tabularius plugin from this repository instead. It asks for the server address and the token, and makes the connection itself:
 
 ```
-/plugin marketplace add jtghgypj4n-coder/tabularius-public
+/plugin marketplace add sitotisai/tabularius
 /plugin install tabularius@tabularius
 ```
 
