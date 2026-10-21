@@ -2346,7 +2346,7 @@ export class Calculations {
         const f = pending[i];
         const d = deps.get(f)!;
         // Wait for formulas this one reads that may still change.
-        if (pending.some((g) => d.local.has(g.name.toLowerCase()))) continue;
+        if (pending.some((g) => g !== f && d.local.has(g.name.toLowerCase()))) continue;
         pending.splice(i--, 1);
         progressed = true;
         const ch = lower(changed);
