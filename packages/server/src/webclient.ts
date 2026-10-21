@@ -412,7 +412,7 @@ export class WebClient {
           }
           const file = this.exportRecords(store, layout, body, privileges);
           res.writeHead(200, {
-            'content-type': file.type, 'content-length': file.data.length, 'cache-control': 'no-store',
+            'content-type': file.type, 'content-length': file.data.length, 'cache-control': 'no-store', 'x-content-type-options': 'nosniff',
             'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent(file.name)}`,
           });
           res.end(file.data);

@@ -13642,7 +13642,7 @@ GET /admin/
 Response `200`:
 
 ```text
-(the admin console's HTML page, sent with X-Frame-Options: DENY and a Content-Security-Policy)
+(the admin console's HTML page, sent with X-Frame-Options: DENY and a Content-Security-Policy that lets only the page's own scripts run)
 ```
 
 GET /admin (no trailing slash) answers 301 with Location: /admin/.

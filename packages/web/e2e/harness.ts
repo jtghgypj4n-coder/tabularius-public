@@ -219,7 +219,7 @@ let axeSource: string | undefined;
  */
 export async function axeViolations(page: Page, scope = 'body'): Promise<string[]> {
   axeSource ??= readFileSync(createRequire(import.meta.url).resolve('axe-core/axe.min.js'), 'utf8');
-  if (!(await page.evaluate(() => 'axe' in window))) await page.addScriptTag({ content: axeSource });
+  if (!(await page.evaluate(() => 'axe' in window))) await page.evaluate(axeSource); // not addScriptTag: an inline script tag is what the admin page's policy refuses
   return page.evaluate(async (sel) => {
     const r = await (window as any).axe.run(document.querySelector(sel) ?? document, {
       runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22a', 'wcag22aa'] },

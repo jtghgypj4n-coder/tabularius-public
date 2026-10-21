@@ -53,7 +53,7 @@ export const groups: RestGroup[] = [
         path: '/admin/',
         summary: 'The admin console page (HTML); it signs in and loads everything else from the JSON API.',
         permissions: 'None: the page is only HTML, and its data needs signing in. Any method gets the page.',
-        example: { request: 'GET /admin/', status: 200, response: '(the admin console\'s HTML page, sent with X-Frame-Options: DENY and a Content-Security-Policy)' },
+        example: { request: 'GET /admin/', status: 200, response: '(the admin console\'s HTML page, sent with X-Frame-Options: DENY and a Content-Security-Policy that lets only the page\'s own scripts run)' },
         notes: 'GET /admin (no trailing slash) answers 301 with Location: /admin/.',
       },
       {
