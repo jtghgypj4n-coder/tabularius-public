@@ -57,3 +57,27 @@ test('a read API reached through an untyped receiver is discovered by its name',
   const found = collectReadSites(root, new Map([[file, source + added]])).filter((s) => s.fn === 'untypedProbe').map((s) => s.api).sort();
   assert.deepEqual(found, ['Untyped.executeSQL', 'Untyped.foundSetRows', 'Untyped.recordAsOf']);
 });
+
+test('everyday read names are reported on a Store cast to any, but not on any other untyped value', () => {
+  const file = 'packages/server/src/calendar.ts';
+  const source = readFileSync(resolve(root, file), 'utf8');
+  const added = `\nfunction castProbe(store: Store, anything: any, map: Map<string, number>) {
+    (store as any)['find']('Synthetic');
+    const loose = store as any;
+    loose.get('Synthetic', 1);
+    loose.select('Synthetic');
+    loose.query('SELECT 1');
+    loose.describe('Synthetic');
+    loose.sql.prepare('SELECT 1');
+    const { findIds } = store as any;
+    const { row } = store as any;
+    anything.find('x');
+    anything.get('x');
+    (map as any).get('x');
+    const other = map as any;
+    other.select('x');
+    return [findIds, row];
+  }\n`;
+  const found = collectReadSites(root, new Map([[file, source + added]])).filter((s) => s.fn === 'castProbe').map((s) => s.api).sort();
+  assert.deepEqual(found, ['Untyped.describe', 'Untyped.find', 'Untyped.findIds', 'Untyped.get', 'Untyped.query', 'Untyped.row', 'Untyped.select', 'Untyped.sql']);
+});

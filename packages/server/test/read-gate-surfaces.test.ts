@@ -120,6 +120,22 @@ test('digest rechecks record visibility after an asynchronous summary before web
   assert.ok(result.data.length === 0 || result.data[0].value === 0);
 });
 
+test('a digest whose access changes while the webhook is posted keeps the record that it was sent', async (t) => {
+  const { m } = await setup(t);
+  const board = new Dashboards(m.store).create({ name: 'Count', widgets: [{ title: 'Count', kind: 'number', layout: 'Items' }] }, 'Caller');
+  const digest = new Digests(m.store).create({ name: 'Late', dashboard: board.id, days: [1], at: '09:00', enabled: false, account: 'Caller', webhook: 'synthetic' });
+  const restricted = m.store.privilegeSet('Matrix')!;
+  m.store.savePrivilegeSet(SHAPES[0].definition);
+  const runner = new DigestRunner(m.host);
+  runner.poster = { allowed: true, post: async () => { m.store.savePrivilegeSet(restricted); } };
+  const result = await runner.run(m.store, digest);
+  assert.equal(result.outcome, 'error');
+  assert.deepEqual(result.webhook, { sent: true });
+  assert.match(result.error ?? '', /after it was sent to the webhook/);
+  assert.equal(result.data.length, 0);
+  safe(result);
+});
+
 test('a digest of an account that reads everything survives record writes made while its summary is written', async (t) => {
   const { m } = await setup(t);
   const board = new Dashboards(m.store).create({ name: 'Count', widgets: [{ title: 'Count', kind: 'number', layout: 'Items' }] }, 'Caller');
