@@ -1430,7 +1430,20 @@ export class Store {
 
   /** Copies the live database to `dest` while it stays in use (SQLite's online backup). */
   async backup(dest: string): Promise<void> {
-    await backup(this.sql, dest);
+    // Each copy step runs on a worker thread. SQLite answers a step that starts while this connection is in the middle of
+    // a write with "busy", which Node reports as error code 0 ("not an error") from the other file; the write is over a
+    // moment later, so the copy starts again, as a busy file is retried everywhere else.
+    for (let attempt = 1; ; attempt++) {
+      try {
+        await backup(this.sql, dest);
+        return;
+      } catch (e) {
+        const error = e as { code?: string; errcode?: number };
+        const busy = error.code === 'ERR_SQLITE_ERROR' && (error.errcode === 0 || error.errcode === 5 || error.errcode === 6);
+        if (!busy || attempt >= 200) throw e;
+        await new Promise<void>((resolve) => setTimeout(resolve, 5));
+      }
+    }
   }
 
   // --- several users -------------------------------------------------------
