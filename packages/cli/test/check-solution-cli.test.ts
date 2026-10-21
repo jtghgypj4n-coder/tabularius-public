@@ -47,7 +47,8 @@ test('check-solution: problems exit 2, say where and how to fix, and --json has 
     build(dir, [...WHOLE, { op: 'deleteScript', script: 'Helper' }, { op: 'createScript', name: 'Folder', text: 'Get Folder Path [ $p ]' }]);
     const text = await cli('check-solution', dir, 'Shop');
     assert.equal(text.status, 2, text.stderr);
-    assert.match(text.stdout, /error\s+Script "Main", line 1: There is no script named "helper"/);
+    // Deleting a script marks the steps that ran it "<Script Missing>", as deleting a field or table does for formulas.
+    assert.match(text.stdout, /error\s+Script "Main", line 1: There is no script named "<script missing>"/);
     assert.match(text.stdout, /\n\s+fix: Point the step at a script that exists/);
     assert.match(text.stdout, /warning\s+Script "Folder", line 1: Get Folder Path is not available in this build/);
     assert.match(text.stdout, /Shop: 1 error, 1 warning, /);
