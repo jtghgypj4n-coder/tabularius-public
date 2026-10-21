@@ -1154,7 +1154,7 @@ export class Admin {
           if (typeof body.on !== 'boolean') send(400, { error: 'Send {"on": true} or {"on": false}' });
           else {
             if (body.on !== store.scriptNetwork) {
-              store.setScriptNetwork(body.on);
+              store.setScriptNetwork(body.on, { account: 'admin console' });
               this.log(`Script network access ${body.on ? 'turned on' : 'turned off'} for ${store.name} (admin console)`);
             }
             send(200, status(store));

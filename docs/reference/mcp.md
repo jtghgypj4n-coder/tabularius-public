@@ -3306,7 +3306,6 @@ Automations in plain English, step one: "when an invoice is marked paid, set the
 | `scriptText.text` | string | yes | One step per line, as the script workspace shows them |
 | `parameter` | string | no | Formula on the record for Get ( ScriptParameter ) |
 | `account` | string | no | Account the script runs as (default: this one) |
-| `network` | boolean | no | Let Insert from URL reach the network (only if the server allows scripts the network too) |
 | `enabled` | boolean | no | Whether it runs once saved (default true) |
 | `test` | object of string or number | no | The change that sets it off, field name to new value (e.g. {"Status": "Paid"}), made on a throwaway copy |
 
@@ -3360,7 +3359,7 @@ Result:
 
 ### `save_automation`
 
-Automations, step two: save (and turn on) an automation tried with try_automation, writing its script if scriptText is given. It runs on the server for every matching change, whoever makes it, offline unless network is allowed; its own changes set off no automations. Saving over one with the same name needs replace: true; enabled: false turns one off.
+Automations, step two: save (and turn on) an automation tried with try_automation, writing its script if scriptText is given. It runs on the server for every matching change, whoever makes it, offline: only a person can let one reach the network, on the Automations page; its own changes set off no automations. Saving over one with the same name needs replace: true; enabled: false turns one off.
 
 **Hints:** destructive
 
@@ -3383,7 +3382,6 @@ Automations, step two: save (and turn on) an automation tried with try_automatio
 | `scriptText.text` | string | yes | One step per line, as the script workspace shows them |
 | `parameter` | string | no | Formula on the record for Get ( ScriptParameter ) |
 | `account` | string | no | Account the script runs as (default: this one) |
-| `network` | boolean | no | Let Insert from URL reach the network (only if the server allows scripts the network too) |
 | `enabled` | boolean | no | Whether it runs now (default true) |
 | `replace` | boolean | no | true to save over an automation with the same name |
 

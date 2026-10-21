@@ -50,7 +50,7 @@ test('a file starts with script network access off; the console turns it on and 
 
     // It is kept in the file, and the security log says who changed what.
     assert.equal(new Store(path, 'Shop').scriptNetwork, true);
-    assert.ok(store.securityEvents({ kind: 'script-network-on' }).length === 1);
+    assert.deepEqual(store.securityEvents({ kind: 'script-network-on' }).map((e) => e.account), ['admin console']);
 
     // What an AI app, a debug run or a dry run does stays offline whatever the switch says, and says so.
     const offline = await fetchIt(offlineScriptOptions({ ...host.scriptOptions('Shop') }) as ReturnType<typeof host.scriptOptions>);

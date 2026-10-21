@@ -1757,7 +1757,6 @@ export function createMcpServer(host: Host, who: McpIdentity = { admin: true }, 
       .describe('A new script (or new steps for one) to run, saved with the automation'),
     parameter: z.string().optional().describe('Formula on the record for Get ( ScriptParameter )'),
     account: z.string().optional().describe('Account the script runs as (default: this one)'),
-    network: z.boolean().optional().describe('Let Insert from URL reach the network (only if the server allows scripts the network too)'),
     enabled: z.boolean().optional(),
   };
   const fullAccess = (s: Store, p: Privileges | undefined) => {
@@ -1793,7 +1792,7 @@ export function createMcpServer(host: Host, who: McpIdentity = { admin: true }, 
         const check = checkScript(store, script.text, input.layout);
         if (!check.ok) throw new AutomationError(`The script has problems: ${check.problems.map((x) => `line ${x.line}: ${x.message}`).join('; ')}`);
       }
-      const spec = cleanAutomation(store, input as never, runAs(p), host.scriptOptions().outbound?.captureOnly ?? [], script);
+      const spec = cleanAutomation(store, { ...input, network: undefined } as never, runAs(p), host.scriptOptions().outbound?.captureOnly ?? [], script);
       return json({ trigger: describeTrigger(spec, tableOf(store, spec.layout)), dryRun: dryRunForModel(await dryRunAutomation(store, spec, script, input.test)) });
     } catch (e) {
       return failError(e);
@@ -1802,14 +1801,14 @@ export function createMcpServer(host: Host, who: McpIdentity = { admin: true }, 
 
   server.registerTool('save_automation', {
     description: 'Automations, step two: save (and turn on) an automation tried with try_automation, writing its script if scriptText is given. ' +
-      'It runs on the server for every matching change, whoever makes it, offline unless network is allowed; its own changes set off no ' +
+      'It runs on the server for every matching change, whoever makes it, offline: only a person can let one reach the network, on the Automations page; its own changes set off no ' +
       'automations. Saving over one with the same name needs replace: true; enabled: false turns one off.',
     inputSchema: { ...automationInput, replace: z.boolean().optional() },
     annotations: { destructiveHint: true },
   }, async (input) => withStore(input.database, (s, p) => {
     fullAccess(s, p);
     const script = input.scriptText ? scriptOf(input.scriptText) : undefined;
-    const r = saveAutomation(s, { ...input, ...(script ? { script: script.name } : {}) } as never, runAs(p), host.scriptOptions().outbound?.captureOnly ?? [], script);
+    const r = saveAutomation(s, { ...input, network: undefined, ...(script ? { script: script.name } : {}) } as never, runAs(p), host.scriptOptions().outbound?.captureOnly ?? [], script);
     return { saved: true, automation: r.automation, trigger: describeTrigger(r.automation, tableOf(s, r.automation.layout)) };
   }));
 
