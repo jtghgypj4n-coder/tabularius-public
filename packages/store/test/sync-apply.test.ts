@@ -49,8 +49,9 @@ class FakeFm implements RemoteSource, RemoteWriter {
   hold(address: string, data: Uint8Array): void { this.held.set(address, data); }
   /** Lets the engine fetch a container file to compare it, as the Data API connection can. */
   enableFetch(): void {
-    this.fetchContainer = async (_layout, address) => {
+    this.fetchContainer = async (_layout, address, maxBytes) => {
       const data = this.held.get(address);
+      if (data && data.length > maxBytes) return { skipped: `over the ${maxBytes}-byte limit` };
       return this.fetchSkipped ? { skipped: this.fetchSkipped } : data ? { filename: null, mime: '', data } : { skipped: 'no such file' };
     };
   }
@@ -1416,13 +1417,33 @@ test('a Scan forgotten unsent while the Photo upload failed is brought by a pull
   } finally { cleanup(r); }
 });
 
-test('a Scan forgotten unsent while the Photo upload failed stays a change for a pull after the Photo goes', async () => {
+test('a retry sends only the files owed: a file FileMaker holds that a pull could not bring stays for the pull', async () => {
   const r = await forgottenScan();
   try {
+    // The pull cannot fetch FileMaker's Scan within the limit, so it brings nothing; the next run, within the limit, retries the Photo only.
     await again(r, { pull: true, containers: { maxBytes: 5 } });
     await again(r, { pull: true });
-    assert.equal(r.store.container(Number(rows(r.store)[0].Scan))?.data.length, 'their scan'.length);
     assert.ok(!sentFields(r).includes('u1:Scan'));
+    assert.equal(r.fm.byUuid('u1')!.fields.Scan, 'container-theirs');
+    assert.deepEqual(pendingRows(r.store), []);
+  } finally { cleanup(r); }
+});
+
+test('a retried record with no map entry is recorded at the version after its upload, and its other files are left alone', async () => {
+  const r = rig(true);
+  try {
+    withFiles(r, 'u1', { Photo: 'p', Scan: 'scan bytes long' });
+    r.fm.enableFetch();
+    await killed(r, { start: 0 });
+    const theirs = r.fm.byUuid('u1')!;
+    r.fm.hold('container-theirs', Buffer.from('their scan'));
+    theirs.fields.Scan = 'container-theirs';
+    theirs.modId++;
+    restart(r);
+    r.store.sql.prepare('DELETE FROM _fm_sync_map').run();
+    await again(r, { containers: { maxBytes: 5 } });
+    assert.deepEqual(sentFields(r), ['u1:Photo']);
+    assert.equal(readSyncMap(r.store, 'Local\u0000Contacts').find((m) => m.uuid === 'u1')?.lastRemoteModId, String(r.fm.byUuid('u1')!.modId), 'recorded at the version after its own upload');
   } finally { cleanup(r); }
 });
 
