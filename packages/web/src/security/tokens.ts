@@ -47,7 +47,9 @@ export function tokensTab(sec: Sec): HTMLElement {
   const account = select(accountNames.length ? accountNames : [''], accountNames[0] ?? '', { 'aria-label': 'Account' });
   const label = h('input', { placeholder: 'Label (e.g. Reporting)', 'aria-label': 'Label' });
   const readOnly = check('Read-only', true);
-  const expires = h('input', { type: 'number', min: '1', placeholder: 'Expires in days (optional)', 'aria-label': 'Expires in days' });
+  // Left blank, the server gives the token its default lifetime; 0 asks for one that never expires.
+  const defaultDays = sec.security.tokenDefaultDays;
+  const expires = h('input', { type: 'number', min: '0', step: 'any', placeholder: `Expires in days (blank: ${defaultDays === undefined ? 'the default' : defaultDays || 'never'}; 0: never)`, 'aria-label': 'Expires in days' });
   // Leave all unchecked to reach every surface the account's privileges allow.
   const surfaceChecks = [['fmrest', 'Data API'], ['fmodata', 'OData'], ['fmxdbc', 'SQL']].map(([key, name]) => ({ key, ...check(name, false) }));
   const surfaces = h('fieldset', { class: 'sec-surfaces' }, h('legend', {}, 'Surfaces (none = all)'), ...surfaceChecks.map((c) => c.el));

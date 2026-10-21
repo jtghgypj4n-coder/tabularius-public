@@ -23,7 +23,8 @@ export function feedRequest(form: { layout: string; start: string; end: string; 
   const out: Record<string, unknown> = { layout: form.layout, start: form.start };
   for (const k of ['end', 'title', 'description', 'location', 'zone', 'label'] as const) if (form[k].trim()) out[k] = form[k].trim();
   const days = Number(form.expiresDays);
-  if (form.expiresDays.trim() && days > 0) out.expiresDays = days;
+  // Blank leaves the address its default lifetime (a year); 0 asks for one that never expires.
+  if (form.expiresDays.trim() && days >= 0) out.expiresDays = days;
   return out;
 }
 
@@ -96,7 +97,7 @@ export async function calendarDialog(api: Api, mode: 'feeds' | 'import', current
 
   if (mode === 'feeds') {
     const label = h('input', { id: 'calendar-label', type: 'text', maxlength: '60', placeholder: 'Team calendar', autocomplete: 'off' }) as HTMLInputElement;
-    const days = h('input', { id: 'calendar-days', type: 'number', min: '1', max: '3650', placeholder: 'never', inputmode: 'numeric' }) as HTMLInputElement;
+    const days = h('input', { id: 'calendar-days', type: 'number', min: '0', max: '3650', placeholder: 'days (blank: 365; 0: never)', inputmode: 'numeric' }) as HTMLInputElement;
     const draw = (feeds: CalendarFeed[]) => {
       list.replaceChildren(feeds.length
         ? h('table', { class: 'calendar-feeds' },
