@@ -337,7 +337,7 @@ export class LayoutRenderer {
         const runtime = host.mode === 'browse' ? host.viewer?.(o, row, setup) : undefined;
         const address = runtime ? runtime.state.url : setup;
         // In Browse mode a web viewer with no address yet (a script sets one) is blank, as in FileMaker.
-        const content = webViewerBlank(o.webOptions, host.mode, address, !!host.state) ? h('div', { class: 'fm-content fm-webviewer fm-webviewer-blank' }) : webViewer(address, o.webOptions?.jsBridge === true && host.mode === 'browse');
+        const content = webViewerBlank(o.webOptions, host.mode, address, !!host.state) ? h('div', { class: 'fm-content fm-webviewer fm-webviewer-blank' }) : webViewer(address, o.webOptions?.jsBridge === true && host.mode === 'browse', this.meta.webViewerHosts);
         // Web Viewer Setup's "Allow interaction with web viewer content" off: the page shows but takes no clicks.
         if (runtime && content instanceof HTMLIFrameElement && runtime.state.hash !== undefined) content.addEventListener('load', () => restoreViewer(content, runtime.state));
         if (runtime) {
@@ -1209,11 +1209,11 @@ export class LayoutRenderer {
  * the first tab's offset.
  */
 /**
- * A web viewer's content. Nothing is loaded from the network: the hosting
- * rules keep solutions offline unless someone opts in. A data:text/html
- * address (HTML a solution builds from its fields) shows in a sandboxed
- * frame whose content security policy blocks every request; data: images
- * show as images; any other address shows as text.
+ * A web viewer's content. Nothing is loaded from the network unless an
+ * administrator listed the address's host for the file (https only). A
+ * data:text/html address (HTML a solution builds from its fields) shows in a
+ * sandboxed frame whose content security policy blocks every request; data:
+ * images show as images; any other address shows as text.
  */
 /**
  * Whether a web viewer is drawn empty. In Browse mode one with no address yet (a script sets one) is blank, as in
@@ -1231,8 +1231,34 @@ export function webViewerChrome(options: LayoutObject['webOptions']): { progress
   return progress || status ? { progress, status } : undefined;
 }
 
-export function webViewer(url: string | undefined, bridge = false): HTMLElement {
+/**
+ * The https address a web viewer may load: its host is on the file's list (an administrator's, in the admin console),
+ * the address has no login, and the port is the default one. Undefined for anything else. A listed "*.example.com"
+ * allows any subdomain, not example.com itself, as in a content security policy.
+ */
+export function allowedWebAddress(url: string | undefined, hosts: readonly string[] | undefined): URL | undefined {
+  if (!url || !hosts?.length) return undefined;
+  let u: URL;
+  try { u = new URL(url); } catch { return undefined; }
+  if (u.protocol !== 'https:' || u.username || u.password || u.port) return undefined;
+  const host = u.hostname.toLowerCase();
+  const ok = hosts.some((h) => (h.startsWith('*.') ? host.endsWith(h.slice(1)) : host === h));
+  return ok ? u : undefined;
+}
+
+export function webViewer(url: string | undefined, bridge = false, hosts?: readonly string[]): HTMLElement {
   const html = url !== undefined ? dataHtml(url) : undefined;
+  const web = html === undefined ? allowedWebAddress(url, hosts) : undefined;
+  if (web) {
+    // A listed web host: its page in a frame of its own origin, which can't reach the app, its cookies or the session
+    // (it is another site), can't open windows or take this one over, and is told nothing about it. None of the bridge:
+    // the page gets no FileMaker.PerformScript, and Perform JavaScript in Web Viewer sends it nothing.
+    const frame = h('iframe', { class: 'fm-content fm-webviewer', sandbox: 'allow-scripts allow-same-origin allow-forms', referrerpolicy: 'no-referrer', title: 'Web viewer', src: web.href });
+    frame.dataset.viewerAddress = url;
+    frame.dataset.external = '1';
+    frame.addEventListener('load', () => { frame.dataset.loaded = '1'; });
+    return frame;
+  }
   if (html !== undefined) {
     // No allow-same-origin: the page can't reach the app, its cookies or the session.
     const frame = h('iframe', { class: 'fm-content fm-webviewer', sandbox: 'allow-scripts', referrerpolicy: 'no-referrer', title: 'Web viewer' });
@@ -1252,9 +1278,14 @@ export function webViewer(url: string | undefined, bridge = false): HTMLElement 
   const box = h('div', { class: 'fm-content fm-placeholder fm-webviewer-off' }, 'Web viewer');
   if (url) {
     box.title = url;
-    box.append(h('small', {}, ' (not loaded: hosted files stay offline)'));
+    box.append(h('small', {}, webHost(url) ? ` (not loaded: ${webHost(url)} isn't on this file's list of web hosts. An administrator can allow it in the admin console)` : ' (not loaded: hosted files stay offline)'));
   }
   return box;
+}
+
+/** The host of an https address, for saying which one a web viewer didn't load. */
+function webHost(url: string): string | undefined {
+  try { const u = new URL(url); return u.protocol === 'https:' ? u.hostname : undefined; } catch { return undefined; }
 }
 
 /**
@@ -1306,6 +1337,8 @@ export function tellPages(scope: ParentNode, name: string, value?: unknown): voi
 
 /** Calls a global function of a web viewer's page, once the page has loaded (Perform JavaScript in Web Viewer). */
 export async function callWebViewer(frame: HTMLIFrameElement, fn: string, args: string[]): Promise<void> {
+  // A page from a web host cannot be called: it would be sent the function and its parameters.
+  if (frame.dataset.external === '1') return;
   if (frame.dataset.loaded !== '1') {
     await new Promise<void>((resolve) => {
       frame.addEventListener('load', () => resolve(), { once: true });

@@ -49,6 +49,8 @@ export function viewerMessage(event: Pick<MessageEvent, 'source' | 'origin' | 'd
 }
 
 export function restoreViewer(frame: HTMLIFrameElement, state: ViewerState): void {
+  // Another site's page is told nothing: not the document id that vouches for our own frames, nor where the person was.
+  if (frame.dataset.external === '1') return;
   frame.contentWindow?.postMessage({ tabularius: 'hash', documentId: frame.dataset.viewerDocument, hash: state.hash ?? '', ...state.scroll }, '*');
 }
 

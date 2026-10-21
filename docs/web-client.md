@@ -96,7 +96,7 @@ bounded queue during normal browser activity.
 | Portals (sort, filter, initial row, scrolling, delete related row, add a related record) | ✓ | Typing in the empty last row adds a related record, its match fields filled in from the record on screen, as FileMaker does when the relationship allows creating records in the portal's table (one-step "=" relationships). A portal that doesn't scroll shows that row only when there's room under its rows. A scrolling portal shows all of the record's related records up to 2,000 (the record comes with 50; the page fetches the rest as soon as the layout is drawn); past 2,000 it stops there. The rest of what's typed in the row goes to the new record; only its own table's fields take typing there, and objects with hide conditions stay hidden. Revert Record deletes the related records it added. Accounts that can't create records in that table, and the offline copy, don't get the row. The server sends every repetition of a repeating field in a portal row or related field, and a write to one repetition leaves the others (tested in the store; not yet checked in a browser). | <!-- known-difference: Web client ;; A write to one repetition of a repeating field in a portal row or related field leaves the others (tested in the store), and has not been checked in a browser ;; Not seen in a browser yet ;; A browser test of the write -->
 | Found-set portals (a portal on the layout's own table occurrence) | ✓ | As in FileMaker, the portal lists the window's found set in its current sort (the rows it shows are fetched first, the rest as they scroll into view), with the current record's row highlighted; clicking a row goes to that record. Its rows only show (the current record is changed in the layout's own fields), it has no row for new records, and Find mode gives it one request row as other portals. The Data API's portalData for it is the found set too: GET /records and _find list the records found, paged by the portal's offset and limit (without a limit, the rows Portal Setup shows and five more, worked out once for all the records of the page); a record read on its own lists itself, as FileMaker does. The web client reads the rows from POST /tabularius/app/v1/databases/{db}/layouts/{layout}/foundset. |
 | Charts | ✓ | Column, bar, line, area, pie, scatter, bubble (plus stacked column/bar) render from decoded setup: type, source, series, titles and axis labels; axis ranges are supported. Binary setup positions remain hypotheses; unrecognized type or source codes leave a Chart placeholder. Legend visibility and position, gridlines, tick marks, point labels, color schemes and secondary axes have no verified binary decoding; the SVG uses its own automatic legend, ticks and colors, without the other options. Charts inside portals show a placeholder. Layout census reports unread setups as aggregate counts. |
-| Web viewers | ◐ | Solution HTML (data: URLs) offline only; http(s) addresses are never loaded. With Web Viewer Setup's "Allow JavaScript to perform FileMaker scripts" on, the page gets `FileMaker.PerformScript` and `FileMaker.PerformScriptWithOption` (a script of this file by name, the parameter as text, queued behind a script already running) and Tabularius's page API, below. |
+| Web viewers | ◐ | Solution HTML (data: URLs) always works. An https address loads only when an administrator listed its host for the file (none are listed to begin with; see [Web viewers that load a web page](#web-viewers-that-load-a-web-page)); any other address shows as text. With Web Viewer Setup's "Allow JavaScript to perform FileMaker scripts" on, the page gets `FileMaker.PerformScript` and `FileMaker.PerformScriptWithOption` (a script of this file by name, the parameter as text, queued behind a script already running) and Tabularius's page API, below. |
 | Hide object when, conditional formatting, tooltips, placeholders | ✓ | |
 | Anchoring and sliding when the window resizes | ✓ | Anchors in Browse and Find, including inside groups, button bars, tab and slide panels and portal rows. A portal anchored top and bottom shows more rows as the window grows, as FileMaker does. Sliding in Preview and printing (below). |
 | Drop-down calendar | ✓ | The browser's date picker, from the field or its icon; date and timestamp fields. |
@@ -256,3 +256,28 @@ Each call returns a promise; a refused call rejects with the server's message. T
 no network, cookies or access to the app. FileMaker Pro shows the same layout in its own web viewer, where
 `FileMaker.PerformScript` works as well; `window.tabularius` is Tabularius's, so a page that should also work in FileMaker
 Pro checks for it.
+
+## Web viewers that load a web page
+
+A web viewer whose address is a page made in the file (a `data:` address) always works. An `https://` address loads only
+when an administrator has listed its host for that file, in the admin console under Hosted files, **Web viewers may
+load**. The list is empty for every file to begin with, including a new or converted one and the demo, so an address on
+the web shows as text that names the host to allow.
+
+- A host is a name like `maps.example.com`, or `*.example.com` for any subdomain (not `example.com` itself). Write
+  just the name: no `https://`, port, path or sign-in. Addresses on a local network, numbers and single-word names are
+  refused, and so is a list of more than 50.
+- A listed page loads over **https only**, on the default port, with no sign-in in the address; `http://` never loads.
+- It runs in a frame of its own origin, in a sandbox: it cannot reach the app, its cookies or the session, cannot open
+  windows or take the window over, and is told nothing about it. It gets none of the page API above (no
+  `FileMaker.PerformScript`, no `window.tabularius`), Perform JavaScript in Web Viewer sends it nothing, and the
+  viewer's Go Back and Go Forward only follow the addresses the layout sets, not links the person follows inside it.
+- The list is per file, and the app's page allows framing every listed host of any file; the web client frames only
+  the hosts of the file it is showing. After the list changes, people need to reload the page.
+- The host sees the address of whoever opens the page (the page is fetched by their browser, with no referrer), and
+  can show them anything, including something that looks like the app. List only sites you trust. A change is
+  recorded in the file's security log (Web viewer hosts), with what was allowed and removed.
+- A host name on the list says nothing about what is on its pages: allowing `*.example.com` allows every site under it,
+  and a name that is a public suffix (such as `*.co.uk`) would allow far more than you mean to.
+
+<!-- known-difference: Web client ;; A web viewer loads an https address only when an administrator listed its host for the file, over https only; FileMaker loads any address, and Go Back, Go Forward and Perform JavaScript in Web Viewer do not work on a page from a web host ;; An address on the web shows as text naming the host, until it is listed ;; Owner decision -->
