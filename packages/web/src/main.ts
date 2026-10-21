@@ -8342,7 +8342,8 @@ function showScriptNetwork(meta: LayoutMeta): void {
   if (meta.scriptNetwork === false && !networkBannerDismissed) {
     // In the flow at the top of the window, so it never covers the controls (or the bottom bar on a phone).
     const shell = document.querySelector('.shell');
-    if (shell && networkBanner.parentElement !== shell) shell.prepend(networkBanner);
+    // After the skip link, which stays the first Tab stop.
+    if (shell && networkBanner.parentElement !== shell) (shell.querySelector(':scope > .skip') ?? { after: (n: Node) => shell.prepend(n) }).after(networkBanner);
   } else networkBanner.remove();
 }
 
