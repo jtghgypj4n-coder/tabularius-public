@@ -862,15 +862,17 @@ The following reasons apply to the exact enumerated expressions in each named fu
 | [packages/store/src/sync-apply.ts:184](../../packages/store/src/sync-apply.ts#L184) `atomically` | `Store.sql` (184, 187, 190, 191) | OPERATOR |
 | [packages/store/src/sync-apply.ts:197](../../packages/store/src/sync-apply.ts#L197) `upsertMap` | `SQLite.prepare` (197); `Store.sql` (197) | OPERATOR |
 | [packages/store/src/sync-apply.ts:205](../../packages/store/src/sync-apply.ts#L205) `dropMap` | `SQLite.prepare` (205, 206); `Store.sql` (205, 206) | OPERATOR |
+| [packages/store/src/sync-apply.ts:210](../../packages/store/src/sync-apply.ts#L210) `markContainersPending` | `SQLite.prepare` (210); `Store.sql` (210) | OPERATOR |
+| [packages/store/src/sync-apply.ts:215](../../packages/store/src/sync-apply.ts#L215) `clearContainersPending` | `SQLite.prepare` (215); `Store.sql` (215) | OPERATOR |
 | [packages/store/src/sync-apply.ts:221](../../packages/store/src/sync-apply.ts#L221) `heldReason` | `SQLite.get` (221); `SQLite.prepare` (221); `Store.sql` (221) | OPERATOR |
 | [packages/store/src/sync-apply.ts:226](../../packages/store/src/sync-apply.ts#L226) `holdTable` | `SQLite.prepare` (226); `Store.sql` (226) | OPERATOR |
 | [packages/store/src/sync-apply.ts:238](../../packages/store/src/sync-apply.ts#L238) `releaseHeldTables` | `SQLite.prepare` (238); `Store.sql` (238) | OPERATOR |
 | [packages/store/src/sync-apply.ts:247](../../packages/store/src/sync-apply.ts#L247) `readSyncLog` | `SQLite.get` (247); `SQLite.prepare` (247, 249, 250); `Store.sql` (247, 249, 250); `SQLite.all` (249, 250) | OPERATOR |
 | [packages/store/src/sync-apply.ts:291](../../packages/store/src/sync-apply.ts#L291) `recordsIn` | `SQLite.get` (291); `SQLite.prepare` (291); `Store.sql` (291) | OPERATOR |
-| [packages/store/src/sync-apply.ts:331](../../packages/store/src/sync-apply.ts#L331) `applySyncRun` | `Store.container` (331, 332, 359); `Store.containerInfo` (345); `SQLite.prepare` (440, 512, 683, 706); `Store.sql` (440, 512, 683, 706); `SQLite.all` (512); `SQLite.get` (683, 706) | OPERATOR |
+| [packages/store/src/sync-apply.ts:331](../../packages/store/src/sync-apply.ts#L331) `applySyncRun` | `Store.container` (331, 332, 359); `Store.containerInfo` (345); `SQLite.prepare` (440, 528, 697, 720); `Store.sql` (440, 528, 697, 720); `SQLite.all` (528); `SQLite.get` (697, 720) | OPERATOR |
 | [packages/store/src/sync-apply.ts:461](../../packages/store/src/sync-apply.ts#L461) `applySyncRun/fail` | `SQLite.get` (461); `SQLite.prepare` (461); `Store.sql` (461) | OPERATOR |
-| [packages/store/src/sync-apply.ts:600](../../packages/store/src/sync-apply.ts#L600) `applySyncRun/containerChanges` | `Store.container` (600) | OPERATOR |
-| [packages/store/src/sync-apply.ts:739](../../packages/store/src/sync-apply.ts#L739) `applySyncRun/filesToSend` | `SQLite.all` (739); `SQLite.prepare` (739); `Store.sql` (739); `Store.containerInfo` (748); `Store.container` (752) | OPERATOR |
+| [packages/store/src/sync-apply.ts:614](../../packages/store/src/sync-apply.ts#L614) `applySyncRun/containerChanges` | `Store.container` (614) | OPERATOR |
+| [packages/store/src/sync-apply.ts:753](../../packages/store/src/sync-apply.ts#L753) `applySyncRun/filesToSend` | `SQLite.all` (753); `SQLite.prepare` (753); `Store.sql` (753); `Store.containerInfo` (763); `Store.container` (768) | OPERATOR |
 | [packages/store/src/sync.ts:45](../../packages/store/src/sync.ts#L45) `openForPlanning` | `SQLite.get` (45); `SQLite.prepare` (45) | OPERATOR |
 | [packages/store/src/sync.ts:188](../../packages/store/src/sync.ts#L188) `tableExists` | `SQLite.get` (188); `SQLite.prepare` (188); `Store.sql` (188) | OPERATOR |
 | [packages/store/src/sync.ts:198](../../packages/store/src/sync.ts#L198) `ensureSyncTables` | `Store.sql` (198, 212, 222, 230) | OPERATOR |
@@ -885,6 +887,4 @@ The following reasons apply to the exact enumerated expressions in each named fu
 | [packages/store/src/words.ts:78](../../packages/store/src/words.ts#L78) `WordIndexes/ensure` | `SQLite.prepare` (78, 82); `SQLite.get` (81); `SQLite.all` (82) | CORE |
 | [packages/store/src/words.ts:85](../../packages/store/src/words.ts#L85) `WordIndexes/ensure/covers` | `SQLite.get` (85, 89); `SQLite.all` (86); `SQLite.prepare` (86, 89) | CORE |
 | [packages/store/src/words.ts:155](../../packages/store/src/words.ts#L155) `WordIndexes/dropAll` | `SQLite.all` (155); `SQLite.prepare` (155) | CORE |
-| [packages/store/src/sync-apply.ts:210](../../packages/store/src/sync-apply.ts#L210) `markContainersPending` | `SQLite.prepare` (210); `Store.sql` (210) | OPERATOR |
-| [packages/store/src/sync-apply.ts:215](../../packages/store/src/sync-apply.ts#L215) `clearContainersPending` | `SQLite.prepare` (215); `Store.sql` (215) | OPERATOR |
 <!-- end generated read-gate inventory -->
