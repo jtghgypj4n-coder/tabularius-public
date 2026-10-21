@@ -85,6 +85,19 @@ async function connect(account = 'ann', password = 'ann-pw', existing?: string) 
   return { client_id, ...(await t.json()) as { access_token: string; refresh_token: string; expires_in: number } };
 }
 
+async function refresh(previous: { client_id: string; access_token: string; refresh_token: string }) {
+  const response = await post('/oauth/token', form({ grant_type: 'refresh_token', refresh_token: previous.refresh_token, client_id: previous.client_id }));
+  assert.equal(response.status, 200, await response.clone().text());
+  const next = await response.json();
+  assert.match(next.access_token, /^ohbt_/);
+  assert.match(next.refresh_token, /^ohrt_/);
+  assert.notEqual(next.access_token, previous.access_token);
+  assert.notEqual(next.refresh_token, previous.refresh_token);
+  assert.equal(next.token_type, 'Bearer');
+  assert.equal(next.expires_in, 3600);
+  return { ...next, client_id: previous.client_id };
+}
+
 test('OAuth codes, access and refresh tokens issued during rollback retain their lifetimes', { skip }, async (t) => {
   let wall = Date.now(), mono = performance.now();
   t.mock.method(Date, 'now', () => wall);
@@ -170,9 +183,7 @@ test('register, sign in with the file\'s account, and call tools under its privi
 
 test('refresh rotates both tokens; revoking in Manage Security signs the app out', { skip }, async () => {
   const first = await connect();
-  const t = await post('/oauth/token', form({ grant_type: 'refresh_token', refresh_token: first.refresh_token, client_id: first.client_id }));
-  const next = await t.json();
-  assert.ok(next.access_token && next.access_token !== first.access_token);
+  const next = await refresh(first);
   assert.equal((await mcp(first.access_token)).status, 401, 'the old access token stops working');
   assert.equal((await mcp(next.access_token)).status, 200);
   // Another app can't use this app's refresh token.
@@ -181,8 +192,9 @@ test('refresh rotates both tokens; revoking in Manage Security signs the app out
   assert.equal((await stolen.json()).error, 'invalid_grant');
 
   // A wrong client does not consume it. Then the admin revokes the sign-in.
-  const fresh = { client_id: first.client_id, ...await (await post('/oauth/token', form({ grant_type: 'refresh_token', refresh_token: next.refresh_token, client_id: first.client_id }))).json() };
-  assert.match(fresh.access_token, /^ohbt_/);
+  const fresh = await refresh(next);
+  assert.equal((await mcp(next.access_token)).status, 401);
+  assert.equal((await mcp(fresh.access_token)).status, 200);
   const id = /^ohbt_([0-9a-f]+)\./.exec(fresh.access_token)![1];
   assert.ok(store.revokeApiToken(id));
   assert.equal((await mcp(fresh.access_token)).status, 401);
@@ -190,6 +202,27 @@ test('refresh rotates both tokens; revoking in Manage Security signs the app out
   assert.equal((await after.json()).error, 'invalid_grant');
   const replay = await post('/oauth/token', form({ grant_type: 'refresh_token', refresh_token: first.refresh_token, client_id: first.client_id }));
   assert.equal((await replay.json()).error, 'invalid_grant');
+});
+
+test('replaying a used refresh token revokes the latest tokens in its family', { skip }, async (t) => {
+  let now = Date.now();
+  t.mock.method(expiryClock, 'now', () => now);
+  const first = await connect();
+  const next = await refresh(first);
+  const latest = await refresh(next);
+  assert.equal((await mcp(latest.access_token)).status, 200);
+  // Past the few seconds in which a reuse counts as two requests racing.
+  now += 10_001;
+  // Replaying even an older ancestor signs out the current replacement.
+  for (const refresh_token of [first.refresh_token, next.refresh_token, latest.refresh_token]) {
+    const response = await post('/oauth/token', form({ grant_type: 'refresh_token', refresh_token, client_id: first.client_id }));
+    assert.equal(response.status, 400);
+    const error = await response.json();
+    assert.equal(error.error, 'invalid_grant');
+    assert.equal(error.access_token, undefined);
+    assert.equal(error.refresh_token, undefined);
+    assert.equal((await mcp(latest.access_token)).status, 401);
+  }
 });
 
 test('the app signing out revokes its tokens', { skip }, async () => {

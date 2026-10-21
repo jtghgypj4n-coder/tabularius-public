@@ -17,8 +17,9 @@ import { clientAddress } from './client-address.ts';
 // Access: the replication token given to `tabularius serve --replication-token`
 // (Bearer). Without one these routes don't exist.
 
+import { sameSecret as sameToken } from './secrets.ts';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { randomBytes, timingSafeEqual } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { createReadStream, existsSync, rmSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
@@ -63,8 +64,6 @@ const legacyHeaders = (run: string, seq: number, wholeAfter?: number): Record<st
   'x-openhbam-seq': String(seq),
   ...(wholeAfter === undefined ? {} : { 'x-openhbam-whole-after': String(wholeAfter) }),
 });
-
-const sameToken = (a: string, b: string) => a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
 
 export class Replication {
   private readonly host: Host;

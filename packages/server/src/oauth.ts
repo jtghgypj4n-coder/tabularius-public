@@ -17,8 +17,9 @@ import { addressBucket } from '../../store/src/client-ip.ts';
 // with AI turned off can't be signed in to. Apps, codes and refresh tokens (their hashes only) are kept in a small
 // database in the hosted folder, so every worker of a cluster sees the same ones.
 
+import { sameSecret } from './secrets.ts';
 import { expiryClock } from '../../store/src/clock.ts';
-import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { chmodSync, existsSync, writeFileSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { join } from 'node:path';
@@ -66,7 +67,6 @@ const token = (prefix: string) => `${prefix}${randomBytes(32).toString('base64ur
 /** Text for a log line or a label: no line breaks or control characters, so a name can't forge another entry. */
 const plain = (s: string) => s.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]+/g, ' ').trim();
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-const sameSecret = (a: string, b: string) => a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
 /** The account's name as the file keeps it, matched as sign-in matches it; undefined when there is no such account. */
 function storedName(store: Store, account: string): string | undefined {
   return (store.sql.prepare('SELECT name FROM _fm_accounts WHERE name = ? COLLATE NOCASE').get(account) as { name: string } | undefined)?.name;

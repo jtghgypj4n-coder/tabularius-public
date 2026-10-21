@@ -14,19 +14,26 @@
 import { createHash, createPublicKey, createVerify, verify as cryptoVerify, type KeyObject } from 'node:crypto';
 
 const b64url = (b: Uint8Array): string => Buffer.from(b).toString('base64url');
-const fromB64url = (s: string): Buffer => Buffer.from(s, 'base64url');
+const fromB64url = (s: string): Buffer => {
+  if (typeof s !== 'string' || !/^[A-Za-z0-9_-]+$/.test(s)) throw new Error('invalid base64url');
+  const bytes = Buffer.from(s, 'base64url');
+  if (bytes.toString('base64url') !== s) throw new Error('invalid base64url');
+  return bytes;
+};
 const sha256 = (b: Uint8Array): Buffer => createHash('sha256').update(b).digest();
 
 // --- a minimal CBOR decoder (the subset COSE and attestation objects use) ----
 
 interface CborReader { buf: Uint8Array; pos: number; }
 
-function readCbor(r: CborReader): unknown {
+function readCbor(r: CborReader, depth = 0): unknown {
+  if (depth > 32) throw new Error('CBOR: nesting too deep');
   if (r.pos >= r.buf.length) throw new Error('CBOR: unexpected end');
   const first = r.buf[r.pos++];
   const major = first >> 5;
   const minor = first & 0x1f;
   const len = readLength(r, minor);
+  if (major >= 2 && major <= 5 && len > r.buf.length - r.pos) throw new Error('CBOR: truncated value');
   switch (major) {
     case 0: return len; // unsigned int
     case 1: return -1 - len; // negative int
@@ -42,12 +49,16 @@ function readCbor(r: CborReader): unknown {
     }
     case 4: { // array
       const arr: unknown[] = [];
-      for (let i = 0; i < len; i++) arr.push(readCbor(r));
+      for (let i = 0; i < len; i++) arr.push(readCbor(r, depth + 1));
       return arr;
     }
     case 5: { // map
       const map = new Map<unknown, unknown>();
-      for (let i = 0; i < len; i++) { const k = readCbor(r); map.set(k, readCbor(r)); }
+      for (let i = 0; i < len; i++) {
+        const k = readCbor(r, depth + 1);
+        if (map.has(k)) throw new Error('CBOR: duplicate map key');
+        map.set(k, readCbor(r, depth + 1));
+      }
       return map;
     }
     case 7: // simple/float — only the simple values we might meet
@@ -61,6 +72,8 @@ function readCbor(r: CborReader): unknown {
 }
 
 function readLength(r: CborReader, minor: number): number {
+  const width = minor === 24 ? 1 : minor === 25 ? 2 : minor === 26 ? 4 : 0;
+  if (r.pos + width > r.buf.length) throw new Error('CBOR: truncated length');
   if (minor < 24) return minor;
   if (minor === 24) return r.buf[r.pos++];
   if (minor === 25) { const v = (r.buf[r.pos] << 8) | r.buf[r.pos + 1]; r.pos += 2; return v; }
@@ -69,7 +82,10 @@ function readLength(r: CborReader, minor: number): number {
 }
 
 function decodeCbor(buf: Uint8Array): unknown {
-  return readCbor({ buf, pos: 0 });
+  const r = { buf, pos: 0 };
+  const value = readCbor(r);
+  if (r.pos !== buf.length) throw new Error('CBOR: trailing data');
+  return value;
 }
 
 // --- COSE public key -> a node KeyObject + its algorithm --------------------
@@ -79,12 +95,14 @@ const COSE_KTY = 1, COSE_ALG = 3, COSE_CRV = -1, COSE_X = -2, COSE_Y = -3, COSE_
 interface CoseKey { key: KeyObject; alg: number; }
 
 function coseToKey(cose: Map<unknown, unknown>): CoseKey {
-  const kty = Number(cose.get(COSE_KTY));
-  const alg = Number(cose.get(COSE_ALG));
+  if (!(cose instanceof Map)) throw new Error('COSE key is not a map');
+  const kty = cose.get(COSE_KTY);
+  const alg = cose.get(COSE_ALG);
   if (kty === 2) { // EC2
     if (alg !== -7) throw new Error(`unsupported EC algorithm ${alg} (only ES256)`);
+    if (cose.get(COSE_CRV) !== 1) throw new Error('unsupported EC curve (only P-256)');
     const x = cose.get(COSE_X) as Uint8Array, y = cose.get(COSE_Y) as Uint8Array;
-    if (!(x instanceof Uint8Array) || !(y instanceof Uint8Array)) throw new Error('COSE EC key missing coordinates');
+    if (!(x instanceof Uint8Array) || !(y instanceof Uint8Array) || x.length !== 32 || y.length !== 32) throw new Error('COSE EC key missing coordinates');
     const key = createPublicKey({ format: 'jwk', key: { kty: 'EC', crv: 'P-256', x: b64url(x), y: b64url(y) } });
     return { key, alg };
   }
@@ -114,6 +132,7 @@ function parseAuthData(data: Uint8Array): AuthData {
   if (data.length < 37) throw new Error('authenticator data too short');
   const rpIdHash = Buffer.from(data.subarray(0, 32));
   const flags = data[32];
+  if ((flags & 0x10) && !(flags & 0x08)) throw new Error('backup state requires backup eligibility');
   const signCount = ((data[33] << 24) | (data[34] << 16) | (data[35] << 8) | data[36]) >>> 0;
   const out: AuthData = {
     rpIdHash,
@@ -122,23 +141,35 @@ function parseAuthData(data: Uint8Array): AuthData {
     attested: !!(flags & 0x40),
     signCount,
   };
+  let end = 37;
   if (out.attested) {
+    if (data.length < 55) throw new Error('attested data too short');
     // aaguid(16) credIdLen(2) credId(credIdLen) then the COSE key (CBOR).
     let p = 37 + 16;
     const credIdLen = (data[p] << 8) | data[p + 1];
     p += 2;
+    if (!credIdLen || credIdLen > 1023 || p + credIdLen > data.length) throw new Error('invalid credential id length');
     out.credentialId = Buffer.from(data.subarray(p, p + credIdLen));
     p += credIdLen;
     const r: CborReader = { buf: data, pos: p };
     readCbor(r); // consume the COSE key to find its byte length
     out.cosePublicKey = Buffer.from(data.subarray(p, r.pos));
+    end = r.pos;
   }
+  if (flags & 0x80) {
+    const r = { buf: data, pos: end };
+    if (!(readCbor(r) instanceof Map)) throw new Error('authenticator extensions must be a map');
+    end = r.pos;
+  }
+  if (end !== data.length) throw new Error('unexpected authenticator data');
   return out;
 }
 
 function checkClientData(clientDataJSON: Uint8Array, wantType: string, challenge: string, origin: string | string[]): void {
-  let cd: { type?: string; challenge?: string; origin?: string };
+  let cd: { type?: string; challenge?: string; origin?: string; crossOrigin?: boolean };
   try { cd = JSON.parse(Buffer.from(clientDataJSON).toString('utf8')); } catch { throw new Error('clientDataJSON is not valid JSON'); }
+  if (!cd || typeof cd !== 'object' || Array.isArray(cd)) throw new Error('invalid clientDataJSON object');
+  if (cd.crossOrigin !== undefined && cd.crossOrigin !== false) throw new Error('cross-origin passkeys are not supported');
   if (cd.type !== wantType) throw new Error(`unexpected clientData type "${cd.type}"`);
   if (cd.challenge !== challenge) throw new Error('challenge does not match');
   const origins = Array.isArray(origin) ? origin : [origin];

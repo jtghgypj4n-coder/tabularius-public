@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import type { Script } from '@tabularius/fmp12';
 import { createStore, parseScriptText, Store } from '@tabularius/store';
 import { runScript, type RunOptions } from '../src/index.ts';
+import { signSigV4 } from '../src/sigv4.ts';
 import { TEST_ONLY_CUSTOM_FETCH } from '../src/test-only.ts';
 
 let dir: string;
@@ -263,4 +264,20 @@ test('--aws-sigv4 signs the request with --user, in place of Basic', async () =>
   assert.match(h['x-amz-date'], /^\d{8}T\d{6}Z$/);
   const bad = await runCurl(`"--aws-sigv4 aws:amz -u a:b"`, `Insert from URL [ $r ; "https://example.com/" ]`, { network: echo(seen) });
   assert.equal(bad.error, 1630);
+});
+
+test('--aws-sigv4 signs raw space and Unicode URLs as fetch sends them', async () => {
+  const option = { spec: 'aws:amz:us-east-1:execute-api', user: 'AKIDEXAMPLE:secret' };
+  for (const path of ['/a b/', '/café']) {
+    const seen: { url?: string; init?: RequestInit }[] = [];
+    const r = await runCurl(JSON.stringify(`--aws-sigv4 ${option.spec} -u ${option.user}`),
+      `Insert from URL [ $r ; "https://s.com${path}?q=café + x" ]`, { network: echo(seen) });
+    assert.equal(r.error, 0);
+    assert.equal(seen.length, 1);
+    const h = seen[0].init?.headers as Record<string, string>;
+    const stamp = h['x-amz-date'];
+    const at = new Date(stamp.replace(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/, '$1-$2-$3T$4:$5:$6Z'));
+    const expected = signSigV4({ method: 'GET', url: new URL(seen[0].url!).href, headers: h }, option, at);
+    assert.equal(h.Authorization, expected.Authorization, 'the signature covers the escaped path and query on the wire');
+  }
 });
