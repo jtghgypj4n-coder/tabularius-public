@@ -49,13 +49,21 @@ function safeName(name: string): string {
 /** Paths for named objects, unique even where names differ only in case (macOS and Windows) or clash once made safe. */
 function pathsFor<T extends { id: number; name: string }>(items: T[], folder: string, ext: string, folders?: Map<number, string>): Map<T, string> {
   const out = new Map<T, string>();
-  const used = new Map<string, number>();
+  const used = new Set<string>();
+  const directories = new Set([...folders?.values() ?? []].flatMap((path) => {
+    const parts = path.split('/');
+    return parts.map((_, i) => `${folder}/${parts.slice(0, i + 1).join('/')}`.toLowerCase());
+  }));
   const sorted = [...items].sort((a, b) => a.id - b.id);
   for (const it of sorted) {
     const dir = folders?.get(it.id) ? `${folder}/${folders.get(it.id)}` : folder;
-    let p = `${dir}/${safeName(it.name)}${ext}`;
-    if (used.has(p.toLowerCase())) p = `${dir}/${safeName(it.name)} (id ${it.id})${ext}`;
-    used.set(p.toLowerCase(), it.id);
+    const base = safeName(it.name);
+    let p = `${dir}/${base}${ext}`;
+    for (let n = 0; used.has(p.toLowerCase()) || directories.has(p.toLowerCase()); n++) {
+      const suffix = n ? ` (id ${it.id}-${n + 1})` : ` (id ${it.id})`;
+      p = `${dir}/${base.slice(0, 120 - suffix.length).replace(/[. ]+$/, '')}${suffix}${ext}`;
+    }
+    used.add(p.toLowerCase());
     out.set(it, p);
   }
   return out;

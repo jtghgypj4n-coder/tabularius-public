@@ -92,6 +92,8 @@ function cleanName(raw: string, taken: Set<string>, fallback: string, reserved =
   return candidate;
 }
 
+const fitSuffix = (base: string, suffix: string) => `${base.slice(0, 100 - suffix.length).trimEnd()}${suffix}`;
+
 // --- values ------------------------------------------------------------------------------------------------------
 
 const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
@@ -256,6 +258,12 @@ function convertAll(kind: ColumnKind, vals: string[], dayFirst: boolean): boolea
  */
 export function planImportTables(sheets: SheetInput[], opts: { overrides?: ColumnOverrides; existing?: string[]; links?: boolean } = {}): ImportTablesPlan {
   if (!sheets.length) throw new StoreError(3, 'Nothing to import');
+  const sourceNames = new Set<string>();
+  for (const sheet of sheets) {
+    const key = sheet.name.toLowerCase();
+    if (sourceNames.has(key)) throw new StoreError(3, `Duplicate sheet name "${sheet.name}"`);
+    sourceNames.add(key);
+  }
   const tables = new Set((opts.existing ?? []).map((n) => n.toLowerCase()));
   const planned: PlannedSheet[] = [];
   const parsed = sheets.map((s) => {
@@ -328,6 +336,12 @@ interface Prepared { plan: PlannedSheet; rows: string[][]; fields: PlannedColumn
  */
 export function importTables(store: Store, sheets: SheetInput[], plan: ImportTablesPlan, opts: { privileges?: Privileges; account?: string } = {}): ImportTablesReport {
   if (opts.privileges && !opts.privileges.in(store).full) throw new PrivilegeError(0, 'Importing as new tables changes the file\'s design and needs [Full Access]');
+  const sourceNames = new Set<string>();
+  for (const sheet of sheets) {
+    const key = sheet.name.toLowerCase();
+    if (sourceNames.has(key)) throw new StoreError(3, `Duplicate sheet name "${sheet.name}"`);
+    sourceNames.add(key);
+  }
   const bySheet = new Map(sheets.map((s) => [s.name, s]));
   const prepared: Prepared[] = plan.sheets.map((p) => {
     const sheet = bySheet.get(p.sheet);
@@ -358,8 +372,13 @@ export function importTables(store: Store, sheets: SheetInput[], plan: ImportTab
     }
     ops.push({ op: 'createTable', name: p.plan.table, fields });
     for (const c of p.fields.filter((x) => x.kind === 'select' || x.kind === 'multi')) {
-      let name = `${p.plan.table} ${c.name}`.slice(0, 100);
-      for (let n = 2; valueLists.has(name.toLowerCase()); n++) name = `${p.plan.table} ${c.name} ${n}`.slice(0, 100);
+      const base = `${p.plan.table} ${c.name}`;
+      let name = fitSuffix(base, '');
+      for (let n = 2; valueLists.has(name.toLowerCase()); n++) {
+        const suffix = ` ${n}`;
+        if (suffix.length >= 100) throw new StoreError(3, 'Too many value lists with the same name');
+        name = fitSuffix(base, suffix);
+      }
       valueLists.add(name.toLowerCase());
       ops.push({ op: 'createValueList', name, values: c.options ?? [] });
       report.valueLists++;
@@ -381,8 +400,20 @@ export function importTables(store: Store, sheets: SheetInput[], plan: ImportTab
       report.joinTables++;
     }
   }
+  const before = {
+    layouts: new Set(store.schema.layouts.map((x) => x.id)),
+    tables: new Set(store.schema.tables.map((x) => x.id)),
+    lists: new Set(store.schema.valueLists.map((x) => x.id)),
+  };
   try {
-    store.applyDesign(ops as never);
+    const applied = store.applyDesign(ops as never).applied;
+    const layoutsByTable = new Map<string, string>();
+    for (const op of applied) {
+      if (op.op !== 'createTable' || op.layoutId === undefined) continue;
+      const layout = store.schema.layouts.find((x) => x.id === op.layoutId);
+      if (!layout) throw new StoreError(3, `The layout for "${op.name}" was not created`);
+      layoutsByTable.set(op.name, layout.name);
+    }
     const zones = { n: 0 };
     // Records: the key is the row's place in the sheet, so a link can name it.
     const idOf = new Map<string, Map<string, number[]>>();
@@ -405,7 +436,7 @@ export function importTables(store: Store, sheets: SheetInput[], plan: ImportTab
           if (value === undefined) report.unfittingValues++;
           else data[c.name] = value;
         }
-        store.create(p.plan.table, data, { account: opts.account, dateOrder: 'ISO' });
+        store.create(layoutsByTable.get(p.plan.table)!, data, { account: opts.account, dateOrder: 'ISO' });
         report.rows++;
       });
     }
@@ -421,7 +452,7 @@ export function importTables(store: Store, sheets: SheetInput[], plan: ImportTab
           if (ids.length > 1) report.ambiguousLinks++;
           if (seen.has(name)) continue;
           seen.add(name);
-          store.create(j.name, { [j.fromKey]: i + 1, [j.toKey]: ids[0], [j.nameField]: name }, { account: opts.account, dateOrder: 'ISO' });
+          store.create(layoutsByTable.get(j.name)!, { [j.fromKey]: i + 1, [j.toKey]: ids[0], [j.nameField]: name }, { account: opts.account, dateOrder: 'ISO' });
           report.links++;
         }
       });
@@ -429,35 +460,37 @@ export function importTables(store: Store, sheets: SheetInput[], plan: ImportTab
     for (const p of prepared) report.notes.push(...p.plan.notes.map((n) => `${p.plan.table}: ${n}`));
     report.tables = prepared.length;
     report.fields = prepared.reduce((n, p) => n + 1 + p.fields.length, 0);
-    for (const p of prepared) report.portals += portalFor(store, p.plan, joins.filter((j) => j.from === p), report.notes);
+    for (const p of prepared) report.portals += portalFor(store, p.plan, joins.filter((j) => j.from === p), report.notes, layoutsByTable.get(p.plan.table)!);
   } catch (e) {
-    // Nothing half-made: the tables just added go again, with their layouts and value lists.
-    const tables = ops.filter((o) => o.op === 'createTable').map((o) => String(o.name)).filter((n) => store.schema.tables.some((t) => t.name === n));
-    const layouts = store.schema.layouts.filter((l) => tables.includes(l.name)).map((l) => l.name);
-    const lists = ops.filter((o) => o.op === 'createValueList').map((o) => String(o.name)).filter((n) => store.schema.valueLists.some((v) => v.name === n));
+    // Remove exactly the objects this import created, even when a generated layout was renamed to avoid a collision.
+    const layouts = store.schema.layouts.filter((x) => !before.layouts.has(x.id));
+    const tables = store.schema.tables.filter((x) => !before.tables.has(x.id));
+    const lists = store.schema.valueLists.filter((x) => !before.lists.has(x.id));
     try {
       store.applyDesign([
-        ...layouts.map((layout) => ({ op: 'deleteLayout', layout })),
-        ...tables.reverse().map((table) => ({ op: 'deleteTable', table })),
-        ...lists.map((valueList) => ({ op: 'deleteValueList', valueList })),
+        ...layouts.map((layout) => ({ op: 'deleteLayout', layout: layout.id })),
+        ...tables.reverse().map((table) => ({ op: 'deleteTable', table: table.id })),
+        ...lists.map((valueList) => ({ op: 'deleteValueList', valueList: valueList.id })),
       ] as never);
-    } catch { /* the original error is the one to report */ }
+    } catch (cleanup) {
+      throw new AggregateError([e, cleanup], `Import failed and cleanup failed: ${String(e)}; ${String(cleanup)}`);
+    }
     throw e;
   }
   return report;
 }
 
 /** A portal on the form layout of a table, for each join table made from it, showing the linked names. */
-function portalFor(store: Store, plan: PlannedSheet, joins: { name: string; nameField: string }[], notes: string[]): number {
+function portalFor(store: Store, plan: PlannedSheet, joins: { name: string; nameField: string }[], notes: string[], layoutName: string): number {
   if (!joins.length) return 0;
   try {
     const schema = store.schema;
-    const own = schema.layouts.find((l) => l.name === plan.table);
-    const occurrence = schema.tableOccurrences.find((o) => o.name === plan.table);
+    const own = schema.layouts.find((l) => l.name === layoutName);
+    const occurrence = schema.tableOccurrences.find((o) => o.id === own?.tableOccurrenceId);
     if (!own || !occurrence) throw new Error('no layout');
     const portals = joins.map((j) => {
-      const to = schema.tableOccurrences.find((o) => o.name === j.name)!;
-      const table = schema.tables.find((t) => t.id === to.baseTableId)!;
+      const table = schema.tables.find((t) => t.name === j.name)!;
+      const to = schema.tableOccurrences.find((o) => o.baseTableId === table.id)!;
       return { occurrence: to.id, fields: table.fields.filter((f) => f.name === j.nameField).map((f) => f.id), rows: 5 };
     });
     const draft = draftLayout(schema, store.designs(), { title: plan.table, occurrence: occurrence.id, view: 'form', portals });

@@ -58,16 +58,6 @@ export interface ReconvertCheck {
   unverified?: boolean;
 }
 
-/** Checksums already worked out, by path, size and modification time, so a big file is read once. */
-const sums = new Map<string, string>();
-function sha256Of(path: string): string {
-  const st = statSync(path);
-  const key = `${path}\u0000${st.size}\u0000${st.mtimeMs}`;
-  let sum = sums.get(key);
-  if (!sum) sums.set(key, (sum = fileSha256(path)));
-  return sum;
-}
-
 export interface ReconvertResult {
   stats: { tables: number; records: number };
   /** The store as it was. */
@@ -122,9 +112,9 @@ export function reconvertCheck(storePath: string, fmp12Path: string, opts: { sam
     if (!existsSync(fmp12Path)) out.unsafe = `${fmp12Path} isn't there to convert from`;
     else if (designChanges) out.unsafe = `the design was changed in Tabularius since it was converted (${designChanges} change${designChanges === 1 ? '' : 's'})`;
     else if (source?.sha256) {
-      // By content: a copy (new modification time) is the same file; an edit in FileMaker is not.
+      // A timestamp can be preserved while bytes change, so compare the recorded content.
       const st = statSync(fmp12Path);
-      const changed = st.size !== source.size || (st.mtimeMs > importedAt && sha256Of(fmp12Path) !== source.sha256);
+      const changed = st.size !== source.size || fileSha256(fmp12Path) !== source.sha256;
       if (changed) out.unsafe = 'the .fmp12 changed since it was converted, so its records may not match';
     } else if (importedAt && statSync(fmp12Path).mtimeMs > importedAt && !opts.sameFile) {
       out.unsafe = "the .fmp12 is newer than the conversion, and this conversion is too old to tell a copy from a changed file; if it is the same file (copied), say so to keep edits";

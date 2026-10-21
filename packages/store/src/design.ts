@@ -245,6 +245,17 @@ function retiredKey(path: (string | number | { id: number })[]): string | undefi
 }
 
 const retired = (s: Schema, key: string) => s.retiredIds?.[key] ?? [];
+const retire = (s: Schema, key: string, id: number) => { ((s.retiredIds ??= {})[key] ??= []).push(id); };
+/**
+ * The id for a new object. Without one asked for, the next id that is neither live nor retired. An id asked for (a
+ * proposal drafted earlier, a replayed log, a pasted snippet, a restore) may be one a deleted object held, but never a
+ * live one: that would give two objects the same id.
+ */
+function designId(s: Schema, key: string, live: number[], requested?: number, first = 1): number {
+  if (requested === undefined) return nextId([...live, ...retired(s, key)], first);
+  if (!Number.isSafeInteger(requested) || requested < 1 || live.includes(requested)) throw invalid(`${key} id ${requested} is already used`);
+  return requested;
+}
 
 /** What a delete changed, from a snapshot taken before it; the ids it removed are kept out of use. */
 function deletePatch(st: DesignState, before: DesignState): DesignPatch {
@@ -715,6 +726,21 @@ function propagate(st: DesignState, r: Rename): void {
       if (o.hide) o.hide.formula = fx(o.hide.formula, ctx)!;
       if (o.placeholder !== undefined) o.placeholder = fx(o.placeholder, ctx);
       if (o.tooltip !== undefined) o.tooltip = fx(o.tooltip, ctx);
+      if (o.webUrl !== undefined) o.webUrl = fx(o.webUrl, ctx);
+      if (o.label !== undefined) o.label = fx(o.label, ctx);
+      if (o.activeSegmentFormula !== undefined) o.activeSegmentFormula = fx(o.activeSegmentFormula, ctx);
+      if (o.chart) {
+        const chart = o.chart;
+        const chartCtx = chart.source === 'related' ? s.tableOccurrences.find((x) => x.name === chart.occurrence)?.id : ctx;
+        for (const key of ['title', 'xTitle', 'yTitle', 'categories', 'yMin', 'yMax'] as const) {
+          if (chart[key] !== undefined) chart[key] = fx(chart[key], chartCtx);
+        }
+        for (const series of chart.series) {
+          series.data = fx(series.data, chartCtx)!;
+          for (const key of ['name', 'x', 'sizes'] as const) if (series[key] !== undefined) series[key] = fx(series[key], chartCtx);
+        }
+        if (r.kind === 'occurrence' && chart.occurrence && lower(chart.occurrence) === lower(r.from)) chart.occurrence = r.to ?? MISSING_TABLE;
+      }
       if (o.action?.parameter !== undefined) o.action.parameter = fx(o.action.parameter, ctx);
       for (const c of o.conditions ?? []) c.formula = fx(c.formula, ctx)!;
       for (const t of o.triggers ?? []) if (t.parameter !== undefined) t.parameter = fx(t.parameter, ctx);
@@ -802,6 +828,13 @@ function renameDataSource(s: Schema, id: number, from: string, to: string): void
 /** Rename a layout or script in the places that show its name (orders, steps, buttons). */
 function renameItem(st: DesignState, kind: 'layout' | 'script', id: number, from: string, to: string): void {
   const s = st.schema;
+  if (kind === 'script' && s.fileOptions) {
+    for (const key of ['onFirstWindowOpen', 'onLastWindowClose', 'onWindowOpen', 'onWindowClose'] as const) {
+      const ref = s.fileOptions[key];
+      if (ref?.scriptId === id) ref.script = to;
+    }
+  }
+  if (kind === 'layout' && s.fileOptions?.openLayoutId === id) s.fileOptions.openLayout = to;
   const order = kind === 'layout' ? s.layoutOrder : s.scriptOrder;
   for (const o of order) if (o.kind === 'item' && o.id === id) o.name = to;
   const quoted = (line: string) => line.split(`“${from}”`).join(`“${to}”`);
@@ -1434,21 +1467,21 @@ function applyOneOp(st: DesignState, op: DesignOp, deleted?: DeletedLookup): { o
       const name = checkName(op.name, 'A table');
       if (/^_fm_/i.test(name) || /^sqlite_/i.test(name)) throw invalid(`Table names can't start with "${name.slice(0, name.indexOf('_', 1) + 1)}"`);
       unique(s.tables.map((t) => t.name), name, 'Table');
-      const id = op.id ?? nextId([...s.tables.map((t) => t.id), ...retired(s, 'tables')], 129);
+      const id = designId(s, 'tables', s.tables.map((t) => t.id), op.id, 129);
       const table: Table = { id, name, fields: [] };
       s.tables.push(table);
-      for (const f of op.fields ?? []) table.fields.push(buildField(st, table, f.options ? { ...f, options: resolveFieldOptions(s, table, f.options) } : f, f.id ?? nextId([...table.fields.map((x) => x.id), ...retired(s, `fields.${id}`)])));
+      for (const f of op.fields ?? []) table.fields.push(buildField(st, table, f.options ? { ...f, options: resolveFieldOptions(s, table, f.options) } : f, designId(s, `fields.${id}`, table.fields.map((x) => x.id), f.id)));
       effects.push({ k: 'createTable', table: structuredClone(table) });
       const resolved: DesignOp = { ...op, id, fields: table.fields.map((f, i) => ({ ...(op.fields ?? [])[i], id: f.id })) };
       if (op.withLayout !== false) {
         // FileMaker adds an occurrence named after the table, and a layout for it.
         let toName = name;
         for (let n = 2; s.tableOccurrences.some((t) => lower(t.name) === lower(toName)); n++) toName = `${name} ${n}`;
-        const toId = op.occurrenceId ?? nextId([...s.tableOccurrences.map((t) => t.id), ...retired(s, 'tableOccurrences')], 129);
+        const toId = designId(s, 'tableOccurrences', s.tableOccurrences.map((t) => t.id), op.occurrenceId, 129);
         s.tableOccurrences.push({ id: toId, name: toName, baseTableId: id });
         let layoutName = name;
         for (let n = 2; s.layouts.some((l) => lower(l.name) === lower(layoutName)); n++) layoutName = `${name} ${n}`;
-        const layoutId = op.layoutId ?? nextId(s.layouts.map((l) => l.id));
+        const layoutId = designId(s, 'layouts', s.layouts.map((l) => l.id), op.layoutId);
         s.layouts.push({ id: layoutId, name: layoutName, tableOccurrenceId: toId, labels: [] });
         addLayoutToOrder(s, layoutId, layoutName);
         st.designs.layouts.push(generateLayout(st, layoutId, layoutName, toId));
@@ -1484,7 +1517,7 @@ function applyOneOp(st: DesignState, op: DesignOp, deleted?: DeletedLookup): { o
       spec.options = resolveFieldOptions(s, table, spec.options);
       // An id given (a proposal drafted earlier, or the log) must still be free.
       if (op.id !== undefined && table.fields.some((f) => f.id === op.id)) throw invalid(`${table.name} already has a field with id ${op.id}: the change was drafted before another one; draft it again`);
-      const field = buildField(st, table, spec, op.id ?? nextId([...table.fields.map((f) => f.id), ...retired(s, `fields.${table.id}`)]));
+      const field = buildField(st, table, spec, designId(s, `fields.${table.id}`, table.fields.map((f) => f.id), op.id));
       table.fields.push(field);
       // Generated layouts take the new field, and phone layouts following them are rebuilt.
       const rebuilt = addToGeneratedLayouts(st, table, field).flatMap((id) => rephone(st, id));
@@ -1621,7 +1654,7 @@ function applyOneOp(st: DesignState, op: DesignOp, deleted?: DeletedLookup): { o
     case 'createOccurrence': {
       const name = checkName(op.name, 'A table occurrence');
       unique(s.tableOccurrences.map((t) => t.name), name, 'Table occurrence');
-      const id = op.id ?? nextId([...s.tableOccurrences.map((t) => t.id), ...retired(s, 'tableOccurrences')], 129);
+      const id = designId(s, 'tableOccurrences', s.tableOccurrences.map((t) => t.id), op.id, 129);
       const to: TableOccurrence = { id, name, baseTableId: 0 };
       let resolved: DesignOp;
       if (op.file !== undefined) {
@@ -1715,7 +1748,7 @@ function applyOneOp(st: DesignState, op: DesignOp, deleted?: DeletedLookup): { o
         if (predicates) existing.predicates = predicates;
         return { op: { op: 'updateRelationship', relationship: existing.id, left: left.id, right: right.id, ...(predicates ? { predicates: predicates.map((p) => ({ left: p.leftFieldId, operator: p.operator, right: p.rightFieldId })) } : {}), ...options }, effects };
       }
-      const id = (op as { id?: number }).id ?? nextId([...s.relationships.map((r) => r.id), ...retired(s, 'relationships')]);
+      const id = designId(s, 'relationships', s.relationships.map((r) => r.id), (op as { id?: number }).id);
       // Relationships made here allow creating records on both sides unless told otherwise (FileMaker starts with it off).
       if (options.leftCreate === undefined) options.leftCreate = true;
       if (options.rightCreate === undefined) options.rightCreate = true;
@@ -1733,7 +1766,7 @@ function applyOneOp(st: DesignState, op: DesignOp, deleted?: DeletedLookup): { o
     case 'createValueList': {
       const name = checkName(op.name, 'A value list');
       unique(s.valueLists.map((v) => v.name), name, 'Value list');
-      const id = op.id ?? nextId(s.valueLists.map((v) => v.id));
+      const id = designId(s, 'valueLists', s.valueLists.map((v) => v.id), op.id);
       if (op.external !== undefined) {
         if (op.field !== undefined || op.values !== undefined) throw invalid('A value list from another file has no values or field of its own');
         const ds = find(s.dataSources, op.external?.file as Ref, 'Data source', 106);
@@ -1778,6 +1811,7 @@ function applyOneOp(st: DesignState, op: DesignOp, deleted?: DeletedLookup): { o
     case 'deleteValueList': {
       const vl = find(s.valueLists, op.valueList, 'Value list', 960);
       rekeyAccess(st, 'valueList', vl.name, null);
+      retire(s, 'valueLists', vl.id);
       s.valueLists.splice(s.valueLists.indexOf(vl), 1);
       return { op: { op: 'deleteValueList', valueList: vl.id }, effects };
     }
@@ -1811,7 +1845,7 @@ function applyOneOp(st: DesignState, op: DesignOp, deleted?: DeletedLookup): { o
       // that newer built-ins override older custom functions; evaluation and AI analysis share that order.
       // https://help.claris.com/en/pro-help/content/using-custom-functions.html
       unique(s.customFunctions.map((c) => c.name), name, 'Custom function');
-      const id = op.id ?? nextId(s.customFunctions.map((c) => c.id));
+      const id = designId(s, 'customFunctions', s.customFunctions.map((c) => c.id), op.id);
       const cf: CustomFunction = { id, name, parameters: (op.parameters ?? []).map(String), formula: String(op.formula ?? '') };
       if (languageOf(op.language) === 'javascript') cf.language = 'javascript';
       checkJavaScriptFunction(cf);
@@ -1841,13 +1875,14 @@ function applyOneOp(st: DesignState, op: DesignOp, deleted?: DeletedLookup): { o
     }
     case 'deleteCustomFunction': {
       const cf = find(s.customFunctions, op.customFunction, 'Custom function', 960);
+      retire(s, 'customFunctions', cf.id);
       s.customFunctions.splice(s.customFunctions.indexOf(cf), 1);
       return { op: { op: 'deleteCustomFunction', customFunction: cf.id }, effects };
     }
     case 'createDataSource': {
       const name = checkName(op.name, 'A data source');
       unique(s.dataSources.map((d) => d.name), name, 'Data source');
-      const id = op.id ?? nextId([...s.dataSources.map((d) => d.id), ...retired(s, 'dataSources')]);
+      const id = designId(s, 'dataSources', s.dataSources.map((d) => d.id), op.id);
       const paths = dataSourcePaths(op.paths);
       s.dataSources.push({ id, name, paths });
       return { op: { ...op, id, paths }, effects };
@@ -1877,6 +1912,7 @@ function applyOneOp(st: DesignState, op: DesignOp, deleted?: DeletedLookup): { o
       if (tos.length || steps.length) {
         throw invalid(`"${ds.name}" is in use: ${[...tos.map((t) => `table occurrence ${t}`), ...steps.map((n) => `script ${n}`)].slice(0, 6).join(', ')}${tos.length + steps.length > 6 ? ', ...' : ''}`);
       }
+      retire(s, 'dataSources', ds.id);
       s.dataSources.splice(s.dataSources.indexOf(ds), 1);
       return { op: { op: 'deleteDataSource', dataSource: ds.id }, effects };
     }
@@ -1923,7 +1959,7 @@ function applyOneOp(st: DesignState, op: DesignOp, deleted?: DeletedLookup): { o
       }
       if (op.occurrence === undefined) throw invalid('A layout needs an occurrence');
       const to = find(s.tableOccurrences, op.occurrence, 'Table occurrence', 106);
-      const id = op.id ?? nextId(s.layouts.map((l) => l.id));
+      const id = designId(s, 'layouts', s.layouts.map((l) => l.id), op.id);
       s.layouts.push({ id, name, tableOccurrenceId: to.id, labels: [] });
       addLayoutToOrder(s, id, name);
       // A design with no objects (just {"view": "list"}) gets the objects generated for that view.
@@ -1989,6 +2025,7 @@ function applyOneOp(st: DesignState, op: DesignOp, deleted?: DeletedLookup): { o
     case 'deleteLayout': {
       const layout = find(s.layouts, op.layout, 'Layout', 105);
       rekeyAccess(st, 'layout', layout.name, null);
+      retire(s, 'layouts', layout.id);
       s.layouts.splice(s.layouts.indexOf(layout), 1);
       removeFromOrder(s.layoutOrder, layout.id);
       st.designs.layouts = st.designs.layouts.filter((d) => d.id !== layout.id);
@@ -1998,7 +2035,7 @@ function applyOneOp(st: DesignState, op: DesignOp, deleted?: DeletedLookup): { o
       const components = (st.designs.components ??= []);
       const name = checkName(op.name, 'A component');
       unique(components.map((c) => c.name), name, 'Component');
-      const id = op.id ?? nextId(components.map((c) => c.id));
+      const id = designId(s, 'components', components.map((c) => c.id), op.id);
       if (op.layout === undefined) {
         if (!Array.isArray(op.objects) || !op.objects.length) throw invalid('A component needs objects: give them, or a layout and the ids of objects on it');
         checkComponentObjects(s, op.objects);
@@ -2059,13 +2096,14 @@ function applyOneOp(st: DesignState, op: DesignOp, deleted?: DeletedLookup): { o
     case 'deleteComponent': {
       const components = st.designs.components ?? [];
       const component = find(components, op.component, 'Component', 960);
+      retire(s, 'components', component.id);
       components.splice(components.indexOf(component), 1);
       return { op: { op: 'deleteComponent', component: component.id }, effects, also: resync(st, component.id) };
     }
     case 'createScript': {
       const name = checkName(op.name, 'A script');
       unique(s.scripts.map((x) => x.name), name, 'Script');
-      const id = op.id ?? nextId(s.scripts.map((x) => x.id));
+      const id = designId(s, 'scripts', s.scripts.map((x) => x.id), op.id);
       const steps = buildSteps(op.text !== undefined ? parseScriptText(op.text, s) : op.steps);
       s.scripts.push({ id, name, steps });
       if (s.scriptOrder.length) s.scriptOrder.push({ id, name, kind: 'item', depth: 0 });
@@ -2097,6 +2135,8 @@ function applyOneOp(st: DesignState, op: DesignOp, deleted?: DeletedLookup): { o
     }
     case 'deleteScript': {
       const script = find(s.scripts, op.script, 'Script', 104);
+      renameItem(st, 'script', script.id, script.name, '<Script Missing>');
+      retire(s, 'scripts', script.id);
       rekeyAccess(st, 'script', script.name, null);
       s.scripts.splice(s.scripts.indexOf(script), 1);
       removeFromOrder(s.scriptOrder, script.id);
@@ -2105,7 +2145,7 @@ function applyOneOp(st: DesignState, op: DesignOp, deleted?: DeletedLookup): { o
     case 'createCustomMenu': {
       const name = checkName(op.name, 'A custom menu');
       unique(s.customMenus.map((m) => m.name), name, 'Custom menu');
-      const id = op.id ?? nextId(s.customMenus.map((m) => m.id));
+      const id = designId(s, 'customMenus', s.customMenus.map((m) => m.id), op.id);
       const menu: CustomMenu = { id, name, items: [] };
       if (op.basedOn !== undefined) menu.basedOn = Number(op.basedOn);
       if (optionalText(op.comment)) menu.comment = String(op.comment);
@@ -2129,6 +2169,7 @@ function applyOneOp(st: DesignState, op: DesignOp, deleted?: DeletedLookup): { o
     }
     case 'deleteCustomMenu': {
       const menu = find(s.customMenus, op.customMenu, 'Custom menu', 960);
+      retire(s, 'customMenus', menu.id);
       s.customMenus.splice(s.customMenus.indexOf(menu), 1);
       // Submenu items that showed it and its place in menu sets go too.
       for (const m of s.customMenus) m.items = m.items.filter((i) => i.submenuId !== menu.id);
@@ -2139,7 +2180,7 @@ function applyOneOp(st: DesignState, op: DesignOp, deleted?: DeletedLookup): { o
       const name = checkName(op.name, 'A menu set');
       unique(s.customMenuSets.map((m) => m.name), name, 'Menu set');
       // Id 1 is FileMaker's standard menus.
-      const id = op.id ?? nextId(s.customMenuSets.map((m) => m.id), 2);
+      const id = designId(s, 'customMenuSets', s.customMenuSets.map((m) => m.id), op.id, 2);
       const set = { id, name, menuIds: menuIds(s, op.menus), ...(optionalText(op.comment) ? { comment: String(op.comment) } : {}) };
       s.customMenuSets.push(set);
       return { op: { ...op, id, menus: set.menuIds }, effects };
@@ -2157,6 +2198,7 @@ function applyOneOp(st: DesignState, op: DesignOp, deleted?: DeletedLookup): { o
     }
     case 'deleteMenuSet': {
       const set = find(s.customMenuSets, op.menuSet, 'Menu set', 960);
+      retire(s, 'customMenuSets', set.id);
       s.customMenuSets.splice(s.customMenuSets.indexOf(set), 1);
       if (s.defaultMenuSetId === set.id) delete s.defaultMenuSetId;
       // Layouts that used it go back to the file's default.

@@ -7,7 +7,7 @@ import { basename } from 'node:path';
 import { closeSync, existsSync, openSync, readSync, rmSync, statSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { FmpDatabase, containerBlobs, containerRefId, readImageLibrary, readLayoutDesigns, type FieldType, type LayoutDesigns, type Schema } from '../../fmp12/src/index.ts';
-import { applyOp, emptySchema, type DesignOp } from './design.ts';
+import { applyOps, emptySchema, type DesignOp } from './design.ts';
 import { ensurePrivilegeTables } from './privileges.ts';
 import { StoreFormatError, refuseNewer } from './store-format.ts';
 
@@ -115,30 +115,36 @@ export function writeDesign(sql: DatabaseSync, schema: Schema, designs: LayoutDe
  * changes made since the import are applied again on top.
  */
 export function importDesigns(sql: DatabaseSync, db: FmpDatabase, log: (msg: string) => void = () => {}): void {
-  sql.exec(`CREATE TABLE IF NOT EXISTS _fm_images (id INTEGER PRIMARY KEY, filename TEXT, mime TEXT NOT NULL, data BLOB NOT NULL)`);
-  ensureDesignLog(sql);
-  const state = { schema: db.schema, designs: readLayoutDesigns(db.file, db.schema) };
-  const ops = (sql.prepare(`SELECT seq, op FROM ${DESIGN_LOG} ORDER BY seq`).all() as { seq: number; op: string }[]);
-  for (const row of ops) {
-    try {
-      const op = JSON.parse(row.op) as DesignOp;
-      // Only persisted design history can replay a restore after its trash entry is gone.
-      // Live design requests must resolve the deletion from the store, never from op.patch.
-      const recorded = op.op === 'restoreDeleted' && op.patch ? { patch: op.patch } : undefined;
-      applyOp(state, op, recorded ? () => recorded : undefined);
-    } catch (e) {
-      log(`design change ${row.seq} could not be applied again: ${(e as Error).message}`);
+  sql.exec('SAVEPOINT import_designs');
+  try {
+    sql.exec(`CREATE TABLE IF NOT EXISTS _fm_images (id INTEGER PRIMARY KEY, filename TEXT, mime TEXT NOT NULL, data BLOB NOT NULL)`);
+    ensureDesignLog(sql);
+    let state = { schema: db.schema, designs: readLayoutDesigns(db.file, db.schema) };
+    const ops = (sql.prepare(`SELECT seq, op FROM ${DESIGN_LOG} ORDER BY seq`).all() as { seq: number; op: string }[]);
+    for (const row of ops) {
+      try {
+        const op = JSON.parse(row.op) as DesignOp;
+        // Only persisted design history can replay a restore after its trash entry is gone.
+        // Live design requests must resolve the deletion from the store, never from op.patch.
+        const recorded = op.op === 'restoreDeleted' && op.patch ? { patch: op.patch } : undefined;
+        state = applyOps(state, [op], recorded ? () => recorded : undefined).state;
+      } catch (e) {
+        log(`design change ${row.seq} could not be applied again: ${(e as Error).message}`);
+        throw e;
+      }
     }
+    writeDesign(sql, state.schema, state.designs);
+    const off = applyFileAccountStatus(sql);
+    if (off.length) log(`turned off ${off.length} account${off.length === 1 ? '' : 's'} that the FileMaker file has switched off: ${off.join(', ')}`);
+    sql.prepare('INSERT INTO _fm_meta VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET json = excluded.json').run('designVersion', JSON.stringify(DESIGN_VERSION));
+    sql.exec('DELETE FROM _fm_images');
+    const addImage = sql.prepare('INSERT INTO _fm_images VALUES (?, ?, ?, ?)');
+    for (const [id, img] of readImageLibrary(db.file)) addImage.run(id, img.filename ?? null, img.mime, img.data);
+    sql.exec('RELEASE import_designs');
+  } catch (e) {
+    sql.exec('ROLLBACK TO import_designs; RELEASE import_designs');
+    throw e;
   }
-  sql.exec('BEGIN');
-  writeDesign(sql, state.schema, state.designs);
-  const off = applyFileAccountStatus(sql);
-  if (off.length) log(`turned off ${off.length} account${off.length === 1 ? '' : 's'} that the FileMaker file has switched off: ${off.join(', ')}`);
-  sql.prepare('INSERT INTO _fm_meta VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET json = excluded.json').run('designVersion', JSON.stringify(DESIGN_VERSION));
-  sql.exec('DELETE FROM _fm_images');
-  const addImage = sql.prepare('INSERT INTO _fm_images VALUES (?, ?, ?, ?)');
-  for (const [id, img] of readImageLibrary(db.file)) addImage.run(id, img.filename ?? null, img.mime, img.data);
-  sql.exec('COMMIT');
 }
 
 /** Set once a store's accounts carry the file's Active/Inactive status (see applyFileAccountStatus). */
