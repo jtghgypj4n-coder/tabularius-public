@@ -64,12 +64,14 @@ export function connectionCard(ref: { name: string }, db: string, token: string)
         if (!input.value) return;
         save.disabled = true;
         try {
-          const r = await call('PUT', `/secrets/${enc(s.name)}`, { value: input.value });
+          const pending = call('PUT', `/secrets/${enc(s.name)}`, { value: input.value });
           input.value = '';
+          const r = await pending;
           status.textContent = '';
           draw(r.connection);
         } catch (e) {
-          status.textContent = (e as Error).message;
+          // This response follows a credential submission; an upstream error may echo its body.
+          status.textContent = 'Could not save the credential. Enter it again to retry.';
           save.disabled = false;
         }
       });

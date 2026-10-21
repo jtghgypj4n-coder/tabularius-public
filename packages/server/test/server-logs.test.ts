@@ -2,15 +2,13 @@
 // records, filtering, rotation and download.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Server } from 'node:http';
 import { serve } from '../src/index.ts';
 import { ServerLogs, logTime, parseLogLimit, parseLogTime, redactPath } from '../src/server-logs.ts';
-
-const fixture = join(import.meta.dirname, '..', '..', '..', 'fixtures', 'fmp12', 'Charts.fmp12');
-const skip = existsSync(fixture) ? false : 'fixtures missing: run npm run fixtures';
+import { createStore, Store } from '../../store/src/index.ts';
 
 test('entries are read back newest first, filtered, across the log and its older half', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'tabularius-logs-'));
@@ -60,9 +58,14 @@ let dir: string;
 let server: Server;
 let base: string;
 before(async () => {
-  if (skip) return;
   dir = mkdtempSync(join(tmpdir(), 'tabularius-logviewer-'));
-  copyFileSync(fixture, join(dir, 'Charts.fmp12'));
+  const path = join(dir, 'Charts.openhbam.sqlite');
+  createStore(path);
+  const synthetic = new Store(path, 'Charts');
+  try {
+    synthetic.applyDesign([{ op: 'createTable', name: 'Congress', fields: [{ name: 'State', type: 'text' }] }]);
+    synthetic.create('Congress', { State: 'Test' });
+  } finally { synthetic.close(); }
   const s = await serve({ dir, port: 0, log: () => {} });
   server = s.server;
   base = s.url;
@@ -80,7 +83,7 @@ after(async () => {
 const admin = (path: string, init: RequestInit = {}) => fetch(`${base}/tabularius/admin/v1/${path}`, { ...init, headers: { 'x-tabularius-admin': '1', ...init.headers } });
 const entries = async (log: string, query = '') => (await (await admin(`logs/${log}${query}`)).json()).entries as { type: string; source: string; message: string }[];
 
-test('sign-ins, Data API calls, server scripts and admin changes are logged and shown in the console', { skip }, async () => {
+test('sign-ins, Data API calls, server scripts and admin changes are logged and shown in the console', async () => {
   const data = `${base}/fmi/data/vLatest/databases/Charts`;
   const signIn = (password: string) => fetch(`${data}/sessions`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Basic ' + btoa(`Ann:${password}`) }, body: '{}' }).then((r) => r.json());
   assert.equal((await signIn('wrong')).messages[0].code, '212');
