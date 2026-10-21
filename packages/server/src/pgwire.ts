@@ -26,7 +26,7 @@ import { FAULT_MESSAGE, isFault, logFault } from './fault-log.ts';
 import { createServer, type Server, type Socket } from 'node:net';
 import { createSecureContext, TLSSocket } from 'node:tls';
 import { randomBytes } from 'node:crypto';
-import { addressBucket, endTransaction, PrivilegeError, spendPasswordCheck, StoreError, writer, type Privileges, type Store, type Transaction } from '../../store/src/index.ts';
+import { addressBucket, endTransaction, PrivilegeError, schemaVisibility, spendPasswordCheck, StoreError, writer, type Privileges, type Store, type Transaction } from '../../store/src/index.ts';
 import { monotonicClock } from '../../store/src/monotonic.ts';
 import { secondFileSqlRefusal } from './sql-second-file.ts';
 import { executeWrite, parseWrite, returningColumns, WriteRefusal, type WritePlan, type WriteResult } from './pgwrite.ts';
@@ -811,7 +811,7 @@ class Connection {
         return call ? values[call.toLowerCase()] : `'${this.user.replace(/'/g, "''")}'`;
       });
     // A table of another file that the account may not read answers as a table that isn't there.
-    const translated = this.store!.calc.translateSQL(pgFunctions, undefined, undefined, (file) => this.privileges!.in(file).readsEverything);
+    const translated = this.store!.calc.translateSQL(pgFunctions, undefined, undefined, (file) => this.privileges!.in(file).readsEverything, this.privileges);
     let { sql: text } = translated;
     const { target } = translated;
     if (!this.privileges!.in(target).readsEverything) {
@@ -847,9 +847,11 @@ class Connection {
         const t = store.calc.occurrenceTable(to.id);
         // A table of another file is listed only when the account reads everything in that file, as a query of it is.
         if (!t || !this.privileges!.in(t.store).readsEverything) return [];
+        const visible = schemaVisibility(this.privileges!.in(t.store))!;
+        if (!visible(t.table.name)) return [];
         // The columns a query of it returns, typed as results are.
         const { names, types, fieldTypes } = t.store.describeTyped(`SELECT * FROM "${t.table.name.replace(/"/g, '""')}"`);
-        const columns = columnsOf(names, types, [], fieldTypes).filter((c) => !c.name.startsWith('_fm_'));
+        const columns = columnsOf(names, types, [], fieldTypes).filter((c) => !c.name.startsWith('_fm_') && visible(t.table.name, c.name));
         return [{ oid: FIRST_TABLE_OID + i, name: to.name, columns }];
       }),
     };

@@ -190,7 +190,7 @@ test('regression: HTTP, wire Q and Parse refuse quoted pragma and dbstat probes'
     for (const wire of [await client.simple(sql), await client.parse(sql)]) {
       assert.ok(wire.error, sql);
       assert.deepEqual(wire.rows, [], sql);
-      assert.match(wire.error.message, /catalog|internal tables/);
+      assert.match(wire.error.message, /catalog|internal tables|can't use (?:a schema name|dbstat|pragma_)/);
       assert.doesNotMatch(JSON.stringify([body, wire.error]), /OtherPrivateTable|OtherPrivateField|other-private-data|hidden-field-data/);
     }
   }
