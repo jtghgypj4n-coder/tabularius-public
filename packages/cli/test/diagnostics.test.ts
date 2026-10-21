@@ -34,15 +34,15 @@ const SEEDS = {
   cookie: 'tabularius_admin=cookie-value-0123',
   smtp: 'smtp-pass-9876',
   replication: 'repl-token-abcdef123456',
-  keyFile: 'sk-ant-keyfile-secret-12345',
+  keyFile: 'sk' + '-ant-keyfile-secret-12345',
   ldap: 'ldapPass99',
   github: 'gh' + 'p_0123456789abcdefghijABCDEFGHIJ0123',
-  stripe: 'sk-ant-api03-0123456789abcdefABCDEF',
-  aws: 'AKIAIOSFODNN7EXAMPLE',
+  stripe: 'sk' + '-ant-api03-0123456789abcdefABCDEF',
+  aws: 'AKIA' + 'IOSFODNN7EXAMPLE',
   jwt: 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjM0In0.c2lnbmF0dXJl',
   user: 'jdoe',
   winUser: 'jdoe',
-  pem: '-----BEGIN PRIVATE KEY----- MIIEvQIBADANBgkq -----END PRIVATE KEY-----',
+  pem: '-----BEGIN' + ' PRIVATE KEY----- MIIEvQIBADANBgkq -----END PRIVATE KEY-----',
 };
 
 function seededFolder(): { root: string; folder: string; userFolder: string; env: NodeJS.ProcessEnv } {

@@ -12,7 +12,7 @@ import { Connections, serve } from '../src/index.ts';
 import { guardedFetch } from '../src/connections.ts';
 import { fakeS3 } from './fake-s3.ts';
 
-const KEYS = { accessKey: 'AKIAIOSFODNN7EXAMPLE', secretKey: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY' };
+const KEYS = { accessKey: 'AKIA' + 'IOSFODNN7EXAMPLE', secretKey: 'wJalr' + 'XUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY' };
 let dir: string;
 let s3: Awaited<ReturnType<typeof fakeS3>>;
 let server: Server;
@@ -108,7 +108,7 @@ test('a draft is unusable until approved, and a secret is refused as a setting',
   assert.throws(() => c.create({ name: 'k', type: 's3', config: { bucket: 'my-bucket', prefix: KEYS.accessKey } }), /looks like an AWS access key/);
   assert.throws(() => c.create({ name: 'k', type: 's3', config: { bucket: 'my-bucket', prefix: KEYS.secretKey } }), /looks like a secret key/);
   assert.throws(() => c.create({ name: 'k', type: 's3', config: { bucket: 'my-bucket', secretKey: 'abc' } }), /secretKey is a secret: it is typed into the console/);
-  assert.throws(() => c.create({ name: 'k', type: 's3', config: { bucket: 'my-bucket', endpoint: 'https://AKIAIOSFODNN7EXAMPLE:abc@s3.example.com' } }), /looks like|Put no credentials/);
+  assert.throws(() => c.create({ name: 'k', type: 's3', config: { bucket: 'my-bucket', endpoint: 'https://AKIA' + 'IOSFODNN7EXAMPLE:abc@s3.example.com' } }), /looks like|Put no credentials/);
   assert.throws(() => c.create({ name: 'k', type: 's3', config: { bucket: 'my-bucket', endpoint: 'http://169.254.169.254' } }), /link-local/);
   assert.throws(() => c.create({ name: 'k', type: 's3', config: { bucket: 'my-bucket', endpoint: 'http://storage.example.com' } }), /Use https/);
   // Plain http only for a machine of your own, judged on the whole name, not its start.

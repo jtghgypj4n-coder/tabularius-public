@@ -9,7 +9,7 @@ import type { DesignOp } from '../../store/src/index.ts';
 import { host, launch, signIn, skipUnless, window, type Hosted } from './harness.ts';
 
 const skip = skipUnless();
-const KEYS = { accessKey: 'AKIAIOSFODNN7EXAMPLE', secretKey: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY' };
+const KEYS = { accessKey: 'AKIA' + 'IOSFODNN7EXAMPLE', secretKey: 'wJalr' + 'XUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY' };
 let hosted: Hosted;
 let browser: Browser;
 

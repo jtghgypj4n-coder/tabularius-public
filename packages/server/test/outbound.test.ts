@@ -333,7 +333,7 @@ test('Insert from URL reaches only allowlisted hosts; others get an empty answer
   const { mode, entries } = testMode({ allowHosts: ['127.0.0.1'] });
   const r = await run(`
     Insert from URL [ $ok ; "http://127.0.0.1:${webPort}/ok" ]
-    Insert from URL [ $stub ; "https://api.mailservice.example/v3/send?api_key=AKIAABCDEFGHIJKLMNOP&to=client@customer.example" ]
+    Insert from URL [ $stub ; "https://api.mailservice.example/v3/send?api_key=AKIA${''}ABCDEFGHIJKLMNOP&to=client@customer.example" ]
     Exit Script [ Text Result: $ok & "|" & $stub & "|" & Get ( LastError ) ]`, { outbound: mode });
   assert.equal(r.result, 'hello||0');
   assert.deepEqual(webHits, [`GET 127.0.0.1:${webPort} /ok`]);

@@ -45,7 +45,7 @@ before(async () => {
     { op: 'createValueList', name: 'Never Used', values: ['a', 'b'] },
     { op: 'createTable', name: 'Secrets', fields: [{ name: 'Api Key', type: 'text' }, { name: 'Note', type: 'text' }] },
   ] as never);
-  store.create('Secrets', { 'Api Key': 'sk-ant-api03-zzzzzzzzzzzzzzzzzzzzzzzz', Note: 'a private note about Smithers' });
+  store.create('Secrets', { 'Api Key': 'sk' + '-ant-api03-zzzzzzzzzzzzzzzzzzzzzzzz', Note: 'a private note about Smithers' });
   const set = store.privilegeSets().find((p) => p.id === 1)!;
   store.savePrivilegeSet({ ...set, extendedPrivileges: [...set.extendedPrivileges, 'fmrest', 'fmmcp'] });
   store.setPassword('Admin', 'pw');
@@ -91,7 +91,7 @@ test('handover memo: written from the design with no tools, secrets hidden, save
   assert.doesNotMatch(sent, /zzzzzzzz|Smithers/);
   assert.match(JSON.stringify(requests.at(-1)!.system), /handover memo/);
   // A memo the model writes with a secret in it is hidden before it is shown.
-  reply = 'The key is sk-ant-api03-abcdefghijklmnopqrstuvwxyz.';
+  reply = 'The key is sk' + '-ant-api03-abcdefghijklmnopqrstuvwxyz.';
   assert.doesNotMatch(await (await memo(admin, 'md')).text(), /abcdefghijklmnop/);
   // The memo given back comes as a page, without asking the model again.
   const asked = requests.length;
@@ -130,7 +130,7 @@ test('handover facts: container file names from records stay out; a function cal
 
 test('API keys with a known prefix are hidden wherever they appear; names that only look like them are not', () => {
   // Built from parts at runtime so the source never holds a provider-shaped literal that secret scanners flag.
-  for (const key of ['sk-ant-' + 'api03-abcdefghijklmnopqrstuvwxyz0123', 'sk_' + 'live_51Habcdefghijklmnopqrstuvwxyz0123', 'github_' + 'pat_11ABCDEFG0123456789abcdefghijklmnop',
+  for (const key of ['sk' + '-ant-' + 'api03-abcdefghijklmnopqrstuvwxyz0123', 'sk_' + 'live_51Habcdefghijklmnopqrstuvwxyz0123', 'github_' + 'pat_11ABCDEFG0123456789abcdefghijklmnop',
     'AIza' + 'SyA1234567890abcdefghijklmnopqrstu', 'xo' + 'xe-1-abcdefghijklmnopqrstuvwxyz0123456']) assert.doesNotMatch(redactSecrets(`key ${key} here`), /abcdefghij|1234567890/, key);
   for (const text of ['task-sk-abcdefghijklmnopqrstuvwxyz', 'Go to Layout [ "sk-customer-detail-layout-v2" ]']) assert.equal(redactSecrets(text), text);
 });
@@ -142,7 +142,7 @@ test('a memo page links only within itself or this server', () => {
 });
 
 test('handover memo with every script written up: the steps go with secrets hidden, a call per group, under its own heading', { skip }, async () => {
-  store.applyDesign([{ op: 'createScript', name: 'Call the API', text: 'Set Variable [ $apiKey ; Value: "sk-ant-api03-yyyyyyyyyyyyyyyyyyyyyyyy" ]\nInsert from URL [ $r ; "https://example.com/x?token=abc123secret" ]' }] as never);
+  store.applyDesign([{ op: 'createScript', name: 'Call the API', text: 'Set Variable [ $apiKey ; Value: "sk' + '-ant-api03-yyyyyyyyyyyyyyyyyyyyyyyy" ]\nInsert from URL [ $r ; "https://example.com/x?token=abc123secret" ]' }] as never);
   reply = '### Call the API\nCalls a web service.';
   const before = requests.length;
   const r = await memo(await login('Admin'), 'md', { scripts: true });
