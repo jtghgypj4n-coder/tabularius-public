@@ -64,6 +64,8 @@ export async function copyVerifiedDatabase(source: string, target: string, passp
   try {
     copyFileSync(source, copy);
     afterCopy();
+    // A manifest that was checked and has no checksum for this file is not a manifest that vouches for it.
+    if (checkedSums && !sum) throw new Error(`${file}: missing checksum in ${join(setDir, 'backup.json')}`);
     if (sum && await checksum(copy) !== sum) throw new Error(`${file}: changed on disk since it was taken (checksum)`);
     if (copy !== target) {
       if (!passphrase) throw new Error(`${file} is encrypted: set TABULARIUS_BACKUP_KEY to its passphrase`);

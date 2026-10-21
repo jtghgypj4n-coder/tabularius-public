@@ -720,3 +720,144 @@ test('encrypted: a point-in-time restore uses the container files of the manifes
   await restoreAt(again.folder, again.dest, again.at, 'A', KEY, { get signal() { plantContainerFile(again.set); return undefined; } } as never);
   assert.equal(existsSync(join(again.folder, 'Files', 'A', 'Docs', 'planted.txt')), false, 'restoreAt');
 });
+
+// Follow-ups from the second review of the signing change. As above, each of these fails when the check it names is taken out.
+
+test('encrypted: every signed part is signed on its own (a log count or chain, a container size, a container time)', async (t) => {
+  const w = await manyLogs(t);
+  const good = manifest(w.set);
+  const edits: [string, (i: any) => void][] = [
+    ['the count of saved logs', (i) => { i.logs.A.n -= 1; }],
+    ['the chain over the saved logs', (i) => { i.logs.A.head = '0'.repeat(64); }],
+    ['a database\'s logs removed from the list', (i) => { delete i.logs.A; }],
+  ];
+  for (const [what, edit] of edits) {
+    const info = structuredClone(good);
+    edit(info);
+    writeManifest(w.set, info);
+    await assert.rejects(restoreAt(w.folder, w.dest, w.at, 'A', KEY), /signature|does not match/i, what);
+  }
+  const x = await world(t, KEY, { external: true });
+  const rel = Object.keys(manifest(x.set).external)[0];
+  const original = manifest(x.set);
+  for (const [what, edit] of [
+    ['only the size', (i: any) => { i.external[rel].size += 1; }],
+    ['only the time', (i: any) => { i.external[rel].mtimeMs += 1000; }],
+  ] as [string, (i: any) => void][]) {
+    const info = structuredClone(original);
+    edit(info);
+    writeManifest(x.set, info);
+    await refused(x, /signature|doesn't match|does not match|altered/i, what);
+  }
+});
+
+test('encrypted: a set signed by the earlier form of signature counts as unsigned: said so, restorable on request, and replaced by signing again', async (t) => {
+  const w = await world(t, KEY);
+  const info = manifest(w.set);
+  info.auth.v = 1;
+  writeManifest(w.set, info);
+  await refused(w, /earlier version/i, 'an older signature is not trusted');
+  assert.deepEqual((await restoreBackup(w.folder, w.set, undefined, KEY, { acceptUnsigned: true })).sort(), w.names);
+  const check = await verifySet(w.set, KEY);
+  assert.equal(check.unsigned, true);
+  const signed = await verifySet(w.set, KEY, { sign: true });
+  assert.equal(signed.ok, true);
+  assert.equal(manifest(w.set).auth.v, 2);
+  assert.deepEqual((await restoreBackup(w.folder, w.set, undefined, KEY)).sort(), w.names);
+});
+
+/** Point-in-time backups following one set, with a second full backup of the same folder to switch to. */
+async function twoSets(t: { after(fn: () => void): void }) {
+  const root = mkdtempSync(join(tmpdir(), 'backup-tamper-follow-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const folder = join(root, 'live');
+  const dest = join(root, 'dest');
+  mkdirSync(folder);
+  createStore(join(folder, 'A.openhbam.sqlite'));
+  process.env.TABULARIUS_BACKUP_KEY = KEY;
+  t.after(() => { delete process.env.TABULARIUS_BACKUP_KEY; });
+  const host = new Host(folder);
+  const messages: string[] = [];
+  const p = await scheduleProgressive(host, { every: 3_600_000, dest, log: (m) => messages.push(m) });
+  t.after(() => { p.stop(); host.close(); });
+  const second = (await backupFolder(folder, dest, 0, KEY)).dir;
+  const change = async (table: string) => {
+    host.get('A')!.applyDesign([{ op: 'createTable', name: table }]);
+    await sleep(20);
+    p.run();
+    await sleep(20);
+  };
+  return { root, folder, dest, host, p, second, messages, change };
+}
+
+test('encrypted: point-in-time backups do not start in a set whose manifest was edited, or that has copies but no signature', async (t) => {
+  for (const [what, damage, why] of [
+    ['edited', (i: any) => { i.finished['A.openhbam.sqlite'] = new Date(0).toISOString(); }, /signature|does not match/],
+    ['unsigned', (i: any) => { delete i.auth; }, /no signature/],
+  ] as [string, (i: any) => void, RegExp][]) {
+    const w = await twoSets(t);
+    const info = manifest(w.second);
+    damage(info);
+    writeManifest(w.second, info);
+    w.p.follow(w.second);
+    assert.ok(w.messages.some((m) => /not saved/.test(m) && why.test(m)), `${what}: ${w.messages.join('\n')}`);
+    await w.change('Notes');
+    assert.equal(existsSync(join(w.second, 'progressive')), false, `${what}: no log was written into a set that could not list it`);
+  }
+});
+
+test('encrypted: a manifest that loses its signature while point-in-time backups follow its set is not signed again', async (t) => {
+  const w = await world(t, KEY);
+  const { openAmenderSync } = await import('../src/backup-auth.ts');
+  const amender = openAmenderSync(w.set, KEY);
+  amender.amend((i) => { i.finished = { ...i.finished }; });
+  const info = manifest(w.set);
+  delete info.auth;
+  writeManifest(w.set, info);
+  assert.throws(() => amender.amend(() => {}), /lost its signature/);
+  assert.equal(manifest(w.set).auth, undefined, 'and was not signed over');
+  // A manifest that never listed anything is the one case where a set starts its own signature, and it takes more than a missing signature to look like one.
+  const empty = mkdtempSync(join(tmpdir(), 'backup-tamper-empty-'));
+  t.after(() => rmSync(empty, { recursive: true, force: true }));
+  writeFileSync(join(empty, 'backup.json'), JSON.stringify({ finished: { 'A.openhbam.sqlite': new Date(0).toISOString() } }));
+  assert.throws(() => openAmenderSync(empty, KEY), /no signature/, 'a manifest that lists a time is not empty');
+  writeFileSync(join(empty, 'backup.json'), JSON.stringify({}));
+  openAmenderSync(empty, KEY).amend((i) => { i.sha256 = {}; i.finished = {}; });
+  assert.ok(manifest(empty).auth.mac);
+});
+
+test('encrypted: the next backup copies a container file again when the set it would link it from does not check out', async (t) => {
+  const w = await world(t, KEY, { external: true });
+  const dest = join(w.root, 'dest');
+  const rel = Object.keys(manifest(w.set).external)[0];
+  const old = join(w.set, ...rel.split('/')) + '.enc';
+  // The control: an untouched previous set is linked to.
+  const linked = (await backupFolder(w.folder, dest, 0, KEY)).dir;
+  assert.equal(statSync(join(linked, ...rel.split('/')) + '.enc').ino, statSync(old).ino, 'a container file that did not change is linked to the previous copy');
+  // The previous set's manifest was edited (a part that has nothing to do with the container file): none of it is reused.
+  const info = manifest(linked);
+  info.finished[w.names[0]] = new Date(0).toISOString();
+  writeManifest(linked, info);
+  const next = (await backupFolder(w.folder, dest, 0, KEY)).dir;
+  assert.notEqual(statSync(join(next, ...rel.split('/')) + '.enc').ino, statSync(join(linked, ...rel.split('/')) + '.enc').ino, 'copied again, not linked');
+});
+
+test('a manifest that was checked but has no checksum for a copy does not restore it', async (t) => {
+  const { copyVerifiedDatabase } = await import('../src/backup-verify.ts');
+  const w = await world(t, '');
+  const target = join(w.root, 'out.sqlite');
+  await assert.rejects(copyVerifiedDatabase(join(w.set, w.names[0]), target, undefined, undefined, {}), /missing checksum/);
+  await copyVerifiedDatabase(join(w.set, w.names[0]), target, undefined, undefined, { [w.names[0]]: manifest(w.set).sha256[w.names[0]] });
+  assert.ok(existsSync(target));
+});
+
+for (const [label, key] of modes) {
+  test(`${label}: a point-in-time restore gives the file the permissions of the one it replaces, not those of the backup`, { skip: process.platform === 'win32' }, async (t) => {
+    const w = await timeline(t, key);
+    const live = join(w.folder, 'A.openhbam.sqlite');
+    chmodSync(live, 0o600);
+    chmodSync(join(w.set, 'A.openhbam.sqlite' + (key ? '.enc' : '')), 0o666);
+    await restoreAt(w.folder, w.dest, w.at, 'A', key || undefined);
+    assert.equal(statSync(live).mode & 0o777, 0o600);
+  });
+}

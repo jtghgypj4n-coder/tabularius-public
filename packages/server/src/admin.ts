@@ -129,7 +129,7 @@ import { isIP } from 'node:net';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { createHash, randomBytes } from 'node:crypto';
 import { copyFileSync, existsSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { basename, dirname, extname, join } from 'node:path';
+import { basename, dirname, extname, join, sep } from 'node:path';
 import { hashPassword, checkPassword, addressBucket, StoreError, findStaleCalcs, refreshStaleCalcs, undoStaleRefresh, staleRefreshHistory, StaleCalcError, SECURITY_EVENT_CATEGORIES, isFullAccess, type AuditEntry, type FieldLevel, type SecurityEvent, type Store } from '../../store/src/index.ts';
 import { loadAsset, sendAsset } from './static-cache.ts';
 import type { DataApi } from './dataapi.ts';
@@ -150,7 +150,7 @@ import { solutionMap } from './solution-map.ts';
 import { BUILTIN_PACKS, pluginStatus, setPluginEnabled, setPluginSecret } from '../../plugins/src/index.ts';
 import type { Host } from './host.ts';
 import { PassphraseNeeded, STORE_EXT } from './host.ts';
-import { BackupStopped, backupFolder, backupKey, backupRunning, stopBackups, backupSets, defaultBackupDir, parseTime, restorePoint, restorePointTo, restoreRange, type BackupSchedule, type ProgressiveSchedule } from './backup.ts';
+import { BackupStopped, backupFolder, backupKey, backupRunning, stopBackups, backupSets, defaultBackupDir, parseTime, checkRestorePoint, restorePoint, restorePointTo, restoreRange, type BackupSchedule, type ProgressiveSchedule } from './backup.ts';
 import { ENCRYPTED_EXT } from './encrypt.ts';
 import { isLocalAdmin } from './local-admin.ts';
 import { localAuthority } from './local-tls.ts';
@@ -1953,6 +1953,13 @@ export class Admin {
       const dest = this.backupDest();
       const point = restorePoint(dest, file.name + STORE_EXT, at);
       if (!point) throw new RestoreError(400, `There is no backup of ${file.name} from before ${new Date(at).toLocaleString()}`);
+      // A set that is going to be refused (no signature, a log missing, a signature that does not match) is found out before the file is
+      // closed, and said without the server's own folders in it.
+      const refused = (e: unknown, status: number) => {
+        const where = [dest, this.host.dir].map((d) => d.replace(/[\\/]+$/, '') + sep);
+        return new RestoreError(status, where.reduce((text, d) => text.split(d).join(''), (e as Error).message));
+      };
+      try { await checkRestorePoint(point); } catch (e) { throw refused(e, 409); }
       if (mode === 'copy') {
         const d = new Date(point.time);
         const p2 = (n: number) => String(n).padStart(2, '0');
@@ -1968,7 +1975,7 @@ export class Admin {
         if (this.host.files().some((f) => f.name.toLowerCase() === copy.toLowerCase()) || existsSync(target) || existsSync(target + ENCRYPTED_EXT) || existsSync(join(this.host.dir, copy + '.fmp12'))) {
           throw new RestoreError(409, `A file named ${copy} is already hosted`);
         }
-        await restorePointTo(point, target, undefined, file.path);
+        try { await restorePointTo(point, target, undefined, file.path); } catch (e) { throw refused(e, 500); }
         this.host.add(target);
         await this.host.openFileEverywhere(copy);
         return { database: copy, time: new Date(point.time).toISOString(), mode };
@@ -1981,7 +1988,7 @@ export class Admin {
       this.api.endByDb(file.name);
       await this.host.closeFileEverywhere(file.name);
       try {
-        await restorePointTo(point, file.path, undefined, securitySnapshot);
+        try { await restorePointTo(point, file.path, undefined, securitySnapshot); } catch (e) { throw refused(e, 500); }
         // The encrypted copy closing made is older than what was just restored.
         if (this.host.encrypted) rmSync(file.path + ENCRYPTED_EXT, { force: true });
       } finally {
