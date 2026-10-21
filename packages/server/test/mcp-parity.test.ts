@@ -116,13 +116,25 @@ test('MCP: layout objects and triggers change one at a time', { skip }, async ()
 });
 
 test('MCP: FileMaker clipboard both ways', { skip }, async () => {
-  const script = host.get('Charts')!.schema.scripts.find((s) => s.name === 'Count up')!;
+  // A model-visible export may not be changed silently, so a script with nothing to hide goes out as it is.
+  const text = 'Set Variable [ $n ; Value: 1 ]\nExit Script [ Result: $n ]';
+  { const c = await call('change_design', { changes: [{ op: 'createScript', name: 'Plain count', text }] }); assert.equal(c.isError, false, c.text); }
+  const script = host.get('Charts')!.schema.scripts.find((s) => s.name === 'Plain count')!;
   const copied = await call('copy_for_filemaker', { scripts: [script.id] });
   assert.equal(copied.isError, false, copied.text);
   assert.match(copied.value.xml, /<fmxmlsnippet type="FMObjectList">/);
   const pasted = await call('paste_from_filemaker', { xml: copied.value.xml });
   assert.equal(pasted.isError, false, pasted.text);
   assert.match(JSON.stringify(pasted.value), /createScript/);
+});
+
+test('MCP: the clipboard export is withheld when it would have to hide a protected literal', { skip }, async () => {
+  // "Count up" calls Insert from URL with a literal address, which AI tools never see: exporting it would change it.
+  const script = host.get('Charts')!.schema.scripts.find((s) => s.name === 'Count up')!;
+  const copied = await call('copy_for_filemaker', { scripts: [script.id] });
+  assert.equal(copied.isError, true);
+  assert.match(copied.text, /Clipboard export withheld: protected literals/);
+  assert.ok(!copied.text.includes('example.com'));
 });
 
 test('MCP: try a change on a copy, offline, without changing the file', { skip }, async () => {
