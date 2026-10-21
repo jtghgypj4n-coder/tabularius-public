@@ -4,11 +4,11 @@ import { FmpFile, fileSource, type BlockSource } from './file.ts';
 import { readSchema, type Schema, type Table } from './schema.ts';
 import { readRecords, type RawRecord } from './records.ts';
 import { readContainers, type ContainerBlob } from './containers.ts';
-import { typedValue, inferDateOrder, inferDatePadding, type DateStyle, type DateOrder, type Value } from './values.ts';
+import { typedValue, inferDateOrder, inferDatePadding, DateOrderConflict, type DateStyle, type DateOrder, type Value } from './values.ts';
 
 export { FmpFile, FmpError, BLOCK_SIZE, bufferSource, fileSource, type Header, type Block, type BlockSource, encryptionInfo } from './file.ts';
 export { decodePayload, pathValue, pathInt, type Chunk } from './chunks.ts';
-export { decodeScsu, decodeText } from './scsu.ts';
+export { decodeScsu, decodeText, inspectText } from './scsu.ts';
 export { buildTree, Node, segmentOf, type Segment } from './tree.ts';
 export { readRecords, decodeFieldKey, type RawRecord } from './records.ts';
 export { typedValue, parseDate, parseTime, parseTimestamp, inferDateOrder, inferDatePadding, dateOrderOf, type DateStyle, type DateOrder, type Value } from './values.ts';
@@ -80,17 +80,26 @@ export class FmpDatabase {
   get dateOrder(): DateOrder {
     if (this.dateOrderCache) return this.dateOrderCache;
     const samples: string[] = (this.dateSamples = []);
+    const where = new Map<string, string>();
     for (const t of this.schema.tables) {
-      const dateFields = t.fields.filter((f) => f.type === 'date' || f.type === 'timestamp').map((f) => f.id);
+      const dateFields = t.fields.filter((f) => f.type === 'date' || f.type === 'timestamp');
       if (!dateFields.length) continue;
       let n = 0;
       for (const r of this.rawRecords(t.id)) {
-        for (const id of dateFields) samples.push(...(r.values.get(id) ?? []));
+        for (const f of dateFields) for (const value of r.values.get(f.id) ?? []) {
+          samples.push(value);
+          if (!where.has(value.trim())) where.set(value.trim(), `${t.name}::${f.name}, record ${r.id}`);
+        }
         if (++n >= 200) break;
       }
-      if (inferDateOrder(samples) !== 'MDY') break;
     }
-    return (this.dateOrderCache = inferDateOrder(samples));
+    try {
+      return (this.dateOrderCache = inferDateOrder(samples));
+    } catch (e) {
+      if (!(e instanceof DateOrderConflict)) throw e;
+      const at = (v: string) => `"${v}" (${where.get(v) ?? 'a sampled record'})`;
+      throw new Error(`conflicting date order in stored dates: ${at(e.first)} reads as ${e.firstOrder} but ${at(e.second)} reads as ${e.secondOrder}. Correct the date that is wrong in the source file, then open it again`, { cause: e });
+    }
   }
 
   /** Date format for writing dates as text: the order, and whether months and days get two digits. */

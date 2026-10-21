@@ -17,7 +17,7 @@ import { defaultBundleName, diagnostics, writeBundle } from './diagnostics.ts';
 import { doctorText, runDoctor } from './doctor.ts';
 import { startDemo } from './demo.ts';
 import { checkPort, defaults, installed, installService, serviceFile, uninstallService, upgrade, validateServicePublicUrl, type Platform, type ServiceOptions } from './service.ts';
-import { FmpDatabase, fileSource, encryptionInfo, readLayoutDesigns, segmentOf, decodeText, type Schema } from '../../fmp12/src/index.ts';
+import { FmpDatabase, fileSource, encryptionInfo, readLayoutDesigns, segmentOf, inspectText, type Schema } from '../../fmp12/src/index.ts';
 import { BUILT_IN_EXTENDED_PRIVILEGES, addCensus, styleCensus, styleCensusText, calcFidelity, censusText, exportSql, exportSqlSummary, planImportTables, importTables, importTablesSummary, notionMarkdownSheet, MAX_IMPORT_ROWS, type SheetInput, type ColumnOverrides, type ColumnKind, findStaleCalcs, layoutCensus, type LayoutCensus, createStore, designReport, importFmp12, PASSWORD_POLICY, reconvert, reconvertCheck, verifySecurityAudit, verifyRecordAudit, anchorHead, checkAnchor, Store, syncPlan, openForPlanning, applySync, readSyncLog, releaseHeldTables, type ConflictPolicy, writeBackKit, designText, writeDesignText, diffDesigns, planDesignApply, readDesignFolder, type DesignOp, type ReconvertPreview, csvField } from '../../store/src/index.ts';
 import { xlsxSheetNames } from '../../scripts/src/xlsx.ts';
 import { importFileRowIterator, neverAllowed, parseAllowList, SCREEN_STEPS, SERVER_STEPS, testScripts, type ScriptTestResult } from '../../scripts/src/index.ts';
@@ -2860,7 +2860,8 @@ function main(argv: string[]): number {
         else if (chunk.type === 'segment') v = `seg${chunk.index}=${hex(chunk.data)}`;
         else if (chunk.type === 'data') v = `d=${hex(chunk.data)}`;
         if (text && chunk.type !== 'kvlong' && chunk.type !== 'push' && chunk.type !== 'pop') {
-          v += `  ${JSON.stringify(decodeText(chunk.data))}`;
+          const shown = inspectText(chunk.data);
+          v += `  ${'text' in shown ? JSON.stringify(shown.text) : `(not text: ${shown.note})`}`;
         }
         lines.push(`${segs.join('.')}\t${v}`);
         if (lines.length >= 5000) {

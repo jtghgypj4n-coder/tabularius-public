@@ -79,16 +79,37 @@ export function typedValue(text: string, type: FieldType, order: DateStyle = 'MD
   }
 }
 
-/** Guess a file's date order from sample date values. */
-export function inferDateOrder(samples: string[]): DateOrder {
-  for (const s of samples) {
-    const m = DATE_RE.exec(s.trim());
-    if (!m) continue;
-    if (m[1].length === 4) return 'YMD';
-    if (Number(m[1]) > 12) return 'DMY';
-    if (Number(m[2]) > 12) return 'MDY';
+/** Two stored dates that settle opposite orders; the caller knows where each was stored and says so. */
+export class DateOrderConflict extends Error {
+  first: string;
+  firstOrder: DateOrder;
+  second: string;
+  secondOrder: DateOrder;
+  constructor(first: string, firstOrder: DateOrder, second: string, secondOrder: DateOrder) {
+    super(`conflicting date order in stored dates: "${first}" reads as ${firstOrder} but "${second}" reads as ${secondOrder}. Correct the date that is wrong in the source file, then open it again`);
+    this.first = first; this.firstOrder = firstOrder; this.second = second; this.secondOrder = secondOrder;
   }
-  return 'MDY';
+}
+
+/**
+ * Infer a file's date order from the dates stored in it. A date is evidence only when its parts settle the order
+ * (a year first, or a part above 12); a file whose dates are all open to both readings (03/04/2025, 05/05/2025) has no
+ * evidence and is read as month first, as before. Two dates that settle opposite orders cannot both be right, so the
+ * file is refused with both values named rather than letting whichever came first win.
+ */
+export function inferDateOrder(samples: string[]): DateOrder {
+  let inferred: { order: DateOrder; sample: string } | undefined;
+  for (const s of samples) {
+    const m = DATE_RE.exec(s.trim().split(/[ T]/, 1)[0]);
+    if (!m) continue;
+    const a = Number(m[1]), b = Number(m[2]);
+    if (a < 1 || b < 1 || (a > 12 && b > 12)) continue;
+    const order: DateOrder | undefined = m[1].length === 4 ? 'YMD' : a > 12 ? 'DMY' : b > 12 ? 'MDY' : undefined;
+    if (!order) continue;
+    if (inferred && inferred.order !== order) throw new DateOrderConflict(inferred.sample, inferred.order, s.trim(), order);
+    inferred ??= { order, sample: s.trim() };
+  }
+  return inferred?.order ?? 'MDY'; // No date settles the order: month first.
 }
 
 /**

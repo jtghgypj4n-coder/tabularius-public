@@ -46,6 +46,9 @@ export function scsu(src: Uint8Array, maxUnits: number, xorMask = 0): { text: st
   let unicodeMode = false;
   let i = 0;
   const n = src.length;
+  const requireBytes = (count: number) => {
+    if (i + count > n) throw new Error(`truncated SCSU command at byte ${i - 1}`);
+  };
   const byte = (at: number) => src[at] ^ xorMask;
   const emit = (cp: number) => {
     if (cp > 0xffff) {
@@ -62,45 +65,45 @@ export function scsu(src: Uint8Array, maxUnits: number, xorMask = 0): { text: st
         active = c - UC0;
         unicodeMode = false;
       } else if (c >= UD0 && c <= UD7) {
-        if (i >= n) break;
+        requireBytes(1);
         active = c - UD0;
         dyn[active] = windowOffset(byte(i++));
         unicodeMode = false;
       } else if (c === UDX) {
-        if (i + 2 > n) break;
+        requireBytes(2);
         active = (byte(i) & 0xe0) >> 5;
         dyn[active] = extendedOffset(byte(i), byte(i + 1));
         i += 2;
         unicodeMode = false;
       } else if (c === UQU) {
-        if (i + 2 > n) break;
+        requireBytes(2);
         units.push((byte(i) << 8) | byte(i + 1));
         i += 2;
       } else {
-        if (i >= n) break;
+        requireBytes(1);
         units.push((c << 8) | byte(i++));
       }
       continue;
     }
     if (c >= SQ0 && c <= SQ7) {
-      if (i >= n) break;
+      requireBytes(1);
       const w = c - SQ0;
       const b = byte(i++);
       emit(b < 0x80 ? STATIC_WINDOWS[w] + b : dyn[w] + (b - 0x80));
     } else if (c === SCU) {
       unicodeMode = true;
     } else if (c === SQU) {
-      if (i + 2 > n) break;
+      requireBytes(2);
       units.push((byte(i) << 8) | byte(i + 1));
       i += 2;
     } else if (c >= SC0 && c <= SC7) {
       active = c - SC0;
     } else if (c >= SD0 && c <= SD7) {
-      if (i >= n) break;
+      requireBytes(1);
       active = c - SD0;
       dyn[active] = windowOffset(byte(i++));
     } else if (c === SDX) {
-      if (i + 2 > n) break;
+      requireBytes(2);
       active = (byte(i) & 0xe0) >> 5;
       dyn[active] = extendedOffset(byte(i), byte(i + 1));
       i += 2;
@@ -118,6 +121,16 @@ export function scsu(src: Uint8Array, maxUnits: number, xorMask = 0): { text: st
   return { text: out, end: i };
 }
 
+/**
+ * For inspection tools that try every stored chunk as text: the decoded text, or a note when the bytes are not a
+ * well-formed SCSU stream (binary chunks, or a stream cut short). Reading a stored string still goes through
+ * `decodeText`, which refuses such bytes.
+ */
+export function inspectText(raw: Uint8Array, xorMask = 0x5a): { text: string } | { note: string } {
+  try { return { text: decodeText(raw, xorMask) }; }
+  catch (e) { return { note: e instanceof Error ? e.message : String(e) }; }
+}
+
 /** Un-XOR (0x5A) and SCSU-decode a stored fmp12 string. */
 export function decodeText(raw: Uint8Array, xorMask = 0x5a): string {
   return scsu(raw, Infinity, xorMask).text.replace(/\r\n?/g, '\n');
@@ -126,5 +139,6 @@ export function decodeText(raw: Uint8Array, xorMask = 0x5a): string {
 /** decodeText for a value of known length in characters; also returns the bytes used. */
 export function decodeTextChars(raw: Uint8Array, chars: number, xorMask = 0x5a): { text: string; end: number } {
   const r = scsu(raw, chars, xorMask);
+  if (r.text.length !== chars) throw new Error(`truncated SCSU text: expected ${chars} characters, got ${r.text.length}`);
   return { text: r.text.replace(/\r\n?/g, '\n'), end: r.end };
 }
