@@ -80,6 +80,8 @@ export function queryShape(sql: string): string {
       if (number(next) && !number(prev) && !operand(prev)) { shape.push(' v '); i++; if (signedExponent(i)) i += 2; continue; }
       if (number(prev)) {
         if (number(next)) { i++; if (signedExponent(i)) i += 2; }
+        // 1.e3 and 1.e-3: the exponent of a number written with a bare dot.
+        else if (next?.kind === 'word' && /^e\d*$/i.test(next.text)) { i++; if (/^e$/i.test(next.text) && /^[-+]$/.test(tokens[i + 1]?.text ?? '') && number(tokens[i + 2])) i += 2; }
         continue;
       }
       if (operand(prev)) {

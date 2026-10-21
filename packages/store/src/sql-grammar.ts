@@ -47,10 +47,10 @@ export function refuseUnsupportedJoins(sql: string): void {
  * false. The left side is a name, a constant or a call; when it is part of a longer expression
  * (`a + b > ALL (...)`), or an aggregate without an outer column, the comparison is left for SQLite to report.
  */
-export function anyAllToIn(sql: string): string {
+export function anyAllToIn(sql: string, columns?: ColumnLookup): string {
   if (sql.length > MAX_STAR_QUERY) return sql;
-  const rewritten = quantified(sql, { left: MAX_QUANTIFIED, depth: 0 });
-  return rewritten === sql ? sql : quantified(numberPlainParameters(sql), { left: MAX_QUANTIFIED, depth: 0 });
+  const rewritten = quantified(sql, { left: MAX_QUANTIFIED, depth: 0 }, columns);
+  return rewritten === sql ? sql : quantified(numberPlainParameters(sql), { left: MAX_QUANTIFIED, depth: 0 }, columns);
 }
 
 /** SQLite allocates each plain parameter after the highest slot already seen. Fix its identity before moving SQL. */
@@ -68,94 +68,237 @@ function numberPlainParameters(sql: string): string {
 const MAX_QUANTIFIED = 500;
 const MAX_QUANTIFIED_DEPTH = 20;
 
-/** Words SQLite never accepts as a bare column name. Clause and window words (FIRST, LAST, ROW, RANGE, CURRENT, ...) are not here: they can name columns. */
-const RESERVED = new Set(('ALL AND AS BETWEEN CASE COLLATE DISTINCT ELSE END ESCAPE EXCEPT EXISTS FROM GLOB GROUP HAVING IN INTERSECT IS ISNULL JOIN LIKE LIMIT '
+/** The columns of a table, by name, as the caller knows them; undefined for a name it does not know. */
+export type ColumnLookup = (table: string) => readonly string[] | undefined;
+
+/** Words SQLite never accepts as a bare column name. END, LIKE, GLOB, MATCH, REGEXP, WITH, TRUE and FALSE are not here: each can name a column. */
+const SYNTAX = new Set(('ALL AND AS BETWEEN CASE COLLATE DISTINCT ELSE ESCAPE EXCEPT EXISTS FROM GROUP HAVING IN INTERSECT IS ISNULL JOIN LIMIT '
   + 'NOT NOTNULL NULL ON OR ORDER SELECT THEN UNION USING VALUES WHEN WHERE CURRENT_DATE CURRENT_TIME CURRENT_TIMESTAMP').split(' '));
+/** The syntax words that still end an operand, so a word after one is an alias or an operator. */
+const ENDS_OPERAND = new Set(['NULL', 'CURRENT_DATE', 'CURRENT_TIME', 'CURRENT_TIMESTAMP', 'ISNULL', 'NOTNULL']);
+/** Words of a select's clauses and windows. They can name columns, so only a subquery's scan skips them, where a miss only leaves the comparison alone. */
+const CLAUSE = new Set(('BY OFFSET ASC DESC LEFT RIGHT INNER OUTER CROSS NATURAL FULL WINDOW OVER FILTER PARTITION ROWS RANGE GROUPS UNBOUNDED PRECEDING FOLLOWING '
+  + 'CURRENT ROW EXCLUDE TIES OTHERS NO NULLS FIRST LAST RECURSIVE MATERIALIZED WITH DEFAULT INDEXED').split(' '));
+const FROM_ENDS = new Set('WHERE GROUP ORDER HAVING LIMIT UNION INTERSECT EXCEPT WINDOW SELECT VALUES'.split(' '));
+const JOIN_WORDS = new Set('LEFT RIGHT INNER OUTER CROSS NATURAL FULL'.split(' '));
+const IMPLICIT_ROW = new Set(['rowid', '_rowid_', 'oid']);
 
 type Words = SqlToken[];
+interface Source { names: Set<string>; columns?: Set<string> }
+interface Scope { sources: Source[]; aliases: Set<string> }
 
-const nameOf = (t: SqlToken): string => (t.kind === 'identifier' ? t.text.slice(1, -1) : t.text).toLowerCase();
+const upper = (t: SqlToken | undefined) => (t?.kind === 'word' ? t.text.toUpperCase() : '');
+const nameOf = (t: SqlToken): string => (t.kind === 'identifier' ? t.text.slice(1, -1).replace(/""/g, '"') : t.text).toLowerCase();
+const isName = (t: SqlToken | undefined): t is SqlToken => t?.kind === 'word' || t?.kind === 'identifier';
 
-/** Whether a word is a constant, a call, a parameter, an operator or a type or collation after AS or COLLATE rather than a column name. */
-function notColumn(args: Words, at: number): boolean {
-  const t = args[at];
-  const next = args[at + 1];
-  const prev = args[at - 1];
-  if (/^(?:\d|\$)/.test(t.text) || (/^x$/i.test(t.text) && next?.kind === 'string')) return true;
-  if (next?.text === '(' || (prev && /^[:@]$/.test(prev.text))) return true;
-  if (prev && prev.kind === 'word' && /^(?:AS|COLLATE)$/i.test(prev.text)) return true;
-  if (RESERVED.has(t.text.toUpperCase())) return true;
-  // REGEXP and MATCH are operators between two operands, and columns anywhere else.
-  return /^(?:REGEXP|MATCH)$/i.test(t.text) && !!prev && !!next && !/^[-+*/%<>=!|&~(,]$/.test(prev.text) && !/^[,)]$/.test(next.text);
+/** Where the parenthesis opened at words[open] closes. */
+function closeOf(words: Words, open: number): number {
+  let depth = 0;
+  for (let at = open; at < words.length; at++) {
+    if (words[at].text === '(' && words[at].kind === 'symbol') depth++;
+    else if (words[at].text === ')' && words[at].kind === 'symbol' && --depth === 0) return at;
+  }
+  return words.length;
 }
 
-/** Whether a subquery refers to a column that it does not take from a table of its own FROM: any word that is not syntax and not a table or alias it declares. */
-function subqueryNamesColumn(sub: Words): boolean {
-  const own = new Set<string>();
-  for (let i = 0; i < sub.length; i++) {
-    if (sub[i].kind !== 'word' || !/^(?:FROM|JOIN)$/i.test(sub[i].text)) continue;
-    let at = i + 1;
-    while (at < sub.length && (sub[at].kind === 'word' || sub[at].kind === 'identifier') && !RESERVED.has(sub[at].text.toUpperCase())) {
-      own.add(nameOf(sub[at]));
-      if (sub[at + 1]?.text === '.') { at += 2; continue; }
-      at++;
-      if (/^AS$/i.test(sub[at]?.text ?? '')) at++;
-      if (sub[at] && (sub[at].kind === 'word' || sub[at].kind === 'identifier') && !RESERVED.has(sub[at].text.toUpperCase()) && !/^(?:LEFT|RIGHT|INNER|CROSS|NATURAL|OUTER|FULL|WHERE|GROUP|ORDER|LIMIT|HAVING|WINDOW|OFFSET|UNION|ON|USING)$/i.test(sub[at].text)) own.add(nameOf(sub[at++]));
-      break;
-    }
+/** Whether the parenthesis at words[open] starts a subquery: a SELECT or VALUES, or a WITH that names a common table (WITH can also be a column). */
+function opensSubquery(words: Words, open: number): boolean {
+  if (words[open]?.text !== '(') return false;
+  const next = upper(words[open + 1]);
+  if (next === 'SELECT' || next === 'VALUES') return true;
+  if (next !== 'WITH') return false;
+  const name = words[open + 2];
+  return upper(name) === 'RECURSIVE' || (isName(name) && (upper(words[open + 3]) === 'AS' || words[open + 3]?.text === '('));
+}
+
+/** Whether words[at] ends an operand, so that a word after it is an operator or an alias. */
+function endsOperand(t: SqlToken | undefined): boolean {
+  if (!t) return false;
+  if (t.kind === 'word') return !SYNTAX.has(t.text.toUpperCase()) || ENDS_OPERAND.has(t.text.toUpperCase());
+  return t.kind === 'identifier' || t.kind === 'string' || t.kind === 'parameter' || (t.kind === 'symbol' && t.text === ')');
+}
+
+function startsOperand(t: SqlToken | undefined): boolean {
+  if (!t) return false;
+  if (t.kind === 'word') return !SYNTAX.has(t.text.toUpperCase()) || ENDS_OPERAND.has(t.text.toUpperCase()) || /^(?:CASE|EXISTS)$/i.test(t.text);
+  return t.kind === 'identifier' || t.kind === 'string' || t.kind === 'parameter' || (t.kind === 'symbol' && /^[(+-]$/.test(t.text));
+}
+
+/** LIKE, GLOB, MATCH and REGEXP are operators between two operands, and names anywhere else. */
+function isOperatorWord(words: Words, at: number): boolean {
+  if (!/^(?:LIKE|GLOB|MATCH|REGEXP)$/i.test(words[at].text)) return false;
+  return (endsOperand(words[at - 1]) || upper(words[at - 1]) === 'NOT') && startsOperand(words[at + 1]);
+}
+
+/** The tokens after AS that name a type or an alias (DOUBLE PRECISION, UNSIGNED BIG INT, DECIMAL(10, 2), x): the index of the last one. */
+function skipAsTail(words: Words, as: number): number {
+  let at = as + 1;
+  while (at < words.length) {
+    const t = words[at];
+    if (t.kind === 'symbol' && t.text === '(') { at = closeOf(words, at) + 1; continue; }
+    if (!isName(t) || (t.kind === 'word' && SYNTAX.has(t.text.toUpperCase()))) break;
+    at++;
   }
-  for (let i = 0; i < sub.length; i++) {
-    const t = sub[i];
-    if (t.kind !== 'word' && t.kind !== 'identifier') continue;
-    if (t.kind === 'word' && (notColumn(sub, i) || /^(?:SELECT|WITH|VALUES|RECURSIVE|FROM|JOIN|LEFT|RIGHT|INNER|CROSS|NATURAL|OUTER|FULL|ASC|DESC|BY|WINDOW|OFFSET)$/i.test(t.text))) continue;
-    if (own.has(nameOf(t))) continue;
+  return at - 1;
+}
+
+/** The tables and aliases a select declares in its own FROM and JOINs, the aliases its select list gives, and which of its tokens are those names. */
+function declared(words: Words, columns: ColumnLookup | undefined): { scope: Scope; skip: Set<number> } {
+  const scope: Scope = { sources: [], aliases: new Set() };
+  const skip = new Set<number>();
+  const common = new Set<string>();
+  const ignoredClose = new Set<number>();
+  let inFrom = false;
+  let depth = 0;
+  const item = (from: number): number => {
+    let at = from;
+    if (words[at]?.text === '(') {
+      if (opensSubquery(words, at)) {
+        const source: Source = { names: new Set() };
+        at = closeOf(words, at) + 1;
+        at = alias(at, source);
+        scope.sources.push(source);
+        return at;
+      }
+      ignoredClose.add(closeOf(words, at));
+      return at + 1;
+    }
+    if (!isName(words[at])) return at;
+    const path = [at];
+    while (words[at + 1]?.text === '.' && isName(words[at + 2])) { at += 2; path.push(at); }
+    for (const k of path) { skip.add(k); }
+    at++;
+    const table = nameOf(words[path[path.length - 1]]);
+    const source: Source = { names: new Set([table]) };
+    if (words[at]?.text === '(') source.columns = undefined;
+    else if (!common.has(table)) {
+      const known = columns?.(table);
+      if (known) source.columns = new Set(known.map((c) => c.toLowerCase()));
+    }
+    at = alias(at, source);
+    scope.sources.push(source);
+    return at;
+  };
+  const alias = (from: number, source: Source): number => {
+    let at = from;
+    if (upper(words[at]) === 'AS') { skip.add(at); at++; }
+    const t = words[at];
+    if (isName(t) && !(t.kind === 'word' && (SYNTAX.has(t.text.toUpperCase()) || FROM_ENDS.has(t.text.toUpperCase()) || JOIN_WORDS.has(t.text.toUpperCase()) || /^(?:INDEXED|NOT)$/i.test(t.text)))) {
+      source.names.add(nameOf(t));
+      skip.add(at);
+      at++;
+    }
+    return at;
+  };
+  for (let i = 0; i < words.length; i++) {
+    const t = words[i];
+    if (t.kind === 'symbol' && t.text === '(') { depth++; continue; }
+    if (t.kind === 'symbol' && t.text === ')') { if (ignoredClose.has(i)) continue; depth--; continue; }
+    if (depth > 0 || t.kind !== 'word') {
+      if (depth === 0 && t.kind === 'symbol' && t.text === ',' && inFrom) i = item(i + 1) - 1;
+      continue;
+    }
+    const up = t.text.toUpperCase();
+    if (up === 'AS' && words[i + 1]?.text === '(' && opensSubquery(words, i + 1)) {
+      // WITH name [(columns)] AS (...): a common table, not a column.
+      let nameAt = i - 1;
+      if (words[nameAt]?.text === ')') { let k = nameAt; while (k > 0 && words[k].text !== '(') k--; for (let j = k; j <= nameAt; j++) skip.add(j); nameAt = k - 1; }
+      if (isName(words[nameAt])) { common.add(nameOf(words[nameAt])); skip.add(nameAt); }
+    } else if (up === 'AS' && isName(words[i + 1]) && !inFrom) {
+      scope.aliases.add(nameOf(words[i + 1]));
+    } else if (up === 'FROM') { inFrom = true; i = item(i + 1) - 1; }
+    else if (up === 'JOIN' && inFrom) i = item(i + 1) - 1;
+    else if (inFrom && FROM_ENDS.has(up)) inFrom = false;
+  }
+  return { scope, skip };
+}
+
+/** Whether a select's body (outside its parentheses) refers to a column that none of its own or its enclosing selects' FROM clauses supply. */
+function reachesOutside(words: Words, enclosing: Scope[], columns: ColumnLookup | undefined): boolean {
+  const own = declared(words, columns);
+  const here = [own.scope, ...enclosing];
+  const declares = (name: string) => here.some((sc) => sc.sources.some((s) => s.names.has(name)));
+  const supplies = (name: string) => IMPLICIT_ROW.has(name) || here.some((sc) => sc.aliases.has(name) || sc.sources.some((s) => !s.columns || s.columns.has(name)));
+  let cases = 0;
+  for (let i = 0; i < words.length; i++) {
+    const t = words[i];
+    if (t.kind === 'symbol' && t.text === '(' && opensSubquery(words, i)) {
+      const close = closeOf(words, i);
+      if (reachesOutside(words.slice(i + 1, close), here, columns)) return true;
+      i = close;
+      continue;
+    }
+    if (own.skip.has(i) || !isName(t)) continue;
+    if (t.kind === 'word') {
+      const up = t.text.toUpperCase();
+      if (up === 'AS') { i = skipAsTail(words, i); continue; }
+      if (up === 'COLLATE') { i++; continue; }
+      if (up === 'CASE') { cases++; continue; }
+      if (up === 'END' && cases > 0) { cases--; continue; }
+      if (SYNTAX.has(up) || CLAUSE.has(up) || /^(?:\d|\$)/.test(t.text) || /^(?:TRUE|FALSE)$/.test(up) || isOperatorWord(words, i)) continue;
+      if ((up === 'X' && words[i + 1]?.kind === 'string') || words[i + 1]?.text === '(' || /^[:@]$/.test(words[i - 1]?.text ?? '')) continue;
+      // A name straight after an operand is an alias.
+      if (endsOperand(words[i - 1]) && words[i - 1].text !== '.' && !(words[i - 1].kind === 'word' && /^(?:AND|OR)$/i.test(words[i - 1].text))) continue;
+    }
+    if (words[i + 1]?.text === '.' && isName(words[i + 2])) {
+      // schema.table.column names its table second.
+      const three = words[i + 3]?.text === '.' && isName(words[i + 4]);
+      const qualifier = nameOf(three ? words[i + 2] : t);
+      if (!declares(qualifier)) return true;
+      i += three ? 4 : 2;
+      continue;
+    }
+    if (words[i - 1]?.text === '.') continue;
+    if (!supplies(nameOf(t))) return true;
+  }
+  return false;
+}
+
+/** Whether an aggregate's arguments name a column of the outer query: a quoted name, a bare word that is not syntax, a call or a parameter, or a subquery that reaches one. */
+function namesColumn(args: Words, ctx: Context): boolean {
+  let cases = 0;
+  for (let at = 0; at < args.length; at++) {
+    const t = args[at];
+    if (t.kind === 'symbol' && t.text === '(' && opensSubquery(args, at)) {
+      const close = closeOf(args, at);
+      if (reachesOutside(args.slice(at + 1, close), [], ctx.columns)) return true;
+      at = close;
+      continue;
+    }
+    if (t.kind === 'identifier') return true;
+    if (t.kind !== 'word') continue;
+    const up = t.text.toUpperCase();
+    if (up === 'AS') { at = skipAsTail(args, at); continue; }
+    if (up === 'COLLATE') { at++; continue; }
+    if (up === 'CASE') { cases++; continue; }
+    if (up === 'END' && cases > 0) { cases--; continue; }
+    if (SYNTAX.has(up) || /^(?:\d|\$)/.test(t.text) || (up === 'X' && args[at + 1]?.kind === 'string') || isOperatorWord(args, at)) continue;
+    if (args[at + 1]?.text === '(' || /^[:@]$/.test(args[at - 1]?.text ?? '')) continue;
+    // TRUE and FALSE are the constants unless a table of the query has a column of that name.
+    if ((up === 'TRUE' || up === 'FALSE') && !ctx.outer.sources.some((s) => s.columns?.has(up.toLowerCase()))) continue;
     return true;
   }
   return false;
 }
 
-/** Whether the arguments of an aggregate name an outer column: a quoted name, a bare word that is not syntax, a call or a parameter, or a subquery that reaches one. */
-function namesColumn(args: Words): boolean {
-  for (let at = 0; at < args.length; at++) {
-    const t = args[at];
-    if (t.text === '(' && /^(?:SELECT|WITH|VALUES)$/i.test(args[at + 1]?.text ?? '')) {
-      const start = at + 1;
-      let depth = 1;
-      while (++at < args.length && depth > 0) {
-        if (args[at].text === '(') depth++;
-        else if (args[at].text === ')') depth--;
-      }
-      if (subqueryNamesColumn(args.slice(start, at - 1))) return true;
-      at--;
-      continue;
-    }
-    if (t.kind === 'identifier') return true;
-    if (t.kind === 'word' && !notColumn(args, at)) return true;
-  }
-  return false;
-}
+interface Context { columns: ColumnLookup | undefined; outer: Scope }
 
 /** A column-free aggregate moved under fm_q would count its rows instead of the outer query's rows. */
-function aggregateWithoutColumn(operand: string): boolean {
+function aggregateWithoutColumn(operand: string, ctx: Context): boolean {
   const tokens = sqlTokens(operand).filter((t) => t.kind !== 'space' && t.kind !== 'comment');
   const aggregate = /^(?:COUNT|SUM|AVG|MIN|MAX|TOTAL|GROUP_CONCAT|STRING_AGG|JSON_GROUP_ARRAY|JSON_GROUP_OBJECT)$/i;
   for (let i = 0; i < tokens.length - 1; i++) {
     if (tokens[i].kind !== 'word' || !aggregate.test(tokens[i].text) || tokens[i + 1].text !== '(') continue;
-    let depth = 1;
-    let end = i + 2;
-    while (end < tokens.length && depth > 0) {
-      if (tokens[end].text === '(') depth++;
-      else if (tokens[end].text === ')') depth--;
-      end++;
-    }
-    if (depth !== 0) continue;
-    if (!namesColumn(tokens.slice(i + 2, end - 1))) return true;
+    const end = closeOf(tokens, i + 1);
+    if (end >= tokens.length) continue;
+    if (!namesColumn(tokens.slice(i + 2, end), ctx)) return true;
   }
   return false;
 }
 
-function quantified(sql: string, budget: { left: number; depth: number }): string {
+function quantified(sql: string, budget: { left: number; depth: number }, columns: ColumnLookup | undefined): string {
   if (!/\b(?:ANY|SOME|ALL)\b/i.test(sql) || budget.depth > MAX_QUANTIFIED_DEPTH) return sql;
+  const ctx: Context = { columns, outer: declared(sqlTokens(sql).filter((t) => t.kind !== 'space' && t.kind !== 'comment'), columns).scope };
   const plain = blanked(sql);
   let out = '';
   let copied = 0;
@@ -176,11 +319,11 @@ function quantified(sql: string, budget: { left: number; depth: number }): strin
     // A longer expression to the left (a + b, a || b, t.x with a sign) is not this operand alone.
     if (/[-+*/%^.|]$/.test(plain.slice(0, left).trimEnd())) continue;
     const operand = sql.slice(left, m.index).trimEnd();
-    if (aggregateWithoutColumn(operand)) continue;
+    if (aggregateWithoutColumn(operand, ctx)) continue;
     budget.left--;
     budget.depth++;
-    const x = quantified(operand, budget);
-    const sub = quantified(sql.slice(open + 1, close), budget);
+    const x = quantified(operand, budget, columns);
+    const sub = quantified(sql.slice(open + 1, close), budget, columns);
     budget.depth--;
     const op = m[1] === '!=' ? '<>' : m[1];
     const q = `WITH fm_q(fm_v) AS (${sub}) SELECT CASE WHEN ${all ? 'MIN(fm_cmp) = 0 THEN 0' : 'MAX(fm_cmp) = 1 THEN 1'} WHEN COUNT(*) > COUNT(fm_cmp) THEN NULL ELSE ${all ? 1 : 0} END FROM (SELECT ${x} ${op} fm_v AS fm_cmp FROM fm_q)`;

@@ -23,11 +23,11 @@ before(() => {
     { op: 'createTable', name: 'Q', fields: [{ name: 'Last', type: 'text' }, { name: 'Note', type: 'text' }] },
     { op: 'createTable', name: 'C', fields: [{ name: 'Code', type: 'text' }] },
     { op: 'createTable', name: 'W', fields: [{ name: 'Name', type: 'text' }, { name: 'N', type: 'number' }] },
-    { op: 'createTable', name: 'K', fields: ['Grp', 'First', 'Last', 'Range', 'Current', 'Match', 'Rows'].map((name) => ({ name, type: 'text' })) },
+    { op: 'createTable', name: 'K', fields: ['Grp', 'First', 'Last', 'Range', 'Current', 'Match', 'Rows', 'End', 'Like', 'Glob', 'With', 'True', 'Regexp'].map((name) => ({ name, type: 'text' })) },
     { op: 'createTable', name: 'T2', fields: [{ name: 'k', type: 'number' }, { name: 'v', type: 'number' }] },
   ] as never);
   for (const [Name, N] of [['a', 1], ['b', 2], ['c', 2], ['d', 2], ['e', 3]]) store.create('W', { Name, N: String(N) });
-  for (const Grp of ['a', 'b', 'b', 'b']) store.create('K', { Grp, First: 'x', Last: 'x', Range: 'x', Current: 'x', Match: 'x', Rows: 'x' });
+  for (const Grp of ['a', 'b', 'b', 'b']) store.create('K', { Grp, First: 'x', Last: 'x', Range: 'x', Current: 'x', Match: 'x', Rows: 'x', End: 'x', Like: 'x', Glob: 'x', With: 'x', True: 'x', Regexp: 'x' });
   for (const [k, v] of [[1, 5], [2, 6], [3, 7]]) store.create('T2', { k: String(k), v: String(v) });
   store.create('C', { Code: '5' });
   store.create('C', { Code: '7' });
@@ -46,6 +46,9 @@ const run = (query: string, params: (string | number)[] = []) => {
   return target.select(sql, params, 100);
 };
 const rows = (query: string) => run(query).rows;
+const tableColumns = (name: string) => store.schema.tables.find((t) => t.name.toLowerCase() === name)?.fields.map((f) => f.name);
+/** What the rewrite makes of a query when it knows the tables, as the SQL engine does. */
+const rewrite = (query: string) => anyAllToIn(query, tableColumns);
 
 test('placeholders keep their numbering when an ANY or ALL comparison is rewritten', () => {
   const db = new DatabaseSync(':memory:');
@@ -97,30 +100,70 @@ test('aggregates of expressions with no column are left alone, and aggregates th
   }
 });
 
-test('an aggregate over a column named like a clause or window word is moved', () => {
-  for (const operand of ['First', 'Last', 'Range', 'Current', 'Match', 'Rows', 'COALESCE(First, 1)', 'First IS NOT NULL', 'Last + 0', 'Current COLLATE NOCASE', 'CAST(Range AS TEXT)']) {
-    const query = `SELECT Grp FROM K GROUP BY Grp HAVING COUNT(${operand}) > ALL (SELECT 2 UNION ALL SELECT 1)`;
-    assert.notEqual(anyAllToIn(query), query, operand);
-    assert.deepEqual(rows(query), [['b']], operand);
+const ALL_OF_TWO = '> ALL (SELECT 2 UNION ALL SELECT 1)';
+const havingK = (operand: string) => `SELECT Grp FROM K GROUP BY Grp HAVING COUNT(${operand}) ${ALL_OF_TWO}`;
+const havingW = (operand: string) => `SELECT N FROM W GROUP BY N HAVING ${operand} ${ALL_OF_TWO}`;
+
+test('an aggregate over a column named like a clause, window or operator word is moved', () => {
+  const operands = ['First', 'Last', 'Range', 'Current', 'Match', 'Rows', 'End', 'Like', 'Glob', 'With', 'True', 'Regexp', 'COALESCE(First, 1)', 'First IS NOT NULL',
+    'Last + 0', 'Current COLLATE NOCASE', 'CAST(Range AS TEXT)', 'Match IS NOT NULL', 'Like = 1', '1 + Regexp', 'End IS NOT NULL', 'CASE WHEN End IS NULL THEN 0 ELSE 1 END'];
+  for (const operand of operands) {
+    assert.notEqual(rewrite(havingK(operand)), havingK(operand), operand);
+    assert.deepEqual(run(havingK(operand)).rows, [['b']], operand);
   }
 });
 
-test('an aggregate over a subquery is moved when the subquery reaches a column outside it, and left alone when it does not', () => {
-  const all = '> ALL (SELECT 2 UNION ALL SELECT 1)';
-  for (const [operand, expected] of [
+test('LIKE, GLOB, MATCH, REGEXP, END, TRUE and FALSE are syntax or constants where they are, and the constants stay when no column has the name', () => {
+  for (const operand of ["1 LIKE 'a'", "'a' GLOB 'b'", "1 NOT LIKE 2", "'a' REGEXP 'b'", "1 MATCH 2", 'CASE WHEN 1 THEN 2 END', 'CASE WHEN CASE WHEN 1 THEN 1 END THEN 2 END', 'TRUE', 'NOT FALSE', 'TRUE AND 1']) {
+    assert.equal(rewrite(havingW(`COUNT(${operand})`)), havingW(`COUNT(${operand})`), operand);
+  }
+});
+
+test('type names after AS are skipped, however many words they have', () => {
+  for (const type of ['INTEGER', 'UNSIGNED BIG INT', 'DOUBLE PRECISION', 'DECIMAL(10, 2)', 'VARYING CHARACTER(20)', 'NATIVE CHARACTER(70)']) {
+    assert.equal(rewrite(havingW(`COUNT(CAST(1 AS ${type}))`)), havingW(`COUNT(CAST(1 AS ${type}))`), type);
+    assert.notEqual(rewrite(havingW(`COUNT(CAST(N AS ${type}))`)), havingW(`COUNT(CAST(N AS ${type}))`), type);
+  }
+});
+
+test('an aggregate over a subquery is left alone when the subquery supplies every column it names, and moved when it reaches outside', () => {
+  const free = [
+    'SUM((SELECT MAX(v) FROM T2))',
+    'SUM((SELECT v FROM T2 WHERE k = 1))',
+    'COUNT((SELECT MAX(x) FROM (SELECT v AS x FROM T2)))',
+    'COUNT((WITH c AS (SELECT v FROM T2) SELECT MAX(v) FROM c))',
+    'COUNT((WITH RECURSIVE c(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM c WHERE n < 3) SELECT MAX(n) FROM c))',
+    'COUNT(EXISTS (SELECT 1 FROM T2 WHERE v > 5))',
+    'COUNT(1 IN (SELECT k FROM T2))',
+    'COUNT((SELECT 1 FROM T2 a, T2 b WHERE a.k = b.k))',
+    'COUNT((SELECT 1 FROM T2 AS a JOIN T2 b ON a.k = b.k WHERE a.v > 0))',
+    'COUNT((SELECT 1 FROM main.T2 x WHERE x.v > 0))',
+    'COUNT((SELECT v FROM T2 ORDER BY v DESC LIMIT 1 OFFSET 1))',
+    'COUNT((SELECT a.v FROM T2 a LEFT JOIN T2 b ON a.k = b.k GROUP BY a.v HAVING COUNT(*) > 0 UNION ALL SELECT v FROM T2))',
+    'COUNT((SELECT SUM(v) OVER (PARTITION BY k ORDER BY v ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) FROM T2))',
+    'COUNT((SELECT v x FROM T2 ORDER BY x))',
+    'COUNT((SELECT CASE WHEN v > 1 THEN 1 END FROM T2))',
+    'COUNT((SELECT 1))',
+    "COUNT((SELECT 1 FROM T2 AS x WHERE 1 = 1))",
+  ];
+  for (const operand of free) assert.equal(rewrite(havingW(operand)), havingW(operand), operand);
+  const reaching: [string, unknown[][]][] = [
     ['SUM((SELECT v FROM T2 WHERE k = W.N))', [[1], [2], [3]]],
     ['SUM((SELECT v FROM T2 WHERE T2.k = N))', [[1], [2], [3]]],
     ['COUNT((SELECT N))', [[2]]],
     ['COUNT((SELECT 1 FROM T2 WHERE k = W.N))', [[2]]],
-  ] as const) {
-    const query = `SELECT N FROM W GROUP BY N HAVING ${operand} ${all}`;
-    assert.notEqual(anyAllToIn(query), query, operand);
-    assert.deepEqual(rows(query), expected, operand);
+    ['COUNT(EXISTS (SELECT 1 FROM T2 WHERE T2.k = W.N))', [[2]]],
+    ['COUNT(1 IN (SELECT a.k FROM T2 a, T2 b WHERE a.k = W.N AND b.k = a.k))', [[2]]],
+    ['COUNT((SELECT 1 FROM T2 AS a JOIN T2 b ON a.k = b.k WHERE a.k = W.N))', [[2]]],
+    ['COUNT((SELECT 1 FROM T2 WHERE T2.k IN (SELECT k FROM T2 WHERE k = W.N)))', [[2]]],
+  ];
+  for (const [operand, expected] of reaching) {
+    assert.notEqual(rewrite(havingW(operand)), havingW(operand), operand);
+    assert.deepEqual(run(havingW(operand)).rows, expected, operand);
   }
-  for (const operand of ['COUNT((SELECT 1))', 'COUNT((SELECT 1 FROM T2))', 'COUNT((SELECT 1 FROM T2 AS x WHERE 1 = 1))']) {
-    const query = `SELECT N FROM W GROUP BY N HAVING ${operand} ${all}`;
-    assert.equal(anyAllToIn(query), query, operand);
-  }
+  // Without the table list nothing is known of a subquery's tables, so only a qualified outside name or a subquery with no FROM counts.
+  assert.equal(anyAllToIn(havingW('SUM((SELECT v FROM T2 WHERE T2.k = N))')), havingW('SUM((SELECT v FROM T2 WHERE T2.k = N))'));
+  assert.notEqual(anyAllToIn(havingW('SUM((SELECT v FROM T2 WHERE k = W.N))')), havingW('SUM((SELECT v FROM T2 WHERE k = W.N))'));
 });
 
 test('a quoted table and column name in the + string join, including doubled quotes', () => {
