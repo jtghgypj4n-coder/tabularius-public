@@ -326,16 +326,16 @@ The following reasons apply to the exact enumerated expressions in each named fu
 | [packages/server/src/logs.ts:76](../../packages/server/src/logs.ts#L76) `LogShipper/follow` | `SQLite.get` (76); `SQLite.prepare` (76); `Store.sql` (76, 77, 78, 79) | ADMIN |
 | [packages/server/src/logs.ts:88](../../packages/server/src/logs.ts#L88) `LogShipper/releaseIfIdle` | `Store.sql` (88) | ADMIN |
 | [packages/server/src/mcp-design.ts:506](../../packages/server/src/mcp-design.ts#L506) `registerDesignTools/audit_log` | `Store.auditLog` (506) | DESIGN |
-| [packages/server/src/mcp.ts:963](../../packages/server/src/mcp.ts#L963) `createMcpServer/find_records` | `Store.find` (963) | MCP |
-| [packages/server/src/mcp.ts:976](../../packages/server/src/mcp.ts#L976) `createMcpServer/get_record` | `Store.get` (976) | MCP |
-| [packages/server/src/mcp.ts:1026](../../packages/server/src/mcp.ts#L1026) `createMcpServer/update_record` | `Store.get` (1026, 1030) | MCP |
-| [packages/server/src/mcp.ts:1083](../../packages/server/src/mcp.ts#L1083) `createMcpServer/evaluate_calculation` | `Store.get` (1083, 1091); `Store.find` (1084); `Store.evaluate` (1085); `Store.row` (1090) | SQL |
-| [packages/server/src/mcp.ts:1158](../../packages/server/src/mcp.ts#L1158) `createMcpServer/get_container` | `Store.container` (1158) | SQL |
-| [packages/server/src/mcp.ts:1182](../../packages/server/src/mcp.ts#L1182) `createMcpServer/sql_query` | `Store.queryWithOrigins` (1182) | SQL |
-| [packages/server/src/mcp.ts:1339](../../packages/server/src/mcp.ts#L1339) `createMcpServer/explain_value` | `Store.get` (1339); `Store.row` (1340) | MCP |
-| [packages/server/src/mcp.ts:1362](../../packages/server/src/mcp.ts#L1362) `createMcpServer/check_record` | `Store.get` (1362); `Store.row` (1364) | MCP |
-| [packages/server/src/mcp.ts:1386](../../packages/server/src/mcp.ts#L1386) `createMcpServer/explain_related` | `Store.get` (1386) | MCP |
-| [packages/server/src/mcp.ts:2281](../../packages/server/src/mcp.ts#L2281) `registerResources/audit` | `Store.auditLog` (2281) | MCP |
+| [packages/server/src/mcp.ts:953](../../packages/server/src/mcp.ts#L953) `createMcpServer/find_records` | `Store.find` (953) | MCP |
+| [packages/server/src/mcp.ts:966](../../packages/server/src/mcp.ts#L966) `createMcpServer/get_record` | `Store.get` (966) | MCP |
+| [packages/server/src/mcp.ts:1016](../../packages/server/src/mcp.ts#L1016) `createMcpServer/update_record` | `Store.get` (1016, 1020) | MCP |
+| [packages/server/src/mcp.ts:1073](../../packages/server/src/mcp.ts#L1073) `createMcpServer/evaluate_calculation` | `Store.get` (1073, 1081); `Store.find` (1074); `Store.evaluate` (1075); `Store.row` (1080) | SQL |
+| [packages/server/src/mcp.ts:1148](../../packages/server/src/mcp.ts#L1148) `createMcpServer/get_container` | `Store.container` (1148) | SQL |
+| [packages/server/src/mcp.ts:1172](../../packages/server/src/mcp.ts#L1172) `createMcpServer/sql_query` | `Store.queryWithOrigins` (1172) | SQL |
+| [packages/server/src/mcp.ts:1329](../../packages/server/src/mcp.ts#L1329) `createMcpServer/explain_value` | `Store.get` (1329); `Store.row` (1330) | MCP |
+| [packages/server/src/mcp.ts:1352](../../packages/server/src/mcp.ts#L1352) `createMcpServer/check_record` | `Store.get` (1352); `Store.row` (1354) | MCP |
+| [packages/server/src/mcp.ts:1376](../../packages/server/src/mcp.ts#L1376) `createMcpServer/explain_related` | `Store.get` (1376) | MCP |
+| [packages/server/src/mcp.ts:2272](../../packages/server/src/mcp.ts#L2272) `registerResources/audit` | `Store.auditLog` (2272) | MCP |
 | [packages/server/src/oauth.ts:59](../../packages/server/src/oauth.ts#L59) `storedName` | `SQLite.get` (59); `SQLite.prepare` (59); `Store.sql` (59) | AUTH |
 | [packages/server/src/oauth.ts:70](../../packages/server/src/oauth.ts#L70) `legacyPasswordMark` | `SQLite.get` (70); `SQLite.prepare` (70); `Store.sql` (70) | AUTH |
 | [packages/server/src/oauth.ts:164](../../packages/server/src/oauth.ts#L164) `OAuthServer/constructor/cols` | `SQLite.all` (164); `SQLite.prepare` (164) | AUTH |
@@ -384,12 +384,12 @@ The following reasons apply to the exact enumerated expressions in each named fu
 | [packages/server/src/pgwire.ts:737](../../packages/server/src/pgwire.ts#L737) `Connection/validateSyntax` | `SQLite.prepare` (737); `Store.sql` (737) | SQL |
 | [packages/server/src/pgwire.ts:918](../../packages/server/src/pgwire.ts#L918) `Connection/describe` | `Store.describe` (918) | SQL |
 | [packages/server/src/pii.ts:140](../../packages/server/src/pii.ts#L140) `classifyField` | `Store.query` (140) | REDACTION |
-| [packages/server/src/pii.ts:289](../../packages/server/src/pii.ts#L289) `vaultTable` | `Store.sql` (289, 292) | REDACTION |
-| [packages/server/src/pii.ts:298](../../packages/server/src/pii.ts#L298) `forgetVault` | `Store.sql` (298) | REDACTION |
-| [packages/server/src/pii.ts:337](../../packages/server/src/pii.ts#L337) `PiiMasker/constructor` | `SQLite.get` (337); `SQLite.prepare` (337); `Store.sql` (337) | REDACTION |
-| [packages/server/src/pii.ts:347](../../packages/server/src/pii.ts#L347) `PiiMasker/refresh` | `SQLite.all` (347); `SQLite.prepare` (347); `Store.sql` (347) | REDACTION |
-| [packages/server/src/pii.ts:378](../../packages/server/src/pii.ts#L378) `PiiMasker/token` | `SQLite.prepare` (378, 379); `Store.sql` (378, 379); `SQLite.get` (379) | REDACTION |
-| [packages/server/src/pii.ts:619](../../packages/server/src/pii.ts#L619) `piiPreview` | `Store.find` (619); `SQLite.prepare` (626); `Store.sql` (626) | REDACTION |
+| [packages/server/src/pii.ts:287](../../packages/server/src/pii.ts#L287) `vaultTable` | `Store.sql` (287, 290) | REDACTION |
+| [packages/server/src/pii.ts:296](../../packages/server/src/pii.ts#L296) `forgetVault` | `Store.sql` (296) | REDACTION |
+| [packages/server/src/pii.ts:335](../../packages/server/src/pii.ts#L335) `PiiMasker/constructor` | `SQLite.get` (335); `SQLite.prepare` (335); `Store.sql` (335) | REDACTION |
+| [packages/server/src/pii.ts:345](../../packages/server/src/pii.ts#L345) `PiiMasker/refresh` | `SQLite.all` (345); `SQLite.prepare` (345); `Store.sql` (345) | REDACTION |
+| [packages/server/src/pii.ts:376](../../packages/server/src/pii.ts#L376) `PiiMasker/token` | `SQLite.prepare` (376, 377); `Store.sql` (376, 377); `SQLite.get` (377) | REDACTION |
+| [packages/server/src/pii.ts:617](../../packages/server/src/pii.ts#L617) `piiPreview` | `Store.find` (617); `SQLite.prepare` (624); `Store.sql` (624) | REDACTION |
 | [packages/server/src/privilege-review.ts:154](../../packages/server/src/privilege-review.ts#L154) `reviewPrivileges` | `Store.previewRecordRule` (154) | DESIGN |
 | [packages/server/src/rag.ts:56](../../packages/server/src/rag.ts#L56) `RagStore/spaces` | `SQLite.all` (56); `SQLite.prepare` (56) | RAG |
 | [packages/server/src/rag.ts:61](../../packages/server/src/rag.ts#L61) `RagStore/info` | `SQLite.all` (61, 66); `SQLite.prepare` (61, 63) | RAG |
