@@ -358,9 +358,21 @@ function serveOption(extra: string[], name: string): string | undefined {
   return i >= 0 ? extra[i + 1] : extra.find((a) => a.startsWith(`${name}=`))?.slice(name.length + 1);
 }
 
-/** Why a service may not be installed on this address as given (plain HTTP beyond this computer), or undefined. */
+/**
+ * The address a service listens on when `--host` is not given: this computer only, except with `--https <domain>` (a certificate
+ * from Let's Encrypt), where `serve` listens on every address so the certificate authority can reach it.
+ */
+export function defaultServiceHost(extra: string[]): string {
+  const https = serveOption(extra, '--https');
+  return https && https !== 'local' && https !== 'lan' ? '0.0.0.0' : '127.0.0.1';
+}
+
+/**
+ * Why a service may not run on this address as given (plain HTTP beyond this computer), or undefined. Only the spellings `serve`
+ * itself reads count (`--https name`, not `--https=name`), so what install accepts is what the service will start with.
+ */
 export function servicePlainRefusal(o: Pick<ServiceOptions, 'host' | 'extra'>): string | undefined {
-  const secure = !!serveOption(o.extra, '--https') || o.extra.includes('--tls-cert') || o.extra.some((a) => a.startsWith('--tls-cert='));
+  const secure = o.extra.includes('--https') && !!o.extra[o.extra.indexOf('--https') + 1] || o.extra.includes('--tls-cert');
   const why = plainHttpRefusal({ host: o.host, secure, allowed: o.extra.includes('--allow-plain-http') });
   return why && `${why} Options for serve go after "--", for example: tabularius service install <folder> --host ${o.host} -- --https local`;
 }
@@ -764,6 +776,9 @@ export async function upgrade(opts: { backup?: (folder: string, extra: string[])
   if (s) {
     try { validateServicePublicUrl(s.extra); }
     catch (e) { throw new Error(`upgrade refused; the existing service was not restarted: ${(e as Error).message}`); }
+    // A service installed before plain HTTP beyond this computer was refused would not start on the new version.
+    const plain = servicePlainRefusal(s);
+    if (plain) throw new Error(`upgrade refused; the existing service was not restarted, because the new version would not start it: ${plain.replace(/ Options for serve go after .*$/s, '')} Install the service again with that change: tabularius service install ${s.folder} --host ${s.host} -- <serve options>`);
   }
   const restart = opts.restart ?? restartService;
   const app = opts.app ?? resolve(import.meta.dirname, '..', '..', '..');

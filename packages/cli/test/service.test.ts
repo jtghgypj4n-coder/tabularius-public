@@ -6,7 +6,7 @@ import { createServer } from 'node:http';
 import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { checkPort, healthUrl, installService, installed, portFree, stopOwnServer, upgrade, winArg, serviceFile, servicePlainRefusal, defaults, validateServicePublicUrl, type Installed } from '../src/service.ts';
+import { checkPort, healthUrl, installService, installed, portFree, stopOwnServer, upgrade, winArg, serviceFile, servicePlainRefusal, defaultServiceHost, defaults, validateServicePublicUrl, type Installed } from '../src/service.ts';
 
 const main = join(import.meta.dirname, '..', 'src', 'main.ts');
 const print = (...args: string[]) => execFileSync(process.execPath, ['--no-warnings', main, 'service', 'print', ...args], { stdio: ['ignore', 'pipe', 'pipe'] }).toString();
@@ -209,18 +209,24 @@ test('service preflight uses flag over environment without changing persisted ar
 
 test('a service listens on this computer only unless --host says otherwise, and plain HTTP beyond it is refused', () => {
   assert.match(print('/srv/data', '--platform', 'linux'), /"serve" "\/srv\/data" "--port" "8080" "--host" "127\.0\.0\.1"/);
-  const install = (...args: string[]) => spawnSync(process.execPath, ['--no-warnings', main, 'service', 'install', '/srv/data', '--platform', 'linux', ...args], { encoding: 'utf8' });
+  // `print` applies the same refusal as `install` and can never install anything.
+  const install = (...args: string[]) => spawnSync(process.execPath, ['--no-warnings', main, 'service', 'print', '/srv/data', '--platform', 'linux', ...args], { encoding: 'utf8' });
   for (const host of ['0.0.0.0', '::', '192.168.1.20']) {
     const r = install('--host', host);
     assert.equal(r.status, 1, host);
-    assert.match(r.stderr, new RegExp(`service install: it would listen on ${host.replace(/\./g, '\\.')} over plain HTTP`), r.stderr);
+    assert.match(r.stderr, new RegExp(`service print: it would listen on ${host.replace(/\./g, '\\.')} over plain HTTP`), r.stderr);
     assert.match(r.stderr, /--https local/, 'the message names the way out');
   }
   assert.equal(servicePlainRefusal({ host: '127.0.0.1', extra: [] }), undefined);
   assert.equal(servicePlainRefusal({ host: 'localhost', extra: [] }), undefined);
   assert.equal(servicePlainRefusal({ host: '0.0.0.0', extra: ['--https', 'local'] }), undefined);
-  assert.equal(servicePlainRefusal({ host: '0.0.0.0', extra: ['--https=files.example.com'] }), undefined);
+  assert.match(servicePlainRefusal({ host: '0.0.0.0', extra: ['--https=files.example.com'] }) ?? '', /plain HTTP/, 'only the spelling serve reads counts, so install and start agree');
+  assert.match(servicePlainRefusal({ host: '0.0.0.0', extra: ['--https'] }) ?? '', /plain HTTP/);
   assert.equal(servicePlainRefusal({ host: '0.0.0.0', extra: ['--tls-cert', '/c.pem', '--tls-key', '/k.pem'] }), undefined);
   assert.equal(servicePlainRefusal({ host: '0.0.0.0', extra: ['--allow-plain-http'] }), undefined, 'a proxy elsewhere does the HTTPS, and the operator said so');
+  assert.equal(defaultServiceHost([]), '127.0.0.1');
+  assert.equal(defaultServiceHost(['--https', 'local']), '127.0.0.1', 'a certificate of its own authority, for a local network: still this computer until --host says more');
+  assert.equal(defaultServiceHost(['--https', 'files.example.com']), '0.0.0.0', 'Let\'s Encrypt must reach it');
+  assert.match(print('/srv/data', '--platform', 'linux', '--', '--https', 'files.example.com'), /"--host" "0\.0\.0\.0" "--https" "files\.example\.com"/);
   assert.match(servicePlainRefusal({ host: '0.0.0.0', extra: ['--public-url', 'https://files.example.com'] }) ?? '', /plain HTTP/, 'naming a proxy is not saying plain HTTP is allowed');
 });
