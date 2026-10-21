@@ -133,13 +133,17 @@
       "raw": 4354,
       "gzip": 1749
     },
-    "packages/web/src/change-relay.ts": {
-      "raw": 3699,
-      "gzip": 1535
+    "packages/web/src/watch-storage.ts": {
+      "raw": 4149,
+      "gzip": 1449
     },
     "packages/web/src/prefs-merge.ts": {
       "raw": 3438,
       "gzip": 1316
+    },
+    "packages/web/src/change-relay.ts": {
+      "raw": 3699,
+      "gzip": 1535
     },
     "packages/web/src/finds.ts": {
       "raw": 3084,
@@ -204,6 +208,10 @@
     "packages/web/src/keep-focus.ts": {
       "raw": 692,
       "gzip": 416
+    },
+    "packages/web/src/basic-auth.ts": {
+      "raw": 393,
+      "gzip": 294
     },
     "packages/web/tokens.css": {
       "raw": 4895,
