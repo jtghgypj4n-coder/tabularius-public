@@ -16,6 +16,7 @@ import { dataSourceFile, q } from './import.ts';
 import type { Store } from './store.ts';
 import type { Privileges } from './privileges.ts';
 import { checkMemory } from './errors.ts';
+import { nativeValue } from './native-types.ts';
 
 /** A table occurrence resolved to the store and table that hold its records. */
 export interface Occurrence {
@@ -31,6 +32,32 @@ export interface Hop {
 }
 
 const SQL_OPS: Record<string, string> = { '=': '=', '≠': '<>', '<': '<', '≤': '<=', '>': '>', '≥': '>=' };
+
+/** A typed comparison used by both portal helpers and calculation lookups. */
+export function matchPredicate(op: string, from: Field, to: Field, input: SqlValue[]): { where: string; params: SqlValue[] } | undefined {
+  const sqlOp = SQL_OPS[op];
+  if (!sqlOp) return undefined;
+  const decimal = from.type === 'decimal' || to.type === 'decimal';
+  const uuid = from.type === 'uuid' || to.type === 'uuid';
+  const col = q(to.name);
+  const matchCol = decimal && (op !== '=' || to.type !== 'decimal') ? `fm_decimal_key(${col})`
+    : uuid && to.type !== 'uuid' ? `lower(${col})` : col;
+  const matchParam = decimal ? (op === '=' && to.type === 'decimal' ? '?' : 'fm_decimal_key(?)') : uuid ? 'lower(?)' : '?';
+  const values = (op === '=' ? input : input.slice(0, 1)).map((v) => {
+    if (v === null || v === '') return null;
+    if (decimal) return nativeValue(String(v), 'decimal') ?? null;
+    if (to.type === 'number') {
+      const n = Number(v);
+      return Number.isFinite(n) ? n : null;
+    }
+    return v;
+  }).filter((v): v is Exclude<SqlValue, null> => v !== null);
+  if (!values.length) return undefined;
+  const collate = to.type === 'text' ? ' COLLATE NOCASE' : '';
+  if (op === '=') return { where: `${matchCol}${collate} IN (${values.map(() => matchParam).join(', ')})`, params: values };
+  const numeric = to.type === 'number' ? ` AND typeof(${col}) IN ('integer', 'real')` : '';
+  return { where: `(${col} IS NOT NULL AND ${col} <> ''${numeric} AND ${matchCol}${collate} ${sqlOp} ${matchParam})`, params: values };
+}
 
 /** Most related lookups stop here; a portal over more rows pages through them. */
 const MAX_ROWS = 10000;
@@ -125,28 +152,14 @@ export function condition(hop: Hop, from: Occurrence, to: Occurrence, row: Recor
     if (hop.forward) op = ({ '<': '>', '≤': '≥', '>': '<', '≥': '≤' } as Record<string, string>)[op] ?? op;
     if (op === '×') continue;
     const a = from.table.fields.find((f) => f.id === fromId);
-    const b = fieldName(to.table, toId);
-    if (!a || !b) return undefined;
+    const field = to.table.fields.find((f) => f.id === toId);
+    if (!a || !field) return undefined;
     if (privileges && (from.store.fieldHidden(from.table.name, a.name, privileges) || from.store.fieldMasked(from.table.name, a.name, privileges))) return undefined;
-    const field = to.table.fields.find((f) => f.name === b);
-    const type = field?.type;
-    // Number columns have REAL affinity, so a number compares as a number and the match index is used
-    // (as the calculation engine's lookups do): a number field holding text that isn't a number matches nothing.
-    let values = keys(readField ? readField(a) : keyValue(from, a, row, privileges));
-    if (type === 'number') values = op === '=' ? values.map(Number).filter((v) => !Number.isNaN(v)) : values.slice(0, 1).map(Number).filter((v) => !Number.isNaN(v));
-    if (!values.length) return undefined;
-    if (field) to.store.calc.ensureIndex(to.table, field);
-    const col = q(b);
-    const collate = type === 'text' ? ' COLLATE NOCASE' : '';
-    if (op === '=') {
-      parts.push(`${col}${collate} IN (${values.map(() => '?').join(', ')})`);
-      params.push(...values);
-    } else {
-      // SQLite puts text above every number, so only numbers are compared with a number.
-      const numeric = type === 'number' ? ` AND typeof(${col}) IN ('integer', 'real')` : '';
-      parts.push(`(${q(b)} IS NOT NULL AND ${q(b)} <> ''${numeric} AND ${col}${collate} ${SQL_OPS[op]} ?)`);
-      params.push(values[0]);
-    }
+    const predicate = matchPredicate(op, a, field, keys(readField ? readField(a) : keyValue(from, a, row, privileges)));
+    if (!predicate) return undefined;
+    to.store.calc.ensureIndex(to.table, field);
+    parts.push(predicate.where);
+    params.push(...predicate.params);
   }
   return { where: parts.length ? parts.join(' AND ') : '1', params };
 }
@@ -307,6 +320,7 @@ export function firstRelatedEach(
     const a = from.table.fields.find((f) => f.id === fromField);
     const b = target.table.fields.find((f) => f.id === toField);
     if (!a || !b) return undefined;
+    if (a.type !== b.type || !['text', 'number'].includes(b.type)) return oneByOne();
     const keysOf = (r: Record<string, SqlValue>) => {
       const ks = keys(keyValue(from, a, r));
       return b.type === 'number' || b.type === 'integer' || b.type === 'boolean' ? ks.map(Number).filter((v) => !Number.isNaN(v)) : ks;
