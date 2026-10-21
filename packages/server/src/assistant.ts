@@ -39,7 +39,7 @@ import { ApiError, badPathError, lenient, readJson, sessionPrivileges, type Data
 import { ConnectionError } from './connections.ts';
 import { TRANSFORMS, type MapperInput } from './import-mapping.ts';
 import { createMcpServer } from './mcp.ts';
-import { scoped, type TokenScope } from './token-scope.ts';
+import { narrowPrivileges, scoped, type TokenScope } from './token-scope.ts';
 import { DATA_NOT_INSTRUCTIONS } from './ai-security.ts';
 import { AiCredentials } from './ai-credentials.ts';
 import { costOf, priceOf } from './ai-prices.ts';
@@ -1836,16 +1836,33 @@ export class Assistant {
       const connectionCards: { name: string }[] = [];
       const used: string[] = [];
       const who = accountKey(store, account);
+      // Privileges are snapshots. Re-read them after awaits, retaining the token
+      // ceiling, before dispatching accumulated data or running another tool.
+      const accessRefusal = (): string | undefined => {
+        try {
+          const current = store.privileges(account, via);
+          const fresh = privileges.ceiling ? privileges.ceiling(current) : narrowPrivileges(store, current, scope);
+          // Keep the session's cross-file bindings as an independent boundary;
+          // refreshing the root account must never replace them with wider access.
+          return aiRefusal(store, { account, privileges, via: 'AI assistant' })
+            ?? aiRefusal(store, { account, privileges: fresh, via: 'AI assistant' })
+            ?? (fresh.fingerprint !== privileges.fingerprint ? 'Your access changed; start a new question' : undefined);
+        } catch (e) { return callerText(e); }
+      };
+      const stopped = (reason: string) => ({ reply: `I stopped there: ${reason}.`, proposals, foundSets, drafts, charts, dashboards, cleanups, automations,
+        ...(connectionCards.length ? { connections: connectionCards } : {}), ...(plans.length ? { plans } : {}), tools: used, usage });
       for (let turn = 0; turn < (this.opts.maxTurns ?? 12); turn++) {
         progress.signal?.throwIfAborted();
         // AI turned off for the file (or one it uses) mid-question: nothing more of it goes to the model, not even
         // the tool results already gathered.
-        const off = turn > 0 ? aiRefusal(store, { account, privileges, via: 'AI assistant' }) : undefined;
-        if (off) return { reply: `I stopped there: ${off}.`, proposals, foundSets, drafts, charts, dashboards, cleanups, automations, ...(connectionCards.length ? { connections: connectionCards } : {}), ...(plans.length ? { plans } : {}), tools: used, usage };
+        const off = accessRefusal();
+        if (off) return stopped(off);
         // The daily limit stops a long question between steps; what it found so far is kept.
         const over = turn > 0 ? this.overLimit(who) : undefined;
         if (over) return { reply: `I stopped there: ${over}.`, proposals, foundSets, drafts, charts, dashboards, cleanups, automations, ...(connectionCards.length ? { connections: connectionCards } : {}), ...(plans.length ? { plans } : {}), tools: used, usage };
         const response = await this.call(system, requestTools, messages, progress.signal, usage, progress.onText, route).finally(() => this.count(usage, who));
+        const afterCall = accessRefusal();
+        if (afterCall) return stopped(afterCall);
         messages.push({ role: 'assistant', content: response.content });
         // A long server-side step (tool search) can pause the turn: send it back as it is to carry on.
         if (response.stop_reason === 'pause_turn') continue;
@@ -1855,6 +1872,8 @@ export class Assistant {
         }
         const results: Block[] = [];
         for (const c of calls) {
+          const off = accessRefusal();
+          if (off) return stopped(off);
           used.push(c.name);
           // Only the tools given for this question run (Find mode's are the design only), whatever the model asks for.
           if (!tools.some((t) => t.name === c.name)) {
