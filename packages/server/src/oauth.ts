@@ -15,10 +15,12 @@ import { addressBucket } from '../../store/src/client-ip.ts';
 // account, limited to AI apps (fmmcp) and expiring in an hour, so every tool call runs under the account's privilege
 // set, Manage Security lists it, and revoking it there signs the app out (its refresh token stops working too). A file
 // with AI turned off can't be signed in to. Apps, codes and refresh tokens (their hashes only) are kept in a small
-// database in the hosted folder, so every worker of a cluster sees the same ones.
+// database in the hosted folder, so every worker of a cluster sees the same ones. A short-lived rotation response
+// is encrypted with the presented refresh token, allowing a lost response to be retried without storing plaintext tokens.
 
+import { sameSecret } from './secrets.ts';
 import { expiryClock } from '../../store/src/clock.ts';
-import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
 import { chmodSync, existsSync, writeFileSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { join } from 'node:path';
@@ -36,6 +38,7 @@ export const OAUTH_DB = '.openhbam-oauth.sqlite';
 const PASSWORD_REFUSAL = 'Wrong account or password. (Accounts that sign in through an identity provider use the button above, when there is one.)';
 const ACCESS_SECONDS = 60 * 60;
 const REFRESH_MS = 30 * 24 * 60 * 60 * 1000;
+const REFRESH_RETRY_MS = 45_000;
 /**
  * An account that signs in through an identity provider has no password here to change, and what the provider says
  * about the person (still employed, still in the group) can't be asked again at a refresh. So its refresh tokens do
@@ -53,7 +56,6 @@ const token = (prefix: string) => `${prefix}${randomBytes(32).toString('base64ur
 /** Text for a log line or a label: no line breaks or control characters, so a name can't forge another entry. */
 const plain = (s: string) => s.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, ' ').trim();
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-const sameSecret = (a: string, b: string) => a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
 /** The account's name as the file keeps it, matched as sign-in matches it; undefined when there is no such account. */
 function storedName(store: Store, account: string): string | undefined {
   return (store.sql.prepare('SELECT name FROM _fm_accounts WHERE name = ? COLLATE NOCASE').get(account) as { name: string } | undefined)?.name;
@@ -80,6 +82,26 @@ const BLOCKED = 'The server isn\'t accepting new users right now; try again late
 const LOOPBACK = new Set(['localhost', '127.0.0.1', '[::1]']);
 
 interface Client { id: string; secret_hash: string | null; name: string; redirect_uris: string }
+type TokenPair = { access_token: string; token_type: string; expires_in: number; refresh_token: string; scope: string };
+interface RefreshRow { client_id: string; database: string; account: string; access_id: string; expires: number; password: string; identity: string | null; family: string | null }
+
+// Domain separation keeps the encryption key different from the persisted token hash. The token has 256 random
+// bits; only a caller still holding it can recover a response, even from a copy of the OAuth database.
+const retryKey = (secret: string) => createHash('sha256').update('oauth-refresh-retry\0').update(secret).digest();
+function sealRetry(secret: string, client: string, family: string, pair: TokenPair): string {
+  const iv = randomBytes(12);
+  const cipher = createCipheriv('aes-256-gcm', retryKey(secret), iv);
+  cipher.setAAD(Buffer.from(JSON.stringify([client, family])));
+  const body = Buffer.concat([cipher.update(JSON.stringify(pair), 'utf8'), cipher.final()]);
+  return Buffer.concat([iv, cipher.getAuthTag(), body]).toString('base64');
+}
+function openRetry(secret: string, client: string, family: string, sealed: string): TokenPair {
+  const data = Buffer.from(sealed, 'base64');
+  const decipher = createDecipheriv('aes-256-gcm', retryKey(secret), data.subarray(0, 12));
+  decipher.setAAD(Buffer.from(JSON.stringify([client, family])));
+  decipher.setAuthTag(data.subarray(12, 28));
+  return JSON.parse(Buffer.concat([decipher.update(data.subarray(28)), decipher.final()]).toString('utf8')) as TokenPair;
+}
 
 class OAuthError extends Error {
   readonly code: string;
@@ -136,6 +158,8 @@ export class OAuthServer {
   }
 
   private readonly db: DatabaseSync;
+  /** Keep recent replay evidence per family; reaching this size prunes ancestors, never refuses a rotation. */
+  private readonly refreshHistoryLimit = 32;
   private readonly registered = new Map<string, number[]>();
   private readonly host: Host;
   private readonly opts: { publicUrl?: string };
@@ -170,6 +194,14 @@ export class OAuthServer {
           const present = (this.db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).some((c) => c.name === 'identity');
           if (!present) this.db.exec(`ALTER TABLE ${table} ADD COLUMN identity TEXT`);
         }
+        this.db.exec('BEGIN IMMEDIATE');
+        try {
+          if (!cols('refresh').includes('family')) this.db.exec('ALTER TABLE refresh ADD COLUMN family TEXT');
+          this.db.exec('CREATE TABLE IF NOT EXISTS refresh_history (hash TEXT PRIMARY KEY, client_id TEXT NOT NULL, family TEXT NOT NULL, expires INTEGER NOT NULL); CREATE INDEX IF NOT EXISTS refresh_history_family ON refresh_history(family); CREATE INDEX IF NOT EXISTS refresh_family ON refresh(family)');
+          if (!cols('refresh_history').includes('rotated')) this.db.exec('ALTER TABLE refresh_history ADD COLUMN rotated INTEGER');
+          if (!cols('refresh_history').includes('retry')) this.db.exec('ALTER TABLE refresh_history ADD COLUMN retry TEXT');
+          this.db.exec('COMMIT');
+        } catch (e) { this.db.exec('ROLLBACK'); throw e; }
         break;
       } catch (e) {
         if (tries >= 50 || !/locked|busy/i.test((e as Error).message)) throw e;
@@ -193,7 +225,26 @@ export class OAuthServer {
     }
   }
 
+  private retryTimer?: NodeJS.Timeout;
+
+  /** Drops the sealed retry pairs once the retry window is over, without waiting for the next token request. */
+  private expireRetriesSoon(): void {
+    if (this.retryTimer) return;
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = undefined;
+      try {
+        this.db.prepare('UPDATE refresh_history SET retry = NULL, rotated = NULL WHERE rotated <= ? OR rotated > ?').run(expiryClock.now() - REFRESH_RETRY_MS, expiryClock.now());
+        if (this.db.prepare('SELECT 1 FROM refresh_history WHERE retry IS NOT NULL LIMIT 1').get()) this.expireRetriesSoon();
+      } catch {
+        // Closed, or busy: the next token request sweeps it.
+      }
+    }, REFRESH_RETRY_MS + 1000);
+    this.retryTimer.unref();
+  }
+
   close(): void {
+    clearTimeout(this.retryTimer);
+    this.retryTimer = undefined;
     try {
       this.db.close();
     } catch {
@@ -626,30 +677,108 @@ p strong { color: var(--text); }
       if (this.host.config.blockNewUsers()) throw new OAuthError('invalid_grant', BLOCKED);
       return this.issue(client, row.database, row.account, clientAddress(req), row.who ? `${plain(row.who)} via AI app: ${plain(client.name)}` : undefined, undefined, identity);
     }
-    if (grant === 'refresh_token') {
-      const row = this.db.prepare('DELETE FROM refresh WHERE hash = ? AND client_id = ? RETURNING client_id, database, account, access_id, expires, password, identity').get(hash(form.get('refresh_token') ?? ''), client.id) as
-        { client_id: string; database: string; account: string; access_id: string; expires: number; password: string; identity: string | null } | undefined;
-      if (!row || row.expires <= expiryClock.now() || row.client_id !== client.id) throw new OAuthError('invalid_grant', 'The refresh token is not valid; sign in again');
-      const store = this.host.get(row.database);
-      const identity = row.identity ? JSON.parse(row.identity) as { issuer: string; sub: string; person?: string; mapping: string } : undefined;
-      if (!store || (this.host.get(row.database)?.isExternalAccount(row.account) && (!identity || identity.mapping !== row.account)) || (identity?.person && store.accountInactive(identity.person)) || (identity && !store.isExternalAccount(identity.mapping))) throw new OAuthError('invalid_grant', 'This federated sign-in is no longer valid; sign in again');
-      // Revoked in Manage Security (only a refresh ever removes it otherwise): the app is signed out.
-      if (!store || !store.apiTokens().some((t) => t.id === row.access_id)) throw new OAuthError('invalid_grant', 'This sign-in was revoked; sign in again');
-      // An account turned off keeps its sign-in as it is: nothing is rotated or revoked for it.
-      if (store.accountInactive(row.account)) throw new OAuthError('invalid_grant', 'This account is no longer eligible; sign in again');
-      const label = store.apiTokens().find((t) => t.id === row.access_id)?.label;
-      store.revokeApiToken(row.access_id);
-      // As at sign-in: still allowed (a second factor now required, a password to change, AI access taken away), and
-      // with the same password: a password changed since signs the app out.
-      if (!markCurrent(store, row.account, row.password) || this.allowed(store, row.account, clientAddress(req), false, false)) {
-        throw new OAuthError('invalid_grant', 'This account\'s password or access changed since it signed in; sign in again');
-      }
-      return this.issue(client, row.database, row.account, clientAddress(req), label, identity ? row.expires : undefined, identity, true);
-    }
+    if (grant === 'refresh_token') return this.rotateRefresh(client, req, form);
     throw new OAuthError('unsupported_grant_type', 'Only authorization_code and refresh_token are supported');
   }
 
-  private issue(client: Client, database: string, account: string, from: string, label?: string, keepExpiry?: number, identity?: { issuer: string; sub: string; person?: string; mapping: string }, refreshing = false): Record<string, unknown> {
+  /** Serialize rotation and replay revocation across workers sharing the OAuth database. */
+  private rotateRefresh(client: Client, req: IncomingMessage, form: URLSearchParams): Record<string, unknown> {
+    const secret = form.get('refresh_token') ?? '';
+    const presented = hash(secret);
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const row = this.db.prepare('SELECT * FROM refresh WHERE hash = ? AND client_id = ?').get(presented, client.id) as RefreshRow | undefined;
+      if (!row) {
+        const used = this.db.prepare('SELECT client_id, family, rotated, retry FROM refresh_history WHERE hash = ?').get(presented) as
+          { client_id: string; family: string; rotated: number | null; retry: string | null } | undefined;
+        if (used) {
+          const now = expiryClock.now();
+          if (used.client_id === client.id && used.retry && used.rotated !== null && now >= used.rotated && now < used.rotated + REFRESH_RETRY_MS) {
+            const pair = this.retryRefresh(client, req, secret, used.family, used.retry);
+            if (pair) {
+              this.db.exec('COMMIT');
+              return { ...pair };
+            }
+          }
+          this.revokeFamily(used.family);
+        }
+        // Replay revocation must survive the error returned to the caller.
+        this.db.exec('COMMIT');
+        throw new OAuthError('invalid_grant', 'The refresh token is not valid; sign in again');
+      }
+      if (row.expires <= expiryClock.now()) throw new OAuthError('invalid_grant', 'The refresh token has expired; sign in again');
+      const family = row.family ?? presented;
+      // A revocation in Manage Security also discards the family's replay and retry state when next presented.
+      if (!this.host.get(row.database)?.apiTokens().some((t) => t.id === row.access_id)) {
+        this.revokeFamily(family);
+        this.db.exec('COMMIT');
+        throw new OAuthError('invalid_grant', 'This sign-in was revoked; sign in again');
+      }
+      const result = this.rotateEligible(client, req, presented, family, row);
+      // Only the immediately preceding token can recover the unused replacement. Older hashes still detect replay.
+      this.db.prepare('UPDATE refresh_history SET rotated = ?, retry = ? WHERE hash = ?').run(expiryClock.now(), sealRetry(secret, client.id, family, result), presented);
+      this.db.prepare('DELETE FROM refresh_history WHERE family = ? AND rowid NOT IN (SELECT rowid FROM refresh_history WHERE family = ? ORDER BY rowid DESC LIMIT ?)').run(family, family, this.refreshHistoryLimit);
+      this.db.exec('COMMIT');
+      this.expireRetriesSoon();
+      return { ...result };
+    } catch (e) {
+      if (this.db.isTransaction) this.db.exec('ROLLBACK');
+      throw e;
+    }
+  }
+
+  /** Retry only the last rotation, before either replacement token has been used, with current account policy. */
+  private retryRefresh(client: Client, req: IncomingMessage, secret: string, family: string, sealed: string): TokenPair | undefined {
+    let pair: TokenPair;
+    try { pair = openRetry(secret, client.id, family, sealed); } catch { return undefined; }
+    const row = this.db.prepare('SELECT * FROM refresh WHERE hash = ? AND client_id = ? AND family = ?').get(hash(pair.refresh_token), client.id, family) as RefreshRow | undefined;
+    if (!row || row.expires <= expiryClock.now()) return undefined;
+    const store = this.host.get(row.database);
+    const access = store?.apiTokens().find((t) => t.id === row.access_id);
+    if (!store || !access || access.lastUsed || !access.expires || Date.parse(access.expires) <= expiryClock.now()) return undefined;
+    // As with a normal refresh, inactivity refuses recovery without ending the sign-in.
+    // Check replacement-token use first so inactivity cannot shelter a real replay.
+    if (store.accountInactive(row.account)) throw new OAuthError('invalid_grant', 'This account is no longer eligible; sign in again');
+    const identity = row.identity ? JSON.parse(row.identity) as { mapping: string; person?: string } : undefined;
+    if ((store.isExternalAccount(row.account) && (!identity || identity.mapping !== row.account)) ||
+      (identity && (identity.mapping !== row.account || !store.isExternalAccount(identity.mapping) || (identity.person && store.accountInactive(identity.person))))) return undefined;
+    if (!markCurrent(store, row.account, row.password) || this.allowed(store, row.account, clientAddress(req), !!identity, false)) return undefined;
+    return pair;
+  }
+
+  /** Called inside the OAuth transaction, so revoking a grant removes its history along with its live refresh. */
+  private revokeFamily(family: string): void {
+    const active = this.db.prepare('DELETE FROM refresh WHERE family = ? OR (family IS NULL AND hash = ?) RETURNING database, access_id').all(family, family) as { database: string; access_id: string }[];
+    for (const token of active) this.host.get(token.database)?.revokeApiToken(token.access_id);
+    this.db.prepare('DELETE FROM refresh_history WHERE family = ?').run(family);
+  }
+
+  private rotateEligible(client: Client, req: IncomingMessage, presented: string, family: string,
+    row: RefreshRow): TokenPair {
+    const store = this.host.get(row.database);
+    const identity = row.identity ? JSON.parse(row.identity) as { issuer: string; sub: string; person?: string; mapping: string } : undefined;
+    if (!store || (this.host.get(row.database)?.isExternalAccount(row.account) && (!identity || identity.mapping !== row.account)) || (identity?.person && store.accountInactive(identity.person)) || (identity && !store.isExternalAccount(identity.mapping))) throw new OAuthError('invalid_grant', 'This federated sign-in is no longer valid; sign in again');
+    // Revoked in Manage Security (only a refresh ever removes it otherwise): the app is signed out.
+    if (!store || !store.apiTokens().some((t) => t.id === row.access_id)) throw new OAuthError('invalid_grant', 'This sign-in was revoked; sign in again');
+    // An account turned off keeps its sign-in as it is: nothing is rotated or revoked for it.
+    if (store.accountInactive(row.account)) throw new OAuthError('invalid_grant', 'This account is no longer eligible; sign in again');
+    const label = store.apiTokens().find((t) => t.id === row.access_id)?.label;
+    // As at sign-in: still allowed (a second factor now required, a password to change, AI access taken away), and
+    // with the same password: a password changed since signs the app out.
+    if (!markCurrent(store, row.account, row.password) || this.allowed(store, row.account, clientAddress(req), false, false)) {
+      this.revokeFamily(family);
+      this.db.exec('COMMIT');
+      throw new OAuthError('invalid_grant', 'This account\'s password or access changed since it signed in; sign in again');
+    }
+    store.revokeApiToken(row.access_id);
+    const expires = identity ? row.expires : expiryClock.now() + REFRESH_MS;
+    this.db.prepare('DELETE FROM refresh WHERE hash = ? AND client_id = ?').run(presented, client.id);
+    this.db.prepare('UPDATE refresh_history SET expires = ?, rotated = NULL, retry = NULL WHERE family = ?').run(expires, family);
+    this.db.prepare('INSERT INTO refresh_history (hash, client_id, family, expires) VALUES (?, ?, ?, ?)').run(presented, client.id, family, expires);
+    return this.issue(client, row.database, row.account, clientAddress(req), label, expires, identity, true, family);
+  }
+
+  private issue(client: Client, database: string, account: string, from: string, label?: string, keepExpiry?: number, identity?: { issuer: string; sub: string; person?: string; mapping: string }, refreshing = false, family?: string): TokenPair {
     const store = this.host.get(database);
     if (!store) throw new OAuthError('invalid_grant', `${database} is no longer hosted`);
     if (identity && (identity.mapping !== account || !store.canonicalAccount(identity.mapping) || !store.isExternalAccount(identity.mapping) || (identity.person && store.accountInactive(identity.person)))) throw new OAuthError('invalid_grant', 'This federated sign-in is no longer valid; sign in again');
@@ -657,33 +786,40 @@ p strong { color: var(--text); }
     const access = store.createApiToken(account, { label: (label ?? `AI app: ${plain(client.name)}`).slice(0, 80), surfaces: ['fmmcp'], provenance: 'delegated', expires: new Date(expiryClock.now() + ACCESS_SECONDS * 1000), ...(identity ? { identity } : {}) });
     const accessId = /^ohbt_([0-9a-f]+)\./.exec(access)![1];
     const refresh = token('ohrt_');
-    this.db.prepare('INSERT INTO refresh (hash, client_id, database, account, access_id, expires, password, identity) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(hash(refresh), client.id, store.name, account, accessId, keepExpiry ?? expiryClock.now() + (identity ? REFRESH_EXTERNAL_MS : REFRESH_MS), passwordMark(store, account), identity ? JSON.stringify(identity) : null);
+    this.db.prepare('INSERT INTO refresh (hash, client_id, database, account, access_id, expires, password, identity, family) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(hash(refresh), client.id, store.name, account, accessId, keepExpiry ?? expiryClock.now() + (identity ? REFRESH_EXTERNAL_MS : REFRESH_MS), passwordMark(store, account), identity ? JSON.stringify(identity) : null, family ?? hash(refresh));
     this.db.prepare('UPDATE clients SET used = ? WHERE id = ?').run(Date.now(), client.id);
     return { access_token: access, token_type: 'Bearer', expires_in: ACCESS_SECONDS, refresh_token: refresh, scope: 'mcp' };
   }
 
   /** Sign-ins whose refresh token ran out: their last access token goes from the file too. */
   private sweep(): void {
-    const old = this.db.prepare('DELETE FROM refresh WHERE expires < ? RETURNING database, access_id').all(expiryClock.now()) as { database: string; access_id: string }[];
-    for (const r of old) this.host.get(r.database)?.revokeApiToken(r.access_id);
-    this.db.prepare('DELETE FROM codes WHERE expires < ?').run(expiryClock.now());
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const now = expiryClock.now();
+      const old = this.db.prepare('DELETE FROM refresh WHERE expires <= ? RETURNING database, access_id').all(now) as { database: string; access_id: string }[];
+      for (const r of old) this.host.get(r.database)?.revokeApiToken(r.access_id);
+      this.db.prepare('DELETE FROM codes WHERE expires < ?').run(now);
+      this.db.prepare('DELETE FROM refresh_history WHERE expires <= ? OR family NOT IN (SELECT family FROM refresh WHERE family IS NOT NULL)').run(now);
+      this.db.prepare('UPDATE refresh_history SET retry = NULL, rotated = NULL WHERE rotated <= ? OR rotated > ?').run(now - REFRESH_RETRY_MS, now);
+      this.db.exec('COMMIT');
+    } catch (e) { this.db.exec('ROLLBACK'); throw e; }
   }
 
   private revoke(req: IncomingMessage, form: URLSearchParams): void {
     const client = this.callingClient(req, form);
     const value = form.get('token') ?? '';
-    if (value.startsWith('ohrt_')) {
-      const row = this.db.prepare('DELETE FROM refresh WHERE hash = ? AND client_id = ? RETURNING database, access_id').get(hash(value), client.id) as { database: string; access_id: string } | undefined;
-      if (row) this.host.get(row.database)?.revokeApiToken(row.access_id);
-      return;
-    }
-    const id = /^ohbt_([0-9a-f]+)\./.exec(value)?.[1];
-    if (!id) return;
-    // An access token: only one this app was given, and only the whole token (its id alone is in the security log).
-    const row = this.db.prepare('SELECT database FROM refresh WHERE access_id = ? AND client_id = ?').get(id, client.id) as { database: string } | undefined;
-    const store = row && this.host.get(row.database);
-    if (!store?.apiToken(value)) return;
-    this.db.prepare('DELETE FROM refresh WHERE access_id = ? AND client_id = ?').run(id, client.id);
-    store.revokeApiToken(id);
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      if (value.startsWith('ohrt_')) {
+        const row = this.db.prepare('SELECT COALESCE(family, hash) AS family FROM refresh WHERE hash = ? AND client_id = ? UNION ALL SELECT family FROM refresh_history WHERE hash = ? AND client_id = ?').get(hash(value), client.id, hash(value), client.id) as { family: string } | undefined;
+        if (row) this.revokeFamily(row.family);
+      } else {
+        const id = /^ohbt_([0-9a-f]+)\./.exec(value)?.[1];
+        // An access token: only one this app was given, and only the whole token (its id alone is in the security log).
+        const row = id && this.db.prepare('SELECT database, COALESCE(family, hash) AS family FROM refresh WHERE access_id = ? AND client_id = ?').get(id, client.id) as { database: string; family: string } | undefined;
+        if (row && this.host.get(row.database)?.apiToken(value)) this.revokeFamily(row.family);
+      }
+      this.db.exec('COMMIT');
+    } catch (e) { this.db.exec('ROLLBACK'); throw e; }
   }
 }

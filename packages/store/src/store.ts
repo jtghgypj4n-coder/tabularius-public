@@ -762,11 +762,19 @@ const DUMMY_HASH = `scrypt$${Buffer.alloc(16, 7).toString('base64')}$${Buffer.al
 
 export function checkPassword(password: string, stored: string): boolean {
   if (stored.startsWith('fmp12$')) return checkFmp12Password(password, stored.slice(6));
-  const [scheme, salt, hash] = stored.split('$');
-  if (scheme !== 'scrypt' || !salt || !hash) return false;
-  const want = Buffer.from(hash, 'base64');
-  const got = scryptSync(password, Buffer.from(salt, 'base64'), want.length);
+  const parsed = passwordHashParts(stored);
+  if (!parsed) return false;
+  const { salt, want } = parsed;
+  const got = scryptSync(password, salt, 32);
   return timingSafeEqual(want, got);
+}
+
+function passwordHashParts(stored: string): { salt: Buffer; want: Buffer } | undefined {
+  const parts = stored.split('$');
+  if (parts.length !== 3 || parts[0] !== 'scrypt' || parts[1].length !== 24 || parts[2].length !== 44) return;
+  const salt = Buffer.from(parts[1], 'base64'), want = Buffer.from(parts[2], 'base64');
+  if (salt.length !== 16 || want.length !== 32 || salt.toString('base64') !== parts[1] || want.toString('base64') !== parts[2]) return;
+  return { salt, want };
 }
 
 /** The cost of checking one wrong password, spent when a request is refused before any file's accounts are looked at (see Store.spendsScrypt). */
@@ -777,10 +785,9 @@ export async function spendPasswordCheck(password: string): Promise<void> {
 /** checkPassword off the main thread, so a burst of logins doesn't stall everyone else's requests. */
 export function checkPasswordAsync(password: string, stored: string): Promise<boolean> {
   if (stored.startsWith('fmp12$')) return Promise.resolve(checkFmp12Password(password, stored.slice(6)));
-  const [scheme, salt, hash] = stored.split('$');
-  if (scheme !== 'scrypt' || !salt || !hash) return Promise.resolve(false);
-  const want = Buffer.from(hash, 'base64');
-  return new Promise((ok, fail) => scrypt(password, Buffer.from(salt, 'base64'), want.length, (e, got) => (e ? fail(e) : ok(timingSafeEqual(want, got)))));
+  const parsed = passwordHashParts(stored);
+  if (!parsed) return Promise.resolve(false);
+  return new Promise((ok, fail) => scrypt(password, parsed.salt, 32, (e, got) => (e ? fail(e) : ok(timingSafeEqual(parsed.want, got)))));
 }
 
 const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/svg+xml']);

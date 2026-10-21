@@ -3,6 +3,7 @@ import { clientAddress, refuseForwarding } from './client-address.ts';
 
 import '../../store/src/legacy-env.ts';
 import { legacyRequest } from './legacy-request.ts';
+import { sameSecret as sameToken } from './secrets.ts';
 import { AUTH_BODY_LIMIT } from './request-body.ts';
 import { parseRequestJson } from './request-json.ts';
 import { IdentityInFlight, busyHeaders } from './in-flight.ts';
@@ -19,7 +20,6 @@ import { join, resolve } from 'node:path';
 import { certificateManaged, ImportedCertificates } from './cert-import.ts';
 import { guideIndex, guidePage } from './docs.ts';
 import { sendConditional } from './conditional.ts';
-import { timingSafeEqual } from 'node:crypto';
 import { isJsonContentType } from '@modelcontextprotocol/sdk/shared/mediaType.js';
 import { DEFAULT_MAX_REQUEST_BODY_SIZE, requestBodyTooLargeMessage } from '@modelcontextprotocol/sdk/server/requestBody.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
@@ -231,7 +231,6 @@ export interface ServeOptions {
   requestQueue?: number;
 }
 
-const sameToken = (a: string, b: string) => a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
 
 /** The account and file an API token stands for at /mcp, with its scope; undefined when no hosted file knows it or it isn't for AI apps. */
 function apiTokenIdentity(host: Host, token: string, from: string): McpIdentity | undefined {
