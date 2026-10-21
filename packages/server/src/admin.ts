@@ -131,6 +131,7 @@ import { copyFileSync, existsSync, readFileSync, readdirSync, rmSync, statSync, 
 import { basename, dirname, extname, join, resolve, sep } from 'node:path';
 import { hashPassword, defaultMinPasswordLength, checkPassword, addressBucket, StoreError, findStaleCalcs, refreshStaleCalcs, undoStaleRefresh, staleRefreshHistory, StaleCalcError, SECURITY_EVENT_CATEGORIES, isFullAccess, type AuditEntry, type FieldLevel, type SecurityEvent, type Store } from '../../store/src/index.ts';
 import { loadAsset, sendAsset } from './static-cache.ts';
+import { inlineScriptSources } from './csp.ts';
 import type { DataApi } from './dataapi.ts';
 import type { Live } from './live.ts';
 import { accessReview, accessReviewCsv } from './access-review.ts';
@@ -368,6 +369,14 @@ class RestoreError extends Error {
 /** A body that is only {error: "..."}. */
 function onlyError(body: unknown): boolean {
   return !!body && typeof body === 'object' && !Array.isArray(body) && Object.keys(body).length === 1 && typeof (body as { error?: unknown }).error === 'string';
+}
+
+const scriptSources = new WeakMap<object, string[]>();
+/** The hashes of a page's inline scripts, worked out once per version of the file. */
+function scriptSourcesOf(asset: { body: Buffer }): string[] {
+  let held = scriptSources.get(asset);
+  if (!held) scriptSources.set(asset, held = inlineScriptSources(asset.body.toString('utf8')));
+  return held;
 }
 
 export class Admin {
@@ -776,11 +785,15 @@ export class Admin {
         res.writeHead(301, { location: '/admin/' }).end();
         return true;
       }
+      const asset = await loadAsset(PAGE);
+      // The page's own two scripts are allowed by their hash and nothing else runs: a name or a value a file holds that
+      // got into the page as markup could not run a script or an event handler, whatever else were missed.
+      const scripts = scriptSourcesOf(asset);
       await sendAsset(req, res, {
         'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache', 'x-content-type-options': 'nosniff',
         'x-frame-options': 'DENY', 'referrer-policy': 'no-referrer',
-        'content-security-policy': "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
-      }, await loadAsset(PAGE));
+        'content-security-policy': `default-src 'self'; script-src ${scripts.length ? scripts.join(' ') : "'none'"}; style-src 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'`,
+      }, asset);
       return true;
     }
     // ?db= means ?database= everywhere.

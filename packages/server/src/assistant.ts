@@ -841,7 +841,7 @@ export class Assistant {
         res.writeHead(200, {
           'content-type': html ? 'text/html; charset=utf-8' : 'text/markdown; charset=utf-8', 'cache-control': 'no-store',
           'content-disposition': `attachment; filename="${encodeURIComponent(db)}_handover.${html ? 'html' : 'md'}"`,
-          'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'",
+          'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'",
         });
         res.end(html ? docsHtml(memo, `${db}: handover`, 'Handover memo') : memo);
         return true;

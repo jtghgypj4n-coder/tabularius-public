@@ -978,7 +978,7 @@ function render(el, html) {
 
 function table(rows, cols, empty) {
   if (!rows.length) return `<p class="empty">${empty}</p>`;
-  return `<table><thead><tr>${cols.map((c) => `<th class="${c.num ? 'num' : ''}">${c.label || '<span class="sr-only">Actions</span>'}</th>`).join('')}</tr></thead><tbody>${
+  return `<table><thead><tr>${cols.map((c) => `<th class="${c.num ? 'num' : ''}">${c.labelHtml ?? (c.label ? esc(c.label) : '<span class="sr-only">Actions</span>')}</th>`).join('')}</tr></thead><tbody>${
     rows.map((r) => `<tr>${cols.map((c) => `<td class="${c.num ? 'num' : c.wrap ? 'wrap' : ''}">${c.html ? c.html(r) : esc(c.get(r))}</td>`).join('')}</tr>`).join('')
   }</tbody></table>`;
 }
@@ -1276,7 +1276,7 @@ $('signin-form').addEventListener('submit', async (e) => {
   refresh();
 });
 
-const outcome = (r) => `<span class="${r.error ? 'bad' : 'ok'}">${r.error ? `error ${r.error}${r.message ? ', ' + esc(r.message) : ''}` : 'done'}</span>`;
+const outcome = (r) => `<span class="${r.error ? 'bad' : 'ok'}">${r.error ? `error ${esc(r.error)}${r.message ? ', ' + esc(r.message) : ''}` : 'done'}</span>`;
 
 // Inbound hooks: each one's address, and the calls it got (never their bodies).
 let callsOf;
@@ -4385,7 +4385,7 @@ function renderStale(db) {
     ? `<b>${r.stale.toLocaleString()}</b> stored value${r.stale === 1 ? '' : 's'} in ${fields.length} field${fields.length === 1 ? '' : 's'} of ${esc(db)} no longer match${r.stale === 1 ? 'es' : ''} the formula (${r.looked.toLocaleString()} values checked). Nothing has been changed.`
     : `<span class="ok">Every stored calculation looked at in ${esc(db)} matches its formula</span> (${r.looked.toLocaleString()} values).`;
   $('stale').innerHTML = table(r.fields, [
-    { label: '<span class="sr-only">Select</span>', html: (f) => f.stale ? `<input type="checkbox" class="stale-pick" data-table="${esc(f.table)}" data-field="${esc(f.field)}" data-n="${f.stale}" aria-label="Bring ${esc(f.table)}::${esc(f.field)} up to date">` : '' },
+    { labelHtml: '<span class="sr-only">Select</span>', html: (f) => f.stale ? `<input type="checkbox" class="stale-pick" data-table="${esc(f.table)}" data-field="${esc(f.field)}" data-n="${f.stale}" aria-label="Bring ${esc(f.table)}::${esc(f.field)} up to date">` : '' },
     { label: 'Field', html: (f) => `${esc(f.table)}::<b>${esc(f.field)}</b>` },
     { label: 'Why it drifts', wrap: true, html: (f) => { const [t, why] = CAUSE[f.cause] ?? [f.cause, '']; return `<span class="${f.cause === 'this record only' ? 'cause-own' : ''}">${esc(t)}</span><br><span class="meta">${esc(why)}</span>`; } },
     { label: 'Stale', num: true, html: (f) => `${f.stale.toLocaleString()}<br><span class="meta">of ${f.looked.toLocaleString()}</span>` },

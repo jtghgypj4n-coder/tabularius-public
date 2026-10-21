@@ -39,7 +39,7 @@ const KNOWN = [/^target-size: .*\(in the layout\)/];
 
 /** axe-core's WCAG A/AA violations on the page as it stands. */
 async function axe(page: Page): Promise<string[]> {
-  if (!(await page.evaluate(() => 'axe' in window))) await page.addScriptTag({ content: axeSource });
+  if (!(await page.evaluate(() => 'axe' in window))) await page.evaluate(axeSource); // an inline <script> would be refused by the admin console's policy
   const result = await page.evaluate(async (tags) => {
     const r = await (window as any).axe.run(document, { runOnly: { type: 'tag', values: tags }, resultTypes: ['violations'], elementRef: true });
     // Objects drawn from the FileMaker layout itself are marked: their look and size are the file's.

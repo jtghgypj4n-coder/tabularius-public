@@ -4918,7 +4918,17 @@ class Session implements Host {
     this.ids = undefined;
     this.mode = 'browse';
     this.index = 0;
-    await this.reload();
+    try {
+      await this.reload();
+    } catch (err) {
+      // Criteria the server refuses (an unclosed quote, say): say so, and stay in Find mode with the found set as it was.
+      [this.query, this.ids] = previous;
+      this.mode = 'find';
+      toast(errorText(err));
+      // The server may be unreachable, in which case this fails as well; the message above has been shown.
+      await this.reload().catch(() => {});
+      return;
+    }
     if (!this.foundCount) {
       announce('Found 0 records.');
       [this.query, this.ids] = previous;

@@ -719,7 +719,7 @@ export class DesignApi {
           'content-type': html ? 'text/html; charset=utf-8' : 'text/markdown; charset=utf-8', 'cache-control': 'no-store',
           'content-disposition': `attachment; filename="${encodeURIComponent(db)}_docs.${html ? 'html' : 'md'}"`,
           // The page is only ever downloaded; if it is opened from here, nothing in it runs.
-          'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'",
+          'x-content-type-options': 'nosniff', 'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'",
         });
         res.end(html ? docsHtml(md, `${db}: documentation`) : md);
       }
