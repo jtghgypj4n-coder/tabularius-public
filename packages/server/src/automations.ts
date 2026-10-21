@@ -289,9 +289,9 @@ export async function dryRunAutomation(store: Store, spec: Omit<Automation, 'id'
     copy.readContainersLike(store);
     if (script) copy.applyDesign([scriptChange(copy, script)], { account: 'AI dry run' });
     const info = copy.layout(spec.layout);
-    const truth = (id: number) => !spec.condition || asBoolean(copy!.evaluateEach(info, [spec.condition], id, { account: spec.account })[0] ?? { type: 'text', value: '' });
     // As the account it will run as, so the dry run shows what that account's privileges let it do, on a record it can see.
     const privileges = copy.privileges(spec.account);
+    const truth = (id: number) => !spec.condition || asBoolean(copy!.evaluateEach(info, [spec.condition], id, { account: spec.account, privileges })[0] ?? { type: 'text', value: '' });
     const ids = copy.findIds(info, {}).filter((id) => copy!.canViewRecord(info.table, id, privileges));
     let recordId: number | undefined;
     const setOff: string[] = [];
@@ -337,7 +337,7 @@ export async function dryRunAutomation(store: Store, spec: Omit<Automation, 'id'
     const target = copy.schema.scripts.find((s) => s.name === spec.script);
     if (!target) return early({ recordId, setOff, conditionTrue, outcome: 'skipped', message: `no script "${spec.script}"`, changes: [], outbound: [] });
     const since = copy.auditLog({ limit: 1 })[0]?.seq ?? 0;
-    const parameter = deletedParameter ?? (spec.parameter ? copy.evaluate(info, spec.parameter, recordId, { account: spec.account }).value : undefined);
+    const parameter = deletedParameter ?? (spec.parameter ? copy.evaluate(info, spec.parameter, recordId, { account: spec.account, privileges }).value : undefined);
     const r = await runScript(copy, target, {
       layout: info.name, ...(spec.on === 'delete' ? { foundSet: [] } : { foundSet: [recordId], recordId }), account: spec.account, executionAccount: spec.account, executionStore: store, privileges, ...(parameter !== undefined ? { parameter } : {}),
       network: false, documents: join(dir, 'documents'), timeoutMs: 5_000, maxSteps: 20_000, trace: true,
@@ -455,13 +455,14 @@ export class AutomationRunner {
       // A record the account can't see doesn't set off its automations.
       if (!store.canViewRecord(info.table, recordId, privileges)) return log({ outcome: 'skipped', message: `${a.account} can't view this record` });
       if (a.condition) {
-        const v = store.evaluateEach(info, [a.condition], recordId, { account: a.account })[0];
+        // These formulas run before script entry: even a full-access target cannot elevate them.
+        const v = store.evaluateEach(info, [a.condition], recordId, { account: a.account, privileges })[0];
         if (!v || !asBoolean(v)) return; // not set off: nothing to log
       }
       const script = store.schema.scripts.find((s) => s.name === a.script);
       if (!script) return log({ outcome: 'error', error: 104, message: `no script "${a.script}"` });
       privileges.checkScript(script.name);
-      const parameter = a.parameter ? store.evaluate(info, a.parameter, recordId, { account: a.account }).value : undefined;
+      const parameter = a.parameter ? store.evaluate(info, a.parameter, recordId, { account: a.account, privileges }).value : undefined;
       const r = await writer.run({ owner: `${OWNER}${a.id}`, account: a.account, surface: 'automation' }, () => opts.serverQueue.run((stop) => runScript(store, script, {
         ...(stop ? { stop } : {}),
         layout: info.name, foundSet: [recordId], recordId, account: a.account, executionAccount: a.account, privileges, ...(parameter !== undefined ? { parameter } : {}),

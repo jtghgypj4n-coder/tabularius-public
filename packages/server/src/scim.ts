@@ -824,7 +824,7 @@ function page(url: URL, all: Record<string, unknown>[]): Record<string, unknown>
 function serviceProviderConfig(location: string): Record<string, unknown> {
   return {
     schemas: [SPC],
-    documentationUri: 'https://github.com/jtghgypj4n-coder/tabularius-public/blob/main/ADMIN.md#provisioning-accounts-from-an-identity-provider-scim',
+    documentationUri: 'https://github.com/sitotisai/tabularius/blob/main/ADMIN.md#provisioning-accounts-from-an-identity-provider-scim',
     patch: { supported: true },
     bulk: { supported: false, maxOperations: 0, maxPayloadSize: 0 },
     filter: { supported: true, maxResults: MAX_COUNT },
