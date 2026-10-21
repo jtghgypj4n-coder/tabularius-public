@@ -97,17 +97,19 @@ export function reviewPrivileges(store: Store, opts: { unusedDays?: number } = {
     }
   }
 
-  // The guest account: FileMaker's "sign in as guest", with no password by design.
+  // The guest account: FileMaker's "sign in as guest". It comes across switched off. Switched on here, it still opens nothing by
+  // itself, since every route needs an account name and a password it can't match; it matters when someone gives it a password.
   for (const a of active.filter((x) => /^\[guest\]$/i.test(x.name))) {
     const p = store.privileges(a.name);
     const reads = store.schema.tables.filter((t) => p.table(t.name).view !== false).map((t) => t.name);
     if (!reads.length && !p.full) continue;
     const surfaces = Object.keys(SURFACES).filter((e) => p.has(e));
     findings.push({
-      severity: p.full || surfaces.length ? 'high' : 'medium', kind: 'guest', account: a.name, privilegeSet: a.privilegeSet,
-      title: p.full ? 'Guest access is on, with full access.' : `Guest access is on: anyone can open the file without an account and read ${plural(reads.length, 'table')}${reads.length <= 6 ? ` (${list(reads)})` : ''}.`,
-      detail: (surfaces.length ? `The guest set also opens ${list(surfaces.map((s) => SURFACES[s]))}, so this reaches past the web client. ` : '') +
-        'Turn the [Guest] account off in Manage Security unless the file is meant to be public, or give its set read-only access to just what visitors need.',
+      severity: p.full || surfaces.length ? 'medium' : 'low', kind: 'guest', account: a.name, privilegeSet: a.privilegeSet,
+      title: p.full ? 'The [Guest] account is on, with full access.' : `The [Guest] account is on, with a set that reads ${plural(reads.length, 'table')}${reads.length <= 6 ? ` (${list(reads)})` : ''}.`,
+      detail: 'This server never lets anyone in without an account name and a password, so [Guest] opens nothing until someone gives it a password, and then it is a shared account. ' +
+        (surfaces.length ? `Its set also opens ${list(surfaces.map((s) => SURFACES[s]))}, so that would reach past the web client. ` : '') +
+        'Turn the [Guest] account off in Manage Security unless you use it, or give its set read-only access to just what it needs.',
     });
   }
 

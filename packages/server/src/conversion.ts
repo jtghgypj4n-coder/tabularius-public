@@ -59,7 +59,7 @@ export interface ConversionReport {
   /** How the file's accounts and privilege sets came across, and what wasn't decoded. */
   privileges: {
     /** Each account and the privilege set it resolved to (null = none, so no access). */
-    assignments: { account: string; privilegeSet: string | null; external?: boolean; builtIn?: boolean; inactive?: boolean }[];
+    assignments: { account: string; privilegeSet: string | null; external?: boolean; builtIn?: boolean; inactive?: boolean; fileHadItOn?: boolean }[];
     /** Accounts that resolved to no privilege set: they can't sign in until given one. */
     withoutSet: string[];
     /** Privilege sets imported, each with a short record-access summary and its extended privileges. */
@@ -264,12 +264,12 @@ export function conversionReport(store: Store, hosted: string[] = [], focus?: (w
   // access are decoded (customRecords below); per-layout/value-list/script
   // "Custom privileges" aren't yet, so those are imported at the set's overall level.
   const privSets = store.privilegeSets();
-  // FileMaker's built-in accounts ([Guest]) are listed too, marked builtIn: whether FileMaker had [Guest]
-  // switched on isn't imported, so this says which set it has, not that guest access is on. Accounts
-  // switched off here say so. Built-in and switched-off accounts don't count as missing a set.
+  // FileMaker's built-in accounts ([Guest]) are listed too, marked builtIn. [Guest] always comes across switched
+  // off; fileHadItOn says when the FileMaker file had it on. Accounts switched off here say so. Built-in and
+  // switched-off accounts don't count as missing a set.
   const builtIn = (name: string) => /^\[.*\]$/.test(name);
   const assignments = store.accounts()
-    .map((a) => ({ account: a.name, privilegeSet: a.privilegeSet ?? null, ...(a.external ? { external: true } : {}), ...(builtIn(a.name) ? { builtIn: true } : {}), ...(a.inactive ? { inactive: true } : {}) }));
+    .map((a) => ({ account: a.name, privilegeSet: a.privilegeSet ?? null, ...(a.external ? { external: true } : {}), ...(builtIn(a.name) ? { builtIn: true } : {}), ...(a.inactive ? { inactive: true } : {}), ...(/^\[guest\]$/i.test(a.name) && store.fileHadGuestOn() ? { fileHadItOn: true } : {}) }));
   const withoutSet = assignments.filter((a) => a.privilegeSet === null && !a.external && !a.builtIn && !a.inactive).map((a) => a.account);
 
   const report: ConversionReport = {
