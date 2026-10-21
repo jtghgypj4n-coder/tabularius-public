@@ -237,6 +237,8 @@ export interface LayoutMeta {
   fileMode?: 'native' | 'compat';
   /** False while this file's scripts can't reach the network: an administrator turns it on in the admin console. */
   scriptNetwork?: boolean;
+  /** The https web hosts this file's web viewers may load ("maps.example.com", "*.example.com"); none until an administrator lists some. */
+  webViewerHosts?: string[];
   /** `file` is the hosted file holding the table, when it is another file of the solution. */
   layout: { name: string; id: number; occurrence: string; table: string; file?: string };
   design: LayoutDesign;

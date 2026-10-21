@@ -257,6 +257,11 @@ export class Host {
   /** Tabularius's AI for FileMaker's AI script steps, set when the server runs with --ai (scripts/src/ai.ts). */
   scriptAi?: ScriptAi;
 
+  /** Every web host any hosted file lets its web viewers load, for the web app's frame policy (each file's own list still decides what its viewers load). */
+  webViewerHostsAll(): string[] {
+    return [...new Set([...this.stores.values()].flatMap((s) => s.webViewerHosts))].sort();
+  }
+
   /** Whether scripts may reach the network in a hosted file: the server's flag allows every file, else the file's own switch. */
   scriptNetworkOn(file: string): boolean {
     return this.scriptNetwork || this.get(file)?.scriptNetwork === true;

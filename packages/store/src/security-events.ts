@@ -32,6 +32,7 @@ export const SECURITY_EVENT_KINDS = [
   'audit-settings-changed', 'audit-pruned',
   'plugin-installed', 'plugin-install-refused',
   'script-network-on', 'script-network-off',
+  'web-viewer-hosts-changed',
 ] as const;
 
 /** The security and authentication events the audit log records, besides record changes. */
@@ -65,6 +66,7 @@ export const SECURITY_EVENT_CATEGORIES: Record<string, readonly SecurityEventKin
   'Blank passwords': ['blank-password-lan-allowed', 'blank-password-lan-disallowed'],
   'Plug-ins': ['plugin-installed', 'plugin-install-refused'],
   'Script network access': ['script-network-on', 'script-network-off'],
+  'Web viewer hosts': ['web-viewer-hosts-changed'],
   'AI access': ['ai-turned-off', 'ai-turned-on', 'ai-access-refused', 'ai-policy-on', 'ai-policy-off', 'pii-isolation-on', 'pii-isolation-off', 'pii-field-marked', 'ai-data-masked'],
 };
 
@@ -97,7 +99,7 @@ const NOTICE = new Set<string>([
   'two-factor-disabled', 'passkey-removed', 'recovery-code-used',
   'api-token-issued', 'scim-token-issued', 'privilege-set-unassigned', 'agent-added', 'agent-change-rejected',
   'ai-turned-on', 'ai-access-refused', 'blank-password-lan-allowed', 'pii-isolation-off', 'pii-field-marked',
-  'audit-settings-changed', 'audit-pruned', 'plugin-installed',
+  'audit-settings-changed', 'audit-pruned', 'plugin-installed', 'web-viewer-hosts-changed',
 ]);
 
 export function securityEventSeverity(kind: string): SecurityEventSeverity {
@@ -171,6 +173,11 @@ export function describeSecurityEvent(e: AuditEntry): string {
     case 'schema-changed': return `Schema changed${schemaOps(d)}`;
     case 'script-network-on': return 'Script network access turned on: this file\'s scripts can reach the network';
     case 'script-network-off': return 'Script network access turned off for this file';
+    case 'web-viewer-hosts-changed': {
+      const list = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []).join(', ');
+      const [added, removed] = [list(d.added), list(d.removed)];
+      return `Web viewer hosts changed${added ? `: allowed ${added}` : ''}${removed ? `${added ? '; ' : ': '}no longer allowed ${removed}` : ''}`;
+    }
     case 'ai-policy-on': return 'AI-visible policy turned on';
     case 'ai-policy-off': return 'AI-visible policy turned off';
     case 'ai-turned-off': return 'AI turned off for this file';

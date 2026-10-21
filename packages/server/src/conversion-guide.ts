@@ -228,10 +228,10 @@ export function conversionGuide(store: Store, hosted: string[] = [], report: Con
     differs.push({
       title: 'Web viewers', severity: online.length ? 'medium' : 'low', count: viewers.length, where: layouts.slice(0, WHERE).map((l) => `Layout "${l}"`),
       what: online.length
-        ? `${plural(online.length, 'web viewer')} load${online.length === 1 ? 's' : ''} a page from the internet, which isn't loaded: the web client shows a placeholder, as hosted files stay offline.` +
+        ? `${plural(online.length, 'web viewer')} load${online.length === 1 ? 's' : ''} a page from the internet, which loads only from a host an administrator lists for this file (Hosted files, Web viewers may load); until then the web client shows the address as text.` +
           (viewers.length > online.length ? ` ${plural(viewers.length - online.length, 'other')} show a page made in the file (a data: URL), which works.` : '')
         : 'They show pages made in the file (data: URLs), which work, in a sandbox that can\'t reach the app.',
-      ...(online.length ? { instead: 'Build the page in the file as a data: URL ("data:text/html," & a field or variable holding the HTML), or show the address as a link a button opens with Open URL.' } : {}),
+      ...(online.length ? { instead: 'List the host in the admin console (Hosted files, "Web viewers may load"; https only), build the page in the file as a data: URL ("data:text/html," & a field or variable holding the HTML), or show the address as a link a button opens with Open URL.' } : {}),
     });
   }
   if (r.steps.screenOnly.length) {

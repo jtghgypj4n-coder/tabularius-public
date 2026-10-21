@@ -254,6 +254,11 @@ engine runs in a **no-network, no-mail sandbox** by default:
     item itself opts in, and
   - **scripts an AI runs** (the `run_script` MCP tool, and the test-run tooling)
     are **always offline**, with no way to opt in.
+- Web viewers load an **https** page only from a host an administrator listed
+  for that file in the admin console (empty by default for every new or
+  converted file and for `tabularius demo`). A listed page runs in a sandboxed
+  frame of its own origin with none of the app's page API, and its host sees the
+  address of whoever opens it. Changes are in the file's security log.
 - `Import Records` in a server-side script reads only from the hosting folder's
   `Documents`, never an arbitrary path.
 

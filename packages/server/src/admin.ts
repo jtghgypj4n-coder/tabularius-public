@@ -82,6 +82,7 @@ import { auditCsvField } from '../../store/src/audit-output.ts';
 //                                                     Rest; the passphrase is used for that conversion only, never kept
 //   (reconvert and reconvert-preview take {passphrase} too, for such a file)
 //   GET|POST /tabularius/admin/v1/ai-access/{name}      whether AI may read the file; {"on": false} keeps it from AI
+//   GET|POST /tabularius/admin/v1/web-viewer-hosts/{name} the https web hosts the file's web viewers may load (none until listed); {"hosts": [...]} replaces the list
 //   GET|POST /tabularius/admin/v1/script-network/{name}  whether the file's scripts may reach the network; {"on": true} lets them (off for a new or converted file)
 //   POST /tabularius/admin/v1/solutions/plan          {name, description}: the assistant plans a new file (solution-builder.ts; creates nothing)
 //   POST /tabularius/admin/v1/solutions               {name, changes, password?}: create it from the plan, all or nothing
@@ -267,7 +268,7 @@ function consoleMethods(path: string): string | undefined {
   if (/^connections\/[0-9a-f]+$/.test(name)) return 'GET, PATCH, DELETE';
   if (/^connections\/[0-9a-f]+\/(approve|test)$/.test(name)) return 'POST';
   if (/^connections\/[0-9a-f]+\/secrets\/[A-Za-z][A-Za-z0-9]*$/.test(name)) return 'PUT, DELETE';
-  if (/^script-network\/[^/]+$/.test(name) || /^ai-access\/[^/]+$/.test(name) || /^pii\/[^/]+$/.test(name) || /^conversion-guide\/[^/]+$/.test(name)) return 'GET, POST';
+  if (/^script-network\/[^/]+$/.test(name) || /^web-viewer-hosts\/[^/]+$/.test(name) || /^ai-access\/[^/]+$/.test(name) || /^pii\/[^/]+$/.test(name) || /^conversion-guide\/[^/]+$/.test(name)) return 'GET, POST';
   if (/^pii\/[^/]+\/field$/.test(name) || /^digests\/[^/]+\/[0-9a-f]{12}\/run$/.test(name)) return 'POST';
   if (name === 'digests') return 'GET';
   if (/^optimization\/[^/]+$/.test(name)) return 'GET';
@@ -1158,6 +1159,27 @@ export class Admin {
               this.log(`Script network access ${body.on ? 'turned on' : 'turned off'} for ${store.name} (admin console)`);
             }
             send(200, status(store));
+          }
+        } else send(405, { error: 'method not allowed' });
+      } else if (path.startsWith('/tabularius/admin/v1/web-viewer-hosts/')) {
+        // GET: the https web hosts this file's web viewers may load (none until listed); POST {"hosts": ["maps.example.com", "*.example.com"]}: replace the list.
+        const name = decodeURIComponent(path.slice('/tabularius/admin/v1/web-viewer-hosts/'.length));
+        const store = this.host.get(name);
+        const status = (s: Store) => ({ hosts: s.webViewerHosts });
+        if (!store) send(404, { error: 'No such hosted file' });
+        else if (req.method === 'GET') send(200, status(store));
+        else if (req.method === 'POST') {
+          const body = await readJson(req) as { hosts?: unknown };
+          if (!Array.isArray(body.hosts)) send(400, { error: 'Send {"hosts": ["maps.example.com"]}' });
+          else {
+            const before = store.webViewerHosts;
+            try {
+              store.setWebViewerHosts(body.hosts, { account: 'admin console' });
+              if (before.join('\n') !== store.webViewerHosts.join('\n')) this.log(`Web viewer hosts for ${store.name} now: ${store.webViewerHosts.join(', ') || 'none'} (admin console)`);
+              send(200, status(store));
+            } catch (e) {
+              if (e instanceof StoreError) send(400, { error: e.message }); else throw e;
+            }
           }
         } else send(405, { error: 'method not allowed' });
       } else if (path.startsWith('/tabularius/admin/v1/ai-access/')) {
@@ -2538,6 +2560,8 @@ export class Admin {
         aiPolicy: store.aiPolicy,
         // Whether this file's scripts may reach the network: its own switch, or the server-wide flag.
         scriptNetwork: { on: this.host.scriptNetworkOn(name), own: store.scriptNetwork },
+        // The web hosts its web viewers may load (none until an administrator lists some).
+        webViewerHosts: store.webViewerHosts,
         // Whether personal data is swapped for stand-ins before anything goes to AI (here, or in a file it uses).
         pii: (() => {
           const f = piiFile(store);
