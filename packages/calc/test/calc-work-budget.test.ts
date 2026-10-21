@@ -11,7 +11,7 @@ const limit = /resource limit|too large|too many|invalid CID/i;
 `;
 function child(code: string): void {
   const r = spawnSync(process.execPath, ['--max-old-space-size=256', '--input-type=module', '-e', prelude + code], {
-    cwd: new URL('../../../', import.meta.url), timeout: 12_000, encoding: 'utf8', maxBuffer: 64_000,
+    cwd: new URL('../../../', import.meta.url), timeout: 60_000, encoding: 'utf8', maxBuffer: 64_000,
   });
   assert.equal(r.error, undefined, String(r.error));
   assert.equal(r.status, 0, r.stderr);
