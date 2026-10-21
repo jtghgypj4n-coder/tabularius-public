@@ -14,6 +14,7 @@ import { createEdgeServer, type EdgeLimits } from './edge-limits.ts';
 import { parseAllowList } from '../../scripts/src/net-guard.ts';
 import { trustedProxyAddresses, useForwardedFor, type ProxyHeader } from './client-address.ts';
 import { acmeOrigins, mcpOriginAllowed, onForwardedWithoutPublicUrl, validatePublicUrl, urlHostname } from './public-origin.ts';
+import { needsSameOriginCheck, sameOriginRequest } from './browser-request.ts';
 import { readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -166,6 +167,8 @@ export interface ServeOptions {
   mcpToken?: string;
   /** Additional browser origins allowed at /mcp (scheme, host and optional port). Authentication still applies. */
   mcpAllowedOrigins?: string[];
+  /** Internal: operator HTTPS origins carried from a cluster front to workers after TLS termination. */
+  browserOrigins?: string[];
   /** HTTP(S) address clients reach the server at, without credentials, path, query or fragment; a trailing slash is allowed. */
   publicUrl?: string;
   /** List every hosted file to anyone who asks, as FileMaker Server's own lists do; off, a list answers only a caller who signs in, with the files that account can open. */
@@ -326,6 +329,7 @@ export async function serve(opts: ServeOptions): Promise<{ server: Server; host:
     // Only the leader of a cluster mails, so one event is one message.
     if (logs.rotate) logs.onEntry = (type, src, message) => host.notifier.note(type, src, message);
     host.publicUrl = opts.publicUrlIsDefault ? undefined : opts.publicUrl;
+    host.browserOrigins = [...(opts.browserOrigins ?? []), ...(opts.acme ? acmeOrigins(opts.acme.domains, opts.port ?? 443) : [])];
     host.listFilesPublicly = !!opts.listFilesPublicly;
     const api = new DataApi(host);
     const web = new WebClient(host, api);
@@ -591,6 +595,10 @@ export async function serve(opts: ServeOptions): Promise<{ server: Server; host:
         res.on('finish', () => logs.write('Admin', res.statusCode >= 400 ? 'Warning' : 'Information', clientAddress(req), `${req.method} ${redactPath(url.pathname)} ${res.statusCode}`));
       }
       try {
+        if (needsSameOriginCheck(req, url.pathname) && !sameOriginRequest(req, host.publicUrl, host.browserOrigins, url.pathname.startsWith('/tabularius/admin/'))) {
+          res.writeHead(403, { 'content-type': 'application/json', 'cache-control': 'no-store' }).end(JSON.stringify({ error: 'Cross-origin request denied' }));
+          return;
+        }
         if (url.pathname === '/tabularius/health') return metrics.health(res);
         // How to trust the server's own certificate authority (--https local): open to all, as devices need it first.
         if (url.pathname.startsWith('/tabularius/tls') && handleTrust(opts.dir, req, res, url.pathname)) return;
