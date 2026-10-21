@@ -56,7 +56,7 @@
   {"file":"packages/server/src/ai-usage.ts","fn":"AiUsage/today","gate":"AUTH","sites":[{"api":"SQLite.get","hash":"0e3606b0bb3918a7a4a2"},{"api":"SQLite.prepare","hash":"0e3606b0bb3918a7a4a2"}]},
   {"file":"packages/server/src/ai-usage.ts","fn":"AiUsage/month","gate":"AUTH","sites":[{"api":"SQLite.get","hash":"d7e38bae5ed571bfef85"},{"api":"SQLite.prepare","hash":"d7e38bae5ed571bfef85"}]},
   {"file":"packages/server/src/ai-usage.ts","fn":"AiUsage/recent","gate":"AUTH","sites":[{"api":"SQLite.all","hash":"eed52ffc590d12231824"},{"api":"SQLite.prepare","hash":"eed52ffc590d12231824"}]},
-  {"file":"packages/server/src/ai-usage.ts","fn":"AiUsage/add","gate":"AUTH","sites":[{"api":"SQLite.prepare","hash":"990c6387b62df355f329"},{"api":"SQLite.prepare","hash":"7e72f22ece435edb9481"}]},
+  {"file":"packages/server/src/ai-usage.ts","fn":"AiUsage/add","gate":"AUTH","sites":[{"api":"SQLite.prepare","hash":"990c6387b62df355f329"},{"api":"SQLite.prepare","hash":"6ab5e2b38a9fff4aa1ba"}]},
   {"file":"packages/server/src/ai-usage.ts","fn":"AiUsage/question","gate":"AUTH","sites":[{"api":"SQLite.prepare","hash":"538c7fac7d0db1a30cf3"},{"api":"SQLite.prepare","hash":"016f6f7881ca0a41aeff"},{"api":"SQLite.prepare","hash":"77464eb0212d1cacf19b"},{"api":"SQLite.prepare","hash":"e64b7d0594cfaf0abae6"}]},
   {"file":"packages/server/src/ai-usage.ts","fn":"AiUsage/importOld","gate":"AUTH","sites":[{"api":"SQLite.prepare","hash":"17f2a80f28aac584519c"},{"api":"SQLite.prepare","hash":"4fe1783560707b42b00c"},{"api":"SQLite.prepare","hash":"f7a2726a730b2ede0f5f"},{"api":"SQLite.prepare","hash":"016f6f7881ca0a41aeff"}]},
   {"file":"packages/server/src/assistant.ts","fn":"Assistant/answer","gate":"ACCOUNT","sites":[{"api":"Store.find","hash":"7985e028a2699e4b8ff3"}]},
