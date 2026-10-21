@@ -15,10 +15,14 @@ export function sheetNameOf(file: string): string {
   return file.replace(/^.*[\\/]/, '').replace(/\.[A-Za-z0-9]+$/, '').replace(/\s[0-9a-f]{32}$/, '').replace(/\s*-\s*Grid view$/i, '').trim() || 'Sheet';
 }
 
-/** A ZIP of exports is held to what one uploaded file may be: its files unpacked together stay under the 50 MB a request may carry. */
+/** The ZIPs of one request together unpack to at most the 50 MB a request body may carry, and hold at most this many CSV files and Markdown pages. */
 export const MAX_ZIP_UNPACKED_BYTES = 50 * 1024 * 1024;
 export const MAX_ZIP_SHEETS = 100;
 export const MAX_ZIP_PAGES = 5000;
+
+/** What is left of those limits; one is shared by every file of a request, so twenty ZIPs cannot each use all of it. */
+export interface ZipAllowance { bytes: number; csvs: number; pages: number }
+export const zipAllowance = (): ZipAllowance => ({ bytes: MAX_ZIP_UNPACKED_BYTES, csvs: MAX_ZIP_SHEETS, pages: MAX_ZIP_PAGES });
 
 /** `base`, or `base 2`, `base 3`... when a table of that name (in any case) is already taken. */
 function freeName(base: string, taken: Set<string>): string {
@@ -33,26 +37,27 @@ function freeName(base: string, taken: Set<string>): string {
  * files are unpacked (pictures and other assets are not), within the limits above. Two CSVs of one name in different
  * folders become `Name` and `Name 2`, and the page table is named after the ZIP unless a CSV has taken that name.
  */
-function sheetsFromZip(name: string, data: Uint8Array): SheetInput[] {
+function sheetsFromZip(name: string, data: Uint8Array, allowance: ZipAllowance): SheetInput[] {
   try {
-    const archive = zipReader(data, MAX_ZIP_UNPACKED_BYTES);
+    const archive = zipReader(data, allowance.bytes);
     const wanted: { path: string; kind: 'csv' | 'md' }[] = [];
-    const counts = { csv: 0, md: 0 };
-    const seen = new Set<string>();
+    const left = { csv: allowance.csvs, md: allowance.pages };
     for (const path of archive.names()) {
       const base = path.split(/[\\/]/).pop()!;
       // macOS adds a __MACOSX folder of ._ resource-fork files to a ZIP; they are not exports.
-      if (/(^|[\\/])__MACOSX[\\/]/.test(path) || base.startsWith('._') || seen.has(path)) continue;
+      if (/(^|[\\/])__MACOSX[\\/]/.test(path) || base.startsWith('._')) continue;
       const kind = /\.csv$/i.test(base) ? 'csv' : /\.md$/i.test(base) ? 'md' : undefined;
       if (!kind) continue;
-      seen.add(path);
-      if (++counts[kind] > (kind === 'csv' ? MAX_ZIP_SHEETS : MAX_ZIP_PAGES)) {
-        throw new ImportSheetsError(kind === 'csv' ? `the ZIP holds more than ${MAX_ZIP_SHEETS} CSV files` : `the ZIP holds more than ${MAX_ZIP_PAGES} Markdown pages`);
+      if (--left[kind] < 0) {
+        throw new ImportSheetsError(kind === 'csv' ? `the ZIPs of one import hold more than ${MAX_ZIP_SHEETS} CSV files` : `the ZIPs of one import hold more than ${MAX_ZIP_PAGES} Markdown pages`);
       }
       wanted.push({ path, kind });
     }
     if (!wanted.length) throw new ImportSheetsError('the ZIP has no CSV or Markdown exports');
     const files = archive.read(wanted.map((w) => w.path));
+    allowance.csvs = left.csv;
+    allowance.pages = left.md;
+    for (const bytes of files.values()) allowance.bytes -= bytes.length;
     const taken = new Set<string>();
     const sheets: SheetInput[] = [];
     const pages: { file: string; text: string }[] = [];
@@ -69,8 +74,8 @@ function sheetsFromZip(name: string, data: Uint8Array): SheetInput[] {
   }
 }
 
-/** The sheets one file holds. `name` decides how it is read: .xlsx has several, .md is a Notion page, anything else is text rows. */
-export function sheetsFromFile(name: string, data: Uint8Array): SheetInput[] {
+/** The sheets one file holds. `allowance` is shared by the files of one request (a fresh one is for a single file). `name` decides how it is read: .xlsx has several, .md is a Notion page, anything else is text rows. */
+export function sheetsFromFile(name: string, data: Uint8Array, allowance: ZipAllowance = zipAllowance()): SheetInput[] {
   const rowsOf = (worksheet?: string) => {
     const rows: (string | number)[][] = [];
     try {
@@ -83,7 +88,7 @@ export function sheetsFromFile(name: string, data: Uint8Array): SheetInput[] {
     }
     return rows;
   };
-  if (/\.zip$/i.test(name)) return sheetsFromZip(name, data);
+  if (/\.zip$/i.test(name)) return sheetsFromZip(name, data, allowance);
   if (/\.xlsx$/i.test(name)) {
     try {
       return xlsxSheetNames(data).map((sheet) => ({ name: sheet, rows: rowsOf(sheet) }));
