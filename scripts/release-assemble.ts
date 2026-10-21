@@ -48,6 +48,8 @@ export function assembleRelease(artifacts: string, out: string, version: string,
   if (missing.length) throw new Error(`no program was built for ${missing.join(', ')}; not making a release without it (built: ${systems.join(', ') || 'none'})`);
   if (!programs.length) throw new Error(`no program for version ${version} in ${artifacts}`);
 
+  // A leftover file here would be attached to the release without a checksum.
+  if (existsSync(out) && readdirSync(out).length) throw new Error(`${out} is not empty; give an empty folder`);
   mkdirSync(out, { recursive: true });
   const files: string[] = [];
   const notices = new Map<string, string>(); // system -> its copy of the licence notices

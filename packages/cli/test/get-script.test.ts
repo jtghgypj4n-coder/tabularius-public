@@ -3,10 +3,12 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
 import { createServer, type Server } from 'node:http';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { assembleRelease } from '../../../scripts/release-assemble.ts';
+import { writeManifest } from '../../../scripts/verify-release.ts';
 
 // scripts/get.sh against a stand-in for a GitHub releases page: /latest redirects to the newest tag and
 // /download/<tag>/<file> serves files. The "program" is a shell script, and `uname` is faked so the same names are
@@ -44,6 +46,9 @@ before(async () => {
   mkdirSync(join(work, 'shim'));
   writeFileSync(join(work, 'shim', 'uname'), '#!/bin/sh\ncase "$1" in -s) echo "$FAKE_UNAME_S" ;; -m) echo "$FAKE_UNAME_M" ;; *) echo "$FAKE_UNAME_S" ;; esac\n');
   chmodSync(join(work, 'shim', 'uname'), 0o755);
+  // A `sysctl` that says whether this is an Apple silicon Mac (a shell under Rosetta reports x86_64 from uname there).
+  writeFileSync(join(work, 'shim', 'sysctl'), '#!/bin/sh\n[ "$2" = hw.optional.arm64 ] && echo "${FAKE_ARM64:-0}"\n');
+  chmodSync(join(work, 'shim', 'sysctl'), 0o755);
 });
 
 after(() => {
@@ -117,10 +122,13 @@ describe('scripts/get.sh', () => {
     const onArm = await run(['--version', '0.2.0'], { FAKE_UNAME_S: 'Darwin', FAKE_UNAME_M: 'arm64' });
     assert.equal(onArm.status, 0, onArm.err);
     assert.equal(spawnOk(join(onArm.bin, 'tabularius')), 'tabularius 0.2.0');
-    const onIntel = await run(['--version', '0.2.0'], { FAKE_UNAME_S: 'Darwin', FAKE_UNAME_M: 'x86_64' });
-    // Apple silicon running a shell under Rosetta says x86_64 too; this host isn't a Mac, so it gets the Intel program.
+    const onIntel = await run(['--version', '0.2.0'], { FAKE_UNAME_S: 'Darwin', FAKE_UNAME_M: 'x86_64', FAKE_ARM64: '0' });
     assert.equal(onIntel.status, 0, onIntel.err);
     assert.equal(spawnOk(join(onIntel.bin, 'tabularius')), 'tabularius 0.2.0 intel');
+    // A shell under Rosetta on an Apple silicon Mac says x86_64 too, and the arm64 program is the one to install.
+    const rosetta = await run(['--version', '0.2.0'], { FAKE_UNAME_S: 'Darwin', FAKE_UNAME_M: 'x86_64', FAKE_ARM64: '1' });
+    assert.equal(rosetta.status, 0, rosetta.err);
+    assert.equal(spawnOk(join(rosetta.bin, 'tabularius')), 'tabularius 0.2.0');
   });
 
   test('installs nothing when the download does not match its checksum', async () => {
@@ -196,6 +204,33 @@ describe('scripts/get.sh', () => {
     const r = await run(['--version', '0.2.0']);
     assert.notEqual(r.status, 0);
     assert.match(r.err, /does not run: GLIBC_2\.28 not found/);
+  });
+
+  test('leaves no half-written file in the install folder when it stops', async () => {
+    files = new Map();
+    release('v0.2.0', '0.2.0');
+    const r = await run(['--version', '0.2.0']);
+    assert.equal(r.status, 0, r.err);
+    assert.deepEqual(readdirSync(r.bin), ['tabularius']);
+  });
+
+  test('reads the SHA256SUMS that release-assemble writes', async () => {
+    const dir = mkdtempSync(join(work, 'assembled-'));
+    const artifacts = join(dir, 'artifacts');
+    const folder = join(artifacts, 'tabularius-Linux-X64');
+    mkdirSync(folder, { recursive: true });
+    const program = join(folder, 'tabularius-0.3.0-linux-x64');
+    writeFileSync(program, '#!/bin/sh\necho "tabularius 0.3.0 assembled"\n');
+    writeFileSync(join(folder, 'tabularius-0.3.0-linux-x64.sbom.cdx.json'), '{}');
+    writeFileSync(join(folder, 'THIRD-PARTY-NOTICES.md'), 'licences');
+    writeManifest(program);
+    const out = join(dir, 'release');
+    assembleRelease(artifacts, out, '0.3.0', ['linux-x64'], script);
+    files = new Map();
+    for (const name of readdirSync(out)) files.set(`v0.3.0/${name}`, readFileSync(join(out, name), 'utf8'));
+    const r = await run(['--version', '0.3.0']);
+    assert.equal(r.status, 0, r.err);
+    assert.equal(spawnOk(join(r.bin, 'tabularius')), 'tabularius 0.3.0 assembled');
   });
 
   test('--help needs no network and installs nothing', async () => {

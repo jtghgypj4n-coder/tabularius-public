@@ -44,12 +44,15 @@ releases page to download from, default https://github.com/sitotisai/tabularius/
 EOF
 }
 
-# fetch URL FILE: download, failing on an HTTP error.
+# fetch URL FILE: download, failing on an HTTP error. From an https page it will not follow a redirect to http,
+# since the checksum list comes from the same place as the program.
 fetch() {
   if command -v curl >/dev/null 2>&1; then
-    curl -fsSL --retry 3 --retry-delay 2 -o "$2" "$1" || die "could not download $1"
+    # shellcheck disable=SC2086
+    curl -fsSL $SECURE_CURL --retry 3 --retry-delay 2 -o "$2" "$1" || die "could not download $1"
   elif command -v wget >/dev/null 2>&1; then
-    wget -q -O "$2" "$1" || die "could not download $1"
+    # shellcheck disable=SC2086
+    wget -q $SECURE_WGET -O "$2" "$1" || die "could not download $1"
   else
     die "curl or wget is needed to download the program"
   fi
@@ -58,13 +61,9 @@ fetch() {
 # latest_tag: the tag of the newest published release (not a pre-release), read from the
 # redirect GitHub answers /releases/latest with, so there is no API rate limit to hit.
 latest_tag() {
-  if command -v curl >/dev/null 2>&1; then
-    final="$(curl -fsSL --retry 3 --retry-delay 2 -o /dev/null -w '%{url_effective}' "$RELEASES/latest")" || die "could not reach $RELEASES/latest"
-  elif command -v wget >/dev/null 2>&1; then
-    final="$(wget -q --max-redirect=0 -S --spider "$RELEASES/latest" 2>&1 | awk 'tolower($1) == "location:" { print $2 }' | tr -d '\r' | tail -n 1)"
-  else
-    die "curl or wget is needed to download the program"
-  fi
+  command -v curl >/dev/null 2>&1 || die "curl is needed to look up the latest release; name a version instead: --version 0.1.0"
+  # shellcheck disable=SC2086
+  final="$(curl -fsSL $SECURE_CURL --retry 3 --retry-delay 2 -o /dev/null -w '%{url_effective}' "$RELEASES/latest")" || die "could not reach $RELEASES/latest"
   case "$final" in
     */tag/v*) printf '%s\n' "${final##*/tag/v}" ;;
     *) die "no release of Tabularius has been published yet at $RELEASES; see QUICKSTART.md for installing from a checkout" ;;
@@ -81,6 +80,8 @@ sha256_of() {
 main() {
   RELEASES="${TABULARIUS_RELEASES:-https://github.com/sitotisai/tabularius/releases}"
   RELEASES="${RELEASES%/}"
+  SECURE_CURL=""; SECURE_WGET=""
+  case "$RELEASES" in https://*) SECURE_CURL="--proto =https --tlsv1.2"; SECURE_WGET="--https-only" ;; esac
   BIN_DIR="${TABULARIUS_BIN:-$HOME/.local/bin}"
   VERSION="${TABULARIUS_VERSION:-}"
 
@@ -125,7 +126,9 @@ main() {
 
   # --- download and check ------------------------------------------------------
   tmp="$(mktemp -d)"
-  trap 'rm -rf "$tmp"' EXIT INT TERM HUP
+  staged=""
+  trap 'rm -rf "$tmp"; [ -z "$staged" ] || rm -f "$staged"' EXIT
+  trap 'exit 130' INT TERM HUP
   say "Downloading Tabularius $VERSION for $os $cpu"
   fetch "$base/$name" "$tmp/$name"
   fetch "$base/SHA256SUMS" "$tmp/SHA256SUMS"
@@ -149,8 +152,11 @@ main() {
   # macOS marks files from a browser as quarantined; one from curl isn't, but clear it if it is.
   if [ "$os" = macos ]; then xattr -d com.apple.quarantine "$tmp/$name" 2>/dev/null || true; fi
   # Beside the target, then renamed over it, so a program that is running keeps working and a failure leaves the old one.
-  cp "$tmp/$name" "$BIN_DIR/.tabularius.$$"
-  mv -f "$BIN_DIR/.tabularius.$$" "$BIN_DIR/tabularius"
+  staged="$(mktemp "$BIN_DIR/.tabularius.XXXXXX")"
+  cp "$tmp/$name" "$staged"
+  chmod 755 "$staged"
+  mv -f "$staged" "$BIN_DIR/tabularius"
+  staged=""
   # The first run unpacks the program's files (a few seconds), so do it now and see it work.
   if ! shown="$("$BIN_DIR/tabularius" --version 2>&1)"; then
     die "installed $BIN_DIR/tabularius but it does not run: $shown"

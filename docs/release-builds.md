@@ -88,7 +88,8 @@ and Intel, Windows), checks each on the machine it was built on, and then puts a
   release. Nothing is public until a person reads the draft and clicks Publish. The notes are
   `.github/release-notes/v0.1.0.md`; a release whose version has no `-` in it is not made without that file.
 - **A manual run** from the Actions tab only builds. Give it a version such as `0.1.0-rc.1` and set `publish` to
-  `draft` or `prerelease` to also make a release; a manual run can only make a pre-release.
+  `draft` or `prerelease` to also make a release. That works only from `main`, after the same CI check as for a tag, for a
+  pre-release (the version contains a `-`), and for a tag that does not exist yet.
 - **Required and optional systems.** The four macOS and Linux programs are required: if one fails its build or its
   check, no release is made. The Windows program is attached when it builds and passes its check, and left out
   when it does not (the release's file list says which).
@@ -111,12 +112,12 @@ curl -fsSL https://github.com/sitotisai/tabularius/releases/latest/download/get.
 always runs the installer that came with the newest published release (pre-releases and drafts are not "latest").
 It works out the system (macOS or Linux, arm64 or x64; an Intel shell on an Apple silicon Mac gets the arm64 program;
 musl Linux such as Alpine is refused, since the program needs glibc), finds the newest version from the redirect of
-`/releases/latest` (so GitHub's API limits don't apply), downloads the program and `SHA256SUMS`, and installs nothing
+`/releases/latest` (so GitHub's API limits don't apply; this needs curl, and without it `--version` names the version), downloads the program and `SHA256SUMS`, and installs nothing
 unless the program's SHA-256 matches its line in the list. It copies the program beside its destination and renames it
 into `~/.local/bin/tabularius`, so a failure leaves the old program, then runs `tabularius --version` to show it works.
 `--version 0.1.0` (or `TABULARIUS_VERSION`) picks a version, `--bin-dir` (or `TABULARIUS_BIN`) another folder, and
 `TABULARIUS_RELEASES` another releases page, which is how the tests (`packages/cli/test/get-script.test.ts`) point it at
-a stand-in. The list comes from the same page as the program, so this catches a damaged or cut-off download, not a
+a stand-in. From an https page it refuses a redirect to plain http. The list comes from the same page as the program, so this catches a damaged or cut-off download, not a
 release replaced by someone who controls the page; the platform signatures ([signing](signing.md)) are the answer to
 who made it.
 

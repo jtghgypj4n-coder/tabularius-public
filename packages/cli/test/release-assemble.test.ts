@@ -126,6 +126,36 @@ describe('release-assemble', () => {
     }
   });
 
+  test('refuses an out folder that already holds files', () => {
+    const { dir, artifacts, out } = setup();
+    try {
+      artifact(artifacts, '0.1.0', 'linux-x64');
+      mkdirSync(out);
+      writeFileSync(join(out, 'leftover'), 'x');
+      assert.throws(() => assembleRelease(artifacts, out, '0.1.0', ['linux-x64']), /is not empty/);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('the command line takes --version and --require, and fails with a message', () => {
+    const { dir, artifacts, out } = setup();
+    const script = join(import.meta.dirname, '..', '..', '..', 'scripts', 'release-assemble.ts');
+    try {
+      artifact(artifacts, '0.1.0', 'linux-x64');
+      const ok = spawnSync(process.execPath, ['--no-warnings', script, artifacts, out, '--version', '0.1.0', '--require', 'linux-x64'], { encoding: 'utf8' });
+      assert.equal(ok.status, 0, ok.stderr);
+      assert.match(ok.stdout, /release 0\.1\.0: linux-x64/);
+      assert.ok(existsSync(join(out, 'get.sh')) && existsSync(join(out, 'SHA256SUMS')));
+      const missing = spawnSync(process.execPath, ['--no-warnings', script, artifacts, join(dir, 'out2'), '--version', '0.1.0', '--require', 'linux-x64,macos-x64'], { encoding: 'utf8' });
+      assert.equal(missing.status, 1);
+      assert.match(missing.stderr, /release-assemble: no program was built for macos-x64/);
+      assert.equal(spawnSync(process.execPath, ['--no-warnings', script], { encoding: 'utf8' }).status, 1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   test('accepts a pre-release version', () => {
     const { dir, artifacts, out } = setup();
     try {
