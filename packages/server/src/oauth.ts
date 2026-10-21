@@ -72,10 +72,10 @@ function storedName(store: Store, account: string): string | undefined {
   return (store.sql.prepare('SELECT name FROM _fm_accounts WHERE name = ? COLLATE NOCASE').get(account) as { name: string } | undefined)?.name;
 }
 
-/** Bind codes and refresh tokens to the same identity, credentials and authority as the sign-in. */
-function passwordMark(store: Store, account: string): string {
+/** Bind codes and refresh tokens to the same identity (the account's and, for a federated sign-in, the person's), credentials and authority as the sign-in. */
+function passwordMark(store: Store, account: string, person?: string): string {
   store.accountIdentityId(account);
-  return hash(`${store.signInMark(account)}:${JSON.stringify(store.privileges(account).set.extendedPrivileges)}`);
+  return hash(`${store.signInMark(account, undefined, person)}:${JSON.stringify(store.privileges(account, undefined, person).set.extendedPrivileges)}`);
 }
 
 /** What a code or refresh token carried before sign-ins were bound to authority: only the account row and its password hash. */
@@ -85,8 +85,8 @@ function legacyPasswordMark(store: Store, account: string): string {
 }
 
 /** Whether a stored refresh mark is this account's current one (or, for a grant from before marks bound authority, its password's: the refresh then binds it to authority). */
-function markCurrent(store: Store, account: string, stored: string | null): boolean {
-  return stored !== null && (stored === passwordMark(store, account) || stored === legacyPasswordMark(store, account));
+function markCurrent(store: Store, account: string, stored: string | null, person?: string): boolean {
+  return stored !== null && (stored === passwordMark(store, account, person) || stored === legacyPasswordMark(store, account));
 }
 
 const BLOCKED = 'The server isn\'t accepting new users right now; try again later.';
@@ -186,6 +186,7 @@ export class OAuthServer {
         // Added later: the account's password mark when the code was given, so a code for an account that was replaced by another of the same name is refused.
         if (!cols('codes').includes('mark')) this.db.exec('ALTER TABLE codes ADD COLUMN mark TEXT');
         this.db.exec('CREATE TABLE IF NOT EXISTS consents (hash TEXT PRIMARY KEY, client_id TEXT NOT NULL, redirect_uri TEXT NOT NULL, challenge TEXT NOT NULL, database TEXT NOT NULL, account TEXT NOT NULL, who TEXT, provider TEXT NOT NULL, expires INTEGER NOT NULL)');
+        if (!cols('consents').includes('mark')) this.db.exec('ALTER TABLE consents ADD COLUMN mark TEXT');
         for (const table of ['consents', 'codes', 'refresh']) {
           const present = (this.db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).some((c) => c.name === 'identity');
           if (!present) this.db.exec(`ALTER TABLE ${table} ADD COLUMN identity TEXT`);
@@ -476,8 +477,8 @@ export class OAuthServer {
           // could hand an app their access unseen.
           const consent = token('ohcs_');
           this.db.prepare('DELETE FROM consents WHERE expires < ?').run(expiryClock.now());
-          this.db.prepare('INSERT INTO consents (hash, client_id, redirect_uri, challenge, database, account, who, provider, expires, identity, resource) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-            .run(hash(consent), client.id, target, challenge, st.name, via, email ?? null, pname, expiryClock.now() + 5 * 60_000, JSON.stringify(identity), resource ?? `${this.base(req)}/mcp`);
+          this.db.prepare('INSERT INTO consents (hash, client_id, redirect_uri, challenge, database, account, who, provider, expires, identity, resource, mark) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+            .run(hash(consent), client.id, target, challenge, st.name, via, email ?? null, pname, expiryClock.now() + 5 * 60_000, JSON.stringify(identity), resource ?? `${this.base(req)}/mcp`, passwordMark(st, via, email));
           const csrf = token('').slice(0, 43);
           const fields = Object.entries({ ...hidden, consent, csrf }).map(([k, v]) => `<input type="hidden" name="${esc(k)}" value="${esc(v)}">`).join('');
           this.page(r, 200, `Allow ${client.name}?`, `
@@ -494,18 +495,18 @@ export class OAuthServer {
     // The person's "Allow" after signing in through an identity provider: the page's single-use token, for this app only.
     const consentToken = form.get('consent');
     if (consentToken) {
-      const row = this.db.prepare('DELETE FROM consents WHERE hash = ? AND client_id = ? RETURNING redirect_uri, challenge, database, account, who, provider, expires, identity, resource').get(hash(consentToken), client.id) as
-        { redirect_uri: string; challenge: string; database: string; account: string; who: string | null; provider: string; expires: number; identity: string | null; resource: string | null } | undefined;
+      const row = this.db.prepare('DELETE FROM consents WHERE hash = ? AND client_id = ? RETURNING redirect_uri, challenge, database, account, who, provider, expires, identity, resource, mark').get(hash(consentToken), client.id) as
+        { redirect_uri: string; challenge: string; database: string; account: string; who: string | null; provider: string; expires: number; identity: string | null; resource: string | null; mark: string | null } | undefined;
       if (!row || row.expires <= expiryClock.now() || row.redirect_uri !== target || row.challenge !== challenge || (resource ?? `${this.base(req)}/mcp`) !== row.resource) return bad('This approval has expired or was already used.');
       const code = token('ohac_');
       this.db.prepare('DELETE FROM codes WHERE expires < ?').run(expiryClock.now());
       const st = this.host.get(row.database);
       this.db.prepare('INSERT INTO codes (hash, client_id, redirect_uri, challenge, database, account, expires, who, identity, mark, resource) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-        .run(hash(code), client.id, target, challenge, row.database, row.account, expiryClock.now() + CODE_MS, row.who, row.identity, st ? passwordMark(st, row.account) : null, row.resource);
+        .run(hash(code), client.id, target, challenge, row.database, row.account, expiryClock.now() + CODE_MS, row.who, row.identity, row.mark, row.resource);
       const from = clientAddress(req);
       // Checked again as the person says yes: the account may have been turned off in the minutes between.
       const binding = row.identity ? JSON.parse(row.identity) as { issuer: string; sub: string; person?: string; mapping: string } : undefined;
-      const refusedNow = st && (!binding || binding.mapping !== row.account || (binding.person && st.accountInactive(binding.person)) || !st.isExternalAccount(binding.mapping) || this.allowed(st, row.account, from, true));
+      const refusedNow = st && (!binding || row.mark !== passwordMark(st, row.account, binding.person) || binding.mapping !== row.account || (binding.person && st.accountInactive(binding.person)) || !st.isExternalAccount(binding.mapping) || this.allowed(st, row.account, from, true));
       if (!st || refusedNow || !st.signInLocationAllowed(row.account, from)) {
         this.db.prepare('DELETE FROM codes WHERE hash = ?').run(hash(code));
         return bad(refusedNow === true ? 'This federated sign-in is no longer valid.' : refusedNow ? refusedNow.message : 'This account can\'t sign in from here.');
@@ -702,7 +703,7 @@ p strong { color: var(--text); }
       const targetStore = this.host.get(row.database);
       // The account is the one the code was given for, with the authority it signed in with: a code with no mark (given before marks were kept), or one bound
       // to the password only (before marks held authority; it lives a minute, so none outlasts an upgrade), or for an account since replaced by another of the same name, is refused.
-      if (targetStore && row.mark !== passwordMark(targetStore, row.account)) throw new OAuthError('invalid_grant', 'The account changed since it signed in; sign in again');
+      if (targetStore && row.mark !== passwordMark(targetStore, row.account, identity?.person)) throw new OAuthError('invalid_grant', 'The account changed since it signed in; sign in again');
       if (!targetStore || (targetStore.isExternalAccount(row.account) && (!identity || identity.mapping !== row.account)) ||
         (identity && (identity.mapping !== row.account || (identity.person && targetStore.accountInactive(identity.person)) || !targetStore.isExternalAccount(identity.mapping)))) {
         throw new OAuthError('invalid_grant', 'This federated sign-in is no longer valid; sign in again');
@@ -763,7 +764,7 @@ p strong { color: var(--text); }
       const label = store.apiTokens().find((t) => t.id === row.access_id)?.label;
       // As at sign-in: still allowed (a second factor now required, a password to change, AI access taken away), and
       // with the same password: a password changed since signs the app out.
-      if (!markCurrent(store, row.account, row.password) || this.allowed(store, row.account, clientAddress(req), false, false)) {
+      if (!markCurrent(store, row.account, row.password, identity?.person) || this.allowed(store, row.account, clientAddress(req), false, false)) {
         store.revokeApiToken(row.access_id);
         throw new OAuthError('invalid_grant', 'This account\'s password or access changed since it signed in; sign in again');
       }
@@ -792,8 +793,8 @@ p strong { color: var(--text); }
         // A refresh takes the access token it renews out in the same change that writes the next one, and refuses when it is already gone:
         // revoked in Manage Security (by another worker, say) between the check and now, the sign-in is over.
         if (replacing && !store.revokeApiToken(replacing)) throw new OAuthError('invalid_grant', 'This sign-in was revoked; sign in again');
-        if (!markCurrent(store, account, signedInMark)) throw new OAuthError('invalid_grant', 'This account\'s password or access changed since it signed in; sign in again');
-        mark = passwordMark(store, account);
+        if (!markCurrent(store, account, signedInMark, identity?.person)) throw new OAuthError('invalid_grant', 'This account\'s password or access changed since it signed in; sign in again');
+        mark = passwordMark(store, account, identity?.person);
       },
     });
     const accessId = /^ohbt_([0-9a-f]+)\./.exec(access)![1];
@@ -861,8 +862,10 @@ p strong { color: var(--text); }
   }
 
   accessAllowed(id: string, req: IncomingMessage, store: Store, account: string): boolean {
-    const row = this.db.prepare('SELECT resource, password, account FROM refresh WHERE access_id = ? AND database = ?').get(id, store.name) as { resource: string | null; password: string; account: string } | undefined;
-    return !!row && row.account === account && row.resource === `${this.base(req)}/mcp` && markCurrent(store, account, row.password);
+    const row = this.db.prepare('SELECT resource, password, account, identity FROM refresh WHERE access_id = ? AND database = ?').get(id, store.name) as { resource: string | null; password: string; account: string; identity: string | null } | undefined;
+    // A federated grant's mark is bound to the person as well as the mapping account it signed in through.
+    const person = row?.identity ? (JSON.parse(row.identity) as { person?: string }).person : undefined;
+    return !!row && row.account === account && row.resource === `${this.base(req)}/mcp` && markCurrent(store, account, row.password, person);
   }
 
   private revoke(req: IncomingMessage, form: URLSearchParams): void {
