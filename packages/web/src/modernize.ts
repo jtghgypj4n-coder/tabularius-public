@@ -1,3 +1,5 @@
+import { FORMULA_LIMIT, pageFormula } from './page-source.ts';
+
 // Modernize interfaces: ready-made layout templates (a list, a record form and a list with the form beside it) worked
 // out from a table's own fields, with no AI. Each is a modern layout page (plain HTML, CSS and JavaScript, see
 // page-source.ts) that reads and edits records through window.tabularius as the signed-in account, so privileges and
@@ -235,9 +237,9 @@ function hue(name: string): number {
 }
 
 const CSS = String.raw`
-  :root { color-scheme: light dark; --h: 200; --bg: #f4f6f8; --panel: #fff; --sunken: #eef1f4; --text: #18212b; --muted: #5c6773; --line: #e3e8ee; --a: hsl(var(--h) 62% 26%); --on-a: #fff; --a-soft: hsl(var(--h) 60% 94%); --bad: #b42318; }
+  :root { color-scheme: light dark; --h: 200; --bg: #f4f6f8; --panel: #fff; --sunken: #eef1f4; --text: #18212b; --muted: #5c6773; --line: #dde3e9; --a: hsl(var(--h) 62% 26%); --on-a: #fff; --a-soft: hsl(var(--h) 60% 94%); --bad: #b42318; }
   /*<float>*/
-  :root { --shadow: 0 1px 2px rgb(16 24 40 / 6%), 0 4px 14px rgb(16 24 40 / 6%); }
+  :root { --line: #e3e8ee; --shadow: 0 1px 2px rgb(16 24 40 / 6%), 0 4px 14px rgb(16 24 40 / 6%); }
   /*</float>*/
   @media (prefers-color-scheme: dark) { :root { --bg: #11161b; --panel: #1a2128; --sunken: #151b21; --text: #e7edf2; --muted: #9aa7b3; --line: #29323b; --a: hsl(var(--h) 70% 74%); --on-a: #0b1217; --a-soft: hsl(var(--h) 35% 20%); --bad: #ff8a7a; } }
   /*<float>*/
@@ -317,7 +319,10 @@ const CSS = String.raw`
   .seg button[aria-pressed=true] { background: var(--a-soft); border-color: var(--a); color: var(--a); position: relative; font-weight: 600; }
   /*<cards>*/
   .cardbar { padding: 10px 20px 0; } .cardbar select { min-height: 34px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
-  .cards { list-style: none; margin: 0; padding: 14px 20px 20px; display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 16px; }
+  .cards { list-style: none; margin: 0; padding: 14px 20px 20px; display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 12px; }
+  /*<float>*/
+  .cards { gap: 16px; }
+  /*</float>*/
   /*</cards>*/
   /*<float>*/
   .card { all: unset; box-sizing: border-box; display: grid; gap: 4px; align-content: start; width: 100%; height: 100%; padding: 16px 18px; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); box-shadow: var(--shadow); cursor: pointer; transition: transform .12s, box-shadow .12s; }
@@ -327,6 +332,7 @@ const CSS = String.raw`
   /*</flat>*/
   /*<float>*/
   .card:hover { border-color: var(--a); transform: translateY(-1px); }
+  .card:focus-visible { outline: 2px solid var(--a); outline-offset: 2px; }
   /*</float>*/
   /*<flat>*/
   .card:hover { border-color: var(--a); } .card:focus-visible { outline: 2px solid var(--a); outline-offset: 2px; }
@@ -334,7 +340,6 @@ const CSS = String.raw`
   /*<chips>*/
   .card .head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
   /*</chips>*/
-  .card:focus-visible { outline: 2px solid var(--a); outline-offset: 2px; }
   .card[aria-pressed=true] { border-color: var(--a); background: var(--a-soft); box-shadow: inset 3px 0 var(--a); }
   .card strong { font-size: 15px; overflow-wrap: anywhere; } .fact { display: flex; gap: 8px; font-size: 13px; min-width: 0; } .fact .lab { flex: 0 0 38%; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .fact span:last-child { overflow-wrap: anywhere; }
   .pager { display: flex; align-items: center; gap: 10px; padding: 8px 20px; border-top: 1px solid var(--line); background: var(--panel); }
@@ -370,7 +375,10 @@ const CSS = String.raw`
   .field { display: grid; gap: 4px; min-width: 0; align-content: start; }
   .field.long { grid-column: 1 / -1; }
   label, .lab { font-size: 12px; font-weight: 600; color: var(--muted); }
-  .field input, .field select, .field textarea { width: 100%; min-height: 36px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
+  .field input, .field select, .field textarea { width: 100%; min-height: 36px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); }
+  /*<float>*/
+  .field input, .field select, .field textarea { border-radius: 10px; }
+  /*</float>*/
   .field textarea { min-height: 84px; resize: vertical; }
   .pic img { display: block; max-width: 100%; max-height: 320px; border-radius: 6px; }
   .thumb { height: 120px; margin: -2px 0 4px; border-radius: 6px; background: var(--sunken); display: grid; place-items: center; overflow: hidden; font-size: 12px; color: var(--muted); }
@@ -388,7 +396,10 @@ const CSS = String.raw`
   .choices { display: flex; flex-wrap: wrap; gap: 6px 16px; } .choice { display: inline-flex; gap: 6px; align-items: center; }
   .fielderr { margin: 4px 0 0; font-size: 13px; color: var(--bad); } [aria-invalid="true"] { border-color: var(--bad); outline-color: var(--bad); }
   .split #back { display: none; }
-  @media (max-width: 760px) { main { padding: 10px; } .split #back { display: inline-flex; align-items: center; } .split .listpane { flex-basis: auto; border: 0; } .split.has-sel .listpane, .split:not(.has-sel) .formpane { display: none; } th, td { padding: 9px 10px; } form { padding: 14px; } }
+  @media (max-width: 760px) { .split #back { display: inline-flex; align-items: center; } .split .listpane { flex-basis: auto; border: 0; } .split.has-sel .listpane, .split:not(.has-sel) .formpane { display: none; } th, td { padding: 9px 10px; } form { padding: 14px; } }
+  /*<float>*/
+  @media (max-width: 760px) { main { padding: 10px; } }
+  /*</float>*/
   @media (prefers-reduced-motion: no-preference) { .drawer .formpane { animation: in .18s ease-out; } @keyframes in { from { transform: translateX(24px); opacity: 0; } } }
 `;
 
@@ -442,15 +453,12 @@ const RUNTIME = String.raw`
   /*<chips>*/
   // Names get an initials badge; state-like columns (Status, Stage, Priority...) get a coloured pill. Both are CSS only, so cell text stays the value.
   var TONES = { paid: 'ok', done: 'ok', complete: 'ok', completed: 'ok', active: 'ok', won: 'ok', approved: 'ok', open: 'info', sent: 'info', new: 'info', draft: 'warn', pending: 'warn', 'in progress': 'info', overdue: 'bad', late: 'bad', lost: 'bad', cancelled: 'bad', void: 'bad', high: 'bad', medium: 'warn', low: 'ok' };
-  function isState(c) { return c.control !== 'number' && c.control !== 'longtext' && /^(status|stage|state|priority)$|(^| )(status|stage|priority)$/i.test(c.name); }
-  function pill(v) { return el('span', { class: 'pill ' + (TONES[String(v).toLowerCase()] || ''), text: v }); }
-  function avatar(v) { var w = String(v).trim().split(/\s+/).filter(Boolean); return el('span', { class: 'who', 'data-i': ((w[0] || '?')[0] + (w.length > 1 ? w[w.length - 1][0] : '')).toUpperCase(), text: v }); }
-  function nameCol(c) { return c === P.columns[0] && c.control !== 'number' && c.control !== 'date' && c.control !== 'timestamp' && c.control !== 'time' && !/^(id|no|number|#)$|(^| )(id|no|number)$/i.test(c.name); }
-  function recHead(rec, isNew) { var n = val(rec, P.columns[0].name); return [el('h2', { class: 'title' }, [isNew ? el('span', { text: 'New ' + P.title.replace(/s$/, '') }) : (n && !/\d{3}/.test(n) ? avatar(n) : el('span', { text: n || P.title }))])]; }
+  function isState(c) { return c.control !== 'number' && c.control !== 'longtext' && (/(^|[ _])(status|stage|priority)$|^(state|status)([ _]|$)/i.test(c.name) || /[a-z](Status|Stage|Priority)$/.test(c.name)); }
+  function pill(v) { var k = String(v).toLowerCase(); return el('span', { class: 'pill ' + (Object.prototype.hasOwnProperty.call(TONES, k) ? TONES[k] : ''), text: v }); }
+  function avatar(v) { var w = String(v).trim().split(/\s+/).filter(Boolean).map(function (x) { return Array.from(x)[0]; }); return el('span', { class: 'who', 'data-i': ((w[0] || '?') + (w.length > 1 ? w[w.length - 1] : '')).toUpperCase(), text: v }); }
+  function nameCol(c) { return c === P.columns[0] && c.control !== 'number' && c.control !== 'date' && c.control !== 'timestamp' && c.control !== 'time' && !/(^|[ _])(id|no|number)$|^#$/i.test(c.name) && !/[a-z]ID$/.test(c.name); }
+  function recHead(rec, isNew) { var c = P.columns[0]; if (!c) return []; var n = val(rec, c.name); return [el('h2', { class: 'title' }, [isNew ? el('span', { text: 'New ' + P.title.replace(/([^su])s$/, '$1') }) : (n && !/\d{3}/.test(n) ? avatar(n) : el('span', { text: n || P.title }))])]; }
   /*</chips>*/
-  /*<nochips>*/
-  function recHead() { return []; }
-  /*</nochips>*/
   var val = function (rec, f) { var v = rec && rec.fieldData ? rec.fieldData[f] : ''; return v == null ? '' : String(v); };
 
   // ---- the list
@@ -475,10 +483,17 @@ const RUNTIME = String.raw`
     pick.value = S.sort ? S.sort.fieldName : '';
     var list = el('ul', { class: 'cards' });
     S.rows.forEach(function (rec) {
+      /*<chips>*/
       var stateCol = P.columns.slice(1).filter(function (c) { return isState(c) && val(rec, c.name); })[0];
       var facts = P.columns.slice(1).map(function (c) { return val(rec, c.name) && c !== stateCol ? el('div', { class: 'fact' }, [el('span', { class: 'lab', text: c.label }), el('span', { text: val(rec, c.name) })]) : null; }).filter(Boolean);
       list.append(el('li', {}, [el('button', { type: 'button', class: 'card', 'data-id': rec.recordId, 'aria-pressed': S.cur && S.cur.recordId === rec.recordId ? 'true' : 'false', onclick: function () { openRec(rec); } },
         (P.picture && val(rec, P.picture) ? [thumb(val(rec, P.picture))] : []).concat([el('div', { class: 'head' }, [el('strong', { text: val(rec, P.columns[0].name) || '(blank)' })].concat(stateCol ? [pill(val(rec, stateCol.name))] : []))], facts))]));
+      /*</chips>*/
+      /*<nochips>*/
+      var facts = P.columns.slice(1).map(function (c) { return val(rec, c.name) ? el('div', { class: 'fact' }, [el('span', { class: 'lab', text: c.label }), el('span', { text: val(rec, c.name) })]) : null; }).filter(Boolean);
+      list.append(el('li', {}, [el('button', { type: 'button', class: 'card', 'data-id': rec.recordId, 'aria-pressed': S.cur && S.cur.recordId === rec.recordId ? 'true' : 'false', onclick: function () { openRec(rec); } },
+        (P.picture && val(rec, P.picture) ? [thumb(val(rec, P.picture))] : []).concat([el('strong', { text: val(rec, P.columns[0].name) || '(blank)' })], facts))]));
+      /*</nochips>*/
     });
     return el('div', {}, [el('div', { class: 'cardbar' }, [pick]), list]);
   }
@@ -584,9 +599,16 @@ const RUNTIME = String.raw`
     bar.append(el('span', { class: 'grow' }), el('button', { type: 'button', id: 'save', class: 'primary', text: 'Save', onclick: function () { save(rec, isNew); } }));
     if (!isNew) bar.append(el('button', { type: 'button', id: 'del', class: 'danger', text: 'Delete', onclick: del }));
     // The page's frame is sandboxed without forms, so Save is a button and Enter in a field presses it.
+    /*<chips>*/
     var form = el('form', { novalidate: true, oninput: edited, onchange: edited, onsubmit: function (e) { e.preventDefault(); }, onkeydown: function (e) {
       if (e.key === 'Enter' && e.target.tagName === 'INPUT') { e.preventDefault(); save(rec, isNew); }
     } }, [bar].concat(recHead(rec, isNew), [group(main, rec)]));
+    /*</chips>*/
+    /*<nochips>*/
+    var form = el('form', { novalidate: true, oninput: edited, onchange: edited, onsubmit: function (e) { e.preventDefault(); }, onkeydown: function (e) {
+      if (e.key === 'Enter' && e.target.tagName === 'INPUT') { e.preventDefault(); save(rec, isNew); }
+    } }, [bar, group(main, rec)]);
+    /*</nochips>*/
     if (sys.length) form.append(el('details', {}, [el('summary', { text: 'System fields' }), group(sys, rec)]));
     box.replaceChildren(form);
     rel.replaceChildren();
@@ -686,14 +708,25 @@ const RUNTIME = String.raw`
 /* The board and calendar views are put into a page only when it is made to open on them, so the other pages stay as small as they were. */
 const BOARD_CSS = String.raw`
   .board { display: flex; gap: 12px; padding: 14px 20px 20px; align-items: flex-start; overflow-x: auto; }
+  /*<float>*/
   .bcol { flex: 0 0 280px; background: var(--sunken); border-radius: 14px; padding: 12px; display: grid; gap: 10px; }
   .bcol h2 { margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); display: flex; justify-content: space-between; align-items: center; gap: 8px; }
   .bcol h2 span:last-child { min-width: 24px; padding: 1px 8px; border-radius: 999px; background: var(--panel); text-align: center; letter-spacing: 0; box-shadow: var(--shadow); }
+  /*</float>*/
+  /*<flat>*/
+  .bcol { flex: 0 0 260px; background: var(--sunken); border-radius: 10px; padding: 10px; display: grid; gap: 8px; }
+  .bcol h2 { margin: 0; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); display: flex; justify-content: space-between; gap: 8px; }
+  /*</flat>*/
   .bcards { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; min-height: 44px; align-content: start; }
   .bcards.over { outline: 2px dashed var(--a); outline-offset: 2px; border-radius: 8px; }
   .bcards li { display: grid; gap: 4px; cursor: grab; }
+  /*<float>*/
   .mv { min-height: 28px; font-size: 12px; border: 0; border-radius: 8px; background: transparent; padding: 0 4px; color: var(--muted); cursor: pointer; }
   .mv:hover { background: var(--panel); }
+  /*</float>*/
+  /*<flat>*/
+  .mv { min-height: 30px; font-size: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); padding: 0 6px; color: var(--muted); }
+  /*</flat>*/
 `;
 /** The checkbox and radio sets of a page, which only a page with one carries (an `else if` of the form's control()). */
 /* Put into a native file's pages only: its dates are the date input's own, and a timestamp gets the seconds the browser leaves off. */
@@ -826,15 +859,35 @@ function calendarJs(native = false): string {
  */
 /** A page's CSS or script without its indentation and whole-line comments: a page has 30,000 characters to fit in. */
 const gate = (code: string, name: string, keep: boolean): string => code.replace(keep ? new RegExp(`^[ \\t]*\\/\\*<\\/?${name}>\\*\\/\\n`, 'gm') : new RegExp(`^[ \\t]*\\/\\*<${name}>\\*\\/\\n[\\s\\S]*?^[ \\t]*\\/\\*<\\/${name}>\\*\\/\\n`, 'gm'), '');
-/** The page's code with the parts for `view` kept: cards only in a plain table page; the badges, pills and record title there too, and the floating panels everywhere but the calendar, which has no room left under FileMaker Pro's formula limit. */
-const forView = (code: string, view: View): string => ['cards', 'chips'].reduce((c, n) => gate(c, n, view === 'table'), gate(gate(gate(code, 'nochips', view !== 'table'), 'float', view !== 'calendar'), 'flat', view === 'calendar'));
+/**
+ * How much of the restyle a page carries. A page has FileMaker Pro's 30,000 characters to fit in and the restyle costs
+ * about 3,500 of them, so a page takes the fullest look that still fits: `full` (badges, pills, record title, floating
+ * panels), `soft` (floating panels only) or `plain` (the page as it was).
+ */
+type Look = 'full' | 'soft' | 'plain';
+/** The page's code with the parts for `view` and `look` kept: cards only in a plain table page; the badges, pills and record title only in a full table page; the floating panels in every look but the plain one. */
+const forView = (code: string, view: View, look: Look): string => {
+  const chips = look === 'full' && view === 'table';
+  return ['cards', 'chips'].reduce((c, n) => gate(c, n, n === 'cards' ? view === 'table' : chips), gate(gate(gate(code, 'nochips', !chips), 'float', look !== 'plain'), 'flat', look === 'plain'));
+};
 const squeeze = (code: string): string => code.replace(/^[ \t]+/gm, '').replace(/^\/\/.*\n/gm, '').replace(/^\/\*(?!__).*\*\/\n/gm, '').replace(/\n[ \t]*\n/g, '\n');
 
 export function interfacePage(layout: string, plan: InterfacePlan, mode: Mode, view: View = 'table'): string {
-  const list = mode !== 'detail';
   // A board or calendar needs its own field; without it the page is the plain list.
   if (view === 'board' && !plan.board) view = 'table';
   if (view === 'calendar' && !plan.calendar) view = 'table';
+  // The calendar has no room for the restyle; the others take the fullest look that leaves some of the formula limit free.
+  const looks: Look[] = view === 'table' ? ['full', 'soft', 'plain'] : view === 'board' ? ['soft', 'plain'] : ['plain'];
+  // The look is the table's, not the page's: the list page is the longest, so the form pages of a table look like its list.
+  const look = looks.find((l) => pageFormula(pageWith(layout, plan, 'list', view, l)).length <= RESTYLE_BUDGET) ?? 'plain';
+  return pageWith(layout, plan, mode, view, look);
+}
+
+/** How long a restyled page's address formula may be: FileMaker Pro's limit, with room left for a longer layout name or a field added later. */
+const RESTYLE_BUDGET = FORMULA_LIMIT - 500;
+
+function pageWith(layout: string, plan: InterfacePlan, mode: Mode, view: View, look: Look): string {
+  const list = mode !== 'detail';
   const { board, calendar, ...rest } = plan;
   const embed = { layout, mode, view, ...rest, ...(view === 'board' ? { board } : {}), ...(view === 'calendar' ? { calendar } : {}) };
   const extra = view === 'board' ? `<button type="button" id="v-board" aria-pressed="${view === 'board'}">Board</button>` : view === 'calendar' ? `<button type="button" id="v-calendar" aria-pressed="true">Calendar</button>` : '';
@@ -854,11 +907,11 @@ ${list ? `<section class="listpane" aria-label="${text(plan.title)}"><div class=
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${text(plan.title)}</title>
-<style>${squeeze(forView(CSS.replace('--h: 200', `--h: ${hue(plan.table)}`), view) + (view === 'board' ? BOARD_CSS : view === 'calendar' ? CALENDAR_CSS : '') + drawer).replace(/([;{}])\n/g, '$1').replace(/: |, | \{|\} /g, (s) => s.trim())}</style>
+<style>${squeeze(forView(CSS.replace('--h: 200', `--h: ${hue(plan.table)}`) + (view === 'board' ? BOARD_CSS : view === 'calendar' ? CALENDAR_CSS : ''), view, look) + drawer).replace(/([;{}])\n/g, '$1').replace(/: |, | \{|\} /g, (s) => s.trim())}</style>
 </head>
 <body>
 ${body}
-<script>${squeeze(forView(RUNTIME, view).replace('/*__VIEWS__*/', () => (view === 'board' ? BOARD_JS : view === 'calendar' ? calendarJs(plan.native) : '')).replace('/*__CHOICES__*/', () => (plan.fields.some((f) => f.control === 'checkbox' || f.control === 'radio') ? CHOICES_JS : '')).replace('/*__NATIVE__*/', () => (plan.native ? NATIVE_JS : ''))).replace('__PLAN__', () => js(embed))}</script>
+<script>${squeeze(forView(RUNTIME, view, look).replace('/*__VIEWS__*/', () => (view === 'board' ? BOARD_JS : view === 'calendar' ? calendarJs(plan.native) : '')).replace('/*__CHOICES__*/', () => (plan.fields.some((f) => f.control === 'checkbox' || f.control === 'radio') ? CHOICES_JS : '')).replace('/*__NATIVE__*/', () => (plan.native ? NATIVE_JS : ''))).replace('__PLAN__', () => js(embed))}</script>
 </body>
 </html>
 `;
