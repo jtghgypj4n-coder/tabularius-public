@@ -526,8 +526,11 @@ export async function serveCluster(opts: ServeOptions, workers: number, blankFro
       refuseForwarding(res, log);
       return;
     }
+    // The client's Connection header is about its hop only: forwarded, a "close" makes the worker hang up as soon as it has
+    // answered, which can be before the front has finished writing the request, and the answer is lost to a broken pipe.
+    const { connection: _connection, 'keep-alive': _keepAlive, 'proxy-connection': _proxyConnection, ...forwarded } = req.headers;
     // Set here whatever the client sent: workers trust these two.
-    const headers = { ...req.headers, 'x-tabularius-peer': clientAddress(req), 'x-tabularius-forwarded': hasTrustedClientAddress(req) ? '1' : '0', 'x-tabularius-tls': tls ? '1' : '0' };
+    const headers = { ...forwarded, 'x-tabularius-peer': clientAddress(req), 'x-tabularius-forwarded': hasTrustedClientAddress(req) ? '1' : '0', 'x-tabularius-tls': tls ? '1' : '0' };
     target.inFlight++;
     let done = false;
     const finish = () => {
