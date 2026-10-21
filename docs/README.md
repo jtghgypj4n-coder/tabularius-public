@@ -97,6 +97,7 @@ To read these pages offline with search, build the site: `npm run docs:build` wr
 - [File format](research/fmp12-format.md) — Explore what is known about the .fmp12 format and the evidence behind it.
 - [Prior work](research/prior-work.md) — Find the projects and sources behind the format research.
 - [Write-back study](research/write-back.md) — Explore how design changes could be written back to a FileMaker file.
+- [UUIDv7 record identity](research/n3-uuid-record-ids.md) — Explore the design note for giving native-file records a durable, portable id beside the file-local record number.
 - [Secret taint tracking](research/secret-taint-tracking.md) — Explore a defense-in-depth design for preventing AI tools from returning values derived from secret fields.
 - [Script step privileges](research/r17b-01-script-step-privileges.md) — Review which script steps check privileges like their non-script paths, and the deliberate exceptions.
 - [Hosted file lifecycle tests](file-lifecycle-concurrency.md) — See what the file open, close and replace races are tested against, and how to run those tests.
