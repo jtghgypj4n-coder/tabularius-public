@@ -84,14 +84,14 @@ function withFilesSync(src: string, dest: string, work: (input: number, output: 
   }
 }
 
-async function withFiles(src: string, dest: string, work: (input: FileHandle, output: FileHandle) => Promise<void>): Promise<void> {
+async function withFiles(src: string, dest: string, work: (input: FileHandle, output: FileHandle) => Promise<void>, mode?: number): Promise<void> {
   let input: FileHandle | undefined;
   let output: FileHandle | undefined;
   let openedOutput = false;
   let complete = false;
   try {
     input = await open(src, 'r');
-    output = await open(dest, 'w');
+    output = await open(dest, 'w', mode);
     openedOutput = true;
     await work(input, output);
     await output.sync();
@@ -220,7 +220,7 @@ export async function decryptFile(src: string, dest: string, passphrase: string)
       await writeAll(output, plain);
       if (last) break;
     }
-  });
+  }, 0o600); // plaintext: private to this account, whatever the umask
 }
 
 // Single records (the logs of point-in-time backups, appended one at a time):
