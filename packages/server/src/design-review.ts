@@ -13,7 +13,7 @@
 //   POST /tabularius/design/v1/databases/<db>/pending/discard   {"ids": [...]} (ids absent: all)
 
 import { scriptText, type LayoutDesigns, type Schema } from '../../fmp12/src/index.ts';
-import { StoreError, type DesignOp, type Store } from '../../store/src/index.ts';
+import { StoreError, type DesignOp, type Privileges, type Store } from '../../store/src/index.ts';
 import { describeDiff } from './design-preview.ts';
 import type { ChangeImpact, ChangeKind, ImpactKind } from './change-impact.ts';
 
@@ -335,7 +335,7 @@ export class PendingChanges {
    * Applies the ones asked for (all when `ids` is absent), in the order they were staged. A change in conflict is left
    * unless it is named in `override`; one the design would refuse (because of the ones left out, say) is left with the reason.
    */
-  apply(store: Store, account: string | null, ids?: number[], override: number[] = []): ApplyResult {
+  apply(store: Store, account: string | null, ids?: number[], override: number[] = [], privileges?: Privileges): ApplyResult {
     const s = this.of(store);
     const chosen = s.list.filter((p) => !ids || ids.includes(p.id));
     const state: State = { schema: store.schema, designs: store.designs() };
@@ -361,7 +361,7 @@ export class PendingChanges {
     }
     if (ops.length) {
       const last = this.seq(store);
-      store.applyDesign(ops, { account: account ?? undefined });
+      store.applyDesign(ops, { account: account ?? undefined, ...(privileges ? { privileges } : {}) });
       for (const h of store.designHistory(ops.length + 20)) if (h.seq > last) s.own.add(h.seq);
       const done = new Set(taken.map((p) => p.id));
       const titles = new Map(taken.map((p) => [p.id, titleOf(p.op, state)]));

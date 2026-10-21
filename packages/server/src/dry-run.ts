@@ -7,7 +7,7 @@
 import { mkdtempSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Store } from '../../store/src/index.ts';
+import { Store, type Privileges } from '../../store/src/index.ts';
 import { recordChanges, runScript, startingPoints, offlineScriptOptions, type RecordChanges } from '../../scripts/src/index.ts';
 import type { Script } from '../../fmp12/src/index.ts';
 
@@ -52,7 +52,7 @@ export async function dryRunScript(store: Store, name: string, text: string, max
  * Design changes applied to a throwaway copy of the file, then each named script run there once, offline:
  * what a proposed fix does before anyone applies it.
  */
-export async function dryRunChanges(store: Store, changes: unknown[], scripts: string[], maxBytes = DRY_RUN_MAX_BYTES, opts: { changes?: boolean; readOtherFile?: (file: Store) => boolean } = {}): Promise<{ script: string; run: DryRun }[]> {
+export async function dryRunChanges(store: Store, changes: unknown[], scripts: string[], maxBytes = DRY_RUN_MAX_BYTES, opts: { changes?: boolean; readOtherFile?: (file: Store) => boolean; privileges?: Privileges } = {}): Promise<{ script: string; run: DryRun }[]> {
   if (!scripts.length) return [];
   let size = 0;
   try {
@@ -72,7 +72,7 @@ export async function dryRunChanges(store: Store, changes: unknown[], scripts: s
     copy.readContainersLike(store); // its externally stored container files stay where they are
     // The copy sees other hosted files only while the changes apply, and only those the caller may design (as the real change would); scripts run on it with no other file.
     if (opts.readOtherFile) copy.resolveFile = (name) => store.resolveFile(name);
-    copy.applyDesign(changes as never, { account: 'AI dry run', ...(opts.readOtherFile ? { readOtherFile: opts.readOtherFile } : {}) });
+    copy.applyDesign(changes as never, { account: 'AI dry run', ...(opts.readOtherFile ? { readOtherFile: opts.readOtherFile } : {}), ...(opts.privileges ? { privileges: opts.privileges } : {}) });
     copy.resolveFile = () => undefined;
     const out: { script: string; run: DryRun }[] = [];
     for (const name of scripts) {

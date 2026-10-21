@@ -336,8 +336,9 @@ export class DebugApi {
         }
         if (!Array.isArray(body.formulas)) throw new ApiError(960, 'Send {"formulas": ["..."], "layout": "..."}', 400);
         const queries: { store: Store; query: string; rows: number }[] = [];
-        const opts = {
-          ...screen(session, layout, windowState(body.window)), privileges,
+        // As the account: a field of another file it can't see there is missing, not read.
+        const opts: EvaluateOptions = {
+          ...screen(session, layout, windowState(body.window)), privileges, typed: true,
           onRead: reads.add.bind(reads),
           onQuery: (store: Store, query: string, rows: number) => { queries.push({ store, query, rows }); },
         };

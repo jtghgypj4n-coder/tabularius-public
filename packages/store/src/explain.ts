@@ -95,7 +95,9 @@ export function explainField(store: Store, table: Table, field: Field, rec: Rec 
     storage: formulaField(field) || field.kind === 'summary' || field.options?.global ? storageOf(field) : 'data',
     value: '',
   };
-  const pass = calc.newPass(opts.account);
+  // With privileges, what the formula reads in another hosted file is what the account may see there (its value, and the
+  // steps over it); the file's own fields are shown as before (their references are withheld below).
+  const pass = calc.newPass(opts.account, opts.privileges?.elsewhereOnly());
   try {
     out.value = clip(rec || field.options?.global ? asText(calc.value(rec ?? { store, table, row: {} }, field, 1, pass), store.dateOrder) : '');
   } catch (e) {
@@ -105,7 +107,7 @@ export function explainField(store: Store, table: Table, field: Field, rec: Rec 
   if (field.kind === 'summary') {
     const of = table.fields.find((f) => f.id === field.summary?.fieldId);
     out.notes = [`A summary field: ${field.summary?.type ?? 'summary'} of ${of?.name ?? 'a field'} over the found set (all records when there is none).`];
-    if (of) out.dependencies = dependencies(store, calc.defaultOccurrence(table), [{ name: of.name }], new Set([`${table.id}/${field.id}`]), 0, opts.privileges);
+    if (of) out.dependencies = dependencies(store, store, calc.defaultOccurrence(table), [{ name: of.name }], new Set([`${table.id}/${field.id}`]), 0, opts.privileges);
     return out;
   }
   if (!formulaField(field)) {
@@ -117,7 +119,7 @@ export function explainField(store: Store, table: Table, field: Field, rec: Rec 
   const to = toId !== undefined ? store.schema.tableOccurrences.find((t) => t.id === toId) : undefined;
   out.context = to?.name;
   out.doNotEvaluateIfEmpty = field.kind === 'calculation' ? !field.options?.evaluateWhenEmpty : !field.options?.autoEnter?.evaluateWhenEmpty;
-  out.warnings = lintFormula(store, field.calculation!, { occurrence: toId, field });
+  out.warnings = lintFormula(store, field.calculation!, { occurrence: toId, field, privileges: opts.privileges });
   const c = calc.formula(table, field);
   if (!c || toId === undefined) {
     out.error = { code: 1200, message: 'The formula could not be read in its context' };
@@ -126,7 +128,7 @@ export function explainField(store: Store, table: Table, field: Field, rec: Rec 
   const ctx = calc.context(rec, toId, pass);
   out.references = c.fields.map((r) => {
     const name = r.occurrence ? `${r.occurrence}::${r.name}` : r.name;
-    const resolved = fieldOf(store, toId, r);
+    const resolved = fieldOf(store, toId, r, opts.privileges);
     if (!resolved) return { field: name, missing: true };
     const { field: f, table: fTable, store: fStore } = resolved;
     // A reference to a field the privileges can't see: the formula still
@@ -164,7 +166,7 @@ export function explainField(store: Store, table: Table, field: Field, rec: Rec 
     out.matchesStored = ex.error ? stored === '?' : clip(stored) === out.result;
     if (!out.matchesStored) (out.notes ??= []).push('The stored value differs from what the formula gives now: it was computed when the record last changed, and something it reads (a related record, a global, the clock) has changed since.');
   }
-  out.dependencies = dependencies(store, toId, c.fields, new Set([`${table.id}/${field.id}`]), 0, opts.privileges);
+  out.dependencies = dependencies(store, store, toId, c.fields, new Set([`${table.id}/${field.id}`]), 0, opts.privileges);
   return out;
 }
 
@@ -174,10 +176,12 @@ export function explainField(store: Store, table: Table, field: Field, rec: Rec 
  * store it actually belongs to) — a privilege check on a reference must run
  * against its own table *and file*, never the formula's.
  */
-function fieldOf(store: Store, toId: number, r: { occurrence?: string; name: string }): { field: Field; table: string; store: Store } | undefined {
+function fieldOf(store: Store, toId: number, r: { occurrence?: string; name: string }, privileges?: Privileges): { field: Field; table: string; store: Store } | undefined {
   const to = r.occurrence ? store.calc.occurrence(r.occurrence) : store.schema.tableOccurrences.find((t) => t.id === toId);
   const t = to && store.calc.occurrenceTable(to.id);
   const f = t?.table.fields.find((f) => f.name.toLowerCase() === r.name.toLowerCase());
+  // A table of another file the account has no access to (or no account there) is not there for it: not a field's type, nor whether it exists.
+  if (f && privileges && t!.store !== store && !privileges.in(t!.store).table(t!.table.name).view) return undefined;
   return f && { field: f, table: t!.table.name, store: t!.store };
 }
 
@@ -188,7 +192,7 @@ function fieldOf(store: Store, toId: number, r: { occurrence?: string; name: str
  * can't see — the same rule `explainField`'s own references apply, carried
  * through the chain rather than stopping at the first hop.
  */
-function dependencies(store: Store, toId: number | undefined, refs: { occurrence?: string; name: string }[], seen: Set<string>, depth: number, privileges?: Privileges): Dependency[] | undefined {
+function dependencies(root: Store, store: Store, toId: number | undefined, refs: { occurrence?: string; name: string }[], seen: Set<string>, depth: number, privileges?: Privileges): Dependency[] | undefined {
   if (toId === undefined || depth > 3) return undefined;
   const out: Dependency[] = [];
   for (const r of refs) {
@@ -198,6 +202,8 @@ function dependencies(store: Store, toId: number | undefined, refs: { occurrence
     if (!to || !where || !f || !(formulaField(f) || f.kind === 'summary')) continue;
     const name = r.occurrence ? `${r.occurrence}::${f.name}` : f.name;
     if (privileges?.in(where.store).field(where.table.name, f.name) === 'none') {
+      // In another file than the one explained, a table the account has no access to is left out, as one that doesn't exist is.
+      if (where.store !== root && !privileges.in(where.store).table(where.table.name).view) continue;
       out.push({ field: name, kind: f.kind, storage: storageOf(f), hidden: true });
       continue;
     }
@@ -208,11 +214,11 @@ function dependencies(store: Store, toId: number | undefined, refs: { occurrence
       seen.add(key);
       if (f.kind === 'summary') {
         const of = where.table.fields.find((x) => x.id === f.summary?.fieldId);
-        if (of) dep.dependsOn = dependencies(where.store, where.store.calc.defaultOccurrence(where.table), [{ name: of.name }], seen, depth + 1, privileges);
+        if (of) dep.dependsOn = dependencies(root, where.store, where.store.calc.defaultOccurrence(where.table), [{ name: of.name }], seen, depth + 1, privileges);
       } else {
         const c = where.store.calc.formula(where.table, f);
         const ctxId = f.calculationContextId ?? where.store.calc.defaultOccurrence(where.table);
-        if (c) dep.dependsOn = dependencies(where.store, ctxId, c.fields, seen, depth + 1, privileges);
+        if (c) dep.dependsOn = dependencies(root, where.store, ctxId, c.fields, seen, depth + 1, privileges);
       }
       if (!dep.dependsOn?.length) delete dep.dependsOn;
     }
@@ -232,13 +238,13 @@ const COMPARE = new Set(['=', '≠', '<>', '<', '>', '≤', '<=', '≥', '>=']);
  * globals or related records, Let variables never used. `field` is the field
  * the formula belongs to, when it has one.
  */
-export function lintFormula(store: Store, formula: string, ctx: { occurrence?: number; field?: Field } = {}): LintWarning[] {
+export function lintFormula(store: Store, formula: string, ctx: { occurrence?: number; field?: Field; privileges?: Privileges } = {}): LintWarning[] {
   const warnings: LintWarning[] = [];
   const toId = ctx.occurrence;
   if (toId === undefined) return warnings;
   let c: Compiled;
   try {
-    c = compile(store.externalFieldNames(formula), store.calc.names(toId));
+    c = compile(store.externalFieldNames(formula), store.calc.names(toId, ctx.privileges));
   } catch (e) {
     rethrowExecutionRefusal(e);
     return warnings; // syntax errors are check_calculation's
@@ -247,7 +253,7 @@ export function lintFormula(store: Store, formula: string, ctx: { occurrence?: n
     if (!warnings.some((w) => w.message === message)) warnings.push({ code, message });
   };
   const refName = (r: { occurrence?: string; name: string }) => (r.occurrence ? `${r.occurrence}::${r.name}` : r.name);
-  const typeOf = (n: Node) => (n.k === 'field' ? fieldOf(store, toId, { occurrence: n.occurrence, name: n.name })?.field.type : undefined);
+  const typeOf = (n: Node) => (n.k === 'field' ? fieldOf(store, toId, { occurrence: n.occurrence, name: n.name }, ctx.privileges)?.field.type : undefined);
   const own = store.schema.tableOccurrences.find((t) => t.id === toId);
   const walk = (n: Node, letNames: Map<string, number>[]) => {
     switch (n.k) {
@@ -314,14 +320,14 @@ export function lintFormula(store: Store, formula: string, ctx: { occurrence?: n
   if (c.fields.some((r) => r.name.toLowerCase() === f.name.toLowerCase() && (!r.occurrence || store.calc.occurrence(r.occurrence)?.baseTableId === own?.baseTableId)) && f.kind === 'calculation')
     say('self-reference', `The formula reads ${f.name}, the field it belongs to.`);
   if (f.kind === 'calculation' && !f.options?.unstored && !f.options?.global) {
-    const globals = c.fields.filter((r) => fieldOf(store, toId, r)?.field.options?.global).map(refName);
+    const globals = c.fields.filter((r) => fieldOf(store, toId, r, ctx.privileges)?.field.options?.global).map(refName);
     if (globals.length) say('stored-global', `A stored calculation reading the global ${globals.join(', ')}: FileMaker makes such calculations unstored, because a stored value won't follow changes to the global.`);
     const related = c.fields.filter((r) => r.occurrence && r.occurrence.toLowerCase() !== own?.name.toLowerCase()).map(refName);
     if (related.length) say('stored-related', `A stored calculation reading the related ${related.join(', ')}: FileMaker makes such calculations unstored, because a stored value won't follow changes in the related records.`);
   }
   const ruleOn = f.kind === 'calculation' ? !f.options?.evaluateWhenEmpty : !!f.options?.autoEnter?.calculation && !f.options?.autoEnter?.evaluateWhenEmpty;
   if (ruleOn && c.fields.length && !/\b(GetField|Evaluate|GetFieldName|ExecuteSQL|Lookup|LookupNext|GetNthRecord)\s*\(/i.test(c.formula)) {
-    const containers = c.fields.filter((r) => fieldOf(store, toId, r)?.field.type === 'container').map(refName);
+    const containers = c.fields.filter((r) => fieldOf(store, toId, r, ctx.privileges)?.field.type === 'container').map(refName);
     if (containers.length) {
       say('empty-rule-container', `"Do not evaluate if all referenced fields are empty" is on, but it never applies here: FileMaker evaluates a formula that reads a container field (${containers.join(', ')}) even when the container is empty.`);
     } else {

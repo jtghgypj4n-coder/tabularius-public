@@ -732,7 +732,7 @@ export class DesignApi {
       else if (req.method === 'POST' && m[2] === 'check') {
         const body = await readJson(req);
         if (typeof body.formula !== 'string') throw new ApiError(960, 'Send {"formula": "..."}', 400);
-        send(200, checkStoreFormula(store, body.formula, formulaContext(store, body)));
+        send(200, checkStoreFormula(store, body.formula, formulaContext(store, body), privileges));
       }
       else if (req.method === 'POST' && m[2] === 'preview') {
         // The formula as typed, on the record the person was on and the first few others (nothing is stored).
@@ -741,8 +741,8 @@ export class DesignApi {
         const ctx = formulaContext(store, body);
         const table = store.schema.tables.find((t) => t.id === ctx.table);
         const to = ctx.occurrence ?? (table ? store.calc.defaultOccurrence(table) : undefined);
-        const check = checkStoreFormula(store, body.formula, { ...ctx, occurrence: to });
-        const preview = check.ok ? previewFormula(store, to, body.formula, { layout: typeof body.layout === 'string' ? body.layout : undefined, recordId: body.recordId }) : undefined;
+        const check = checkStoreFormula(store, body.formula, { ...ctx, occurrence: to }, privileges);
+        const preview = check.ok ? previewFormula(store, to, body.formula, { layout: typeof body.layout === 'string' ? body.layout : undefined, recordId: body.recordId }, undefined, privileges) : undefined;
         send(200, { ok: check.ok, ...(check.ok ? {} : { message: check.message }), ...(preview ?? { results: [] }) });
       }
       else if (req.method === 'POST' && m[2] === 'restyle') {
@@ -794,7 +794,7 @@ export class DesignApi {
         };
         const layout = typeof body.layout === 'string' ? body.layout : store.schema.layouts.find((l) => usable(l.name))?.name;
         if (!layout) throw new ApiError(105, 'Formulas run from a layout; this file has none yet', 400);
-        send(200, store.evaluate(layout, body.formula, undefined, { account: session.account }));
+        send(200, store.evaluate(layout, body.formula, undefined, { account: session.account, privileges, typed: true }));
       }
       else if (req.method === 'DELETE' && m[2]?.startsWith('deleted')) {
         const emptied = store.emptyDeleted(m[4] === undefined ? undefined : Number(m[4]));
@@ -845,7 +845,7 @@ export class DesignApi {
           send(200, { staged: staged.map((p) => p.id), ...(await review()) });
         } else if (req.method === 'POST' && m[2] === 'pending/apply') {
           const body = await readJson(req);
-          const result = this.pending.apply(store, session.account, ids(body.ids), ids(body.overrideConflicts) ?? []);
+          const result = this.pending.apply(store, session.account, ids(body.ids), ids(body.overrideConflicts) ?? [], privileges);
           send(200, { result, ...(await review()), design: designOf(store, this.host.names(), other) });
         } else if (req.method === 'POST' && m[2] === 'pending/discard') {
           const body = await readJson(req);
@@ -964,7 +964,7 @@ export class DesignApi {
         });
         const before = layoutsBefore(store, changes);
         const orders = ordersBefore(store, changes);
-        const { applied } = store.applyDesign(changes, { account: session.account, readOtherFile: mayDesign });
+        const { applied } = store.applyDesign(changes, { account: session.account, readOtherFile: mayDesign, privileges });
         const undo = undoChanges(applied, before, orders);
         send(200, { applied, ...(undo ? { undo } : {}), design: designOf(store, this.host.names(), other) });
       } else throw new ApiError(3, 'Command is unavailable', 405);

@@ -4,7 +4,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { callerText } from './fault-log.ts';
 import { z } from 'zod';
-import type { DesignOp, SnippetPick, Store } from '../../store/src/index.ts';
+import type { DesignOp, Privileges, SnippetPick, Store } from '../../store/src/index.ts';
 import { checkStoreFormula, speedPlan, lintLayout, lintScript, fixLayout, storeStats, type LintIssue, designSnippet, isLayoutSnippet, layoutObjectsFromSnippet, layoutSnippet, snippetChanges } from '../../store/src/index.ts';
 import type { LayoutObject } from '../../fmp12/src/index.ts';
 import { designOf, formulaContext, layoutTheme, styleNames } from './design.ts';
@@ -30,9 +30,9 @@ import { checkSolution } from './check-solution.ts';
 const json = (value: unknown) => ({ content: [{ type: 'text' as const, text: JSON.stringify(value) }] });
 const fail = (message: string) => ({ isError: true, content: [{ type: 'text' as const, text: message }] });
 
-function applyAi(store: Store, changes: DesignOp[], readOtherFile?: (file: Store) => boolean): { applied: DesignOp[] } {
+function applyAi(store: Store, changes: DesignOp[], readOtherFile?: (file: Store) => boolean, privileges?: Privileges): { applied: DesignOp[] } {
   assertAiDesignChanges(store, changes, undefined, readOtherFile);
-  return store.applyDesign(changes, { account: 'AI', ...(readOtherFile ? { readOtherFile } : {}) });
+  return store.applyDesign(changes, { account: 'AI', ...(readOtherFile ? { readOtherFile } : {}), ...(privileges ? { privileges } : {}) });
 }
 
 export const CHANGES = `Design changes, applied in order as one unit (all or none). Name things by name or id. Ops:
@@ -106,9 +106,11 @@ Renaming a field or occurrence rewrites every formula, layout and script that re
  * `guard` throws unless the client may see and change a file's design (an
  * account needs [Full Access]); `canCreate` is whether it may start new files; `readOtherFile` is whether it may also
  * design (and AI may read) another hosted file, whose tables a layout or value list here can then use (default: none).
+ * `privilegesFor` gives the client's privileges in a file (none for the administrator): what a formula it writes, tests or
+ * stores may read of another file is what it may read there.
  */
-export function registerDesignTools(server: McpServer, host: Host, guard: (s: Store) => void = () => {}, canCreate = true, visible: (s: Store) => boolean = () => true, readOtherFile?: (file: Store) => boolean): void {
-  const applyAiDesign = (store: Store, changes: DesignOp[]) => applyAi(store, changes, readOtherFile);
+export function registerDesignTools(server: McpServer, host: Host, guard: (s: Store) => void = () => {}, canCreate = true, visible: (s: Store) => boolean = () => true, readOtherFile?: (file: Store) => boolean, privilegesFor?: (file: Store) => Privileges | undefined): void {
+  const applyAiDesign = (store: Store, changes: DesignOp[]) => applyAi(store, changes, readOtherFile, privilegesFor?.(store));
   const withStore = (database: string, fn: (s: Store) => unknown) => {
     const store = host.get(database);
     if (!store) return fail(`No hosted database named "${database}". Hosted: ${aiHostedNames(host, visible)}`);
@@ -482,7 +484,7 @@ export function registerDesignTools(server: McpServer, host: Host, guard: (s: St
       parameters: z.array(z.string()).optional().describe('A new custom function\'s parameters'),
     },
     annotations: { readOnlyHint: true },
-  }, async ({ database, formula, ...ctx }) => withStore(database, (s) => checkStoreFormula(s, formula, formulaContext(s, ctx))));
+  }, async ({ database, formula, ...ctx }) => withStore(database, (s) => checkStoreFormula(s, formula, formulaContext(s, ctx), privilegesFor?.(s))));
 
   server.registerTool('design_history', {
     description: 'Design changes made to a database in Tabularius (by people, scripts or AI), oldest first.',
@@ -702,7 +704,7 @@ export function registerDesignTools(server: McpServer, host: Host, guard: (s: St
         const found = store.schema.scripts.find((x) => x.id === c.script || x.name === c.script);
         return found ? [found.name] : [];
       }).slice(0, 5);
-      return json({ applies: true, runs: await dryRunChanges(store, changes, names, undefined, { readOtherFile }) });
+      return json({ applies: true, runs: await dryRunChanges(store, changes, names, undefined, { readOtherFile, privileges: privilegesFor?.(store) }) });
     } catch (e) {
       return fail(callerText(e));
     }
