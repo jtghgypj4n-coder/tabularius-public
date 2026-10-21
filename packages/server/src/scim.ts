@@ -294,6 +294,11 @@ export class ScimDirectory {
     }
   }
 
+  /** Deactivating an account gives it a new identity (so no old session or token comes back); provisioning's own change keeps its binding. */
+  private rebind(id: string, account: string): void {
+    this.store.sql.prepare('UPDATE _fm_scim_users SET account_identity = ? WHERE id = ?').run(this.store.accountIdentityId(account)!, id);
+  }
+
   private bound(r: UserRow): void {
     const current = this.row(r.id);
     if (!current || current.account_identity !== r.account_identity || current.account !== r.account) {
@@ -368,6 +373,7 @@ export class ScimDirectory {
         .run(id, account, m.externalId ?? null, JSON.stringify(attrsOf(m)), '[]', now, now, this.store.accountIdentityId(account)!);
       if (!m.active) {
         this.store.setAccountActive(account, false, { by: SCIM_ACTOR });
+        this.rebind(id, account);
         this.revokePersonTokens(account);
       }
       else if (existing?.inactive) this.store.setAccountActive(account, true, { by: SCIM_ACTOR });
@@ -388,7 +394,10 @@ export class ScimDirectory {
       const revoke = !m.active && (wasActive || this.canTouch(r.account));
       this.store.sql.prepare('UPDATE _fm_scim_users SET external_id = ?, attrs = ?, modified = ? WHERE id = ?')
         .run(m.externalId ?? null, JSON.stringify(attrsOf(m)), new Date().toISOString(), r.id);
-      if (wasActive !== m.active) this.store.setAccountActive(r.account, m.active, { by: SCIM_ACTOR });
+      if (wasActive !== m.active) {
+        this.store.setAccountActive(r.account, m.active, { by: SCIM_ACTOR });
+        this.rebind(r.id, r.account);
+      }
       if (revoke) this.revokePersonTokens(r.account);
       return wasActive && !m.active;
     });

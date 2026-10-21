@@ -415,10 +415,11 @@ The following reasons apply to the exact enumerated expressions in each named fu
 | [packages/server/src/scim.ts:194](../../packages/server/src/scim.ts#L194) `ScimDirectory/rows` | `SQLite.all` (194); `SQLite.prepare` (194, 199); `Store.sql` (194, 199) | AUTH |
 | [packages/server/src/scim.ts:223](../../packages/server/src/scim.ts#L223) `ScimDirectory/setMemberships` | `SQLite.prepare` (223); `Store.sql` (223) | AUTH |
 | [packages/server/src/scim.ts:260](../../packages/server/src/scim.ts#L260) `ScimDirectory/atomically` | `Store.sql` (260) | AUTH |
-| [packages/server/src/scim.ts:316](../../packages/server/src/scim.ts#L316) `ScimDirectory/revokePersonTokens` | `SQLite.all` (316); `SQLite.prepare` (316); `Store.sql` (316) | AUTH |
-| [packages/server/src/scim.ts:367](../../packages/server/src/scim.ts#L367) `ScimDirectory/create/scim_user_create` | `SQLite.prepare` (367); `Store.sql` (367) | AUTH |
-| [packages/server/src/scim.ts:389](../../packages/server/src/scim.ts#L389) `ScimDirectory/update/scim_user_update` | `SQLite.prepare` (389); `Store.sql` (389) | AUTH |
-| [packages/server/src/scim.ts:413](../../packages/server/src/scim.ts#L413) `ScimDirectory/remove/scim_user_remove` | `SQLite.prepare` (413); `Store.sql` (413) | AUTH |
+| [packages/server/src/scim.ts:321](../../packages/server/src/scim.ts#L321) `ScimDirectory/revokePersonTokens` | `SQLite.all` (321); `SQLite.prepare` (321); `Store.sql` (321) | AUTH |
+| [packages/server/src/scim.ts:372](../../packages/server/src/scim.ts#L372) `ScimDirectory/create/scim_user_create` | `SQLite.prepare` (372); `Store.sql` (372) | AUTH |
+| [packages/server/src/scim.ts:395](../../packages/server/src/scim.ts#L395) `ScimDirectory/update/scim_user_update` | `SQLite.prepare` (395); `Store.sql` (395) | AUTH |
+| [packages/server/src/scim.ts:422](../../packages/server/src/scim.ts#L422) `ScimDirectory/remove/scim_user_remove` | `SQLite.prepare` (422); `Store.sql` (422) | AUTH |
+| [packages/server/src/scim.ts:299](../../packages/server/src/scim.ts#L299) `ScimDirectory/rebind` | `SQLite.prepare` (299); `Store.sql` (299) | AUTH |
 | [packages/server/src/script-failure.ts:208](../../packages/server/src/script-failure.ts#L208) `explainScriptFailure` | `Store.row` (208) | RECORD |
 | [packages/server/src/security.ts:78](../../packages/server/src/security.ts#L78) `importApproximations` | `SQLite.all` (78); `SQLite.prepare` (78); `Store.sql` (78) | DESIGN |
 | [packages/server/src/security.ts:114](../../packages/server/src/security.ts#L114) `securityOf` | `Store.pendingChanges` (114) | DESIGN |

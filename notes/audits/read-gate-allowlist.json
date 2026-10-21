@@ -249,6 +249,7 @@
   {"file":"packages/server/src/scim.ts","fn":"ScimDirectory/create/scim_user_create","gate":"AUTH","sites":[{"api":"SQLite.prepare","hash":"e5a7a43bae21f839692d"},{"api":"Store.sql","hash":"e5a7a43bae21f839692d"}]},
   {"file":"packages/server/src/scim.ts","fn":"ScimDirectory/update/scim_user_update","gate":"AUTH","sites":[{"api":"SQLite.prepare","hash":"31fa236d6cc32e4916e8"},{"api":"Store.sql","hash":"31fa236d6cc32e4916e8"}]},
   {"file":"packages/server/src/scim.ts","fn":"ScimDirectory/remove/scim_user_remove","gate":"AUTH","sites":[{"api":"SQLite.prepare","hash":"bc1f7db6d34abe476ba6"},{"api":"Store.sql","hash":"bc1f7db6d34abe476ba6"}]},
+  {"file":"packages/server/src/scim.ts","fn":"ScimDirectory/rebind","gate":"AUTH","sites":[{"api":"SQLite.prepare","hash":"af1a21ce2ddc778da1c9"},{"api":"Store.sql","hash":"af1a21ce2ddc778da1c9"}]},
   {"file":"packages/server/src/script-failure.ts","fn":"explainScriptFailure","gate":"RECORD","sites":[{"api":"Store.row","hash":"911b91a5f002723c5a5b"}]},
   {"file":"packages/server/src/security.ts","fn":"importApproximations","gate":"DESIGN","sites":[{"api":"SQLite.all","hash":"e45d9c34458de2a2b00c"},{"api":"SQLite.prepare","hash":"e45d9c34458de2a2b00c"},{"api":"Store.sql","hash":"e45d9c34458de2a2b00c"}]},
   {"file":"packages/server/src/security.ts","fn":"securityOf","gate":"DESIGN","sites":[{"api":"Store.pendingChanges","hash":"32c62803c60a09855fbf"}]},
