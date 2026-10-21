@@ -66,6 +66,8 @@ export class Host {
   private baseUrl?: string;
   /** The address clients reach the server at, when it was given (--public-url): links and passkeys use it, never a request's headers. */
   publicUrl?: string;
+  /** Operator-configured HTTPS origins for browser requests when no public URL is set. */
+  browserOrigins: readonly string[] = [];
   /** Whether the file lists (the Data API's, OData's and the root's) show every hosted file to callers who haven't signed in (file-list.ts). */
   listFilesPublicly = false;
   /** Whether scripts may reach the network (Insert from URL) in every hosted file (--allow-script-network). Otherwise each file has its own switch (Store.scriptNetwork), off until an administrator turns it on. */
