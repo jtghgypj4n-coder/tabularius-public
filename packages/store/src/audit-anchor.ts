@@ -39,8 +39,11 @@ function checkKey(key: Buffer): void {
 /** The chain's head as of now, signed. `null` when the chain has no head (not set up in this file). */
 export function anchorHead(path: string, chain: AuditChain, key: Buffer, at = new Date().toISOString()): AuditAnchor | null {
   checkKey(key);
-  const head = (chain === 'records' ? verifyRecordAudit(path) : verifySecurityAudit(path)).head;
-  if (!head) return null;
+  const verified = chain === 'records' ? verifyRecordAudit(path) : verifySecurityAudit(path);
+  if (verified.status === 'unprotected') return null;
+  if (!verified.ok) throw new Error(`audit chain verification failed: ${verified.reason ?? verified.status}`);
+  const head = verified.head;
+  if (!head) throw new Error('audit chain verification failed: missing head');
   const body = { version: 1 as const, chain, chainSeq: String(head.chainSeq), auditSeq: String(head.auditSeq), hash: head.hash, at };
   return { ...body, signature: sign(key, body) };
 }
@@ -65,10 +68,15 @@ export function checkAnchor(path: string, anchor: unknown, key: Buffer): AnchorC
     sql.exec('PRAGMA busy_timeout = 5000');
     const at = BigInt(a.chainSeq!);
     if (a.chain === 'records') {
-      const state = sql.prepare('SELECT pruned_seq, pruned_hash FROM _fm_record_chain_state').get() as { pruned_seq: number; pruned_hash: string | null };
+      const state = sql.prepare('SELECT pruned_seq, pruned_hash, genesis_hash FROM _fm_record_chain_state').get() as { pruned_seq: number; pruned_hash: string | null; genesis_hash: string };
       if (at < BigInt(state.pruned_seq)) return { ok: false, status: 'older-than-log', reason: 'retention has removed the log up to past the anchor, so it can no longer be compared' };
+      if (at === 0n) return a.auditSeq === '0' ? compare(state.genesis_hash, a.hash!) : compare('', a.hash!);
       const stored = at === BigInt(state.pruned_seq) ? state.pruned_hash : (sql.prepare('SELECT rhash FROM _fm_audit WHERE rchain_seq = ?').get(Number(at)) as { rhash: string } | undefined)?.rhash;
       return compare(stored, a.hash!);
+    }
+    if (at === 0n) {
+      const state = sql.prepare('SELECT genesis_hash FROM _fm_security_chain_state WHERE id = 1').get();
+      return a.auditSeq === '0' ? compare(state?.genesis_hash as string | undefined, a.hash!) : compare('', a.hash!);
     }
     const row = sql.prepare('SELECT event_hash FROM _fm_audit WHERE chain_seq = ?').get(Number(at)) as { event_hash: unknown } | undefined;
     const stored = row && (row.event_hash instanceof Uint8Array ? Buffer.from(row.event_hash).toString('utf8') : String(row.event_hash));

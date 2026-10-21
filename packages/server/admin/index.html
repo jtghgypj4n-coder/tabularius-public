@@ -1164,7 +1164,7 @@ $('passkeys-add').addEventListener('click', async () => {
         user: { id: new TextEncoder().encode('console'), name: 'console', displayName: 'Admin console' },
         pubKeyCredParams: [{ type: 'public-key', alg: -7 }, { type: 'public-key', alg: -257 }],
         excludeCredentials: (opts.excludeCredentials ?? []).map((id) => ({ type: 'public-key', id: fromB64url(id) })),
-        authenticatorSelection: { userVerification: 'preferred', residentKey: 'preferred' },
+        authenticatorSelection: { userVerification: 'required', residentKey: 'preferred' },
         timeout: 60000,
       },
     });
@@ -1198,7 +1198,7 @@ $('signin-passkey').addEventListener('click', async () => {
         challenge: fromB64url(begin.challenge),
         rpId: begin.rpId,
         allowCredentials: (begin.allowCredentials ?? []).map((id) => ({ type: 'public-key', id: fromB64url(id) })),
-        userVerification: 'preferred',
+        userVerification: 'required',
         timeout: 60000,
       },
     });
