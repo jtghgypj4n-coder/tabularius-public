@@ -76,13 +76,13 @@ Usage:
                                              fmxmlsnippet XML; no Save a Copy as XML yet.
 
 Hosting (point it at a folder of .fmp12 files; each is converted once):
-  tabularius serve <folder> [--port 8080] [--host 127.0.0.1] [--mcp-token T|--mcp-token-file F] [--allow-script-network] [--allow-script-network-to hosts] [--allow-app-connections] [--allow-webhooks] [--allow-inbound-hooks]
+  tabularius serve <folder> [--port 8080] [--host 127.0.0.1] [--open] [--mcp-token T|--mcp-token-file F] [--allow-script-network] [--allow-script-network-to hosts] [--allow-app-connections] [--allow-webhooks] [--allow-inbound-hooks]
                 [--list-files-publicly]
                 [--tls-cert cert.pem --tls-key key.pem] [--allow-plain-http] [--public-url URL] [--mcp-origin URL]... [--proxy-header x-forwarded-for|forwarded|x-real-ip] [--trusted-proxies IP/CIDR,...] [--connections-per-address N]
-                [--https name[,name]|local [--https-email E] [--http-port 80]] [--sql-port 5432 [--sql-writes]]
+                [--https name[,name]|local [--https-email E] [--http-port 80] [--acme-directory URL]] [--sql-port 5432 [--sql-writes]]
                 [--backup-every 1d] [--keep 7] [--backup-dir DIR] [--no-backups]
-                [--progressive 5m] [--stats-interval 1m|off] [--log-limit 100MB] [--backup-s3 s3://bucket/prefix [--s3-endpoint URL]] [--replication-token T|--replication-token-file F] [--keep-api-tokens-on-takeover] [--accept-partial-standby] [--ai] [--allow-blank-passwords]
-                [--oidc-issuer URL --oidc-client-id ID [--oidc-name N] [--oidc-groups-claim C] [--oidc-trust-email]] [--oidc-config providers.json]
+                [--progressive 5m] [--stats-interval 1m|off] [--log-limit 100MB] [--backup-s3 s3://bucket/prefix [--s3-endpoint URL] [--s3-region REGION]] [--replication-token T|--replication-token-file F] [--keep-api-tokens-on-takeover] [--accept-partial-standby] [--ai] [--allow-blank-passwords]
+                [--oidc-issuer URL --oidc-client-id ID [--oidc-name N] [--oidc-groups-claim C] [--oidc-trust-email] [--oidc-data-api-return-urls URL,...]] [--oidc-config providers.json]
                 [--ldap-url ldaps://host [--ldap-user-attribute A] [--ldap-base-dn DN] [--ldap-bind-dn-template T] [--ldap-search-dn DN] [--ldap-name N] [--ldap-email-attribute A] [--ldap-group-attribute A]]
                 [--workers N|auto] [--test-outbound [--mail-redirect ADDRESS] [--mail-copies 20] [--allow-host h[,h]] [--capture-only F[,F]] [--capture-only-copies-to-redirect]]
                 [--send-mail --mail-from ADDRESS [--capture-only F[,F]]]
@@ -96,6 +96,8 @@ Hosting (point it at a folder of .fmp12 files; each is converted once):
                                              TABULARIUS_S3_ACCESS_KEY / TABULARIUS_S3_SECRET_KEY).
                                              Import Records in scripts reads files from
                                              <folder>/Documents only.
+                                             --open opens the admin welcome page in a browser
+                                             after a single-process server starts.
                                              --allow-inbound-hooks answers calls to the
                                              inbound hooks set up in the admin console.
                                              --https gets and renews a certificate from Let's

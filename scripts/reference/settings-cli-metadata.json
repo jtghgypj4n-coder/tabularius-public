@@ -1,0 +1,1415 @@
+{
+  "intro": "Most `tabularius serve` options can be set in the environment instead of on the\ncommand line, which suits a service definition or a container. A command-line\nflag wins over the variable. Secrets (`TABULARIUS_OIDC_CLIENT_SECRET`,\n`TABULARIUS_LDAP_SEARCH_PASSWORD`, `TABULARIUS_BACKUP_KEY`, `TABULARIUS_ENCRYPTION_KEY`,\n`TABULARIUS_SECRETS_KEY`, `TABULARIUS_S3_SECRET_KEY`) are read only from the\nenvironment, never from a flag, so they stay out of process listings; they are\ndescribed where the feature is ([README](../README.md), [ADMIN](../ADMIN.md)).\n\nThe `docs:check` gate fails when code reads a `TABULARIUS_*` variable or\naccepts a serve flag without a metadata entry. The existing docs drift test\nalso checks variable names across the documentation.",
+  "clientExampleNote": "- `TABULARIUS_AUTH` is the name an example in [Connect an AI app](connect-ai.md)\n  gives to the client-side variable holding the bearer token; it belongs to the\n  MCP client's configuration.",
+  "environment": {
+    "TABULARIUS_ACME_DIRECTORY": {
+      "description": "A different certificate authority's directory address, for testing.",
+      "default": "Default ACME directory",
+      "accepted": "ACME directory URL",
+      "restart": "Yes for a running server.",
+      "explainedBy": "docs/environment-variables.md"
+    },
+    "TABULARIUS_AI_ACCOUNT_DAILY_TOKENS": {
+      "description": "A cap on tokens per account per day.",
+      "default": "Unset",
+      "accepted": "Positive number of tokens",
+      "restart": "Yes for a running server.",
+      "explainedBy": "docs/environment-variables.md"
+    },
+    "TABULARIUS_AI_DAILY_TOKENS": {
+      "description": "A cap on tokens per day.",
+      "default": "Unset",
+      "accepted": "Positive number of tokens",
+      "restart": "Yes for a running server.",
+      "explainedBy": "docs/environment-variables.md"
+    },
+    "TABULARIUS_AI_EMBED_KEY": {
+      "description": "API key sent to the configured embedding endpoint when it requires authentication.",
+      "default": "No embedding API key",
+      "accepted": "API key text",
+      "restart": "Yes for a running server.",
+      "explainedBy": "README.md"
+    },
+    "TABULARIUS_AI_EMBED_MODEL": {
+      "description": "Model id for text embeddings at the configured endpoint.",
+      "default": "Provider default model",
+      "accepted": "Embedding model id",
+      "restart": "Yes for a running server.",
+      "explainedBy": "docs/local-embeddings.md"
+    },
+    "TABULARIUS_AI_EMBED_URL": {
+      "description": "Endpoint for text embeddings used by semantic find and related features.",
+      "default": "Embedding service off",
+      "accepted": "ollama, lmstudio, or an embedding endpoint URL",
+      "restart": "Yes for a running server.",
+      "explainedBy": "docs/local-embeddings.md"
+    },
+    "TABULARIUS_AI_EXCLUDE": {
+      "description": "Comma-separated files kept from the assistant and AI apps entirely.",
+      "default": "No excluded files",
+      "accepted": "Comma-separated hosted file names",
+      "restart": "Yes for a running server.",
+      "explainedBy": "docs/environment-variables.md"
+    },
+    "TABULARIUS_AI_FAST_MODEL": {
+      "description": "The model used for simple questions.",
+      "default": "claude-haiku-5-5",
+      "accepted": "model id or off",
+      "restart": "Yes for a running server.",
+      "explainedBy": "docs/environment-variables.md"
+    },
+    "TABULARIUS_AI_IMAGE_EMBED": {
+      "description": "`voyage` or `jina`, the service that embeds images for Perform Semantic Find by image (its key is `TABULARIUS_AI_IMAGE_EMBED_KEY`).",
+      "default": "Image embedding off",
+      "accepted": "voyage or jina",
+      "restart": "Yes for a running server.",
+      "explainedBy": "docs/local-embeddings.md"
+    },
+    "TABULARIUS_AI_IMAGE_EMBED_KEY": {
+      "description": "API key for the configured image embedding provider.",
+      "default": "No image embedding API key",
+      "accepted": "API key text",
+      "restart": "Yes for a running server.",
+      "explainedBy": "docs/local-embeddings.md"
+    },
+    "TABULARIUS_AI_IMAGE_EMBED_MODEL": {
+      "description": "The model used for Perform Semantic Find by image.",
+      "default": "Provider default model",
+      "accepted": "Image embedding model id",
+      "restart": "Yes for a running server.",
+      "explainedBy": "docs/environment-variables.md"
+    },
+    "TABULARIUS_AI_KEY_FILE": {
+      "description": "A file holding the Anthropic key, read again when it changes.",
+      "default": "~/.openhbam/anthropic-key",
+      "accepted": "File path",
+      "restart": "Changing this path needs a restart; edits to the file at that path are reread.",
+      "explainedBy": "docs/environment-variables.md"
+    },
+    "TABULARIUS_AI_MODEL": {
+      "description": "The model used for design work.",
+      "default": "claude-opus-5-5",
+      "accepted": "Model id",
+      "restart": "Yes for a running server.",
+      "explainedBy": "docs/environment-variables.md"
+    },
+    "TABULARIUS_AI_MONTHLY_BUDGET": {
+      "description": "A stop at about this many US dollars a month.",
+      "default": "No monthly budget cap",
+      "accepted": "Positive US dollar amount, with optional leading $",
+      "restart": "Yes for a running server.",
+      "explainedBy": "docs/environment-variables.md"
+    },
+    "TABULARIUS_AI_WORKSPACE_ID": {
+      "description": "The workspace id for a key not made inside a workspace.",
+      "default": "~/.openhbam/anthropic-workspace-id if available",
+      "accepted": "Workspace id",
+      "restart": "Yes for a running server.",
+      "explainedBy": "docs/environment-variables.md"
+    },
+    "TABULARIUS_ALIAS": {
+      "description": "Internal launcher compatibility switch for the legacy executable name.",
+      "default": "Normal tabularius command name",
+      "accepted": "openhbam (legacy launcher alias)",
+      "restart": "No server restart; a new command reads it on invocation.",
+      "explainedBy": "docs/environment-variables.md"
+    },
+    "TABULARIUS_ALLOW_PLAIN_HTTP": {
+      "description": "Lets the server listen beyond this computer over plain HTTP, which it otherwise refuses to do (a proxy or network you control does the HTTPS). Set in the Docker image.",
+      "default": "Off: listening beyond this computer needs HTTPS",
+      "accepted": "1, true, yes or on",
+      "restart": "Yes for a running server.",
+      "explainedBy": "docs/security-defaults.md"
+    },
+    "TABULARIUS_BACKUP_DIR": {
+      "description": "Where backups go, instead of `<folder>/Backups`.",
+      "default": "<folder>/Backups unless folder settings override it",
+      "accepted": "Directory path",
+      "restart": "Yes for a running server.",
+      "explainedBy": "docs/environment-variables.md"
+    },
+    "TABULARIUS_BACKUP_EVERY": {
+      "description": "How often a backup is made (`1d` by default).",
+      "default": "1d",
+      "accepted": "interval such as 1d",
+      "restart": "Yes for a running server.",
+      "explainedBy": "docs/environment-variables.md"
+    },
+    "TABULARIUS_BACKUP_KEEP": {
+      "description": "How many backups to keep (7 by default).",
+      "default": "7",
+      "accepted": "Whole number of 1 or more",
+      "restart": "Yes for a running server.",
+      "explainedBy": "docs/environment-variables.md"
+    },
+    "TABULARIUS_BACKUP_KEY": {
+      "description": "Passphrase used to encrypt backup sets.",
+      "default": "No backup encryption passphrase",
+      "accepted": "Nonempty passphrase",
+      "restart": "Yes for a running server.",
+      "explainedBy": "README.md"
+    },
+    "TABULARIUS_BACKUP_S3": {
+      "description": "A `s3://bucket/prefix` address that backups are also copied to.",
+      "default": "Off",
+      "accepted": "s3://bucket/prefix",
+      "restart": "Yes for a running server.",
+      "explainedBy": "docs/environment-variables.md"
+    },
+    "TABULARIUS_CAPTURE_ONLY": {
+      "description": "Hosted file name prefixes whose outbound effects stay in capture mode.",
+      "default": "No capture-only files",
+      "accepted": "Comma-separated file name prefixes",
+      "restart": "Yes for a running server.",
+      "explainedBy": "ADMIN.md"
+    },
+    "TABULARIUS_CHROMIUM": {
+      "description": "Chromium executable used by the browser test harness.",
+      "default": "Auto-discovered browser for tests",
+      "accepted": "Path to a Chromium executable",
+      "restart": "No server restart; a new command reads it on invocation.",
+      "explainedBy": "README.md"
+    },
+    "TABULARIUS_CONNECTIONS_PER_ADDRESS": {
+      "description": "Maximum simultaneous transport connections admitted from one address.",
+      "default": "64",
+      "accepted": "positive safe integer",
+      "restart": "Yes for a running server.",
+      "explainedBy": "ADMIN.md"
+    },
+    "TABULARIUS_CONTAINER_TTL": {
+      "description": "Lifetime of a signed container URL.",
+      "default": "3600 seconds",
+      "accepted": "Nonnegative seconds; 0 makes URLs nonexpiring",
+      "restart": "Yes for a running server.",
+      "explainedBy": "README.md"
+    },
+    "TABULARIUS_CONVERT_MEMORY": {
+      "description": "Memory budget for a conversion process, in MB.",
+      "default": "2048 MB",
+      "accepted": "Nonnegative number of MB; 0 disables the limit",
+      "restart": "Yes for a running server.",
+      "explainedBy": "docs/environment-variables.md"
+    },
+    "TABULARIUS_CONVERT_TIMEOUT": {
+      "description": "Time budget for a conversion process, in seconds.",
+      "default": "900 seconds",
+      "accepted": "Nonnegative number of seconds; 0 disables the limit",
+      "restart": "Yes for a running server.",
+      "explainedBy": "docs/environment-variables.md"
+    },
+    "TABULARIUS_COUNT_SQL": {
+      "description": "Counts the prepared statements a store runs and the rows they change, for measuring (scripts/bulk-scale.ts, docs/performance.md).",
+      "default": "Off",
+      "accepted": "1",
+      "restart": "No server restart; read when a store is opened.",
+      "explainedBy": "docs/performance.md"
+    },
+    "TABULARIUS_DATA_API_MAX_LIMIT": {
+      "description": "Largest record count one Data API request may ask for.",
+      "default": "10000 records",
+      "accepted": "Nonnegative whole number; 0 removes the cap",
+      "restart": "Yes; restart the server after changing its environment.",
+      "explainedBy": "docs/data-api-compatibility.md"
+    },
+    "TABULARIUS_DRAIN_SECONDS": {
+      "description": "How long a stopping server lets requests that are already running finish before it closes them (1 to 86400, 20 by default; see [Upgrading](upgrading.md), \"Stopping and restarting\").",
+      "default": "20 seconds",
+      "accepted": "1 to 86400",
+      "restart": "Yes for a running server.",
+      "explainedBy": "docs/upgrading.md"
+    },
+    "TABULARIUS_ENCRYPTION_KEY": {
+      "description": "Passphrase used to unlock encrypted hosted files.",
+      "default": "No encryption passphrase",
+      "accepted": "Passphrase for encrypted hosted files",
+      "restart": "Yes for a running server.",
+      "explainedBy": "README.md"
+    },
+    "TABULARIUS_FIXTURE_CACHE": {
+      "description": "Where `npm run fixtures` keeps downloaded fixture files between checkouts (`~/.cache/tabularius-fixtures` by default).",
+      "default": "~/.cache/tabularius-fixtures",
+      "accepted": "Directory path",
+      "restart": "No server restart; a new command reads it on invocation.",
+      "explainedBy": "docs/environment-variables.md"
+    },
+    "TABULARIUS_FMS_KEY_PASSPHRASE": {
+      "description": "Passphrase for the source server certificate key during migration.",
+      "default": "Prompt if needed",
+      "accepted": "Passphrase text",
+      "restart": "No server restart; a new command reads it on invocation.",
+      "explainedBy": "ADMIN.md"
+    },
+    "TABULARIUS_FMS_PASSWORD": {
+      "description": "Password supplied to migration or sync commands for the source server.",
+      "default": "Prompt if needed",
+      "accepted": "Password text",
+      "restart": "Yes for a running server; new CLI invocations read the changed value.",
+      "explainedBy": "ADMIN.md"
+    },
+    "TABULARIUS_FOLDER": {
+      "description": "Hosted folder used when tabularius starts with no command.",
+      "default": "~/tabularius",
+      "accepted": "Folder path",
+      "restart": "No server restart; a new command reads it on invocation.",
+      "explainedBy": "docs/moving-a-solution.md"
+    },
+    "TABULARIUS_FUZZ_SELFTEST": {
+      "description": "Internal to the fuzz harness (`scripts/fuzz/worker.ts`): `error`, `hang`, `exit` or `oom` makes every input fail that way, to prove the detector end to end. Set by `packages/server/test/fuzz.test.ts`; no manual setting is needed.",
+      "default": "Unset",
+      "accepted": "error, hang, exit or oom",
+      "restart": "No server restart; the fuzz worker reads it when it starts.",
+      "explainedBy": "docs/environment-variables.md"
+    },
+    "TABULARIUS_HOME": {
+      "description": "The folder holding per-user settings (`~/.openhbam` by default): the AI key file, and the service definition's files.",
+      "default": "~/.openhbam",
+      "accepted": "file or directory path",
+      "restart": "Yes for a running server; new CLI invocations read the changed value.",
+      "explainedBy": "docs/environment-variables.md"
+    },
+    "TABULARIUS_HOST": {
+      "description": "The address to listen on (`127.0.0.1` by default; `0.0.0.0` with `--https name`).",
+      "default": "127.0.0.1 (0.0.0.0 with automatic HTTPS)",
+      "accepted": "IP address or hostname",
+      "restart": "Yes for a running server.",
+      "explainedBy": "docs/security-defaults.md"
+    },
+    "TABULARIUS_HTTPS": {
+      "description": "`name[,name]` for a Let's Encrypt certificate, or `local` for this server's own authority.",
+      "default": "Off",
+      "accepted": "local, lan, or comma-separated DNS names",
+      "restart": "Yes for a running server.",
+      "explainedBy": "docs/environment-variables.md"
+    },
+    "TABULARIUS_HTTPS_EMAIL": {
+      "description": "The contact address given to Let's Encrypt.",
+      "default": "Unset",
+      "accepted": "Contact email address",
+      "restart": "Yes for a running server.",
+      "explainedBy": "docs/environment-variables.md"
+    },
+    "TABULARIUS_HTTP_PORT": {
+      "description": "The port that answers the certificate challenge and redirects to https (80 by default).",
+      "default": "80",
+      "accepted": "Port number",
+      "restart": "Yes for a running server.",
+      "explainedBy": "docs/environment-variables.md"
+    },
+    "TABULARIUS_LDAP_BASE_DN": {
+      "description": "Where in the directory people are looked up.",
+      "default": "Unset",
+      "accepted": "LDAP distinguished name, template, attribute, or password as named by the variable",
+      "restart": "Yes for a running server.",
+      "explainedBy": "docs/environment-variables.md"
+    },
+    "TABULARIUS_LDAP_BIND_DN_TEMPLATE": {
+      "description": "The distinguished name a person signs in as, with the user name filled in.",
+      "default": "Unset",
+      "accepted": "LDAP distinguished name, template, attribute, or password as named by the variable",
+      "restart": "Yes for a running server.",
+      "explainedBy": "docs/environment-variables.md"
+    },
+    "TABULARIUS_LDAP_EMAIL_ATTRIBUTE": {
+      "description": "The attribute holding the email address.",
+      "default": "Unset",
+      "accepted": "LDAP distinguished name, template, attribute, or password as named by the variable",
+      "restart": "Yes for a running server.",
+      "explainedBy": "docs/environment-variables.md"
+    },
+    "TABULARIUS_LDAP_GROUP_ATTRIBUTE": {
+      "description": "The attribute listing the person's groups.",
+      "default": "Unset",
+      "accepted": "LDAP distinguished name, template, attribute, or password as named by the variable",
+      "restart": "Yes for a running server.",
+      "explainedBy": "docs/environment-variables.md"
+    },
+    "TABULARIUS_LDAP_NAME": {
+      "description": "The name shown for the directory.",
+      "default": "Hostname of the configured LDAP URL",
+      "accepted": "Display name",
+      "restart": "Yes for a running server.",
+      "explainedBy": "docs/environment-variables.md"
+    },
+    "TABULARIUS_LDAP_SEARCH_DN": {
+      "description": "The account used to find a person before they sign in.",
+      "default": "Unset",
+      "accepted": "LDAP distinguished name, template, attribute, or password as named by the variable",
+      "restart": "Yes for a running server.",
+      "explainedBy": "docs/environment-variables.md"
+    },
+    "TABULARIUS_LDAP_SEARCH_PASSWORD": {
+      "description": "Password for the configured LDAP search account.",
+      "default": "Unset",
+      "accepted": "LDAP distinguished name, template, attribute, or password as named by the variable",
+      "restart": "Yes for a running server.",
+      "explainedBy": "README.md"
+    },
+    "TABULARIUS_LDAP_URL": {
+      "description": "The directory server's `ldaps://` address.",
+      "default": "LDAP sign-in off",
+      "accepted": "ldaps:// URL",
+      "restart": "Yes for a running server.",
+      "explainedBy": "docs/environment-variables.md"
+    },
+    "TABULARIUS_LDAP_USER_ATTRIBUTE": {
+      "description": "The attribute holding the user name.",
+      "default": "Unset",
+      "accepted": "LDAP distinguished name, template, attribute, or password as named by the variable",
+      "restart": "Yes for a running server.",
+      "explainedBy": "docs/environment-variables.md"
+    },
+    "TABULARIUS_LIST_FILES_PUBLICLY": {
+      "description": "Whether unsigned callers can see hosted file names.",
+      "default": "off",
+      "accepted": "1, true, yes, or on",
+      "restart": "Yes for a running server.",
+      "explainedBy": "docs/data-api-compatibility.md"
+    },
+    "TABULARIUS_LOG_LIMIT": {
+      "description": "Size at which a server log is rotated.",
+      "default": "40MB",
+      "accepted": "Byte size such as 40MB",
+      "restart": "Yes for a running server.",
+      "explainedBy": "ADMIN.md"
+    },
+    "TABULARIUS_MAX_SESSIONS_PER_ACCOUNT": {
+      "description": "Maximum active Data API sessions per account.",
+      "default": "100 sessions",
+      "accepted": "Nonnegative whole number; 0 removes the cap",
+      "restart": "Yes; restart the server after changing its environment.",
+      "explainedBy": "docs/data-api-compatibility.md"
+    },
+    "TABULARIUS_MAX_SESSION_LOCKS": {
+      "description": "Maximum record locks held by one session in a file.",
+      "default": "100000",
+      "accepted": "Positive safe integer",
+      "restart": "Yes for a running server.",
+      "explainedBy": "ADMIN.md"
+    },
+    "TABULARIUS_MAX_UPLOAD": {
+      "description": "Largest file accepted by the server upload route, in bytes.",
+      "default": "10 GiB",
+      "accepted": "Nonnegative bytes; 0 removes the per-file cap",
+      "restart": "Yes for a running server.",
+      "explainedBy": "ADMIN.md"
+    },
+    "TABULARIUS_MAX_UPLOAD_IN_PROGRESS": {
+      "description": "Combined byte reservation allowed across ongoing uploads and conversions.",
+      "default": "20 GiB",
+      "accepted": "Positive bytes",
+      "restart": "Yes for a running server.",
+      "explainedBy": "ADMIN.md"
+    },
+    "TABULARIUS_MCP_ORIGINS": {
+      "description": "Additional browser origins permitted to call the MCP endpoint.",
+      "default": "No additional browser origins",
+      "accepted": "Comma-separated HTTPS origins without paths",
+      "restart": "Yes for a running server.",
+      "explainedBy": "docs/security-defaults.md"
+    },
+    "TABULARIUS_MCP_TOKEN": {
+      "description": "Administrator bearer token for the MCP endpoint.",
+      "default": "Unset; loopback administration only",
+      "accepted": "Token string",
+      "restart": "Yes for a running server.",
+      "explainedBy": "docs/environment-variables.md"
+    },
+    "TABULARIUS_MCP_TOKEN_FILE": {
+      "description": "A private regular file holding the MCP access token.",
+      "default": "Unset; loopback administration only",
+      "accepted": "File path (the file must not be readable by other users)",
+      "restart": "Yes for a running server.",
+      "explainedBy": "docs/environment-variables.md"
+    },
+    "TABULARIUS_MIN_PASSWORD_LENGTH": {
+      "description": "The fewest characters a new password may have in a file whose own policy names no minimum, and for the admin console.",
+      "default": "12",
+      "accepted": "Whole number from 0 to 999 (0 for no minimum)",
+      "restart": "Yes for a running server.",
+      "explainedBy": "docs/environment-variables.md"
+    },
+    "TABULARIUS_OIDC_CLIENT_ID": {
+      "description": "The client id registered with the provider.",
+      "default": "OIDC sign-in off",
+      "accepted": "Client id",
+      "restart": "Yes for a running server.",
+      "explainedBy": "docs/environment-variables.md"
+    },
+    "TABULARIUS_OIDC_CLIENT_SECRET": {
+      "description": "Client secret for the configured OpenID Connect provider.",
+      "default": "Unset",
+      "accepted": "Client secret text",
+      "restart": "Yes for a running server.",
+      "explainedBy": "README.md"
+    },
+    "TABULARIUS_OIDC_CONFIG": {
+      "description": "A JSON file describing several providers.",
+      "default": "Unset",
+      "accepted": "JSON file path",
+      "restart": "Yes for a running server.",
+      "explainedBy": "docs/environment-variables.md"
+    },
+    "TABULARIUS_OIDC_DATA_API_RETURN_URLS": {
+      "description": "Comma-separated addresses the Data API sign-in may return to.",
+      "default": "No extra return URLs",
+      "accepted": "Comma-separated URLs",
+      "restart": "Yes for a running server.",
+      "explainedBy": "docs/environment-variables.md"
+    },
+    "TABULARIUS_OIDC_GROUPS_CLAIM": {
+      "description": "The claim that lists the person's groups.",
+      "default": "Unset",
+      "accepted": "Claim or display name",
+      "restart": "Yes for a running server.",
+      "explainedBy": "docs/environment-variables.md"
+    },
+    "TABULARIUS_OIDC_ISSUER": {
+      "description": "The OpenID Connect provider's issuer address.",
+      "default": "OIDC sign-in off",
+      "accepted": "Issuer URL",
+      "restart": "Yes for a running server.",
+      "explainedBy": "docs/environment-variables.md"
+    },
+    "TABULARIUS_OIDC_NAME": {
+      "description": "The name shown on the sign-in button.",
+      "default": "Hostname of the configured issuer URL",
+      "accepted": "Claim or display name",
+      "restart": "Yes for a running server.",
+      "explainedBy": "docs/environment-variables.md"
+    },
+    "TABULARIUS_OIDC_TRUST_EMAIL": {
+      "description": "`1`, `true` or `yes` to accept the provider's email address as the account name.",
+      "default": "Off",
+      "accepted": "1, true, or yes",
+      "restart": "Yes for a running server.",
+      "explainedBy": "docs/environment-variables.md"
+    },
+    "TABULARIUS_OUTBOUND_MAX_TIME_MS": {
+      "description": "Maximum time a script outbound request can spend, in milliseconds.",
+      "default": "600000 ms",
+      "accepted": "Positive milliseconds",
+      "restart": "Yes; restart the server after changing its environment.",
+      "explainedBy": "docs/outbound-requests.md"
+    },
+    "TABULARIUS_PASSWORD": {
+      "description": "Password supplied to a CLI command that otherwise asks interactively.",
+      "default": "Prompt if needed",
+      "accepted": "Password text",
+      "restart": "No server restart; a new command reads it on invocation.",
+      "explainedBy": "README.md"
+    },
+    "TABULARIUS_PGWIRE_MAX_BUFFERED_ROWS": {
+      "description": "Combined result rows that one SQL connection may hold in portals.",
+      "default": "100000",
+      "accepted": "Positive whole number of rows",
+      "restart": "Yes; restart the server after changing its environment.",
+      "explainedBy": "docs/pgwire-results.md"
+    },
+    "TABULARIUS_PGWIRE_MAX_ROWS": {
+      "description": "Maximum rows a SQL query may return.",
+      "default": "100000",
+      "accepted": "Nonnegative whole number of rows; 0 removes the cap",
+      "restart": "Yes; restart the server after changing its environment.",
+      "explainedBy": "README.md"
+    },
+    "TABULARIUS_PGWIRE_TX_IDLE_MS": {
+      "description": "How long a SQL connection may sit idle inside BEGIN, in milliseconds, before it is rolled back and closed. Only matters with --sql-writes.",
+      "default": "30000",
+      "accepted": "Nonnegative whole number of milliseconds; 0 for no limit",
+      "restart": "No server restart; read when a SQL connection begins a transaction.",
+      "explainedBy": "docs/pgwire-writes.md"
+    },
+    "TABULARIUS_PGWIRE_TX_MAX_MS": {
+      "description": "The longest a SQL connection may keep one transaction open, however busy it is, in milliseconds. Only matters with --sql-writes.",
+      "default": "300000",
+      "accepted": "Nonnegative whole number of milliseconds; 0 for no limit",
+      "restart": "No server restart; read when a SQL connection begins a transaction.",
+      "explainedBy": "docs/pgwire-writes.md"
+    },
+    "TABULARIUS_PRIMARY": {
+      "description": "The primary server a `standby` follows.",
+      "default": "No primary server",
+      "accepted": "Primary server URL",
+      "restart": "Yes for a running server.",
+      "explainedBy": "docs/environment-variables.md"
+    },
+    "TABULARIUS_PROGRESSIVE": {
+      "description": "How often changes are saved as a point you can restore to with `tabularius restore --at`; `off` for never.",
+      "default": "Off",
+      "accepted": "off or an interval such as 5m",
+      "restart": "Yes for a running server.",
+      "explainedBy": "docs/environment-variables.md"
+    },
+    "TABULARIUS_PROXY_HEADER": {
+      "description": "The header a trusted proxy puts the client address in.",
+      "default": "No proxy header trusted",
+      "accepted": "x-forwarded-for, forwarded, or x-real-ip",
+      "restart": "Yes for a running server.",
+      "explainedBy": "docs/environment-variables.md"
+    },
+    "TABULARIUS_PUBLIC_URL": {
+      "description": "Externally reachable base URL advertised by the server.",
+      "default": "Taken from the listen address",
+      "accepted": "Absolute public URL",
+      "restart": "Yes for a running server.",
+      "explainedBy": "ADMIN.md"
+    },
+    "TABULARIUS_REPLICATION_TOKEN": {
+      "description": "The token a standby presents to the primary.",
+      "default": "Replication off",
+      "accepted": "Token of at least 16 characters",
+      "restart": "Yes for a running server.",
+      "explainedBy": "docs/environment-variables.md"
+    },
+    "TABULARIUS_REPLICATION_TOKEN_FILE": {
+      "description": "A private regular file holding the replication token; the primary requires at least 16 characters.",
+      "default": "Replication off",
+      "accepted": "File path (the file must not be readable by other users)",
+      "restart": "Yes for a running server.",
+      "explainedBy": "docs/environment-variables.md"
+    },
+    "TABULARIUS_REQUEST_BUDGET_MS": {
+      "description": "Time one request may hold the server event loop, in milliseconds.",
+      "default": "60000 ms",
+      "accepted": "Nonnegative milliseconds; 0 removes the budget",
+      "restart": "Yes for a running server.",
+      "explainedBy": "docs/runbook.md"
+    },
+    "TABULARIUS_REQUEST_LIMIT": {
+      "description": "How many requests each worker runs at once before further ones wait in a queue (32 by default, at least 4). Two of the slots are kept for sign-in and static files. See [Performance](performance.md).",
+      "default": "32",
+      "accepted": "Whole number of 4 or more",
+      "restart": "Yes for a running server.",
+      "explainedBy": "docs/performance.md"
+    },
+    "TABULARIUS_REQUEST_QUEUE": {
+      "description": "How many requests may wait for a free slot in each worker (64 by default, 0 for none). A request that cannot wait is answered 503 with `Retry-After: 1`. See [Performance](performance.md).",
+      "default": "64",
+      "accepted": "Whole number of 0 or more",
+      "restart": "Yes for a running server.",
+      "explainedBy": "docs/performance.md"
+    },
+    "TABULARIUS_S3_ACCESS_KEY": {
+      "description": "Access key id for off-site S3-compatible storage.",
+      "default": "AWS_ACCESS_KEY_ID if set",
+      "accepted": "Access key id",
+      "restart": "Yes for a running server.",
+      "explainedBy": "README.md"
+    },
+    "TABULARIUS_S3_ENDPOINT": {
+      "description": "An S3-compatible service's address, for other providers than Amazon.",
+      "default": "AWS S3 endpoint",
+      "accepted": "S3-compatible endpoint URL",
+      "restart": "Yes for a running server.",
+      "explainedBy": "docs/environment-variables.md"
+    },
+    "TABULARIUS_S3_REGION": {
+      "description": "The bucket's region (`AWS_REGION` is used when this is not set).",
+      "default": "AWS_REGION if set",
+      "accepted": "Region name",
+      "restart": "Yes for a running server.",
+      "explainedBy": "docs/environment-variables.md"
+    },
+    "TABULARIUS_S3_SECRET_KEY": {
+      "description": "Secret access key for off-site S3-compatible storage.",
+      "default": "AWS_SECRET_ACCESS_KEY if set",
+      "accepted": "Secret access key",
+      "restart": "Yes for a running server.",
+      "explainedBy": "README.md"
+    },
+    "TABULARIUS_SECRETS_KEY": {
+      "description": "Passphrase used to seal outside-connection secrets.",
+      "default": "TABULARIUS_ENCRYPTION_KEY if set",
+      "accepted": "Passphrase text",
+      "restart": "Yes for a running server.",
+      "explainedBy": "README.md"
+    },
+    "TABULARIUS_SHARE_RESULTS": {
+      "description": "Controls in-memory sharing of query results when enabled by the server.",
+      "default": "Enabled when result sharing is configured and the file is not encrypted",
+      "accepted": "0 disables sharing",
+      "restart": "Yes for a running server.",
+      "explainedBy": "ADMIN.md"
+    },
+    "TABULARIUS_SMTP": {
+      "description": "SMTP account URL used by Send Mail when sending is enabled.",
+      "default": "SMTP_FILE contents if present",
+      "accepted": "smtps:// URL",
+      "restart": "Yes for a running server.",
+      "explainedBy": "docs/privacy.md"
+    },
+    "TABULARIUS_SMTP_FILE": {
+      "description": "A file holding the SMTP account for `--send-mail` (`~/.openhbam/smtp` by default); `TABULARIUS_SMTP` holds it directly.",
+      "default": "~/.openhbam/smtp",
+      "accepted": "file or directory path",
+      "restart": "Yes for a running server.",
+      "explainedBy": "docs/environment-variables.md"
+    },
+    "TABULARIUS_SOURCE_PASSPHRASE": {
+      "description": "Passphrase used to open an encrypted source file from the CLI.",
+      "default": "Prompt if needed",
+      "accepted": "Passphrase text",
+      "restart": "No server restart; a new command reads it on invocation.",
+      "explainedBy": "ADMIN.md"
+    },
+    "TABULARIUS_SQL_PORT": {
+      "description": "The port for the PostgreSQL-compatible SQL connection.",
+      "default": "SQL listener off",
+      "accepted": "Port number from 0 to 65535",
+      "restart": "Yes for a running server.",
+      "explainedBy": "docs/environment-variables.md"
+    },
+    "TABULARIUS_SQL_WRITES": {
+      "description": "1 lets the SQL connection run INSERT, UPDATE and DELETE (off by default); needs the SQL port.",
+      "default": "Off: the SQL connection is read-only",
+      "accepted": "1, true, yes or on",
+      "restart": "Yes for a running server.",
+      "explainedBy": "docs/pgwire-writes.md"
+    },
+    "TABULARIUS_STATS_INTERVAL": {
+      "description": "How often the server writes statistics log lines.",
+      "default": "1m",
+      "accepted": "interval such as 1m, or off",
+      "restart": "Yes for a running server.",
+      "explainedBy": "README.md"
+    },
+    "TABULARIUS_STOP_GRACE_MS": {
+      "description": "How long `tabularius service stop` waits for the server to finish before it ends it (30000 by default).",
+      "default": "30000 ms",
+      "accepted": "Nonnegative milliseconds",
+      "restart": "Yes for a running server.",
+      "explainedBy": "docs/service-files.md"
+    },
+    "TABULARIUS_SYNC_HOSTS": {
+      "description": "Allowed source server hosts for the sync console.",
+      "default": "No fixed allowlist",
+      "accepted": "Comma-separated host or host:port entries",
+      "restart": "Yes; restart the server after changing its environment.",
+      "explainedBy": "ADMIN.md"
+    },
+    "TABULARIUS_SYNC_SECRETS": {
+      "description": "Directory containing sync credentials for hosted files.",
+      "default": "<hosted folder>/.openhbam-secrets",
+      "accepted": "Directory path",
+      "restart": "Yes; restart the server after changing its environment.",
+      "explainedBy": "ADMIN.md"
+    },
+    "TABULARIUS_TEST_CHILD_MARKER": {
+      "description": "Internal to `scripts/test-cross-file-isolation.ts`: the runner sets a temporary marker path for its forbidden-command stubs. A stub writes the marker if invoked, causing the audit to fail. No manual setting is needed.",
+      "default": "Unset",
+      "accepted": "Temporary marker file path",
+      "restart": "No server restart; a new command reads it on invocation.",
+      "explainedBy": "docs/environment-variables.md"
+    },
+    "TABULARIUS_TEST_SMTP": {
+      "description": "The SMTP account (`smtps://user:pass@host:465`) that `--test-outbound --mail-redirect` sends its one copy through.",
+      "default": "TEST_SMTP_FILE contents if present",
+      "accepted": "smtps:// URL",
+      "restart": "Yes for a running server.",
+      "explainedBy": "docs/privacy.md"
+    },
+    "TABULARIUS_TEST_SMTP_FILE": {
+      "description": "A file holding that account (`~/.openhbam/test-smtp` by default).",
+      "default": "~/.openhbam/test-smtp",
+      "accepted": "file or directory path",
+      "restart": "Yes for a running server.",
+      "explainedBy": "docs/environment-variables.md"
+    },
+    "TABULARIUS_THUMBNAILS": {
+      "description": "Selects built-in thumbnail tools instead of available system tools.",
+      "default": "System tools when available",
+      "accepted": "builtin to disable system tools",
+      "restart": "Yes for a running server.",
+      "explainedBy": "README.md"
+    },
+    "TABULARIUS_TOKEN_DEFAULT_DAYS": {
+      "description": "Days an API or AI-app token lives when no lifetime is asked for (calendar feed addresses keep their own default).",
+      "default": "90 days",
+      "accepted": "Whole or decimal number of days up to 3650; 0 for tokens that never expire",
+      "restart": "No server restart; read when a token is made.",
+      "explainedBy": "docs/security-defaults.md"
+    },
+    "TABULARIUS_TRACE_SQL": {
+      "description": "Enables SQL statement tracing to stderr.",
+      "default": "Off",
+      "accepted": "Any nonempty value except 0 enables tracing",
+      "restart": "Yes; restart the server after changing its environment.",
+      "explainedBy": "docs/performance.md"
+    },
+    "TABULARIUS_TRACE_SQL_MIN_MS": {
+      "description": "With `TABULARIUS_TRACE_SQL` set, logs only statements that took this many milliseconds or more.",
+      "default": "0 ms",
+      "accepted": "Nonnegative milliseconds",
+      "restart": "Yes; restart the server after changing its environment.",
+      "explainedBy": "docs/environment-variables.md"
+    },
+    "TABULARIUS_TRUSTED_PROXIES": {
+      "description": "Address ranges allowed to supply the configured proxy header.",
+      "default": "No trusted proxy addresses",
+      "accepted": "Comma-separated IP addresses or CIDR ranges",
+      "restart": "Yes for a running server.",
+      "explainedBy": "ADMIN.md"
+    },
+    "TABULARIUS_UPLOAD_IDLE_HOURS": {
+      "description": "How many hours an upload in pieces (`container-uploads`) may receive nothing before it is dropped (24 by default; `0` keeps them until the server restarts).",
+      "default": "24 hours",
+      "accepted": "nonnegative number; 0 keeps uploads until restart",
+      "restart": "Yes for a running server.",
+      "explainedBy": "ADMIN.md"
+    },
+    "TABULARIUS_UPLOAD_TMP": {
+      "description": "The folder files wait in while they arrive in a container upload (the system's temporary folder by default). It needs room for the biggest files being uploaded at once.",
+      "default": "System temporary directory",
+      "accepted": "Directory path",
+      "restart": "Yes for a running server.",
+      "explainedBy": "README.md"
+    },
+    "TABULARIUS_VISUAL_UPDATE": {
+      "description": "Internal to `npm run test:visual -- --update`: tells the visual regression test to write changed screenshot baselines. No manual setting is needed.",
+      "default": "Unset",
+      "accepted": "1 (set by the test command)",
+      "restart": "Not applicable",
+      "explainedBy": "docs/environment-variables.md"
+    },
+    "TABULARIUS_WARM_HEAP_MB": {
+      "description": "Memory budget for the background warming worker, in MB.",
+      "default": "1536 MB",
+      "accepted": "Number of MB; minimum 256",
+      "restart": "Yes for a running server.",
+      "explainedBy": "ADMIN.md"
+    },
+    "TABULARIUS_WORKERS": {
+      "description": "The number of worker processes, or `auto` for one per CPU core.",
+      "default": "one process",
+      "accepted": "auto or a positive whole number",
+      "restart": "Yes for a running server.",
+      "explainedBy": "docs/environment-variables.md"
+    }
+  },
+  "serveFlags": {
+    "--accept-partial-standby": {
+      "default": "Off: a failover from an unfinished copy is refused",
+      "accepted": "No value (a switch)",
+      "explainedBy": "docs/standby-guarantees.md"
+    },
+    "--ai": {
+      "default": "Off",
+      "accepted": "Switch; present enables the assistant",
+      "explainedBy": "README.md"
+    },
+    "--ai-account-daily-tokens": {
+      "default": "Unset",
+      "accepted": "Positive number of tokens",
+      "explainedBy": "README.md"
+    },
+    "--ai-daily-tokens": {
+      "default": "Unset",
+      "accepted": "Positive number of tokens",
+      "explainedBy": "README.md"
+    },
+    "--ai-embed-model": {
+      "default": "Provider default model",
+      "accepted": "Embedding model id",
+      "explainedBy": "README.md"
+    },
+    "--ai-embed-url": {
+      "default": "Embedding service off",
+      "accepted": "ollama, lmstudio, or an embedding endpoint URL",
+      "explainedBy": "README.md"
+    },
+    "--ai-exclude": {
+      "default": "No excluded files",
+      "accepted": "Comma-separated hosted file names",
+      "explainedBy": "README.md"
+    },
+    "--ai-fast-model": {
+      "default": "claude-haiku-5-5",
+      "accepted": "Model id or off",
+      "explainedBy": "README.md"
+    },
+    "--ai-image-embed": {
+      "default": "Off",
+      "accepted": "voyage or jina",
+      "explainedBy": "docs/local-embeddings.md"
+    },
+    "--ai-image-embed-model": {
+      "default": "Provider default model",
+      "accepted": "Image embedding model id",
+      "explainedBy": "docs/local-embeddings.md"
+    },
+    "--ai-key-file": {
+      "default": "~/.openhbam/anthropic-key",
+      "accepted": "File path",
+      "explainedBy": "README.md"
+    },
+    "--ai-model": {
+      "default": "claude-opus-5-5",
+      "accepted": "Model id",
+      "explainedBy": "README.md"
+    },
+    "--ai-monthly-budget": {
+      "default": "No monthly budget cap",
+      "accepted": "Positive US dollar amount, with optional leading $",
+      "explainedBy": "README.md"
+    },
+    "--ai-workspace-id": {
+      "default": "~/.openhbam/anthropic-workspace-id if available",
+      "accepted": "Workspace id",
+      "explainedBy": "README.md"
+    },
+    "--allow-app-connections": {
+      "default": "Off",
+      "accepted": "switch (present = on)",
+      "explainedBy": "README.md"
+    },
+    "--allow-blank-passwords": {
+      "default": "Off",
+      "accepted": "Switch; present allows blank passwords",
+      "explainedBy": "README.md"
+    },
+    "--allow-host": {
+      "default": "Off",
+      "accepted": "switch (present = on)",
+      "explainedBy": "docs/reference/settings/serve-flags.md"
+    },
+    "--allow-inbound-hooks": {
+      "default": "Off",
+      "accepted": "switch (present = on)",
+      "explainedBy": "README.md"
+    },
+    "--allow-plain-http": {
+      "default": "Off: listening beyond this computer needs HTTPS",
+      "accepted": "No value (a switch)",
+      "explainedBy": "docs/security-defaults.md"
+    },
+    "--allow-script-network": {
+      "default": "Off",
+      "accepted": "switch (present = on)",
+      "explainedBy": "README.md"
+    },
+    "--allow-script-network-to": {
+      "default": "Off",
+      "accepted": "switch (present = on)",
+      "explainedBy": "docs/moving-a-solution.md"
+    },
+    "--allow-webhooks": {
+      "default": "Off",
+      "accepted": "switch (present = on)",
+      "explainedBy": "README.md"
+    },
+    "--backup-dir": {
+      "default": "<folder>/Backups unless folder settings override it",
+      "accepted": "Directory path",
+      "explainedBy": "README.md"
+    },
+    "--backup-every": {
+      "default": "1d",
+      "accepted": "off or an interval such as 1d",
+      "explainedBy": "README.md"
+    },
+    "--backup-s3": {
+      "default": "Off",
+      "accepted": "s3://bucket/prefix",
+      "explainedBy": "README.md"
+    },
+    "--capture-only": {
+      "default": "No capture-only files",
+      "accepted": "Comma-separated file name prefixes",
+      "explainedBy": "README.md"
+    },
+    "--capture-only-copies-to-redirect": {
+      "default": "Off",
+      "accepted": "switch (present = on)",
+      "explainedBy": "docs/reference/settings/serve-flags.md"
+    },
+    "--connections-per-address": {
+      "default": "64",
+      "accepted": "Positive safe integer",
+      "explainedBy": "ADMIN.md"
+    },
+    "--host": {
+      "default": "127.0.0.1, or 0.0.0.0 with automatic HTTPS",
+      "accepted": "Listen address",
+      "explainedBy": "README.md"
+    },
+    "--http-port": {
+      "default": "80",
+      "accepted": "Port from 0 to 65535",
+      "explainedBy": "docs/reference/settings/serve-flags.md"
+    },
+    "--https": {
+      "default": "Off",
+      "accepted": "local or comma-separated DNS names",
+      "explainedBy": "README.md"
+    },
+    "--https-email": {
+      "default": "Unset",
+      "accepted": "Contact email address",
+      "explainedBy": "README.md"
+    },
+    "--keep": {
+      "default": "7",
+      "accepted": "Whole number of 1 or more",
+      "explainedBy": "README.md"
+    },
+    "--keep-api-tokens-on-takeover": {
+      "default": "Off: API tokens end when a standby takes over",
+      "accepted": "No value (a switch)",
+      "explainedBy": "docs/standby-guarantees.md"
+    },
+    "--ldap-base-dn": {
+      "default": "Unset",
+      "accepted": "LDAP distinguished name, template, attribute, or password as named by the variable",
+      "explainedBy": "README.md"
+    },
+    "--ldap-bind-dn-template": {
+      "default": "Unset",
+      "accepted": "LDAP distinguished name, template, attribute, or password as named by the variable",
+      "explainedBy": "README.md"
+    },
+    "--ldap-email-attribute": {
+      "default": "Unset",
+      "accepted": "LDAP distinguished name, template, attribute, or password as named by the variable",
+      "explainedBy": "docs/reference/settings/serve-flags.md"
+    },
+    "--ldap-group-attribute": {
+      "default": "Unset",
+      "accepted": "LDAP distinguished name, template, attribute, or password as named by the variable",
+      "explainedBy": "README.md"
+    },
+    "--ldap-name": {
+      "default": "Hostname of the configured LDAP URL",
+      "accepted": "Display name",
+      "explainedBy": "docs/reference/settings/serve-flags.md"
+    },
+    "--ldap-search-dn": {
+      "default": "Unset",
+      "accepted": "LDAP distinguished name, template, attribute, or password as named by the variable",
+      "explainedBy": "README.md"
+    },
+    "--ldap-url": {
+      "default": "LDAP sign-in off",
+      "accepted": "ldaps:// URL",
+      "explainedBy": "README.md"
+    },
+    "--ldap-user-attribute": {
+      "default": "Unset",
+      "accepted": "LDAP distinguished name, template, attribute, or password as named by the variable",
+      "explainedBy": "README.md"
+    },
+    "--list-files-publicly": {
+      "default": "Off",
+      "accepted": "Switch; present makes file names public",
+      "explainedBy": "README.md"
+    },
+    "--log-limit": {
+      "default": "40MB",
+      "accepted": "Byte size such as 40MB",
+      "explainedBy": "ADMIN.md"
+    },
+    "--mail-copies": {
+      "default": "20 per run",
+      "accepted": "Nonnegative whole number",
+      "explainedBy": "docs/reference/settings/serve-flags.md"
+    },
+    "--mail-from": {
+      "default": "Unset",
+      "accepted": "Email address",
+      "explainedBy": "docs/moving-a-solution.md"
+    },
+    "--mail-redirect": {
+      "default": "Unset",
+      "accepted": "Email address",
+      "explainedBy": "docs/privacy.md"
+    },
+    "--mcp-origin": {
+      "default": "No additional origins",
+      "accepted": "Repeatable HTTPS origin without path",
+      "explainedBy": "docs/security-defaults.md"
+    },
+    "--mcp-token": {
+      "default": "unset; loopback administration only",
+      "accepted": "Token string",
+      "explainedBy": "README.md"
+    },
+    "--mcp-token-file": {
+      "default": "Unset; loopback administration only",
+      "accepted": "File path (a private regular file holding the token)",
+      "explainedBy": "docs/environment-variables.md"
+    },
+    "--no-backups": {
+      "default": "Backups on",
+      "accepted": "Switch; present disables scheduled backups",
+      "explainedBy": "README.md"
+    },
+    "--oidc-client-id": {
+      "default": "OIDC sign-in off",
+      "accepted": "Client id",
+      "explainedBy": "README.md"
+    },
+    "--oidc-config": {
+      "default": "Unset",
+      "accepted": "JSON file path",
+      "explainedBy": "README.md"
+    },
+    "--oidc-groups-claim": {
+      "default": "Unset",
+      "accepted": "Claim or display name",
+      "explainedBy": "README.md"
+    },
+    "--oidc-issuer": {
+      "default": "OIDC sign-in off",
+      "accepted": "Issuer URL",
+      "explainedBy": "README.md"
+    },
+    "--oidc-name": {
+      "default": "Hostname of the configured issuer URL",
+      "accepted": "Claim or display name",
+      "explainedBy": "README.md"
+    },
+    "--oidc-trust-email": {
+      "default": "Unset",
+      "accepted": "Switch; present trusts provider email",
+      "explainedBy": "README.md"
+    },
+    "--port": {
+      "default": "8080, or 443 with automatic HTTPS",
+      "accepted": "Port number from 0 to 65535",
+      "explainedBy": "README.md"
+    },
+    "--progressive": {
+      "default": "Off",
+      "accepted": "Interval such as 5m, or off",
+      "explainedBy": "README.md"
+    },
+    "--proxy-header": {
+      "default": "Unset",
+      "accepted": "x-forwarded-for, forwarded, or x-real-ip",
+      "explainedBy": "README.md"
+    },
+    "--public-url": {
+      "default": "Taken from the listen address",
+      "accepted": "Absolute public URL",
+      "explainedBy": "README.md"
+    },
+    "--replication-token": {
+      "default": "Replication off",
+      "accepted": "Token of at least 16 characters",
+      "explainedBy": "README.md"
+    },
+    "--replication-token-file": {
+      "default": "Replication off",
+      "accepted": "File path (a private regular file holding the token)",
+      "explainedBy": "docs/environment-variables.md"
+    },
+    "--s3-endpoint": {
+      "default": "AWS S3 endpoint",
+      "accepted": "S3-compatible endpoint URL",
+      "explainedBy": "README.md"
+    },
+    "--send-mail": {
+      "default": "Off",
+      "accepted": "Switch; present enables SMTP sending",
+      "explainedBy": "README.md"
+    },
+    "--sql-port": {
+      "default": "Off",
+      "accepted": "Port from 0 to 65535",
+      "explainedBy": "README.md"
+    },
+    "--sql-writes": {
+      "default": "Off: the SQL connection is read-only",
+      "accepted": "No value (a switch)",
+      "explainedBy": "docs/pgwire-writes.md"
+    },
+    "--stats-interval": {
+      "default": "1m",
+      "accepted": "Interval such as 1m, or off",
+      "explainedBy": "README.md"
+    },
+    "--test-outbound": {
+      "default": "Off",
+      "accepted": "Switch; present captures outbound effects",
+      "explainedBy": "docs/moving-a-solution.md"
+    },
+    "--tls-cert": {
+      "default": "Unset",
+      "accepted": "PEM certificate file path",
+      "explainedBy": "README.md"
+    },
+    "--tls-key": {
+      "default": "Unset",
+      "accepted": "PEM private key file path",
+      "explainedBy": "README.md"
+    },
+    "--trusted-proxies": {
+      "default": "No trusted proxy addresses",
+      "accepted": "Comma-separated IP addresses or CIDR ranges",
+      "explainedBy": "README.md"
+    },
+    "--workers": {
+      "default": "One process",
+      "accepted": "Whole number from 1 to 64, or auto",
+      "explainedBy": "README.md"
+    },
+    "--acme-directory": {
+      "default": "Default ACME directory",
+      "accepted": "ACME directory URL",
+      "explainedBy": "docs/reference/settings/serve-flags.md"
+    },
+    "--oidc-data-api-return-urls": {
+      "default": "No extra return URLs",
+      "accepted": "Comma-separated URLs",
+      "explainedBy": "docs/reference/settings/serve-flags.md"
+    },
+    "--open": {
+      "default": "Off",
+      "accepted": "Switch; present opens the admin welcome page",
+      "explainedBy": "docs/reference/settings/serve-flags.md"
+    },
+    "--s3-region": {
+      "default": "AWS_REGION or the provider default",
+      "accepted": "S3 region name",
+      "explainedBy": "docs/reference/settings/serve-flags.md"
+    }
+  },
+  "commands": {
+    "admin-password": {
+      "exitCodes": "0 on success; 1 on error.",
+      "example": "tabularius admin-password --help"
+    },
+    "ai": {
+      "exitCodes": "0 on success; 1 on error.",
+      "example": "tabularius ai --help"
+    },
+    "ai-policy": {
+      "exitCodes": "0 on success; 1 on error.",
+      "example": "tabularius ai-policy --help"
+    },
+    "api-types": {
+      "exitCodes": "0 on success; 1 on error.",
+      "example": "tabularius api-types --help"
+    },
+    "audit": {
+      "exitCodes": "0 on success; 1 on error; 2 when unprotected.",
+      "example": "tabularius audit --help"
+    },
+    "backup": {
+      "exitCodes": "0 on success; 1 on error.",
+      "example": "tabularius backup --help"
+    },
+    "calendar-feed": {
+      "exitCodes": "0 on success; 1 on error.",
+      "example": "tabularius calendar-feed --help"
+    },
+    "check-solution": {
+      "exitCodes": "0 on success; 1 on error; 2 when findings are present.",
+      "example": "tabularius check-solution --help"
+    },
+    "compact": {
+      "exitCodes": "0 on success; 1 on error.",
+      "example": "tabularius compact --help"
+    },
+    "corpus-scan": {
+      "exitCodes": "0 on success; 1 on error.",
+      "example": "tabularius corpus-scan --help"
+    },
+    "ddr": {
+      "exitCodes": "0 on success; 1 on error.",
+      "example": "tabularius ddr --help"
+    },
+    "decrypt": {
+      "exitCodes": "0 on success; 1 on error.",
+      "example": "tabularius decrypt --help"
+    },
+    "demo": {
+      "exitCodes": "0 on success; 1 on error.",
+      "example": "tabularius demo --help"
+    },
+    "design": {
+      "exitCodes": "0 on success; 1 on error.",
+      "example": "tabularius design --help"
+    },
+    "design-apply": {
+      "exitCodes": "0 on success; 1 on error.",
+      "example": "tabularius design-apply --help"
+    },
+    "design-diff": {
+      "exitCodes": "0 on success; 1 on error.",
+      "example": "tabularius design-diff --help"
+    },
+    "design-text": {
+      "exitCodes": "0 on success; 1 on error.",
+      "example": "tabularius design-text --help"
+    },
+    "diagnostics": {
+      "exitCodes": "0 on success; 1 on error.",
+      "example": "tabularius diagnostics --help"
+    },
+    "doctor": {
+      "exitCodes": "0 on success; 1 on error.",
+      "example": "tabularius doctor --help"
+    },
+    "dump": {
+      "exitCodes": "0 on success; 1 on error.",
+      "example": "tabularius dump --help"
+    },
+    "encrypt": {
+      "exitCodes": "0 on success; 1 on error.",
+      "example": "tabularius encrypt --help"
+    },
+    "export": {
+      "exitCodes": "0 on success; 1 on error.",
+      "example": "tabularius export --help"
+    },
+    "export-sql": {
+      "exitCodes": "0 on success; 1 on error.",
+      "example": "tabularius export-sql --help"
+    },
+    "fidelity": {
+      "exitCodes": "0 on success; 1 on error.",
+      "example": "tabularius fidelity --help"
+    },
+    "help": {
+      "exitCodes": "0 on success; 1 on error.",
+      "example": "tabularius help --help"
+    },
+    "import-ics": {
+      "exitCodes": "0 on success; 1 on error.",
+      "example": "tabularius import-ics --help"
+    },
+    "import-tables": {
+      "exitCodes": "0 on success; 1 on error.",
+      "example": "tabularius import-tables --help"
+    },
+    "info": {
+      "exitCodes": "0 on success; 1 on error.",
+      "example": "tabularius info --help"
+    },
+    "layout-census": {
+      "exitCodes": "0 on success; 1 on error.",
+      "example": "tabularius layout-census --help"
+    },
+    "mcp": {
+      "exitCodes": "0 on success; 1 on error.",
+      "example": "tabularius mcp --help"
+    },
+    "mcp-token": {
+      "exitCodes": "0 on success; 1 on error.",
+      "example": "tabularius mcp-token --help"
+    },
+    "migrate-fms": {
+      "exitCodes": "0 on success; 1 on error.",
+      "example": "tabularius migrate-fms --help"
+    },
+    "new": {
+      "exitCodes": "0 on success; 1 on error.",
+      "example": "tabularius new --help"
+    },
+    "optimize": {
+      "exitCodes": "0 on success; 1 on error.",
+      "example": "tabularius optimize --help"
+    },
+    "pair-tokens": {
+      "exitCodes": "0 on success; 1 on error.",
+      "example": "tabularius pair-tokens --help"
+    },
+    "passwd": {
+      "exitCodes": "0 on success; 1 on error.",
+      "example": "tabularius passwd --help"
+    },
+    "plugins": {
+      "exitCodes": "0 on success; 1 on error.",
+      "example": "tabularius plugins --help"
+    },
+    "privileges": {
+      "exitCodes": "0 on success; 1 on error.",
+      "example": "tabularius privileges --help"
+    },
+    "reconvert": {
+      "exitCodes": "0 on success; 1 on error.",
+      "example": "tabularius reconvert --help"
+    },
+    "records": {
+      "exitCodes": "0 on success; 1 on error.",
+      "example": "tabularius records --help"
+    },
+    "report": {
+      "exitCodes": "0 on success; 1 on error.",
+      "example": "tabularius report --help"
+    },
+    "restore": {
+      "exitCodes": "0 on success; 1 on error.",
+      "example": "tabularius restore --help"
+    },
+    "schema": {
+      "exitCodes": "0 on success; 1 on error.",
+      "example": "tabularius schema --help"
+    },
+    "script-tests": {
+      "exitCodes": "0 on success; 1 on error.",
+      "example": "tabularius script-tests --help"
+    },
+    "serve": {
+      "exitCodes": "0 on success; 1 on error.",
+      "example": "tabularius serve --help"
+    },
+    "service": {
+      "exitCodes": "0 on success; 1 on error.",
+      "example": "tabularius service --help"
+    },
+    "stale-calcs": {
+      "exitCodes": "0 on success; 1 on error.",
+      "example": "tabularius stale-calcs --help"
+    },
+    "standby": {
+      "exitCodes": "0 on success; 1 on error.",
+      "example": "tabularius standby --help"
+    },
+    "style-census": {
+      "exitCodes": "0 on success; 1 on error.",
+      "example": "tabularius style-census --help"
+    },
+    "sync-apply": {
+      "exitCodes": "0 on success; 1 on error.",
+      "example": "tabularius sync-apply --help"
+    },
+    "sync-log": {
+      "exitCodes": "0 on success; 1 on error.",
+      "example": "tabularius sync-log --help"
+    },
+    "sync-plan": {
+      "exitCodes": "0 on success; 1 on error.",
+      "example": "tabularius sync-plan --help"
+    },
+    "test-scripts": {
+      "exitCodes": "0 on success; 1 on error.",
+      "example": "tabularius test-scripts --help"
+    },
+    "token": {
+      "exitCodes": "0 on success; 1 on error.",
+      "example": "tabularius token --help"
+    },
+    "totp": {
+      "exitCodes": "0 on success; 1 on error.",
+      "example": "tabularius totp --help"
+    },
+    "upgrade": {
+      "exitCodes": "0 on success; 1 on error.",
+      "example": "tabularius upgrade --help"
+    },
+    "verify-backup": {
+      "exitCodes": "0 on success; 1 on error.",
+      "example": "tabularius verify-backup --help"
+    },
+    "version": {
+      "exitCodes": "0 on success; 1 on error.",
+      "example": "tabularius version --help"
+    },
+    "write-back": {
+      "exitCodes": "0 on success; 1 on error.",
+      "example": "tabularius write-back --help"
+    }
+  }
+}

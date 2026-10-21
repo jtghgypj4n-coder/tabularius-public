@@ -71,8 +71,8 @@ const NOT_READ: Record<string, string> = {
 
 test('every TABULARIUS_* variable the code reads is documented, and every documented one is read', () => {
   const sources = [
-    ...files('packages', (p) => /[\\/]src[\\/].+\.(ts|js|mjs)$/.test(p)),
-    ...files('scripts', (p) => /\.(ts|js|mjs)$/.test(p)),
+    ...files('packages', (p) => /[\\/]src[\\/].+\.(ts|js|cjs|mjs)$/.test(p)),
+    ...files('scripts', (p) => /\.(ts|js|cjs|mjs)$/.test(p)),
   ];
   // A name ending in _ is a family written TABULARIUS_AI_EMBED_* in prose, not a variable.
   const names = (text: string) => new Set([...text.matchAll(/\bTABULARIUS_[A-Z0-9_]*[A-Z0-9]\b/g)].map((m) => m[0]));
@@ -83,7 +83,7 @@ test('every TABULARIUS_* variable the code reads is documented, and every docume
 
   // A page may name a variable only a test, an end-to-end run or a deployment file reads (compose, Dockerfile, workflows).
   const deployment = [
-    ...files('packages', (p) => /\.(ts|js|mjs)$/.test(p)),
+    ...files('packages', (p) => /\.(ts|js|cjs|mjs)$/.test(p)),
     ...readdirSync(root).filter((n) => /^(?:compose.*\.ya?ml|Dockerfile.*)$/.test(n)),
     ...(existsSync(join(root, '.github')) ? files('.github', () => true) : []),
   ];
