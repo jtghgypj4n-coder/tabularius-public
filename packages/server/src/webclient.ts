@@ -372,6 +372,12 @@ export class WebClient {
           return true;
         }
         if (m[3] === 'export') {
+          // Text exports can be much larger than the server's heap. Send them a page at a
+          // time and respect socket backpressure; the other formats need their own encoders.
+          if (!['xlsx', 'xml', 'html'].includes(String(body.format))) {
+            await this.exportText(store, layout, body, privileges, res);
+            return true;
+          }
           const file = this.exportRecords(store, layout, body, privileges);
           res.writeHead(200, {
             'content-type': file.type, 'content-length': file.data.length, 'cache-control': 'no-store',
@@ -1198,6 +1204,90 @@ export class WebClient {
     }
     if (!readAudit) audit.log(privileges);
     return { records };
+  }
+
+  /** Writes a CSV, tab or merge export in bounded record batches. */
+  private async exportText(store: Store, layout: string, body: Record<string, unknown>, privileges: Privileges, res: ServerResponse): Promise<void> {
+    if (!privileges.canExport) throw new ApiError(9, 'Insufficient privileges: this account may not export records', 403);
+    const format = body.format === 'tab' || body.format === 'mer' ? body.format : 'csv';
+    const info = store.layout(layout);
+    const fields = (Array.isArray(body.fields) ? body.fields : []).filter((f): f is string => typeof f === 'string' && !!f);
+    if (!fields.length) throw new ApiError(3, 'Choose the fields to export', 400);
+    const own = store.schema.tables.find((t) => t.name === info.table);
+    const def = (f: string) => {
+      const m = /^(.+?)::(.+)$/.exec(f);
+      if (!m) return own?.fields.find((x) => x.name === f);
+      const to = store.schema.tableOccurrences.find((t) => t.name === m[1]);
+      return store.schema.tables.find((t) => t.id === to?.baseTableId)?.fields.find((x) => x.name === m[2]);
+    };
+    const kinds = fields.map((f) => def(f)?.type);
+    const summaries = fields.filter((f) => def(f)?.kind === 'summary');
+    // The common "all records" export walks the primary key in bounded pages.
+    // A supplied found set, query or sort still uses its exact order.
+    const allInIdOrder = !('ids' in body) && !('query' in body) && !('sort' in body) && !summaries.length;
+    const ids = allInIdOrder ? undefined : foundIds(store, layout, body, privileges);
+    // A summary of a found set is calculated once, not for each 500-row batch.
+    const summary = summaries.length && ids?.length
+      ? store.getMany(layout, [ids[0]], ids, { privileges, fields: summaries })[0]?.fieldData ?? {}
+      : {};
+    const ordinary = fields.filter((f) => !summaries.includes(f));
+    const cell = (v: string | number, i: number) => {
+      const one = String(v).replace(/\r\n|[\r\n]/g, '\v');
+      return format === 'tab' ? formulaGuard(one.replace(/\t/g, ' '), kinds[i]) : csvField(one, { quoteAll: true, type: kinds[i] });
+    };
+    const sepr = format === 'tab' ? '\t' : ',';
+    const base = String(typeof body.name === 'string' && body.name.trim() ? body.name.trim() : layout).replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_');
+    let offset = 0;
+    let lastId = 0;
+    let sent = 0;
+    const audited: number[] = [];
+    const nextBatch = (): string | undefined => {
+      const chunk = ids
+        ? ids.slice(offset, offset + 500)
+        : store.selectIds(layout, { where: '_fm_record_id > ?', params: [lastId], limit: 500, privileges });
+      if (!chunk.length) return undefined;
+      offset += chunk.length;
+      lastId = chunk[chunk.length - 1];
+      const lines: string[] = [];
+      for (const r of store.getMany(layout, chunk, ids ?? chunk, { privileges, fields: ordinary })) {
+        lines.push(fields.map((f, k) => cell(privileges.fieldAccess(info.table, f) === 'masked' ? '' : r.fieldData[f] ?? summary[f] ?? '', k)).join(sepr) + '\r\n');
+        sent++;
+        if (audited.length < 100) audited.push(Number(r.recordId));
+      }
+      return lines.join('');
+    };
+    // The first batch is read before any header goes out, so a record or field the account may not read is an
+    // ordinary error response, as it is for the other formats; a later failure can only end the download early.
+    let batch = nextBatch();
+    res.writeHead(200, {
+      'content-type': `${format === 'tab' ? 'text/tab-separated-values' : 'text/csv'}; charset=utf-8`,
+      'cache-control': 'no-store',
+      'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent(`${base}.${format}`)}`,
+    });
+    const write = async (chunk: string): Promise<boolean> => {
+      if (res.destroyed) return false;
+      if (!res.write(chunk)) {
+        await new Promise<void>((resolve) => {
+          const done = () => { res.off('drain', done); res.off('close', done); resolve(); };
+          res.once('drain', done);
+          res.once('close', done);
+        });
+      }
+      return !res.destroyed;
+    };
+    try {
+      const header = body.fieldNames === true || format === 'mer' ? fields.map((name) => cell(name, -1)).join(sepr) + '\r\n' : '';
+      if (!(await write((body.bom === true ? '\ufeff' : '') + header))) return;
+      while (batch !== undefined) {
+        if (res.destroyed) return;
+        if (batch && !(await write(batch))) return;
+        batch = nextBatch();
+      }
+      store.logRead(info.table, audited, { privileges }, sent);
+      res.end();
+    } catch (e) {
+      res.destroy(e instanceof Error ? e : new Error(String(e)));
+    }
   }
 
   /**

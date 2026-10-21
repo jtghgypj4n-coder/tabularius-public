@@ -167,6 +167,34 @@ The benchmark above is run by hand. Two tests run on real files, the two Beezwax
 
 Both print their numbers. Set `TABULARIUS_PERF_OUT` to a file name and the server test writes them there as JSON (the web test writes `<name>-web.json` beside it), so a run's numbers can be kept and compared; without it the server test writes `tabularius-perf.json` in the temp folder.
 
+## Five-million-record scale probe
+
+Run `node --max-old-space-size=2048 scripts/scale-5m.ts` separately from the
+test suite. Its JSON output includes the machine, native file and CSV sizes,
+each operation's elapsed milliseconds, sampled `process.memoryUsage()` and
+peak resident memory. `--records 200000` runs the same path with fewer rows.
+The script requires 20 GiB free on the temporary volume and a one-minute load
+average below 20 before it makes anything; it removes its temporary folder
+afterward, including on failure. It binds HTTP and pgwire only to `127.0.0.1`.
+
+The input is generated in code and bulk-loaded into a native SQLite store.
+The import timing includes all 5,000,000 inserts, index creation and `ANALYZE`.
+There is no synthetic `.fmp12` converter in this probe, so it does **not**
+measure Claris file conversion; conversion performance and Claris behavior at
+this size are unknown. The other timings cover an indexed Id find, a verified
+unindexed Notes scan, sort and list first pages, a whole-file summary and
+sub-summary, Data API `_find` with offset, OData `$top`/`$skip`, pgwire
+`SELECT ... LIMIT`, HTTP CSV export and a verified backup. The index and scan
+labels describe the actual SQLite query plan; the unindexed scan uses SQL
+`LIKE` because a FileMaker text find may build its own word index.
+
+The 5M results are pending: on 2026-10-17 the available space was 24 GiB but
+the one-minute load average remained above 20 (32–40 during checks). The
+guard therefore prevented the measurement. The generated 200k regression
+test exported all rows in 3.7 s on Apple M5 Max (18 logical CPUs, 128 GiB
+memory), macOS 26.4, Node v22.22.2, but that is a test result, not a 5M
+estimate. Do not extrapolate a 5M result from it.
+
 ## Drawing big layouts in the web client
 
 `packages/web/e2e/render-budgets.e2e.ts` (browser tests, `npm run test:e2e`) builds one synthetic file (10,000 Items with 42 fields, an Owner with 500 related Lines) and times the web client drawing six layouts that stress it. Each is timed inside the page, from the layout menu changing to the content on screen and a frame drawn (**paint**) and the main thread free again (**free**), with how long the page was blocked in long tasks (over 50 ms) and how many elements the page holds afterwards.
