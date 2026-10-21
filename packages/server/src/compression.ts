@@ -37,6 +37,25 @@ export function compressResponse(req: IncomingMessage, res: ServerResponse, path
   const end = res.end.bind(res) as (...a: unknown[]) => ServerResponse;
   let stream: Transform | undefined;
   let decided = false;
+  let responseBackedUp = false;
+  let responseClosed = false;
+  let pendingOutput = 0;
+  type WriteCallback = { call: (error?: Error | null) => void };
+  const pendingCallbacks: WriteCallback[] = [];
+  const inflightCallbacks = new Set<WriteCallback>();
+  const flushCallbacks = (error?: Error) => {
+    if (!error && pendingOutput) return;
+    const callbacks = error ? [...inflightCallbacks] : pendingCallbacks.splice(0);
+    if (error) pendingCallbacks.length = 0;
+    for (const cb of callbacks) {
+      inflightCallbacks.delete(cb);
+      cb.call(error);
+    }
+  };
+  const onDrain = () => {
+    responseBackedUp = false;
+    stream?.resume();
+  };
 
   const decide = (status: number, given: Record<string, unknown>): Record<string, unknown> => {
     decided = true;
@@ -60,8 +79,27 @@ export function compressResponse(req: IncomingMessage, res: ServerResponse, path
     stream = encoding === 'br'
       ? createBrotliCompress({ params: { [constants.BROTLI_PARAM_QUALITY]: 4 } })
       : createGzip();
-    stream.on('data', (chunk: Buffer) => { write(chunk); });
-    stream.on('end', () => { end(); });
+    res.on('drain', onDrain);
+    res.once('close', () => {
+      responseClosed = true;
+      res.off('drain', onDrain);
+      stream?.destroy();
+      flushCallbacks(new Error('response closed'));
+    });
+    stream.on('data', (chunk: Buffer) => {
+      pendingOutput++;
+      const ready = write(chunk, (error?: Error) => {
+        pendingOutput--;
+        flushCallbacks(error);
+      });
+      if (!ready) {
+        responseBackedUp = true;
+        stream?.pause();
+      }
+    });
+    stream.on('drain', () => { if (!responseBackedUp) res.emit('drain'); });
+    stream.on('end', () => { res.off('drain', onDrain); end(); });
+    stream.on('error', (error) => { flushCallbacks(error); res.destroy(error); });
     return out;
   };
 
@@ -79,10 +117,16 @@ export function compressResponse(req: IncomingMessage, res: ServerResponse, path
   res.write = ((chunk: unknown, ...rest: unknown[]) => {
     begin();
     if (!stream) return write(chunk, ...rest);
-    if (chunk !== undefined && chunk !== null && chunk !== '') stream.write(chunk as Buffer | string, (typeof rest[0] === 'string' ? rest[0] : 'utf8') as BufferEncoding);
-    const cb = rest.find((r) => typeof r === 'function') as (() => void) | undefined;
-    cb?.();
-    return true;
+    const enc = (typeof rest[0] === 'string' ? rest[0] : 'utf8') as BufferEncoding;
+    const cb = rest.find((r) => typeof r === 'function') as ((error?: Error | null) => void) | undefined;
+    const callback = cb && { call: cb };
+    if (callback) inflightCallbacks.add(callback);
+    return stream.write(chunk as Buffer | string, enc, (error?: Error | null) => {
+      if (callback && inflightCallbacks.has(callback)) {
+        if (responseClosed) flushCallbacks(error ?? new Error('response closed'));
+        else { pendingCallbacks.push(callback); flushCallbacks(error ?? undefined); }
+      }
+    }) && !responseBackedUp;
   }) as typeof res.write;
   res.end = ((chunk?: unknown, ...rest: unknown[]) => {
     if (typeof chunk === 'function') { rest = [chunk]; chunk = undefined; }
