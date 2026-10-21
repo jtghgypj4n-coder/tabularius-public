@@ -7,7 +7,7 @@ import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { AiUsage } from '../src/ai-usage.ts';
+import { AiUsage, MemoryUsage } from '../src/ai-usage.ts';
 import { Assistant } from '../src/assistant.ts';
 import { serve } from '../src/index.ts';
 import type { Host } from '../src/host.ts';
@@ -72,6 +72,68 @@ test('one worker reaching the daily limit or the month\'s budget stops the other
     const d = new Assistant(host, undefined as never, { apiKey: 'x', monthlyBudgetUsd: 1 });
     assert.match(over(d, 'Charts/x')!, /this month's budget of \$1\.00/, 'spent across three workers: $1.05');
   } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('AR-server-mcp-ai-08', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'tabularius-usage-retry-'));
+  try {
+    const logged: string[] = [];
+    const assistant = new Assistant({ dir } as Host, undefined as never, {
+      apiKey: 'x', dailyTokens: 1000, accountDailyTokens: 1000, monthlyBudgetUsd: 0.5, log: (line) => logged.push(line),
+    });
+    const backing = new MemoryUsage();
+    let fail = true;
+    const injected = {
+      today: (who?: string) => backing.today(who), month: () => backing.month(), recent: () => backing.recent(),
+      question: (q: Parameters<MemoryUsage['question']>[0]) => backing.question(q),
+      add: (who: string, tokens: number, cost: number) => {
+        if (fail) { fail = false; throw new Error('temporary usage write failure'); }
+        backing.add(who, tokens, cost);
+      },
+    };
+    const internal = assistant as unknown as {
+      used: typeof injected; count(u: object, who: string): void; overLimit(who: string): string | undefined;
+    };
+    internal.used = injected;
+    const usage = { inputTokens: 100, cachedTokens: 0, cacheWriteTokens: 0, outputTokens: 10, costUsd: 0.6 };
+    internal.count(usage, 'Shop/Admin');
+    assert.equal(assistant.usageToday().tokens, 110);
+    assert.equal(assistant.usageMonth().tokens, 110);
+    assert.equal(assistant.usageMonth().costUsd, 0.6);
+    assert.match(internal.overLimit('Shop/Admin')!, /this month's budget of \$0\.50/);
+    internal.count(usage, 'Shop/Admin');
+    assert.equal(backing.today(), 110);
+    usage.inputTokens += 50;
+    usage.costUsd += 0.2;
+    internal.count(usage, 'Shop/Admin');
+    assert.equal(backing.today(), 160);
+    assert.equal(backing.today('Shop/Admin'), 160);
+    assert.equal(backing.month().tokens, 160);
+    assert.ok(Math.abs(backing.month().costUsd - 0.8) < 1e-9);
+    assert.ok(logged.length > 0);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('AR-server-mcp-ai-08 retains the original UTC day when replaying usage', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'tabularius-usage-day-'));
+  const previousDay = new Date(Date.now() - 86_400_000);
+  const currentMonth = new Date().toISOString().slice(0, 7);
+  const expectedMonth = previousDay.toISOString().startsWith(currentMonth) ? 7 : 0;
+  const memory = new MemoryUsage();
+  const disk = new AiUsage(dir);
+  try {
+    for (const usage of [memory, disk]) {
+      usage.add('Shop/Admin', 7, 0.1, previousDay);
+      assert.equal(usage.today(), 0);
+      assert.equal(usage.today('Shop/Admin'), 0);
+      assert.equal(usage.month().tokens, expectedMonth);
+    }
+  } finally {
+    disk.close();
     rmSync(dir, { recursive: true, force: true });
   }
 });
