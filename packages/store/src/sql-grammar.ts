@@ -281,8 +281,10 @@ function namesColumn(args: Words, ctx: Context): boolean {
     if (up === 'END' && cases > 0) { cases--; continue; }
     if (SYNTAX.has(up) || /^(?:\d|\$)/.test(t.text) || (up === 'X' && args[at + 1]?.kind === 'string') || isOperatorWord(args, at)) continue;
     if (args[at + 1]?.text === '(' || /^[:@]$/.test(args[at - 1]?.text ?? '')) continue;
-    // TRUE and FALSE are constants, and USER, USERNAME and CURRENT_USER are filled in after this rewrite, unless a table of the select has, or might have, a column of that name.
-    if ((up === 'TRUE' || up === 'FALSE' || ACCOUNT.has(up.toLowerCase())) && !ctx.outer.sources.some((s) => !s.columns || s.columns.has(t.text.toLowerCase()))) continue;
+    // TRUE and FALSE are constants, unless a table of the select has, or might have, a column of that name.
+    if ((up === 'TRUE' || up === 'FALSE') && !ctx.outer.sources.some((s) => !s.columns || s.columns.has(t.text.toLowerCase()))) continue;
+    // USER, USERNAME and CURRENT_USER are filled in after this rewrite, unless a table of the select is known to have a column of that name (a source with no known columns is not taken to have one).
+    if (ACCOUNT.has(up.toLowerCase()) && !ctx.outer.sources.some((s) => s.columns?.has(t.text.toLowerCase()))) continue;
     // The account's name is filled in after this rewrite.
     return true;
   }

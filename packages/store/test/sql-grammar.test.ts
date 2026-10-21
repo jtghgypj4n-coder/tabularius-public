@@ -197,6 +197,15 @@ test('TRUE and FALSE are columns only in the select that holds the aggregate, an
   // A table the rewrite cannot read may have the column.
   const unknown = 'SELECT a FROM nosuch GROUP BY a HAVING COUNT(TRUE) > ALL (SELECT 2)';
   assert.notEqual(rewrite(unknown), unknown);
+  // The account names are not taken to be columns of a source with no known columns: the query is left alone and SQLite reports it.
+  for (const name of ['USER', 'USERNAME', 'CURRENT_USER']) {
+    for (const from of ['nosuch', '(SELECT Grp AS x FROM K) d', '(SELECT x FROM nosuch) d']) {
+      const query = `SELECT x FROM ${from} GROUP BY x HAVING COUNT(${name}) > ALL (SELECT 2)`;
+      assert.equal(rewrite(query), query, query);
+    }
+    const cte = `WITH d AS (SELECT Grp AS x FROM K) SELECT x FROM d GROUP BY x HAVING COUNT(${name}) > ALL (SELECT 2)`;
+    assert.equal(rewrite(cte), cte, cte);
+  }
   for (const constant of ['TRUE', 'FALSE']) {
     const query = havingW(`COUNT((SELECT 1 FROM T2 WHERE ${constant}))`);
     assert.equal(rewrite(query), query, constant);
