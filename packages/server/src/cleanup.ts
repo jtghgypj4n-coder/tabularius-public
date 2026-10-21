@@ -514,11 +514,13 @@ function findDuplicates(owner: Store, table: string, rows: Map<number, Record<st
   const shownFields = [...new Set([...compared, ...[...rows.values()][0] ? Object.keys([...rows.values()][0]) : []])];
   const pv = privileges?.in(owner);
   const keys = mergeKeys(owner, table).filter((k) => !pv || pv.full ||
-    (pv.table(k.child).view !== false && pv.field(table, k.parentField) !== 'none' && pv.field(k.child, k.childField) !== 'none' && pv.layout(k.child).layout !== 'none'));
+    (pv.table(k.child).view !== false && pv.field(table, k.parentField) !== 'none' && pv.field(k.child, k.childField) !== 'none'));
   const visibleChildren = new Map<string, Set<number>>();
   if (pv && !pv.full) for (const k of keys) if (!visibleChildren.has(k.child)) {
-    const info = owner.layout(k.child);
-    visibleChildren.set(k.child, new Set(owner.findIds(info, { privileges })));
+    // The child is a table, reached through the occurrence the key carries: it need not have a layout of its own name.
+    const occ = occurrenceNamed(owner, k.occurrence);
+    if (!occ) { visibleChildren.set(k.child, new Set()); continue; }
+    visibleChildren.set(k.child, new Set(owner.findIds(owner.occurrenceInfo(occ), { privileges })));
   }
   const out = [...groups.values()].filter((g) => g.ids.size <= 20).sort((a, b) => b.score - a.score).slice(0, MAX_GROUPS).map((g) => {
     const recs = [...g.ids].sort((a, b) => a - b).map((id) => ({ recordId: id, values: rows.get(id)! }));
