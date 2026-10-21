@@ -40,6 +40,8 @@
     "release:verify-repro": "node --no-warnings scripts/verify-repro.ts",
     "release:sbom": "node --no-warnings scripts/sbom.ts",
     "docs:reference": "node --no-warnings scripts/docs-reference.ts",
+    "docs:settings-cli": "node --no-warnings scripts/docs-settings-cli.ts",
+    "docs:check": "node --no-warnings scripts/docs-settings-cli.ts --check",
     "docs:build": "node --no-warnings scripts/docs-site.ts",
     "docs:known-differences": "node --no-warnings scripts/known-differences.ts",
     "release-notes": "node --no-warnings scripts/release-notes.ts",
