@@ -65,14 +65,14 @@ test('the admin list shows what runs and waits, and a canceled waiting script ne
   assert.ok(queue.version > v0, 'a change is reported to the other workers');
   assert.deepEqual(listed.running.map((j) => [j.script, j.kind, j.account, j.state]), [['Long', 'schedule', 'Ann', 'running']]);
   assert.deepEqual(listed.queued.map((j) => [j.script, j.kind, j.state]), [['Next', 'automation', 'queued']]);
-  assert.equal(queue.cancel(listed.queued[0].id, 'Jordan'), true);
+  assert.equal(queue.cancel(listed.queued[0].id, 'Casey'), true);
   await assert.rejects(second, (e: Error & { code?: number }) => e instanceof CanceledError && e.code === 1);
   assert.equal(queue.queued, 0);
   release();
   assert.equal(await first, 'first');
   assert.equal(ran, false, 'it never started');
   assert.equal(queue.running, 0, 'the canceled one took no slot');
-  assert.deepEqual(queue.list().recent.map((x) => [x.script, x.outcome, x.canceledBy ?? '']), [['Long', 'ok', ''], ['Next', 'canceled', 'Jordan']]);
+  assert.deepEqual(queue.list().recent.map((x) => [x.script, x.outcome, x.canceledBy ?? '']), [['Long', 'ok', ''], ['Next', 'canceled', 'Casey']]);
   assert.equal(queue.cancel(listed.queued[0].id), false, 'already ended');
 });
 
