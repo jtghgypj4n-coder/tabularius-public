@@ -12,6 +12,13 @@ interface FindsPref { saved?: SavedFind[]; recent?: SavedFind[] }
 export const RECENT_FINDS = 10;
 export const RECENT_RECORDS = 15;
 
+/** Record text is not retained in navigation preferences, including entries from older clients. */
+export function recentRecords(value: unknown): { layout: string; recordId: string; title: string }[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((r) => r && typeof r.layout === 'string' && typeof r.recordId === 'string' && /^\d+$/.test(r.recordId))
+    .slice(0, RECENT_RECORDS).map(({ layout, recordId }) => ({ layout, recordId, title: `Record ${recordId}` }));
+}
+
 /**
  * This window's list, plus whatever another window added since the base (items the server has that neither the
  * base nor this list has). An item this window removed is in the base but not in mine, so it stays removed.
@@ -40,5 +47,5 @@ export function mergePrefs(name: PrefName, server: unknown, base: unknown, mine:
     };
   }
   if (name === 'sorts') return mergeList(list<{ layout: string; name: string }>(server), list<{ layout: string; name: string }>(base), list<{ layout: string; name: string }>(mine) ?? [], sortKey);
-  return mergeList(list<{ layout: string; recordId: string }>(server), list<{ layout: string; recordId: string }>(base), list<{ layout: string; recordId: string }>(mine) ?? [], recentKey).slice(0, RECENT_RECORDS);
+  return recentRecords(mergeList(recentRecords(server), recentRecords(base), recentRecords(mine), recentKey));
 }

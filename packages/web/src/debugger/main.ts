@@ -8,6 +8,7 @@
 // where it stood before each step; then the debugger steps backwards and forwards through it, and jumps to the step
 // where a chosen field changed.
 
+import { discardLegacyWatches, openWatches, watchAccessDenied } from '../watch-storage.ts';
 import { h, button, toast } from '../design/dom.ts';
 import { AssistantPanel, assistantInfo, type AssistantContext } from '../assistant.ts';
 import { describeChange, fieldChanges, variablesAt, type Recording } from './replay.ts';
@@ -45,9 +46,11 @@ const ms = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(n >= 10_000 ? 0 : 1
 
 class DebugError extends Error {
   readonly code: number;
-  constructor(code: number, message: string) {
+  readonly status?: number;
+  constructor(code: number, message: string, status?: number) {
     super(message);
     this.code = code;
+    this.status = status;
   }
 }
 
@@ -89,22 +92,42 @@ async function start(): Promise<void> {
     app.replaceChildren(h('p', { class: 'empty' }, 'Log in to a file first, then open the Script Debugger. ', h('a', { href: './' }, 'Log in')));
     return;
   }
+  discardLegacyWatches(s.db);
+  let watches: string[] = [];
+  let stopped = false;
+  let shared: Awaited<ReturnType<typeof openWatches>> | undefined;
+  const deny = (message: string) => {
+    stopped = true;
+    watches = [];
+    for (const input of app.querySelectorAll('input, textarea')) (input as HTMLInputElement).value = '';
+    app.replaceChildren(h('p', { class: 'empty', role: 'alert' }, message));
+  };
   const base = `/tabularius/debug/v1/databases/${encodeURIComponent(s.db)}`;
   const call = async <T>(method: string, path: string, body?: unknown): Promise<T> => {
+    if (stopped || (shared && !shared.active())) throw new DebugError(952, 'Your session ended.');
     const r = await fetch(base + path, {
       method,
       headers: { authorization: `Bearer ${s.token}`, ...(body ? { 'content-type': 'application/json' } : {}) },
       ...(body ? { body: JSON.stringify(body) } : {}),
     });
     const json = await r.json().catch(() => ({}));
-    if (!r.ok) throw new DebugError(json.error?.code ?? r.status, json.error?.message ?? httpProblem(r.status));
+    if (shared && !shared.active()) throw new DebugError(952, 'Your session ended.');
+    if (!r.ok) {
+      const error = new DebugError(json.error?.code ?? r.status, json.error?.message ?? httpProblem(r.status), r.status);
+      if (watchAccessDenied(error)) {
+        if (shared) shared.deny(error.message); else deny(error.message);
+      }
+      throw error;
+    }
     return json as T;
   };
 
-  let scripts: ScriptInfo[];
+  let scripts: ScriptInfo[] = [];
   let order: OrderItem[] | undefined;
   try {
-    ({ scripts, order } = await call<{ scripts: ScriptInfo[]; order?: OrderItem[] }>('GET', '/scripts'));
+    shared = await openWatches(s, deny, async () => {
+      ({ scripts, order } = await call<{ scripts: ScriptInfo[]; order?: OrderItem[] }>('GET', '/scripts'));
+    });
   } catch (e) {
     const msg = e instanceof DebugError && e.code === 952 ? 'Your session ended. Log in again, then open the Script Debugger.' : (e as Error).message;
     app.replaceChildren(h('p', { class: 'empty' }, msg, ' ', h('a', { href: './' }, 'Back to the file')));
@@ -114,26 +137,9 @@ async function start(): Promise<void> {
   const params = new URLSearchParams(location.search);
   const bpKey = `tabularius.debug.breakpoints.${s.db}`;
   // One watch list with the Data Viewer window, as in FileMaker.
-  const watchKey = `tabularius.dataviewer.watch.${s.db}`;
-  const shared = {
-    get: (): string[] => {
-      try {
-        const v = localStorage.getItem(watchKey);
-        return v ? (JSON.parse(v) as string[]) : stored(`tabularius.debug.watch.${s.db}`, []);
-      } catch {
-        return [];
-      }
-    },
-    set: (v: string[]) => {
-      try {
-        localStorage.setItem(watchKey, JSON.stringify(v));
-      } catch {
-        // private windows: watches last only this page
-      }
-    },
-  };
+  const watchKey = shared.key;
   let breakpoints: Breakpoint[] = stored(bpKey, []);
-  let watches: string[] = shared.get();
+  watches = shared.get();
   let pauseOnError: boolean = stored(`tabularius.debug.pauseOnError.${s.db}`, false);
   /** The step chosen for Set Next Step (click a step's text). */
   let chosen: number | undefined;
@@ -145,7 +151,8 @@ async function start(): Promise<void> {
   };
   window.addEventListener('storage', (e) => {
     if (e.key !== watchKey) return;
-    watches = shared.get();
+    if (e.newValue === null) { shared!.deny('Your session ended. Open this tool again from the file.'); return; }
+    watches = shared!.get();
     render();
   });
   let shown = scripts.find((x) => x.name === params.get('script'))?.name ?? scripts[0]?.name ?? '';
@@ -468,7 +475,7 @@ async function start(): Promise<void> {
       }
       const remove = button('×', () => {
         watches = watches.filter((_, j) => j !== i);
-        shared.set(watches);
+        shared!.set(watches);
         render();
       }, { class: 'g-x', title: 'Stop watching' });
       rows.push([formula, h('span', {}, value, ' ', remove)]);
@@ -480,7 +487,7 @@ async function start(): Promise<void> {
       e.preventDefault();
       if (!input.value.trim()) return;
       watches = [...watches, input.value.trim()];
-      shared.set(watches);
+      shared!.set(watches);
       render();
     });
     box.append(form);
@@ -568,6 +575,7 @@ async function start(): Promise<void> {
   }
 
   function render(): void {
+    if (stopped || !shared!.active()) return;
     const n = ++rendering;
     if (replay) shown = replay.rec.steps[replay.at].script;
     controls();
@@ -647,10 +655,15 @@ async function start(): Promise<void> {
     const prof = run?.profile;
     if (prof && prof.steps && (run?.done || run?.paused)) parts.push(timeSection(prof, !!run?.paused));
     void watchSection().then((w) => {
-      if (n === rendering) side.replaceChildren(...parts, w);
+      if (!stopped && shared!.active() && n === rendering) side.replaceChildren(...parts, w);
     });
   }
 
+  window.addEventListener('focus', () => {
+    if (!stopped) void call('GET', '/scripts').catch((e) => {
+      if (!stopped && shared!.active()) toast(plainMessage(e));
+    });
+  });
   render();
 }
 

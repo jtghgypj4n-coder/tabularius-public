@@ -8,6 +8,7 @@ import { classifyWrite, type Write } from './change-relay.ts';
 import type { ImportAction, ImportChoice, ImportFound, ImportPlan, ImportResult } from './import-dialog.ts';
 import type { RefreshData, ChartData, CustomMenu, DataRecord, FindRequest, GroupRun, LayoutMeta, MenuItem, PortalRow, ScriptRun, ScriptsMenuEntry, SortSpec, Value, ViewState } from './types.ts';
 import { BROWSER_NETWORK_WORDS, httpProblem } from './http-problem.ts';
+import { basicAuthorization } from './basic-auth.ts';
 
 /** A calendar feed as the list shows it (never its address). */
 export interface CalendarFeed { id: string; label: string; account: string; layout: string; created: string; expires?: string; lastUsed?: string }
@@ -160,7 +161,7 @@ export class Api {
       method: 'POST',
       // The web client logs in as a FileMaker client (fmapp / fmwebdirect), not a Data API integration.
       headers: {
-        authorization: 'Basic ' + btoa(unescape(encodeURIComponent(`${account}:${password}`))),
+        authorization: basicAuthorization(account, password),
         'content-type': 'application/json', 'x-tabularius-client': 'web',
         ...(otp ? { 'x-tabularius-otp': otp } : {}),
       },

@@ -7,6 +7,7 @@
 // the Current tab shows its record, local and global variables. The watch list
 // is the same one the Script Debugger shows.
 
+import { discardLegacyWatches, openWatches, watchAccessDenied } from '../watch-storage.ts';
 import { h, button } from '../design/dom.ts';
 import { AssistantPanel, assistantInfo } from '../assistant.ts';
 import { httpProblem } from '../http-problem.ts';
@@ -21,9 +22,11 @@ interface Current { layout: string; occurrence: string; table: string; recordId?
 
 class ViewerError extends Error {
   readonly code: number;
-  constructor(code: number, message: string) {
+  readonly status?: number;
+  constructor(code: number, message: string, status?: number) {
     super(message);
     this.code = code;
+    this.status = status;
   }
 }
 
@@ -61,21 +64,36 @@ async function start(): Promise<void> {
     app.replaceChildren(h('p', { class: 'empty' }, 'Log in to a file first, then open the Data Viewer from its toolbar. ', h('a', { href: './' }, 'Log in')));
     return;
   }
+  discardLegacyWatches(s.db);
+  let watches: string[] = [];
+  let stopped = false;
+  let shared: Awaited<ReturnType<typeof openWatches>> | undefined;
+  const deny = (message: string) => {
+    stopped = true;
+    watches = [];
+    for (const input of app.querySelectorAll('input, textarea')) (input as HTMLInputElement).value = '';
+    app.replaceChildren(h('p', { class: 'empty', role: 'alert' }, message));
+  };
   const base = `/tabularius/debug/v1/databases/${encodeURIComponent(s.db)}`;
   const call = async <T>(method: string, path: string, body?: unknown): Promise<T> => {
+    if (stopped || (shared && !shared.active())) throw new ViewerError(952, 'Your session ended.');
     const r = await fetch(base + path, {
       method,
       headers: { authorization: `Bearer ${s.token}`, ...(body ? { 'content-type': 'application/json' } : {}) },
       ...(body ? { body: JSON.stringify(body) } : {}),
     });
     const json = await r.json().catch(() => ({}));
-    if (!r.ok) throw new ViewerError(json.error?.code ?? r.status, json.error?.message ?? httpProblem(r.status));
+    if (shared && !shared.active()) throw new ViewerError(952, 'Your session ended.');
+    if (!r.ok) {
+      const error = new ViewerError(json.error?.code ?? r.status, json.error?.message ?? httpProblem(r.status), r.status);
+      if (watchAccessDenied(error)) {
+        if (shared) shared.deny(error.message); else deny(error.message);
+      }
+      throw error;
+    }
     return json as T;
   };
 
-  const watchKey = `tabularius.dataviewer.watch.${s.db}`;
-  let watches: string[] = load(watchKey, []);
-  let tab: 'watch' | 'current' = load(`${watchKey}.tab`, 'watch');
   // Until the window answers: the layout it last showed, on no record.
   let win: WindowInfo = (() => {
     try {
@@ -85,6 +103,21 @@ async function start(): Promise<void> {
       return {};
     }
   })();
+  // Older servers may offer the Data Viewer without run discovery. Still require
+  // a successful protected request before loading any saved expressions.
+  const authorizeWindow = () => win.layout
+    ? call('POST', '/evaluate', { formulas: [], layout: win.layout })
+    : call('GET', '/scripts');
+  let initial: { runs: RunView[] } = { runs: [] };
+  shared = await openWatches(s, deny, async () => {
+    try { initial = await call('GET', '/runs'); } catch (e) {
+      if (watchAccessDenied(e) || !(e instanceof ViewerError) || e.status !== 404) throw e;
+      await authorizeWindow();
+    }
+  });
+  const watchKey = shared.key;
+  watches = shared.get();
+  let tab: 'watch' | 'current' = load(`${watchKey}.tab`, 'watch');
   let editing: number | undefined;
   /** The Script Debugger's paused run, which the viewer follows while it waits. */
   let paused: Paused | undefined;
@@ -121,7 +154,7 @@ async function start(): Promise<void> {
   const aiRow = h('div', { class: 'g-row g-ai-row', hidden: '' });
   const editorBox = h('section', { class: 'g-watch g-editor' }, h('h3', {}, 'Expression'), editor, h('div', { class: 'g-row' }, evaluateBtn, addBtn, cancelBtn), result, aiRow);
   void assistantInfo(s.db, s.token).then((info) => {
-    if (!info.available) return;
+    if (stopped || !shared!.active() || !info.available) return;
     const panel = new AssistantPanel(s.db, s.token, () => ({ mode: 'viewer', layout: win.layout, recordId: win.recordId }));
     header.insertBefore(button('Ask AI', () => panel.toggle(), { class: 'g-ai' }), refresh);
     shell.classList.add('with-ai');
@@ -159,10 +192,11 @@ async function start(): Promise<void> {
   }
 
   function addWatch(): void {
+    if (stopped || !shared!.active()) return;
     const formula = editor.value.trim();
     if (!formula) return;
     watches = editing === undefined ? [...watches, formula] : watches.map((w, i) => (i === editing ? formula : w));
-    save(watchKey, watches);
+    shared!.set(watches);
     stopEditing();
     void render();
   }
@@ -197,6 +231,7 @@ async function start(): Promise<void> {
     const formula = editor.value.trim();
     if (!formula) return;
     const [r] = await evaluate([formula]);
+    if (stopped || !shared!.active()) return;
     result.replaceChildren(h('span', { class: 'g-label' }, 'Result: '), shown(r));
   }
 
@@ -218,7 +253,19 @@ async function start(): Promise<void> {
 
   let rendering = 0;
   async function render(): Promise<void> {
+    if (stopped || !shared!.active()) return;
     const n = ++rendering;
+    // Evaluation/current requests recheck access themselves. Without a layout,
+    // check explicitly before displaying saved expressions.
+    if (!win.layout && !paused) {
+      try { await authorizeWindow(); } catch (e) {
+        if (!stopped && n === rendering && shared!.active()) {
+          body.replaceChildren(h('p', { class: 'g-err', role: 'alert' }, (e as Error).message));
+        }
+        return;
+      }
+    }
+    if (stopped || n !== rendering || !shared!.active()) return;
     drawTabs();
     where.textContent = paused ? `Script “${paused.script}” paused at step ${paused.index + 1}${paused.layout ? ` · ${paused.layout}` : ''}${paused.recordId !== undefined ? ` · record ID ${paused.recordId} of ${paused.foundCount} found` : ' · no record'}`
       : !win.layout ? 'Not following a window'
@@ -226,6 +273,7 @@ async function start(): Promise<void> {
     let parts: HTMLElement[];
     if (tab === 'watch') {
       const results = await evaluate(watches);
+      if (stopped || n !== rendering || !shared!.active()) return;
       parts = [h('section', { class: 'g-watch' }, h('h3', {}, 'Watch'), watches.length
         ? table(watches.map((formula, i) => {
           const edit = button('Edit', () => {
@@ -238,7 +286,7 @@ async function start(): Promise<void> {
           }, { class: 'g-x', title: 'Edit this expression' });
           const remove = button('×', () => {
             watches = watches.filter((_, j) => j !== i);
-            save(watchKey, watches);
+            shared!.set(watches);
             if (editing === i) stopEditing();
             void render();
           }, { class: 'g-x', title: 'Stop watching', 'aria-label': `Stop watching ${formula}` });
@@ -270,13 +318,14 @@ async function start(): Promise<void> {
         h('section', {}, h('h3', {}, 'Global variables'), varRows.length ? table(varRows) : h('p', { class: 'g-none' }, paused ? 'None set.' : 'None set in this session.')),
       ];
     }
-    if (n === rendering) body.replaceChildren(...parts);
+    if (!stopped && shared!.active() && n === rendering) body.replaceChildren(...parts);
   }
 
   // --- follow the web client window ---------------------------------------------
   let pending: ReturnType<typeof setTimeout> | undefined;
   const soon = () => {
     clearTimeout(pending);
+    if (stopped || !shared!.active()) return;
     pending = setTimeout(() => void render(), 150);
   };
   if (typeof BroadcastChannel !== 'undefined') {
@@ -305,14 +354,11 @@ async function start(): Promise<void> {
   // The watch list is shared with the Script Debugger.
   window.addEventListener('storage', (e) => {
     if (e.key !== watchKey) return;
-    watches = load(watchKey, []);
+    if (e.newValue === null) { shared!.deny('Your session ended. Open this tool again from the file.'); return; }
+    watches = shared!.get();
     soon();
   });
-  try {
-    follow((await call<{ runs: RunView[] }>('GET', '/runs')).runs.find((r) => r.paused));
-  } catch {
-    // an older server, or no debugger access: follow the window only
-  }
+  follow(initial.runs.find((r) => r.paused));
   window.addEventListener('focus', soon);
   await render();
 }

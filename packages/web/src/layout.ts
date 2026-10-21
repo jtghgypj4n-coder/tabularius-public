@@ -527,6 +527,12 @@ export class LayoutRenderer {
       }
       const placeholder = rep === 1 ? host.state?.placeholders[o.id] : undefined;
       const box = input.matches('input, textarea') ? input : input.querySelector('input');
+      if (box && f.behavior?.concealed) {
+        // Dots instead of the data, as FileMaker's concealed edit box (it isn't encrypted).
+        if (box instanceof HTMLInputElement) box.type = 'password';
+        else box.style.setProperty('-webkit-text-security', 'disc');
+        box.setAttribute('autocomplete', 'off');
+      }
       // Formatting kept with the data shows wherever the field does: on the record, in related fields and in portal rows.
       const runs = host.mode !== 'browse' ? undefined : row ? (row.row.recordId ? host.record?.portalStyles?.[row.portal]?.[row.row.recordId]?.[key] : undefined) : host.record?.styles?.[key];
       const styled = runs?.length && box === input && box.matches('input.fm-input, textarea.fm-input') ? this.showStyled(box as HTMLInputElement, runs) : undefined;
@@ -550,12 +556,6 @@ export class LayoutRenderer {
       }
       if (entry === 'view') {
         input.inert = true;
-      }
-      if (box && f.behavior?.concealed) {
-        // Dots instead of the data, as FileMaker's concealed edit box (it isn't encrypted).
-        if (box instanceof HTMLInputElement) box.type = 'password';
-        else box.style.setProperty('-webkit-text-security', 'disc');
-        box.setAttribute('autocomplete', 'off');
       }
       if (box instanceof HTMLTextAreaElement && f.behavior?.scrollBar) box.style.overflowY = 'scroll';
       if (box && f.behavior?.selectOnEntry && entry !== 'view') {
@@ -1240,10 +1240,18 @@ export function webViewer(url: string | undefined, bridge = false): HTMLElement 
     frame.dataset.viewerAddress = url;
     // "Allow JavaScript to perform FileMaker scripts": the page gets FileMaker.PerformScript and Tabularius's data calls,
     // each asked of the window by message and answered as the signed-in account.
-    if (bridge) frame.dataset.bridge = '1';
-    frame.srcdoc = pageCsp(bridge) + webViewerBridge(location.origin, frame.dataset.viewerDocument) + (bridge ? PAGE_API : '') + html;
+    if (bridge) {
+      frame.dataset.bridge = '1';
+      viewerSessions.set(frame, pageSession);
+    }
+    frame.srcdoc = pageCsp(bridge) + webViewerBridge(location.origin, frame.dataset.viewerDocument) + (bridge ? pageApi(location.origin, frame.dataset.viewerDocument) : '') + html;
     frame.addEventListener('load', () => {
-      if (frame.dataset.loaded === '1') frame.dataset.viewerDocument = crypto.randomUUID();
+      if (frame.dataset.loaded === '1') {
+        frame.dataset.viewerDocument = crypto.randomUUID();
+        pageChannels.get(frame)?.port.close();
+        pageChannels.delete(frame);
+        delete frame.dataset.bridge;
+      }
       frame.dataset.loaded = '1';
     });
     return frame;
@@ -1262,46 +1270,88 @@ export function webViewer(url: string | undefined, bridge = false): HTMLElement 
  * PerformScriptWithOption are FileMaker Pro's own; window.tabularius reads and changes records, as the signed-in account,
  * so a page (a modern layout) needs no HTML built in calculations. Each call returns a promise.
  */
-const PAGE_API = `<script>(function(){var n=0,w={},ls={},tag=Math.random().toString(36).slice(2)+'.';function ask(m,a){return new Promise(function(ok,no){var id=tag+(++n);w[id]={ok:ok,no:no};parent.postMessage({tabularius:'ask',id:id,method:m,args:a},'*')})}` +
-  `addEventListener('message',function(e){var d=e.data;if(e.source!==parent||!d)return;if(d.tabularius==='answer'&&w[d.id]){var p=w[d.id];delete w[d.id];d.error!==undefined?p.no(new Error(d.error)):p.ok(d.value)}` +
-  `else if(d.tabularius==='event'){(ls[d.name]||[]).forEach(function(f){try{f(d.value)}catch(x){console.error(x)}})}});` +
+function pageApi(origin: string, documentId: string): string {
+  const literal = (s: string) => JSON.stringify(s).replace(/</g, '\\u003c');
+  return `<script>(function(){var channel=new MessageChannel(),port=channel.port1,n=0,w={},ls={},tag=Math.random().toString(36).slice(2)+'.';parent.postMessage({tabularius:'connect',documentId:${literal(documentId)}},${literal(origin)},[channel.port2]);function ask(m,a){return new Promise(function(ok,no){var id=tag+(++n);w[id]={ok:ok,no:no};port.postMessage({tabularius:'ask',id:id,method:m,args:a})})}` +
+  `port.onmessage=function(e){var d=e.data;if(!d)return;if(d.tabularius==='answer'&&w[d.id]){var p=w[d.id];delete w[d.id];d.error!==undefined?p.no(new Error(d.error)):p.ok(d.value)}` +
+  `else if(d.tabularius==='event'){(ls[d.name]||[]).forEach(function(f){try{f(d.value)}catch(x){console.error(x)}})}};` +
   `window.FileMaker={PerformScript:function(s,p){ask('performScript',[String(s),p==null?'':String(p),0]);},PerformScriptWithOption:function(s,p,o){ask('performScript',[String(s),p==null?'':String(p),Number(o)||0]);}};` +
   `window.tabularius={context:function(){return ask('context',[])},records:function(l,o){return ask('records',[l,o||{}])},find:function(l,q,o){return ask('find',[l,q,o||{}])},` +
   `record:function(l,id){return ask('record',[l,String(id)])},create:function(l,f){return ask('create',[l,f||{}])},update:function(l,id,f){return ask('update',[l,String(id),f||{}])},` +
   `layouts:function(){return ask('layouts',[])},goToLayout:function(n){return ask('goToLayout',[String(n)])},remove:function(l,id){return ask('remove',[l,String(id)])},summarize:function(w){return ask('summarize',[w])},valueList:function(n){return ask('valueList',[String(n)])},performScript:function(s,p){return ask('performScript',[String(s),p==null?'':String(p),0])},print:function(){return ask('print',[])},` +
   `image:function(u,n){u=String(u||'');if(u.indexOf('/tabularius/containers/')<0)return '';if(n===undefined)return u;n=Math.min(1024,Math.max(16,Math.round(Number(n))||16));var q=u.indexOf('?')<0?'?':'&';return u.split('&thumb=')[0].split('?thumb=')[0]+q+'thumb='+n},` +
   `on:function(name,f){(ls[name]=ls[name]||[]).push(f)}};window.openhbam=window.tabularius;})();</script>`;
+}
 
 /** A page's call to the window: which web viewer (its object id) asked, the method and its arguments. */
 export type PageCall = (objectId: number, method: string, args: unknown[]) => Promise<unknown>;
 
 let pageCall: PageCall | undefined;
+let pageListenerInstalled = false;
+let pageSession = 0;
+const viewerSessions = new WeakMap<HTMLIFrameElement, number>();
+const pageChannels = new Map<HTMLIFrameElement, { port: MessagePort; session: number; documentId: string }>();
 
-/**
- * Answers calls from web viewer pages that have the bridge (see PAGE_API). Only frames this client drew with the bridge
- * on are listened to; anything else posting to the window is ignored.
- */
-export function answerPageCalls(handler: PageCall): void {
-  const first = !pageCall;
+/** Bind a document-owned port once, while its capability and opaque origin match the frame we created. */
+export function answerPageCalls(handler: PageCall): () => void {
+  for (const channel of pageChannels.values()) channel.port.close();
+  pageChannels.clear();
   pageCall = handler;
-  if (!first) return;
-  addEventListener('message', (e: MessageEvent) => {
-    const d = e.data as Record<string, unknown> | null;
-    if (!d || d.tabularius !== 'ask' || typeof d.method !== 'string' || !Array.isArray(d.args)) return;
-    const frame = [...document.querySelectorAll<HTMLIFrameElement>('iframe.fm-webviewer[data-bridge="1"]')].find((f) => f.contentWindow === e.source);
-    const objectId = Number(frame?.closest<HTMLElement>('.fm[data-id]')?.dataset.id);
-    if (!frame || !Number.isFinite(objectId)) return;
-    const reply = (msg: { value?: unknown; error?: string }) => frame.contentWindow?.postMessage({ tabularius: 'answer', id: d.id, ...msg }, '*');
-    pageCall!(objectId, d.method, d.args).then(
-      (value) => reply({ value: sameOriginContainers(value) }),
-      (err: unknown) => reply({ error: err instanceof Error ? err.message : String(err) }),
-    );
-  });
+  const session = ++pageSession;
+  if (!pageListenerInstalled) {
+    pageListenerInstalled = true;
+    addEventListener('message', (e: MessageEvent) => {
+      if (e.data?.tabularius !== 'connect') return;
+      const reject = () => { for (const port of e.ports) port.close(); };
+      if (e.ports.length !== 1 || !pageCall) { reject(); return; }
+      const frame = [...document.querySelectorAll<HTMLIFrameElement>('iframe.fm-webviewer[data-bridge="1"]')].find((f) => viewerMessage(e, f));
+      if (!frame || viewerSessions.get(frame) !== pageSession || pageChannels.has(frame)) { reject(); return; }
+      for (const [old, channel] of pageChannels) {
+        if (!old.isConnected) { channel.port.close(); pageChannels.delete(old); }
+      }
+      const objectId = Number(frame.closest<HTMLElement>('.fm[data-id]')?.dataset.id);
+      if (!Number.isFinite(objectId)) { reject(); return; }
+      const binding = { port: e.ports[0], session: pageSession, documentId: frame.dataset.viewerDocument! };
+      const call = pageCall;
+      pageChannels.set(frame, binding);
+      const active = () => frame.isConnected && frame.dataset.bridge === '1'
+        && frame.dataset.viewerDocument === binding.documentId && pageChannels.get(frame) === binding
+        && pageSession === binding.session && pageCall === call;
+      binding.port.onmessage = (event) => {
+        if (!active()) {
+          binding.port.close();
+          if (pageChannels.get(frame) === binding) pageChannels.delete(frame);
+          return;
+        }
+        const d = event.data;
+        if (!d || d.tabularius !== 'ask' || typeof d.id !== 'string' || typeof d.method !== 'string' || !Array.isArray(d.args)) return;
+        const reply = (msg: { value?: unknown; error?: string }) => {
+          if (active()) binding.port.postMessage({ tabularius: 'answer', id: d.id, ...msg });
+        };
+        void Promise.resolve().then(() => active() ? call(objectId, d.method, d.args) : undefined).then(
+          (value) => reply({ value: sameOriginContainers(value) }),
+          (err: unknown) => reply({ error: err instanceof Error ? err.message : String(err) }),
+        );
+      };
+    });
+  }
+  return () => {
+    if (pageSession !== session) return;
+    pageCall = undefined;
+    pageSession++;
+    for (const channel of pageChannels.values()) channel.port.close();
+    pageChannels.clear();
+  };
 }
 
-/** Tells every bridged page in `scope` that something happened (tabularius.on(name, fn) in the page). */
+/** Events use the same document-owned channel as calls and never the reusable frame window. */
 export function tellPages(scope: ParentNode, name: string, value?: unknown): void {
-  for (const f of scope.querySelectorAll<HTMLIFrameElement>('iframe.fm-webviewer[data-bridge="1"]')) f.contentWindow?.postMessage({ tabularius: 'event', name, value }, '*');
+  for (const frame of scope.querySelectorAll<HTMLIFrameElement>('iframe.fm-webviewer[data-bridge="1"]')) {
+    const channel = pageChannels.get(frame);
+    if (frame.isConnected && channel?.session === pageSession && channel.documentId === frame.dataset.viewerDocument) {
+      channel.port.postMessage({ tabularius: 'event', name, value });
+    }
+  }
 }
 
 /** Calls a global function of a web viewer's page, once the page has loaded (Perform JavaScript in Web Viewer). */
@@ -1447,7 +1497,8 @@ const styledState = new WeakMap<HTMLElement, { text: string; runs: Runs; shown: 
 
 function overlayFor(input: HTMLInputElement | HTMLTextAreaElement, runs: Runs): HTMLElement {
   // The spans sit in one inline box: a flex container would drop text between them that is only spaces.
-  const line = h('span', { class: 'fm-styled-line' }, ...styledNodes(input.value, runs));
+  const concealed = input.type === 'password' || input.style.getPropertyValue('-webkit-text-security') === 'disc';
+  const line = h('span', { class: 'fm-styled-line' }, ...(concealed ? [input.value ? '••••••••' : ''] : styledNodes(input.value, runs)));
   return h('div', { class: `fm-styled${input instanceof HTMLTextAreaElement ? ' fm-styled-wrap' : ''}`, 'aria-hidden': 'true' }, line);
 }
 
