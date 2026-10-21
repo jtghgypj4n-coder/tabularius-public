@@ -40,7 +40,7 @@ test('each file listed as written from another project exists and says so', () =
 test('a source file that names another project\'s repository, says it was ported, or credits a Creative Commons licence is listed', () => {
   const listed = new Map(BUNDLED_SOURCES.flatMap((s) => s.files.map((f) => [f, s] as const)));
   const known = new Set(BUNDLED_SOURCES.map((s) => s.repo.toLowerCase()));
-  const own = /^jtghgypj4n-coder\//;
+  const own = /^(?:jtghgypj4n-coder|sitotisai)\//;
   const credits = /\b(?:ported|adapted) from\b|\bCC[- ]BY\b|Creative Commons|\bBSD licen[cs]e\b|\bApache[- ]2(?:\.0)?\b licen[cs]e|licen[cs]ed under/i;
   const problems: string[] = [];
   for (const file of programSources) {

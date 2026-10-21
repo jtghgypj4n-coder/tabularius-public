@@ -1,6 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { Api, ApiError, retryableRequest } from '../src/api.ts';
+import { Api, ApiError, listDatabases, retryableRequest } from '../src/api.ts';
+
+test('busy sign-in discovery preserves 503 so the app can show its retry screen', async (t) => {
+  t.mock.method(globalThis, 'fetch', async () => new Response(JSON.stringify({ messages: [{ code: '301', message: 'Busy' }] }), { status: 503 }));
+  await assert.rejects(listDatabases(), (e) => e instanceof ApiError && e.status === 503);
+  await assert.rejects(Api.login('Scratch', 'Admin', 'pw'), (e) => e instanceof ApiError && e.status === 503);
+});
 
 test('Data API writes queue per token, including uploads, while reads and other tokens proceed', async (t) => {
   const calls: { method: string; token: string; body: unknown }[] = [];

@@ -11,7 +11,7 @@ test('64 slow clients on worker zero do not consume a shared Unix-peer address a
   stubCommands(t);
   const dir = mkdtempSync(join(tmpdir(), 'edge-cluster-'));
   const app = await serveCluster({ dir, port: 0, hostname: '127.0.0.1', log: () => {},
-    proxyHeader: 'x-forwarded-for', trustedProxies: ['127.0.0.1'],
+    proxyHeader: 'x-forwarded-for', trustedProxies: ['127.0.0.1'], requestLimit: 256, requestQueue: 256,
   }, 2);
   const held: RawClient[] = [];
   t.after(async () => {

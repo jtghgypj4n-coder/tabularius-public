@@ -194,6 +194,14 @@ What the numbers show:
 
 Set `TABULARIUS_PERF_OUT` and it writes `<name>-render.json` beside the other web numbers.
 
+## Launch-day overload capacity
+
+On 2026-10-17, a three-second synthetic HTTP load test ran on macOS 25.4, Apple M5 Max (18 reported CPUs), 128 GiB RAM, Node 22.22.2. With one worker and 5,000 generated records, 64 concurrent mixed-workload sessions gave find p95 of 311 ms at 850 completed requests/s; 96 sessions gave find p95 of 805 ms at 629 completed requests/s and 20 HTTP 503s. Find p95 remained below one second through 96 tested sessions, including a 30,000-record file, because the gate shed work first. The lower completed rate at 96 sessions reflects closed-loop clients waiting and requests shed under overload.
+
+With 16 signed-in sessions and a fixed offered find rate, 800 finds/s had p95 of 28.6 ms and no refusals; 1,000 finds/s had p95 of 105 ms but 60 refusals; 1,200 finds/s crossed one second at p95 of 2,019 ms with 179 refusals. Server RSS rose from about 190 MiB before traffic to 365 MiB at 800 finds/s and 413 MiB at 1,200 finds/s. These short samples show transient growth, not a steady-state memory limit.
+
+The recommended starting point on that machine for this workload is `serve --workers 2` with the default per-worker gate: `TABULARIUS_REQUEST_LIMIT=32`, `TABULARIUS_REQUEST_QUEUE=64`, and a 750 ms queue wait. Two workers served 96 mixed-workload sessions at find p95 of 402 ms with no refusals. The gate reserves two slots for sign-in and assets, favors them over finds and exports, and sheds with HTTP 503 plus `Retry-After: 1`. Monitor `tabularius_request_gate_queue_depth` and `tabularius_request_gate_shed_total`. See [the full overload audit](audits/r20-11-overload-capacity.md) for methods and limits.
+
 ## Also see
 
 - `node scripts/loadtest.ts <file.fmp12> --users 50`: many people using one
