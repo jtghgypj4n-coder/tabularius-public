@@ -1,6 +1,6 @@
 // Running the server as a service, and upgrading it in place.
 //
-//   tabularius service install <folder> [--port 8080] [--host 0.0.0.0] [--system] [-- serve options]
+//   tabularius service install <folder> [--port 8080] [--host 127.0.0.1] [--system] [-- serve options]
 //   tabularius service print <folder> ...         the service file, without installing it
 //   tabularius service uninstall                  stop it and remove it (hosted files stay)
 //   tabularius upgrade [--no-backup]              new version, same data
@@ -32,6 +32,7 @@
 // to date by the new version when it opens it.
 
 import { validatePublicUrl, urlHostname } from '../../server/src/public-origin.ts';
+import { plainHttpRefusal } from './loopback.ts';
 import { crashPoint } from '../../store/src/crash-point.ts';
 import { spawnSync } from 'node:child_process';
 import { closeSync, cpSync, existsSync, fchmodSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -351,16 +352,26 @@ export function installService(o: ServiceOptions): void {
   for (const line of serviceSummary(o)) say(line);
 }
 
+/** The value of a serve option in `extra` (`--name value` or `--name=value`). */
+function serveOption(extra: string[], name: string): string | undefined {
+  const i = extra.indexOf(name);
+  return i >= 0 ? extra[i + 1] : extra.find((a) => a.startsWith(`${name}=`))?.slice(name.length + 1);
+}
+
+/** Why a service may not be installed on this address as given (plain HTTP beyond this computer), or undefined. */
+export function servicePlainRefusal(o: Pick<ServiceOptions, 'host' | 'extra'>): string | undefined {
+  const secure = !!serveOption(o.extra, '--https') || o.extra.includes('--tls-cert') || o.extra.some((a) => a.startsWith('--tls-cert='));
+  const why = plainHttpRefusal({ host: o.host, secure, allowed: o.extra.includes('--allow-plain-http') });
+  return why && `${why} Options for serve go after "--", for example: tabularius service install <folder> --host ${o.host} -- --https local`;
+}
+
 /**
  * Where the installed service can be reached: http or https as its serve
  * options say, on this machine and, when it listens on every address, on the
  * local network; with --https local, the page each device trusts it from.
  */
 export function serviceSummary(o: Pick<ServiceOptions, 'folder' | 'port' | 'host' | 'extra'>, lan: string[] = lanAddresses()): string[] {
-  const opt = (name: string) => {
-    const i = o.extra.indexOf(name);
-    return i >= 0 ? o.extra[i + 1] : o.extra.find((a) => a.startsWith(`${name}=`))?.slice(name.length + 1);
-  };
+  const opt = (name: string) => serveOption(o.extra, name);
   const https = opt('--https');
   const local = https === 'local' || https === 'lan';
   const secure = !!https || o.extra.includes('--tls-cert') || o.extra.some((a) => a.startsWith('--tls-cert='));

@@ -10,8 +10,8 @@
 # Run from outside a checkout, it clones the repository into
 # %USERPROFILE%\.openhbam\app (needs Git; set TABULARIUS_REPO for another URL).
 #
-# Service options: -Port 8080, -HostName 0.0.0.0 (default: reachable from the
-# network; 127.0.0.1 for this machine only), -ServeArgs for more
+# Service options: -Port 8080, -HostName 127.0.0.1 (default: this machine only;
+# 0.0.0.0 reaches the network and needs HTTPS: -ServeArgs '--https','local'), -ServeArgs for more
 # `tabularius serve` options, e.g. -ServeArgs '--sql-port','5432'.
 #
 #   -System      run at boot without anyone signed in, as the system account
@@ -26,7 +26,7 @@
 param(
   [string]$Service,
   [int]$Port = 8080,
-  [string]$HostName = '0.0.0.0',
+  [string]$HostName = '127.0.0.1',
   [switch]$System,
   [switch]$Print,
   [switch]$Uninstall,

@@ -16,8 +16,8 @@
 #                 a bundle where you can reach GitHub with
 #                 `git -C tabularius bundle create tabularius.bundle HEAD main`.
 #
-# Service options: --port 8080, --host 0.0.0.0 (default: reachable from the
-# network; use 127.0.0.1 for this machine only). Anything after `--` is passed
+# Service options: --port 8080, --host 127.0.0.1 (default: this machine only;
+# --host 0.0.0.0 reaches the network and needs HTTPS: -- --https local). Anything after `--` is passed
 # to `tabularius serve`, e.g. -- --https files.example.com --sql-port 5432.
 #
 #   --system      run at boot without anyone logged in, as you (asks for sudo):
@@ -40,7 +40,7 @@ BIN_DIR="${TABULARIUS_BIN:-${OPENHBAM_BIN:-$HOME/.local/bin}}"
 NODE_VERSION="22.22.0"
 SERVICE_DIR=""
 PORT=8080
-HOST=0.0.0.0
+HOST=127.0.0.1
 SYSTEM=""
 PRINT=""
 UNINSTALL=""
