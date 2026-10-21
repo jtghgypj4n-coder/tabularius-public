@@ -27,15 +27,28 @@ const textWidth = (s: string, size: number) => s.length * size * 0.56;
 
 /** Round tick values covering [min, max]: steps of 1, 2 or 5 times a power of ten. */
 export function ticks(min: number, max: number, count = 5): number[] {
+  if (!Number.isFinite(min) || !Number.isFinite(max)) return [];
+  if (max < min) [min, max] = [max, min];
   if (min === max) [min, max] = min === 0 ? [0, 1] : [Math.min(0, min), Math.max(0, max)];
-  const raw = (max - min) / count;
+  const requested = Number.isFinite(count) ? Math.max(1, Math.min(100, Math.floor(count))) : 5;
+  const raw = (max - min) / requested;
+  if (!(raw > 0) || !Number.isFinite(raw)) return [min, max];
   const mag = 10 ** Math.floor(Math.log10(raw));
   const step = [1, 2, 5, 10].map((m) => m * mag).find((s) => s >= raw) ?? 10 * mag;
+  if (!(step > 0) || !Number.isFinite(step)) return [min, max];
   const out: number[] = [];
-  const at = (k: number) => Number((k * step).toPrecision(12));
-  let k = Math.floor(min / step);
-  do out.push(at(k++));
-  while (out[out.length - 1] < max);
+  let value = Math.floor(min / step) * step;
+  for (let i = 0; i <= requested + 1 && Number.isFinite(value); i++) {
+    const rounded = Number(value.toPrecision(12));
+    if (!Number.isFinite(rounded)) break;
+    if (out.length && rounded <= out[out.length - 1]) return [min, max];
+    out.push(rounded);
+    if (rounded >= max) return out;
+    const next = value + step;
+    if (!(next > value)) return [min, max];
+    value = next;
+  }
+  if (out.length > requested + 2 || out.at(-1)! < max) return [min, max];
   return out;
 }
 
