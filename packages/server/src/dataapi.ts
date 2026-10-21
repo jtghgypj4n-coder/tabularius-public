@@ -1041,7 +1041,7 @@ export class DataApi {
       const account = writer.getStore()?.account ?? basicAccount(req) ?? '';
       const ms = Math.round(performance.now() - started);
       logs.write('fmdapi', code ? (status >= 500 ? 'Error' : 'Warning') : 'Information', clientAddress(req),
-        `${req.method} ${redactPath(url.pathname + url.search)} ${status} code ${code} ${ms} ms ${bytes} bytes${account ? ` account ${account}` : ''}`);
+        `${req.method} ${redactPath(url.pathname)} ${status} code ${code} ${ms} ms ${bytes} bytes${account ? ` account ${account}` : ''}`);
     }
     return true;
   }

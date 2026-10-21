@@ -22,7 +22,6 @@ import { renameCheckedFile as rename, renameCheckedSync as renameSync } from '..
 //                                                         entries, newest first
 //   GET /tabularius/admin/v1/logs/<name>/download          the file as it is
 
-import { isCredentialParameterName } from '../../scripts/src/credentials.ts';
 import { redactDiagnosticText } from '../../scripts/src/redaction.ts';
 import { mkdir, stat } from 'node:fs/promises';
 import { existsSync, mkdirSync, statSync } from 'node:fs';
@@ -68,13 +67,9 @@ export function logTime(d = new Date()): string {
 /** One line of a log: tabs and line breaks in the text become spaces, so each entry stays one line. */
 const clean = (s: string) => s.replace(/[\t\r\n]+/g, ' ');
 
-/** Session tokens in Data API paths (signing out names one) are cut out. */
+/** Keep the route, omitting query strings, fragments, and session tokens. */
 export function redactPath(path: string): string {
-  return path.replace(/(\/sessions\/)[^/?]+/i, '$1…').replace(/([?&])([^=&#]+)=([^&#]*)/g, (all, prefix: string, name: string) => {
-    let decoded = name;
-    try { decoded = decodeURIComponent(name.replace(/\+/g, ' ')); } catch { /* Match malformed names as written. */ }
-    return isCredentialParameterName(decoded) ? `${prefix}${name}=…` : all;
-  });
+  return path.split(/[?#]/, 1)[0].replace(/(\/sessions\/)[^/]+/i, '$1…');
 }
 
 export class ServerLogs {
