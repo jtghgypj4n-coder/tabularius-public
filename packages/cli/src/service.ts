@@ -821,7 +821,8 @@ function fromFiles(app: string, source: string): Fetched {
  * tarball or folder with `from`) and, when a service runs it, restarts the
  * service on the new version, going back to the old one if it doesn't come up.
  */
-export async function upgrade(opts: { backup?: (folder: string, extra: string[]) => Promise<string>; app?: string; home?: string; restart?: (s: Installed) => void; waitMs?: number; deadMs?: number; from?: string }): Promise<void> {
+export async function upgrade(opts: { backup?: (folder: string, extra: string[]) => Promise<string>; app?: string; home?: string; restart?: (s: Installed) => void; waitMs?: number; deadMs?: number; from?: string; install?: (app: string) => void }): Promise<void> {
+  const installDeps = opts.install ?? installDependencies;
   const s = installed(opts.home);
   // Refuse before fetching files, backing up or stopping the running service.
   if (s) {
@@ -855,7 +856,7 @@ export async function upgrade(opts: { backup?: (folder: string, extra: string[])
   }
   say(`${old} -> ${now}: installing its dependencies`);
   try {
-    installDependencies(app);
+    installDeps(app);
   } catch (e) {
     fetched.rollback();
     throw new Error(`${(e as Error).message}, so ${old} was put back`);
@@ -870,8 +871,13 @@ export async function upgrade(opts: { backup?: (folder: string, extra: string[])
     try {
       backedUpTo = await opts.backup(s.folder, s.extra);
     } catch (e) {
+      // The backup failure is what the person needs to read first; a failed reinstall of the old dependencies is added to it.
       fetched.rollback();
-      installDependencies(app);
+      try {
+        installDeps(app);
+      } catch (again) {
+        throw new Error(`${(e as Error).message}; and reinstalling the dependencies of ${old} after putting it back also failed: ${(again as Error).message}`, { cause: e });
+      }
       throw e;
     }
     say(`Backed up to ${backedUpTo}`);
@@ -884,7 +890,7 @@ export async function upgrade(opts: { backup?: (folder: string, extra: string[])
   } catch (e) {
     // The old version is still running: put its files back so the install matches it.
     fetched.rollback();
-    installDependencies(app);
+    installDeps(app);
     throw new Error(`restarting the service failed (${(e as Error).message}), so ${old} was put back; the server is still running ${old}`);
   }
   const watch = { folder: s.folder, deadMs: opts.deadMs };
@@ -894,7 +900,7 @@ export async function upgrade(opts: { backup?: (folder: string, extra: string[])
   }
   say(`The new version did not answer at ${url}: going back to ${old}`);
   fetched.rollback();
-  installDependencies(app);
+  installDeps(app);
   since = Date.now();
   restart(s);
   const back = await waitForRestart(url, since, opts.waitMs, watch);
