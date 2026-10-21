@@ -91,19 +91,69 @@ export function signingPlan(platform: NodeJS.Platform, program: string, env: Rec
   return { steps: [], report: [`${platform}: programs aren't signed on this system`] };
 }
 
-/** Runs a plan. A step that fails stops the build: a release that was meant to be signed never goes out unsigned. */
-function execute(plan: Plan): void {
-  for (const s of plan.steps) {
-    console.log(`  ${s.note}`);
-    if ('write' in s) {
-      writeFileSync(s.write.file, Buffer.from(s.write.base64, 'base64'), { mode: 0o600 });
-      continue;
+type RunResult = { status: number | null; signal?: string | null; stdout?: string };
+type Runner = (cmd: string, args: string[], capture: boolean) => RunResult;
+
+const defaultRunner: Runner = (cmd, args, capture) => {
+  const result = spawnSync(cmd, args, capture ? { encoding: 'utf8' } : { stdio: 'inherit' });
+  return { status: result.status, signal: result.signal, stdout: typeof result.stdout === 'string' ? result.stdout : undefined };
+};
+
+function keychains(output: string): string[] {
+  return output.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).map((line) => {
+    let path: unknown;
+    try { path = JSON.parse(line); } catch { throw new Error('could not read the original keychain search list'); }
+    if (typeof path !== 'string') throw new Error('could not read the original keychain search list');
+    return path;
+  });
+}
+
+/** Runs a plan and puts temporary keychain settings back on every exit. */
+export function execute(plan: Plan, runner: Runner = defaultRunner): void {
+  const temporary = plan.steps.find((step) => 'run' in step && step.run[0] === 'security' && step.run[1] === 'create-keychain');
+  const temporaryKeychain = temporary && 'run' in temporary ? temporary.run.at(-1) : undefined;
+  let originalSearchList: string[] | undefined;
+  let searchListTouched = false;
+  let failure: unknown;
+  const checked = (cmd: string, args: string[], note: string, capture = false): RunResult => {
+    const result = runner(cmd, args, capture);
+    if (result.status !== 0) throw new Error(`${note} failed (${cmd} exited ${result.status ?? result.signal})`);
+    return result;
+  };
+  try {
+    for (const step of plan.steps) {
+      console.log(`  ${step.note}`);
+      if ('write' in step) {
+        writeFileSync(step.write.file, Buffer.from(step.write.base64, 'base64'), { mode: 0o600 });
+        continue;
+      }
+      const [cmd, ...args] = step.run;
+      if (cmd === 'security' && args[0] === 'list-keychains' && args.includes('-s')) {
+        const snapshot = checked('security', ['list-keychains', '-d', 'user'], 'reading the keychain search list', true);
+        if (snapshot.stdout === undefined) throw new Error('could not read the original keychain search list');
+        originalSearchList = keychains(snapshot.stdout);
+        searchListTouched = true;
+      }
+      // Output is shown, but the command line (which may carry a password) is not.
+      checked(cmd, args, step.note);
     }
-    const [cmd, ...args] = s.run;
-    // Output is shown, but the command line (which may carry a password) is not.
-    const r = spawnSync(cmd, args, { stdio: 'inherit' });
-    if (r.status !== 0) throw new Error(`${s.note} failed (${cmd} exited ${r.status ?? r.signal})`);
+  } catch (e) {
+    failure = e;
+  } finally {
+    const cleanupErrors: Error[] = [];
+    if (searchListTouched && originalSearchList) {
+      try { checked('security', ['list-keychains', '-d', 'user', '-s', ...originalSearchList], 'restoring the keychain search list'); }
+      catch (e) { cleanupErrors.push(e as Error); }
+    }
+    if (temporaryKeychain) {
+      try { checked('security', ['delete-keychain', temporaryKeychain], 'deleting the temporary keychain'); }
+      catch (e) { cleanupErrors.push(e as Error); }
+    }
+    if (cleanupErrors.length) failure = failure
+      ? new AggregateError([failure, ...cleanupErrors], 'signing failed and keychain cleanup failed')
+      : new AggregateError(cleanupErrors, 'keychain cleanup failed');
   }
+  if (failure) throw failure;
 }
 
 if (import.meta.main) {
