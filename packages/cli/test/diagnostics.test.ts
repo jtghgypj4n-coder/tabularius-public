@@ -368,7 +368,7 @@ test('the folder\'s own secret files, files the environment points at and a mist
   writeFileSync(join(s.folder, 'Logs', 'Event.log'), [
     '2026-10-17 12:00:00.000 +0000\tError\tnotify\tcould not reach abcdef-hook-secret',
     '2026-10-17 12:00:01.000 +0000\tError\tmcp\tbad token mcp-token-value-0001',
-    '2026-10-17 12:00:01.500 +0000\tError\tmcp\tbad token tbmcp_folder-token-value-0002',
+    '2026-10-17 12:00:01.500 +0000\tError\tmcp\tcall from tbmcp_folder-token-value-0002',
     '2026-10-17 12:00:02.000 +0000\tError\tmail\tlogin with smtp-file-secret-77 failed',
   ].join('\n') + '\n');
   const bundle = await diagnostics(s.folder, { home: HOME, userFolder: s.userFolder, env: { ...s.env, TABULARIUS_SMTP_FILE: join(s.root, 'smtp-file') } });
