@@ -46,7 +46,7 @@ export function readImportTablesRequest(contentType: string, body: Buffer): Impo
     else if (part.name === 'overrides') overrides = overridesOf(part.data.toString('utf8'));
   }
   if (pages.length) sheets.push(notionMarkdownSheet(folder || 'Pages', pages.sort((a, b) => a.file.localeCompare(b.file))));
-  if (!sheets.length) throw new ApiError(3, 'Choose the files to import: CSV, Excel or Markdown exports', 400);
+  if (!sheets.length) throw new ApiError(3, 'Choose the files to import: CSV, Excel, a Notion Markdown & CSV ZIP, or Markdown exports', 400);
   try {
     checkSheetNames(sheets);
   } catch (e) {

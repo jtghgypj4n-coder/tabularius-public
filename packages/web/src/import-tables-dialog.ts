@@ -1,4 +1,4 @@
-// File > Import Tables…: tables from the files another tool exported (CSV, Excel, a Notion folder of pages) made into
+// File > Import Tables…: tables from the files another tool exported (CSV, Excel, a Notion ZIP or folder of pages) made into
 // whole tables of this file, with the type of each column worked out and open to change, links between sheets made into
 // relationships, and what will be made shown before anything is. Full Access only; the server refuses anyone else, the
 // menu just leaves the entry out. The files are sent again for the import, so a preview keeps nothing on the server.
@@ -12,7 +12,7 @@ export async function importTablesDialog(api: Api, onImported: () => void): Prom
   const dialog = h('dialog', { class: 'replace-dialog export-dialog import-tables-dialog', 'aria-labelledby': 'import-tables-title' }) as HTMLDialogElement;
   const status = h('p', { class: 'import-tables-status', role: 'status', 'aria-live': 'polite' });
   const planBox = h('div', { class: 'import-tables-plan' });
-  const files = h('input', { id: 'import-tables-files', type: 'file', multiple: '', accept: '.csv,.tsv,.txt,.xlsx,.md,text/csv' }) as HTMLInputElement;
+  const files = h('input', { id: 'import-tables-files', type: 'file', multiple: '', accept: '.csv,.tsv,.txt,.xlsx,.md,.zip,text/csv,application/zip' }) as HTMLInputElement;
   const folder = h('input', { id: 'import-tables-folder', type: 'file', multiple: '', webkitdirectory: '' }) as HTMLInputElement;
   const links = h('input', { id: 'import-tables-links', type: 'checkbox' }) as HTMLInputElement;
   links.checked = true;
@@ -113,7 +113,7 @@ export async function importTablesDialog(api: Api, onImported: () => void): Prom
 
   dialog.append(
     h('h2', { id: 'import-tables-title' }, 'Import Tables'),
-    h('p', { class: 'import-tables-intro' }, 'Makes whole tables from files another tool exported: CSV or Excel files (a sheet for each table), or a folder of Notion pages. Each column gets a field of the right type, and a column naming rows of another sheet becomes a relationship with a portal. Formulas are not translated; they arrive as the values the export holds.'),
+    h('p', { class: 'import-tables-intro' }, 'Makes whole tables from files another tool exported: CSV or Excel files (a sheet for each table), a Notion Markdown & CSV ZIP, or a folder of Notion pages. Each column gets a field of the right type, and a column naming rows of another sheet becomes a relationship with a portal. Formulas are not translated; they arrive as the values the export holds.'),
     row('import-tables-files', 'Files', files),
     row('import-tables-folder', 'Notion folder', folder),
     h('div', { class: 'import-tables-row' }, h('span', {}), h('label', { class: 'import-tables-check' }, links, ' Make linked-record columns into relationships')),

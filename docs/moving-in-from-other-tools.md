@@ -17,7 +17,8 @@ account; it works on the folder as the operator. Importing as an account needs
 Full Access, because it changes the file's design.
 
 In the web client, an account with Full Access does the same in File > Import
-Tables…: choose the files (or a Notion export folder), press Preview to read
+Tables…: choose the files (including a Notion export ZIP) or a Notion export
+folder, press Preview to read
 the plan (each sheet's table, each column's field and type, and its first rows),
 change any column's type from its pick box (or leave a column out, or make it a
 link to another sheet), and press Import. The files are sent again for the
@@ -30,10 +31,10 @@ Layout menu straight away. The server route is `POST
 
 | From | Export | What it becomes |
 | --- | --- | --- |
-| Airtable | CSV of a view (`Table-Grid view.csv`) | One table per file; the ` - Grid view` suffix is dropped from the name. |
-| Notion | CSV of a database | One table per file; the page id Notion adds to the name is dropped. A relation column holds page titles, optionally with a link in brackets after each; both are read. |
-| Notion | Markdown export (a folder of `.md` pages) | One table for the folder: `Title` from the first heading, each `Property: value` line under it as a column, the rest of the page as `Body`. |
-| Google Sheets | `.xlsx` or CSV | As Excel and CSV below. |
+| Airtable | CSV of a view (`Table-Grid view.csv`) | One table per file; the ` - Grid view` suffix is dropped from the name. Attachment cells contain a filename and URL; these are kept as text, not downloaded into a container field. |
+| Notion | CSV of a database | One table per CSV; the page id Notion adds to the name is dropped. A relation column holds page titles, optionally with a link in brackets after each; both are read. |
+| Notion | Markdown & CSV export ZIP, or a folder of extracted `.md` pages | CSV files become separate tables. Markdown pages in the archive become one table named after the ZIP; extracted folders become one table named after the folder. Each has `Title` from the first heading, `Property: value` lines as columns, and the remaining page text as `Body`. Other archive entries, including files and images, are ignored. |
+| Google Sheets | `.xlsx` or CSV | As Excel and CSV below. Google Sheets offers downloadable copies in other formats, including Excel and CSV. |
 | Excel | `.xlsx` | One table per sheet, named after the sheet. Cells are read as the workbook saved them. |
 | Any | `.csv`, tab- or semicolon-separated text | One table. A byte order mark, quoted line breaks, rows shorter or longer than the header and repeated headers are handled. |
 
@@ -87,8 +88,10 @@ links to the first, and is counted.
 
 - Formulas, rollups, lookups and automations: the export has their values,
   which arrive as plain data. The command says so every time.
-- Attachments: Airtable's attachment columns hold file addresses as text; they
-  are imported as text and not downloaded.
+- Attachments: Airtable's CSV puts a filename and URL in the cell, not the file.
+  The importer keeps that cell as text and does not download it or create a
+  container reference. Airtable says exported attachment URLs expire after a
+  few hours.
 - Views, filters, sorts, forms, permissions and comments.
 - Row limits: at most 500,000 rows and 500 columns per sheet, and files up to
   256 MB.
@@ -99,3 +102,5 @@ The export formats above were written from how the tools' exports behave in
 general and the examples they document; the importer has been tested with files
 written to match them, not with exports from the products themselves. Formats
 that differ by locale or by a tool's version may need `--set`.
+
+Vendor export documentation: [Airtable grid view CSV exports](https://support.airtable.com/articles/5189551686-getting-started-with-airtable-views), [Notion Markdown & CSV ZIP exports](https://www.notion.com/help/export-your-content), [Google Sheets spreadsheet downloads](https://support.google.com/docs/answer/9330963), and [Excel workbook formats](https://support.microsoft.com/en-us/excel/save-a-workbook-in-another-file-format). These describe available exports; they do not guarantee every exported value shape is recognized by this importer.

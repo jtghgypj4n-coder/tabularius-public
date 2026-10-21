@@ -350,8 +350,9 @@ Hosting (point it at a folder of .fmp12 files; each is converted once):
                                              values; read-only; runs no scripts
   tabularius import-tables <folder> <database> <file|folder>... [--preview] [--json] [--no-links] [--set Sheet.Column=kind]
                                              Come in from Airtable, Notion, Google Sheets or
-                                             Excel: each CSV file, Excel sheet or folder of
-                                             Notion Markdown pages becomes a table; column
+                                             Excel: each CSV file, Excel sheet or Notion ZIP
+                                             (CSV tables and Markdown pages) becomes tables;
+                                             extracted Markdown folders also become a table; column
                                              types are worked out (text, number, date, time,
                                              timestamp, checkbox, select, multi) and a column of
                                              linked records becomes a join table with
