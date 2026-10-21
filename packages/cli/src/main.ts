@@ -262,6 +262,7 @@ Hosting (point it at a folder of .fmp12 files; each is converted once):
                                              the administrator (Authorization: Bearer ...). The server
                                              makes it on first start; it is kept in the folder in a
                                              file only your account can read. --mcp-token sets another
+                                             token for a server instead.
   tabularius backup <folder> [--to DIR] [--keep 7]
                                              Back up every hosted file now (safe while serving);
                                              encrypted when TABULARIUS_BACKUP_KEY holds a passphrase
