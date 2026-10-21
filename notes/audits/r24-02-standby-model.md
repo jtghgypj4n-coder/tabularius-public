@@ -24,7 +24,7 @@ is what it found.
 - **Seeds:** 5 in CI. 25 seeds (`STANDBY_SEEDS=25`) passed, after the fixes below, in about 105 s. With a deliberately broken standby
   (its position set one change too high after each copy) the model fails at the first catch-up, with the seed and history.
 
-## Fixed in this change (regression tests included)
+## Fixed or guarded in this change (regression tests included)
 
 1. **A standby from before the rename looped on a primary that was upgraded first.** The old standby reads the run and position
    of a copy from `x-openhbam-run` and `x-openhbam-seq` (the pre-rename code, from the rename commit, read exactly those); the
@@ -35,11 +35,12 @@ is what it found.
 2. **The reverse order gave an unhelpful message.** A new standby against an older primary (or one without
    `--replication-token`) said only "can't reach ...: the main server answered 404". It now says the main server has no replication
    routes and to upgrade it first. Test: "a standby says what is wrong ...".
-3. **A standby that crashed in the quarter second after its first copy could not start again.** The note of the copy was saved
-   after a delay, so the folder held a hosted file the notes did not mention and the next start refused it as foreign ("already
-   has files this standby didn't copy"), which needed `--overwrite`. The note (marked as not whole, so a takeover warns) is now
-   saved before the file appears. Test: "a standby that crashed right after its first copy ...". The model found it on its
-   second seed.
+3. **A standby that crashed in the quarter second after its first copy could not start again.** Guarded here, fixed before this
+   change. When the note of a copy was saved after a delay, the folder could hold a hosted file the notes did not mention and the
+   next start refused it as foreign ("already has files this standby didn't copy"), which needed `--overwrite`. The note (marked
+   as not whole, so a takeover warns) is saved before the file appears; that code was already in place, and this change adds a
+   comment and the test that keeps it so: "a standby that crashed right after its first copy ...". Making the save a delayed one
+   again fails that test. The model found the problem on its second seed, against the code before the fix.
 
 ## Not fixed: three findings, each with a `todo` test that fails today
 
