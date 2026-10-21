@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import { scriptStepName, type Script } from '@tabularius/fmp12';
 import { createStore, parseScriptText, Store } from '@tabularius/store';
 import { runScript, type RunOptions } from '../src/index.ts';
+import { validateSavedExcel } from './xlsx-opc-validator.ts';
 
 let dir: string;
 let docs: string;
@@ -278,7 +279,7 @@ test('Save Records as JSONL writes one messages line per record; Save Records as
   assert.deepEqual(tuned.messages, [{ role: 'user', content: 'Price of B' }, { role: 'assistant', content: '2' }]);
   r = await run('Save Records as Excel [ With dialog: Off ; "lines.xlsx" ]');
   assert.equal(r.error, 0);
-  assert.equal(readFileSync(join(docs, 'lines.xlsx')).subarray(0, 2).toString(), 'PK');
+  validateSavedExcel(readFileSync(join(docs, 'lines.xlsx')));
 });
 
 test('Go to List of Records shows the records with those IDs in that order', async () => {

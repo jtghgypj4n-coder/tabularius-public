@@ -17,7 +17,7 @@ import { TEST_ONLY_CUSTOM_FETCH } from './test-only.ts';
 import { sqlMayReadSecret } from './credentials.ts';
 import { DELIMITED_SEPARATORS, parseDelimitedRows, sniffSeparator } from '../../store/src/delimited.ts';
 import { decodeText } from '../../store/src/text-decode.ts';
-import { stripFormulaGuard } from '../../store/src/csv-export.ts';
+import { formulaGuard, stripFormulaGuard } from '../../store/src/csv-export.ts';
 import { fmpXmlReader } from './fmp-xml-dates.ts';
 import { serialOf, xlsx, type XlsxOutCell } from './xlsx.ts';
 import { executeDataApi } from './data-api-step.ts';
@@ -7241,6 +7241,7 @@ export class ScriptEngine {
       }();
       if (format === 'XLXE') {
         // Numbers stay numbers, dates, times and timestamps are Excel's own cell types; other values are text as FileMaker shows them.
+        if (fs.ids.length > 1_048_576) throw new ScriptError(ERROR.unavailable, 'Excel allows at most 1,048,576 rows; no file was written');
         const cells: XlsxOutCell[][] = [];
         for (const row of rows) {
           await this.checkpoint(f);
@@ -7248,7 +7249,12 @@ export class ScriptEngine {
           : v.type === 'date' || v.type === 'time' || v.type === 'timestamp' ? serialOf[v.type](v.value)
           : asText(v, win.store.dateOrder))));
         }
-        const workbook = xlsx(cells, info.table);
+        let workbook: Uint8Array;
+        try { workbook = xlsx(cells, info.table); }
+        catch (e) {
+          if (e instanceof SheetLimitError) throw new ScriptError(ERROR.unavailable, `${e.message}; no file was written`);
+          throw e;
+        }
         await new Promise<void>((resolve) => setImmediate(resolve));
         this.canceled(f.script.name);
         writeFileSync(path, workbook);
@@ -7304,8 +7310,8 @@ export class ScriptEngine {
         complete('Export Records');
         return;
       }
-      const cell = (v: string) => {
-        const one = v.replace(/\r\n|[\r\n]/g, '\v'); // returns in a field export as vertical tabs, as in FileMaker
+      const cell = (v: string, type?: string) => {
+        const one = formulaGuard(v.replace(/\r\n|[\r\n]/g, '\v'), type); // returns in a field export as vertical tabs, as in FileMaker
         const quoted = `"${one.replace(/"/g, '""')}"`;
         // Tab-separated text is written bare; only a value that starts with a quote is quoted, so reading it back
         // does not take that quote for the start of a quoted value.
@@ -7319,11 +7325,11 @@ export class ScriptEngine {
         // UTF-16 text starts with a byte order mark, so a program that opens the file (this one's Import Records too) knows its byte order.
         if (encoding === 'utf-16') writeSync(fd, new Uint8Array([0xff, 0xfe]));
         const line = (l: string) => writeSync(fd, encodeText(l + '\r\n', encoding));
-        if (format === 'MRGE') line(refs.map((r) => cell(heading(r))).join(sep));
+        if (format === 'MRGE') line(refs.map((r) => cell(heading(r), 'text')).join(sep));
         // Claris: "Values in repeating fields are separated by the group separator character."
         for (const record of records) {
           await this.checkpoint(f);
-          line(record.map((values) => cell(values.map((v) => asText(v, win.store.dateOrder)).join(GROUP_SEPARATOR))).join(sep));
+          line(record.map((values) => cell(values.map((v) => asText(v, win.store.dateOrder)).join(GROUP_SEPARATOR), values[0]?.type)).join(sep));
         }
       } finally {
         closeSync(fd);
