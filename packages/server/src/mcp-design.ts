@@ -30,9 +30,9 @@ import { checkSolution } from './check-solution.ts';
 const json = (value: unknown) => ({ content: [{ type: 'text' as const, text: JSON.stringify(value) }] });
 const fail = (message: string) => ({ isError: true, content: [{ type: 'text' as const, text: message }] });
 
-function applyAiDesign(store: Store, changes: DesignOp[]): { applied: DesignOp[] } {
-  assertAiDesignChanges(store, changes);
-  return store.applyDesign(changes, { account: 'AI' });
+function applyAi(store: Store, changes: DesignOp[], readOtherFile?: (file: Store) => boolean): { applied: DesignOp[] } {
+  assertAiDesignChanges(store, changes, undefined, readOtherFile);
+  return store.applyDesign(changes, { account: 'AI', ...(readOtherFile ? { readOtherFile } : {}) });
 }
 
 export const CHANGES = `Design changes, applied in order as one unit (all or none). Name things by name or id. Ops:
@@ -102,9 +102,11 @@ Renaming a field or occurrence rewrites every formula, layout and script that re
 
 /**
  * `guard` throws unless the client may see and change a file's design (an
- * account needs [Full Access]); `canCreate` is whether it may start new files.
+ * account needs [Full Access]); `canCreate` is whether it may start new files; `readOtherFile` is whether it may also
+ * design (and AI may read) another hosted file, whose tables a layout or value list here can then use (default: none).
  */
-export function registerDesignTools(server: McpServer, host: Host, guard: (s: Store) => void = () => {}, canCreate = true, visible: (s: Store) => boolean = () => true): void {
+export function registerDesignTools(server: McpServer, host: Host, guard: (s: Store) => void = () => {}, canCreate = true, visible: (s: Store) => boolean = () => true, readOtherFile?: (file: Store) => boolean): void {
+  const applyAiDesign = (store: Store, changes: DesignOp[]) => applyAi(store, changes, readOtherFile);
   const withStore = (database: string, fn: (s: Store) => unknown) => {
     const store = host.get(database);
     if (!store) return fail(`No hosted database named "${database}". Hosted: ${aiHostedNames(host, visible)}`);
@@ -456,7 +458,7 @@ export function registerDesignTools(server: McpServer, host: Host, guard: (s: St
   }, async ({ database, changes, preview }) => withStore(database, (s) => {
     if (preview) {
       // Layouts as words and Check's findings; the designs themselves are for drawing pictures.
-      const { lines, layouts } = previewDesign(s, changes as unknown as DesignOp[]);
+      const { lines, layouts } = previewDesign(s, changes as unknown as DesignOp[], { readOtherFile });
       return { lines, ...(layouts ? { layouts: layouts.map((l) => ({ name: l.name, issues: l.issues.map((i) => `${i.severity}: ${i.message}`) })) } : {}) };
     }
     const before = layoutsBefore(s, changes as unknown as DesignOp[]);
@@ -689,7 +691,7 @@ export function registerDesignTools(server: McpServer, host: Host, guard: (s: St
     if (!store) return fail(`No hosted database named "${database}". Hosted: ${aiHostedNames(host, visible)}`);
     try {
       guard(store);
-      store.checkDesign(changes as unknown as DesignOp[]);
+      store.checkDesign(changes as unknown as DesignOp[], { readOtherFile });
       const names = scripts?.length ? scripts : changes.flatMap((c) => {
         if (c.text === undefined && c.steps === undefined) return [];
         if (c.op === 'createScript' && typeof c.name === 'string') return [c.name];
@@ -698,7 +700,7 @@ export function registerDesignTools(server: McpServer, host: Host, guard: (s: St
         const found = store.schema.scripts.find((x) => x.id === c.script || x.name === c.script);
         return found ? [found.name] : [];
       }).slice(0, 5);
-      return json({ applies: true, runs: await dryRunChanges(store, changes, names) });
+      return json({ applies: true, runs: await dryRunChanges(store, changes, names, undefined, { readOtherFile }) });
     } catch (e) {
       return fail(callerText(e));
     }
