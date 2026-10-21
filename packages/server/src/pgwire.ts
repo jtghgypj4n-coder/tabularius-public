@@ -811,7 +811,7 @@ class Connection {
         return call ? values[call.toLowerCase()] : `'${this.user.replace(/'/g, "''")}'`;
       });
     // A table of another file that the account may not read answers as a table that isn't there.
-    const translated = this.store!.calc.translateSQL(pgFunctions, undefined, undefined, (file) => this.privileges!.in(file).readsEverything, this.privileges);
+    const translated = this.store!.calc.translateSQL(pgFunctions, undefined, undefined, (file) => this.privileges!.in(file).readsEverything, this.privileges, undefined, true);
     let { sql: text } = translated;
     const { target } = translated;
     if (!this.privileges!.in(target).readsEverything) {

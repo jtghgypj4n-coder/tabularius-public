@@ -2038,7 +2038,7 @@ export class Calculations {
    * becomes LIMIT, and FileMaker_Tables / FileMaker_Fields are provided. `mayRead` says whether the caller may read every
    * record of another file; a table of one it may not read is treated as a name that is not a table at all.
    */
-  translateSQL(query: string, privileges?: Privileges, account?: string, mayRead?: (file: Store) => boolean): { sql: string; target: Store; stable: boolean; computed: { store: Store; table: Table; field: Field }[] } {
+  translateSQL(query: string, privileges?: Privileges, account?: string, mayRead?: (file: Store) => boolean, endpoint = false): { sql: string; target: Store; stable: boolean; computed: { store: Store; table: Table; field: Field }[] } {
     query = cleanSql(query);
     if (!oneStatement(query)) throw new CalcError(ERR.calculation, 'SQL runs one statement at a time');
     refuseUnsupportedJoins(query);
@@ -2137,8 +2137,9 @@ export class Calculations {
       // the same name), so no way of naming it reads the rest: a comma join, a subquery or a quoted name the
       // rewrite above doesn't catch. Naming a schema (main.Table) would get past that, and fm_computed, dbstat
       // and the container tables read records and fields without naming their table, so those are refused.
-      const refused = refusedSqlName(query);
-      if (refused) throw new CalcError(ERR.calculation, `ExecuteSQL can't use ${refused} here`);
+      // The SQL endpoints guard the file's own tables themselves, and let an account that reads everything name a schema.
+      const refused = endpoint && privileges.readsEverything ? undefined : refusedSqlName(query);
+      if (refused) throw new CalcError(ERR.calculation, `${endpoint ? 'SQL' : 'ExecuteSQL'} can't use ${refused} here`);
       const named = new Set(sqlTokens(query)
         .filter((t) => t.kind === 'word' || t.kind === 'identifier' || t.kind === 'string')
         .map((t) => sqlName(t).toLowerCase()));

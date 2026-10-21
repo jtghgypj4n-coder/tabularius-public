@@ -9474,14 +9474,15 @@ export class Store {
     return !pv || pv.table(table).view !== false;
   }
 
-  /** Keep decisions, not row values: rules can depend on related rows that the delete will also remove. */
+  /**
+   * Keep decisions, not row values: rules can depend on related rows that the delete will also remove. Asked of the
+   * principals a live stream is open for (deleteReaders), so a file nobody is watching pays nothing for it.
+   */
   private deleteVisibility(table: string, recordId: number): NonNullable<Change['deletedVisibility']> {
-    if (!this.listeners.size) return [];
-    const readers = this.accounts().map(({ name }) => this.privileges(name));
-    for (const provide of this.deleteReaders) readers.push(...provide());
+    if (!this.deleteReaders.size) return [];
     const seen = new Set<string>();
     const grants: NonNullable<Change['deletedVisibility']> = [];
-    for (const p of readers) {
+    for (const provide of this.deleteReaders) for (const p of provide()) {
       const rule = p.table(table).view;
       if (typeof rule !== 'string') continue;
       const key = JSON.stringify([p.account, rule]);
