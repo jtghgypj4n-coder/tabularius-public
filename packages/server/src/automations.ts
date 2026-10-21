@@ -427,10 +427,15 @@ export class AutomationRunner {
       // In the automation's own context, not the client whose change set it off: its condition, parameter and
       // record access never see (or set) that client's $$variables or global fields.
       // Refuse work at acceptance as well as when it reaches the server queue.
-      try { store.requireActiveAccount(a.account); } catch { continue; }
+      try { this.requireSavedAccount(store, a); } catch { continue; }
       const next = (this.queues.get(store) ?? Promise.resolve()).then(() => writer.run({ owner: `${OWNER}${a.id}`, account: a.account, surface: 'automation' }, () => this.run(store, a, recordId, was)));
       this.queues.set(store, next);
     }
+  }
+
+  private requireSavedAccount(store: Store, a: Automation): void {
+    store.requireActiveAccount(a.account);
+    if (!new Saved(store).get(a.id)) throw new StoreError(212, 'The automation is no longer available');
   }
 
   private async run(store: Store, a: Automation, recordId: number, deleted?: { seq: number; values: Record<string, unknown> }): Promise<void> {
@@ -440,7 +445,7 @@ export class AutomationRunner {
     try {
       const opts = this.host.scriptOptions();
       if (captureOnly(store.name, opts.outbound?.captureOnly)) return log({ outcome: 'skipped', message: `"${store.name}" is a capture-only file: it never runs automations` });
-      store.requireActiveAccount(a.account);
+      this.requireSavedAccount(store, a);
       const info = store.layout(a.layout);
       if (deleted) return await this.runDeleted(store, a, info, recordId, deleted, log);
       if (!store.select(`SELECT 1 FROM "${info.table.replace(/"/g, '""')}" WHERE _fm_record_id = ?`, [recordId], 1).rows.length) {
@@ -463,14 +468,17 @@ export class AutomationRunner {
       if (!script) return log({ outcome: 'error', error: 104, message: `no script "${a.script}"` });
       privileges.checkScript(script.name);
       const parameter = a.parameter ? store.evaluate(info, a.parameter, recordId, { account: a.account, privileges }).value : undefined;
-      const r = await writer.run({ owner: `${OWNER}${a.id}`, account: a.account, surface: 'automation' }, () => opts.serverQueue.run((stop) => runScript(store, script, {
-        ...(stop ? { stop } : {}),
-        layout: info.name, foundSet: [recordId], recordId, account: a.account, executionAccount: a.account, privileges, ...(parameter !== undefined ? { parameter } : {}),
-        documents: opts.documents, network: opts.network && a.network === true, ...(opts.networkAllow ? { networkAllow: opts.networkAllow } : {}),
-        ...(opts.outbound ? { outbound: opts.outbound } : {}), ...(opts.profile ? { profile: opts.profile } : {}),
-        // No AI steps: AI apps can save automations (MCP save_automation), and scripts AI apps start stay offline.
-        timeoutMs: 60_000,
-      }), { file: store.name, script: script.name, account: a.account, kind: 'automation' }));
+      const r = await writer.run({ owner: `${OWNER}${a.id}`, account: a.account, surface: 'automation' }, () => opts.serverQueue.run((stop) => {
+        this.requireSavedAccount(store, a);
+        return runScript(store, script, {
+          ...(stop ? { stop } : {}),
+          layout: info.name, foundSet: [recordId], recordId, account: a.account, executionAccount: a.account, privileges, ...(parameter !== undefined ? { parameter } : {}),
+          documents: opts.documents, network: opts.network && a.network === true, ...(opts.networkAllow ? { networkAllow: opts.networkAllow } : {}),
+          ...(opts.outbound ? { outbound: opts.outbound } : {}), ...(opts.profile ? { profile: opts.profile } : {}),
+          // No AI steps: AI apps can save automations (MCP save_automation), and scripts AI apps start stay offline.
+          timeoutMs: 60_000,
+        });
+      }, { file: store.name, script: script.name, account: a.account, kind: 'automation' }));
       log(runOutcome(r));
     } catch (e) {
       const code = (e as { code?: unknown }).code;
@@ -491,7 +499,7 @@ export class AutomationRunner {
     const values = deleted.values;
     let privileges: Privileges;
     try {
-      store.requireActiveAccount(a.account);
+      this.requireSavedAccount(store, a);
       privileges = store.privileges(a.account);
     } catch {
       return log({ outcome: 'error', error: 212, message: `no account "${a.account}"` });
@@ -503,13 +511,16 @@ export class AutomationRunner {
     privileges.checkScript(script.name);
     const parameter = JSON.stringify({ recordId, fields: deletedFields(values, info.table, privileges) });
     const opts = this.host.scriptOptions();
-    const r = await writer.run({ owner: `${OWNER}${a.id}`, account: a.account, surface: 'automation' }, () => opts.serverQueue.run((stop) => runScript(store, script, {
-      ...(stop ? { stop } : {}),
-      layout: info.name, foundSet: [], account: a.account, executionAccount: a.account, privileges, parameter,
-      documents: opts.documents, network: opts.network && a.network === true, ...(opts.networkAllow ? { networkAllow: opts.networkAllow } : {}),
-      ...(opts.outbound ? { outbound: opts.outbound } : {}), ...(opts.profile ? { profile: opts.profile } : {}),
-      timeoutMs: 60_000,
-    }), { file: store.name, script: script.name, account: a.account, kind: 'automation' }));
+    const r = await writer.run({ owner: `${OWNER}${a.id}`, account: a.account, surface: 'automation' }, () => opts.serverQueue.run((stop) => {
+      this.requireSavedAccount(store, a);
+      return runScript(store, script, {
+        ...(stop ? { stop } : {}),
+        layout: info.name, foundSet: [], account: a.account, executionAccount: a.account, privileges, parameter,
+        documents: opts.documents, network: opts.network && a.network === true, ...(opts.networkAllow ? { networkAllow: opts.networkAllow } : {}),
+        ...(opts.outbound ? { outbound: opts.outbound } : {}), ...(opts.profile ? { profile: opts.profile } : {}),
+        timeoutMs: 60_000,
+      });
+    }, { file: store.name, script: script.name, account: a.account, kind: 'automation' }));
     log(runOutcome(r));
   }
 }

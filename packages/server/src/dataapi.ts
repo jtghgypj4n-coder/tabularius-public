@@ -104,6 +104,8 @@ export interface Session {
   viaId?: string;
   /** Persisted identity generation, preventing same-name recreation from inheriting this session. */
   principalId?: string;
+  /** Persisted identity of a separately retained federated person. */
+  personId?: string;
   /** Credentials and authority at sign-in: changes require fresh authentication. */
   signInMark?: string;
   /** Extended privileges can be removed live, but cannot be added to an open session. */
@@ -131,7 +133,7 @@ const CLIENT_PRIVILEGES: Record<Session['client'], string[]> = { rest: ['fmrest'
 
 /** The account's privileges, read on each request so changes (a revoked fmrest, say) apply at once. */
 export function sessionPrivileges(store: Store, session: Session): Privileges {
-  if (!store.identityAllowed(session.account, session.via, session.viaId, session.externalIdentity?.person, session.principalId)) throw new ApiError(952, 'Invalid FileMaker Data API token (*)', 401);
+  if (!store.identityAllowed(session.account, session.via, session.viaId, session.externalIdentity?.person, session.principalId, session.personId)) throw new ApiError(952, 'Invalid FileMaker Data API token (*)', 401);
   let p = store.privileges(session.account, session.via, session.externalIdentity?.person);
   if (session.signInMark !== undefined && session.signInMark !== store.signInMark(session.account, session.via, session.externalIdentity?.person)) {
     throw new ApiError(952, 'Invalid FileMaker Data API token (*)', 401);
@@ -1152,7 +1154,7 @@ export class DataApi {
     const s = this.sessions.get(token);
     const store = s && this.host.get(s.db);
     if (!s) return false;
-    let off = !store || !store.identityAllowed(s.account, s.via, s.viaId, s.externalIdentity?.person, s.principalId);
+    let off = !store || !store.identityAllowed(s.account, s.via, s.viaId, s.externalIdentity?.person, s.principalId, s.personId);
     if (!off && s.signInMark !== undefined) off = s.signInMark !== store!.signInMark(s.account, s.via, s.externalIdentity?.person);
     if (!off && token.startsWith('ohbt_')) {
       try { off = !store!.apiToken(token); } catch { off = true; }
@@ -1511,7 +1513,8 @@ export class DataApi {
     }
     const token = this.tokenPrefix + randomBytes(24 - this.tokenPrefix.length / 2).toString('hex');
     const principalId = store.accountIdentityId(account);
-    const session: Session = { token, db: store.name, account, principalId, started: Date.now(), lastUsed: performance.now(), scripts: new ScriptSession(), client, ...(via ? { via, viaId } : {}), ...(externalIdentity ? { externalIdentity } : {}), ...(from ? { from } : {}), ...(device ? { device: device.slice(0, 200) } : {}), ...(dataSources ? { dataSources } : {}) };
+    const personId = externalIdentity?.person ? store.accountIdentityId(externalIdentity.person) : undefined;
+    const session: Session = { token, db: store.name, account, principalId, personId, started: Date.now(), lastUsed: performance.now(), scripts: new ScriptSession(), client, ...(via ? { via, viaId } : {}), ...(externalIdentity ? { externalIdentity } : {}), ...(from ? { from } : {}), ...(device ? { device: device.slice(0, 200) } : {}), ...(dataSources ? { dataSources } : {}) };
     session.signInMark = store.signInMark(account, via, externalIdentity?.person);
     session.signedInExtended = store.privileges(account, via, externalIdentity?.person).set.extendedPrivileges.map(e => e.toLowerCase());
     try {
