@@ -1,6 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { csvField, formulaGuard, parseDelimited, stripFormulaGuard } from '../src/index.ts';
+import { createStore, Store } from '../src/index.ts';
 
 test('CSV fields neutralize formula prefixes after whitespace and controls', () => {
   for (const formula of ['=', '+', '-', '@']) assert.equal(csvField(`${formula}1+1`), `'${formula}1+1`);
@@ -10,6 +14,38 @@ test('CSV fields neutralize formula prefixes after whitespace and controls', () 
     assert.equal(parsed, `'${text}`);
   }
   for (const prefix of [' ', '\u00a0', '\ufeff']) assert.equal(csvField(`${prefix}=1`), `'${prefix}=1`);
+});
+
+test('a formula-like value in a typed field is neutralised, and what is stored for a date field stays text', () => {
+  for (const type of ['number', 'date', 'time', 'timestamp', 'boolean', 'integer', 'decimal']) {
+    assert.equal(csvField('=1+1', { type }), "'=1+1");
+  }
+  assert.equal(csvField('-42', { type: 'number' }), '-42');
+  assert.equal(csvField('-1+1', { type: 'date' }), "'-1+1");
+  const dir = mkdtempSync(join(tmpdir(), 'tabularius-csv-'));
+  const path = join(dir, 'typed.sqlite');
+  let store: Store | undefined;
+  try {
+    createStore(path);
+    store = new Store(path, 'Typed');
+    store.applyDesign([{ op: 'createTable', name: 'T', fields: [{ name: 'D', type: 'date' }] }] as never);
+    store.create('T', { D: '=1+1' });
+    const value = String(store.select('SELECT D FROM T').rows[0][0]);
+    assert.equal(csvField(value, { type: 'date' }), "'=1+1");
+  } finally {
+    store?.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a legitimate negative time, date or timestamp keeps its minus sign, and anything else that starts with one does not', () => {
+  assert.equal(csvField('-01:30:00', { type: 'time' }), '-01:30:00');
+  assert.equal(csvField('-0:05', { type: 'time' }), '-0:05');
+  assert.equal(csvField('-0001-01-01', { type: 'date' }), '-0001-01-01');
+  assert.equal(csvField('-0001-01-01 12:00:00.5', { type: 'timestamp' }), '-0001-01-01 12:00:00.5');
+  for (const [text, type] of [['-01:30:00', 'number'], ['-0001-01-01', 'time'], ['-01:30:00', 'text'], ['-1+1', 'time'], ['-1+1', 'date'], ['-cmd|calc', 'timestamp'], ['-01:30:00 x', 'time'], ['=1+1', 'time'], ['@SUM(1)', 'number']]) {
+    assert.equal(csvField(text, { type }), `'${text}`, `${type} ${text}`);
+  }
 });
 
 test('CSV fields preserve cell text and quote after neutralization', () => {

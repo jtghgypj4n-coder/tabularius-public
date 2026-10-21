@@ -98,6 +98,12 @@ test('a ? with no value given is an error, not an empty result', () => {
   assert.throws(() => rows('SELECT Name FROM E WHERE Name = ?'), /1 \? placeholder but 0 values were given/);
 });
 
+test('placeholders counts ? and ?N the way SQLite numbers them, ignoring quoted text and comments', () => {
+  assert.equal(placeholders('SELECT ?5, ?'), 6);
+  assert.equal(placeholders("SELECT '?8', ?2, /* ?9 */ ?, -- ?10\n ?"), 4);
+  assert.equal(placeholders('SELECT ?, ?3, ?, ?1, ?'), 5);
+});
+
 test('string and number functions of the FileMaker dialect', () => {
   const one = (q: string) => Object.values(rows(q)[0])[0];
   assert.equal(one("SELECT LEFT('Mattson', 3) FROM E"), 'Mat');

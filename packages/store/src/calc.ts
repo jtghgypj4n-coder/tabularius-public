@@ -2010,7 +2010,8 @@ export class Calculations {
       }
     }
     checkUnionTypes(query, (name) => types.get(name));
-    let sql = anyAllToIn(fileMakerSqlSyntax(query, (name) => kinds.get(name) ?? undefined));
+    const tableColumns = (name: string) => this.store.schema.tables.find((t) => t.name.toLowerCase() === name)?.fields.map((f) => f.name);
+    let sql = anyAllToIn(fileMakerSqlSyntax(query, (name) => kinds.get(name) ?? undefined), tableColumns);
     // The filename lookup reads the container catalog. A scoped account must keep the ordinary CAST: an alias or
     // derived column with the same name as a container field could otherwise use an arbitrary id to read that catalog.
     if (!privileges || privileges.readsEverything) {

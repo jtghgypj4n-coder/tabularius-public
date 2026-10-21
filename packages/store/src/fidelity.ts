@@ -11,6 +11,7 @@ import type { Field, Table } from '../../fmp12/src/index.ts';
 import { fromStored } from '../../calc/src/index.ts';
 import type { SqlValue } from './find.ts';
 import { q } from './import.ts';
+import { sqlTokens } from './sql-tokens.ts';
 import type { Store } from './store.ts';
 
 export interface FidelityTally {
@@ -62,13 +63,42 @@ const SQL_WORDS = /^(select|distinct|count|sum|avg|min|max|from|where|and|or|not
 
 /** A query reduced to its SQL keywords and punctuation: names become "x", literals "v", parameters "?". */
 export function queryShape(sql: string): string {
-  return sql
-    .replace(/'(?:[^']|'')*'/g, ' \u0001 ')
-    .replace(/"(?:[^"]|"")*"/g, ' \u0002 ')
-    .replace(/\b\d+(?:\.\d+)?\b/g, ' \u0001 ')
-    .replace(/[A-Za-z_][\w.$]*/g, (w) => (SQL_WORDS.test(w) ? w.toUpperCase() : '\u0002'))
-    .replace(/\u0001/g, 'v')
-    .replace(/\u0002/g, 'x')
+  let tokens: ReturnType<typeof sqlTokens>;
+  // A query with an unterminated quote or comment has no shape; it is still reported (as its problem), not thrown.
+  try { tokens = sqlTokens(sql); } catch { return '(unparsed)'; }
+  const operand = (t: (typeof tokens)[number] | undefined) => !!t && (t.kind === 'identifier' || t.kind === 'string' || (t.kind === 'word' && !SQL_WORDS.test(t.text)));
+  const number = (t: (typeof tokens)[number] | undefined) => t?.kind === 'word' && /^\d/.test(t.text);
+  // A number such as 1.5e-3 is split by the tokenizer at the dot and at the sign after the exponent.
+  const signedExponent = (at: number) => number(tokens[at]) && /^\d[\d_]*e$/i.test(tokens[at].text) && /^[-+]$/.test(tokens[at + 1]?.text ?? '') && number(tokens[at + 2]);
+  const shape: string[] = [];
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i];
+    // A dotted name (a.b, "a"."b", t.*) or a decimal number (1.5, 1., .5) is one name or one value.
+    if (t.kind === 'symbol' && t.text === '.') {
+      const prev = tokens[i - 1];
+      const next = tokens[i + 1];
+      if (number(next) && !number(prev) && !operand(prev)) { shape.push(' v '); i++; if (signedExponent(i)) i += 2; continue; }
+      if (number(prev)) {
+        if (number(next)) { i++; if (signedExponent(i)) i += 2; }
+        // 1.e3 and 1.e-3: the exponent of a number written with a bare dot.
+        else if (next?.kind === 'word' && /^e\d*$/i.test(next.text)) { i++; if (/^e$/i.test(next.text) && /^[-+]$/.test(tokens[i + 1]?.text ?? '') && number(tokens[i + 2])) i += 2; }
+        continue;
+      }
+      if (operand(prev)) {
+        if (operand(next) || number(next)) { i++; continue; }
+        if (next?.text === '*') continue;
+      }
+    }
+    if (signedExponent(i)) { shape.push(' v '); i += 2; continue; }
+    if (t.kind === 'comment') shape.push(' ');
+    else if (t.kind === 'string' || /^\d/.test(t.text)) shape.push(' v ');
+    else if (t.kind === 'identifier') shape.push(' x ');
+    else if (t.kind === 'parameter') shape.push('?');
+    else if (t.kind === 'word') shape.push(SQL_WORDS.test(t.text) ? t.text.toUpperCase() : 'x');
+    else if (t.kind === 'symbol' && !/^[!#$%&()*+,./:;<=>?@[\]^{|}~-]$/u.test(t.text)) shape.push(' x ');
+    else shape.push(t.text);
+  }
+  return shape.join('')
     .replace(/\s+/g, ' ')
     .replace(/\bx(?: x)+\b/g, 'x')
     .trim();

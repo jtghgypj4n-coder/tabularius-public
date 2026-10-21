@@ -453,10 +453,13 @@ export function exportSql(store: Store, sink: ExportSqlSink, opts: ExportSqlOpti
     if (!list.values) { bump(report.skipped, 'value list drawn from a field or another file'); continue; }
     if (pv && pv.valueList(list.name) === 'none') { bump(report.skipped, 'value list the account may not use'); continue; }
     const name = names.take(`value_list_${list.name}`);
-    const items = [...new Set(list.values)].filter((v) => v !== '');
+    const items = [...new Set(list.values.map((v) => {
+      report.nulCharactersDropped += Number(v.includes('\u0000'));
+      return v.replace(/\u0000/g, '');
+    }))].filter((v) => v !== '');
     out(`CREATE TABLE ${q(name)} (\n  "value" TEXT NOT NULL PRIMARY KEY,\n  "position" INTEGER NOT NULL\n);\n`);
     for (let i = 0; i < items.length; i += batch) {
-      out(`INSERT INTO ${q(name)} ("value", "position") VALUES\n${items.slice(i, i + batch).map((v, j) => `  (${str(v.replace(/\u0000/g, ''))}, ${i + j + 1})`).join(',\n')};\n`);
+      out(`INSERT INTO ${q(name)} ("value", "position") VALUES\n${items.slice(i, i + batch).map((v, j) => `  (${str(v)}, ${i + j + 1})`).join(',\n')};\n`);
     }
     out('\n');
     report.valueLists++;
