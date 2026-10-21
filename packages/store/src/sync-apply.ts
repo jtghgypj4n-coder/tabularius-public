@@ -203,6 +203,17 @@ const upsertMap = (store: SyncLocal, key: string, e: SyncMapEntry): void => {
 
 const dropMap = (store: SyncLocal, key: string, uuid: string): void => {
   store.sql.prepare('DELETE FROM _fm_sync_map WHERE table_key = ? AND uuid = ?').run(key, uuid);
+  store.sql.prepare('DELETE FROM _fm_sync_container_pending WHERE table_key = ? AND uuid = ?').run(key, uuid);
+};
+
+const markContainersPending = (store: SyncLocal, key: string, uuid: string, files: { field: string }[]): void => {
+  const insert = store.sql.prepare('INSERT OR IGNORE INTO _fm_sync_container_pending (table_key, uuid, field) VALUES (?, ?, ?)');
+  for (const f of files) insert.run(key, uuid, f.field);
+};
+
+const clearContainersPending = (store: SyncLocal, key: string, uuid: string, fields: string[]): void => {
+  const remove = store.sql.prepare('DELETE FROM _fm_sync_container_pending WHERE table_key = ? AND uuid = ? AND field = ?');
+  for (const field of fields) remove.run(key, uuid, field);
 };
 
 /** Why a table was held back from writing by an earlier run, or undefined. */
@@ -374,7 +385,7 @@ async function applySyncRun(store: SyncLocal & Partial<Pick<Store, 'present' | '
     }
   }
   const result = { runId, write: opts.write, pull: !!opts.pull, plans: details.map((d) => d.plan), tables: [], interrupted: 0, ...(opts.containers ? { containersCompared: comparing } : {}) } as ApplyResult;
-  const progressTotal = details.reduce((n, d) => n + (opts.write ? d.plan.pushes.length : 0) + (opts.pull ? d.plan.pulls.length : 0), 0);
+  let progressTotal = details.reduce((n, d) => n + (opts.write ? d.plan.pushes.length : 0) + (opts.pull ? d.plan.pulls.length : 0), 0);
   const progressStarted = Date.now();
   let progressCompleted = 0;
   const progress = (final = false) => {
@@ -497,6 +508,17 @@ async function applySyncRun(store: SyncLocal & Partial<Pick<Store, 'present' | '
     const localBy = new Map(d.locals.filter((r) => r.uuid.trim() !== '').map((r) => [r.uuid, r]));
     const remoteBy = new Map(d.remotes.filter((r) => r.uuid.trim() !== '').map((r) => [r.uuid, r]));
     const key = d.plan.tableKey;
+    if (opts.write && opts.containers && sendFileFields.length) {
+      const pending = store.sql.prepare('SELECT DISTINCT uuid FROM _fm_sync_container_pending WHERE table_key = ?').all(key) as { uuid: string }[];
+      const planned = new Set(d.plan.pushes.map((item) => item.uuid));
+      for (const { uuid } of pending) {
+        if (!planned.has(uuid) && localBy.has(uuid) && remoteBy.has(uuid)) {
+          d.plan.pushes.push({ uuid, direction: 'push', op: 'update', reason: 'pending container upload' });
+          progressTotal++;
+          planned.add(uuid);
+        }
+      }
+    }
 
     const data = (local: LocalRecord, remoteRec: RemoteRecord | undefined): Record<string, string | number> => {
       const out: Record<string, string | number> = {};
@@ -711,8 +733,10 @@ async function applySyncRun(store: SyncLocal & Partial<Pick<Store, 'present' | '
     // The local container files a record being sent needs sent too: the ones FileMaker lacks or holds differently
     // (compared by fetching its file, for a record that exists there). A file that can't be sent is listed, not an error.
     const maxFile = opts.containers?.maxBytes ?? 0;
-    const filesToSend = async (local: LocalRecord, rem: RemoteRecord | undefined): Promise<{ field: string; file: RemoteFile }[]> => {
+    const filesToSend = async (local: LocalRecord, rem: RemoteRecord | undefined): Promise<{ files: { field: string; file: RemoteFile }[]; satisfied: string[] }> => {
       const out: { field: string; file: RemoteFile }[] = [];
+      const satisfied: string[] = [];
+      const retrying = new Set((store.sql.prepare('SELECT field FROM _fm_sync_container_pending WHERE table_key = ? AND uuid = ?').all(key, local.uuid) as { field: string }[]).map((r) => r.field));
       for (const field of sendFileFields) {
         const had = Number(local.fields[field]);
         if (!Number.isInteger(had) || had <= 0) {
@@ -729,22 +753,31 @@ async function applySyncRun(store: SyncLocal & Partial<Pick<Store, 'present' | '
         if (!mine) continue;
         const address = rem?.fields[field] ?? '';
         if (rem && address !== '') {
-          if (!remote.fetchContainer) { skipContainer(local.uuid, field, 'FileMaker\'s file can\'t be fetched to compare'); continue; }
-          t.containers.checked++;
-          const got = await remote.fetchContainer(d.config.remoteLayout, address, maxFile);
-          assertWritable();
-          if ('skipped' in got) { skipContainer(local.uuid, field, `not compared with FileMaker's file: ${got.skipped}`); continue; }
-          if (Buffer.from(mine.data.buffer, mine.data.byteOffset, mine.data.byteLength).equals(got.data)) { t.containers.unchanged++; continue; }
+          if (!remote.fetchContainer) {
+            if (!retrying.has(field)) { skipContainer(local.uuid, field, 'FileMaker\'s file can\'t be fetched to compare'); continue; }
+          } else {
+            t.containers.checked++;
+            const got = await remote.fetchContainer(d.config.remoteLayout, address, maxFile);
+            assertWritable();
+            if ('skipped' in got) {
+              if (!retrying.has(field)) { skipContainer(local.uuid, field, `not compared with FileMaker's file: ${got.skipped}`); continue; }
+            } else if (Buffer.from(mine.data.buffer, mine.data.byteOffset, mine.data.byteLength).equals(got.data)) {
+              t.containers.unchanged++;
+              satisfied.push(field);
+              continue;
+            }
+          }
         }
         out.push({ field, file: { filename: mine.filename, mime: mine.mime, data: mine.data } });
       }
-      return out;
+      return { files: out, satisfied };
     };
     // Sends the files to a record on FileMaker. A refused file is listed and the rest go on; anything that isn't one
     // file's problem (the account, the network, a changed review) comes back as `fatal` for the caller to raise after
     // it has recorded the record.
-    const sendFilesTo = async (uuid: string, layout: string, recordId: string, files: { field: string; file: RemoteFile }[], beforeSend: () => void): Promise<{ modId?: string; fatal?: unknown }> => {
+    const sendFilesTo = async (uuid: string, layout: string, recordId: string, files: { field: string; file: RemoteFile }[], beforeSend: () => void): Promise<{ modId?: string; fatal?: unknown; completed: string[] }> => {
       let modId: string | undefined;
+      const completed: string[] = [];
       for (const f of files) {
         try {
           const up = await w.uploadContainer!(layout, recordId, f.field, f.file, beforeSend);
@@ -752,13 +785,14 @@ async function applySyncRun(store: SyncLocal & Partial<Pick<Store, 'present' | '
           reviewsMatch();
           modId = up.modId;
           t.containers.sent++;
+          completed.push(f.field);
         } catch (e) {
           assertWritable();
           if (e instanceof SyncWriteError && e.recordLevel && e.code !== 'stale-review') skipContainer(uuid, f.field, e.message);
-          else return { modId, fatal: e };
+          else return { modId, fatal: e, completed };
         }
       }
-      return { modId };
+      return { modId, completed };
     };
     const order = { create: 0, update: 1, delete: 2 };
     for (const item of progressItems([...d.plan.pushes].sort((a, b) => order[a.op] - order[b.op] || (a.uuid < b.uuid ? -1 : 1)))) {
@@ -793,7 +827,8 @@ async function applySyncRun(store: SyncLocal & Partial<Pick<Store, 'present' | '
         if (item.op === 'create') {
           if (!local) throw new SyncWriteError(`${item.uuid}: the local record is gone`, 'local-missing', true);
           const fieldData = data(local, undefined);
-          const files = sendFileFields.length ? await filesToSend(local, undefined) : [];
+          const fileWork = sendFileFields.length ? await filesToSend(local, undefined) : { files: [], satisfied: [] };
+          const files = fileWork.files;
           if (files.length) { assertWritable(); if (!reviewsMatch()) return finish('refused'); }
           rowId = logRow(store, runId, at, { key, layout, uuid: item.uuid, op: 'create', status: 'attempt', fields: [...Object.keys(fieldData), ...files.map((f) => f.field)] });
           crashPoint('sync-push:after-attempt');
@@ -830,10 +865,17 @@ async function applySyncRun(store: SyncLocal & Partial<Pick<Store, 'present' | '
             });
             throw new SyncWriteError(why, 'uuid-not-kept');
           }
+          // Acknowledge the scalar row together with its outstanding file work
+          // before starting uploads, so a process exit can resume those fields.
+          atomically(store, () => {
+            markContainersPending(store, key, item.uuid, files);
+            upsertMap(store, key, { uuid: item.uuid, localRecordId: local.recordId, lastLocalModId: local.modId, remoteRecordId: made.recordId, lastRemoteModId: back!.modId, lastRemoteModTs: back!.modTimestamp ?? null });
+          });
           // The files go to the record just made. Whatever happens to them, the record is recorded.
-          const sent = files.length ? await sendFilesTo(item.uuid, layout, made.recordId, files, beforeSend) : {};
+          const sent = files.length ? await sendFilesTo(item.uuid, layout, made.recordId, files, beforeSend) : { completed: [] as string[] };
           const finalMod = sent.modId ?? back.modId;
           atomically(store, () => {
+            clearContainersPending(store, key, item.uuid, [...fileWork.satisfied, ...sent.completed]);
             upsertMap(store, key, { uuid: item.uuid, localRecordId: local.recordId, lastLocalModId: local.modId, remoteRecordId: made.recordId, lastRemoteModId: finalMod, lastRemoteModTs: sent.modId ? null : back.modTimestamp ?? null });
             finishRow(store, rowId, 'ok', { remoteRecordId: made.recordId, after: finalMod });
             crashPoint('sync-push:after-map');
@@ -845,11 +887,13 @@ async function applySyncRun(store: SyncLocal & Partial<Pick<Store, 'present' | '
         } else if (item.op === 'update') {
           if (!local || !rem) throw new SyncWriteError(`${item.uuid}: the record isn't in the snapshot this plan was made from`, 'snapshot-missing', true);
           const fieldData = data(local, rem);
-          const files = sendFileFields.length ? await filesToSend(local, rem) : [];
+          const fileWork = sendFileFields.length ? await filesToSend(local, rem) : { files: [], satisfied: [] };
+          const files = fileWork.files;
           if (files.length) { assertWritable(); if (!reviewsMatch()) return finish('refused'); }
           if (!Object.keys(fieldData).length && !files.length) {
             consumeReview(d.config.localTable, item.uuid);
             atomically(store, () => {
+              clearContainersPending(store, key, item.uuid, fileWork.satisfied);
               upsertMap(store, key, { uuid: item.uuid, localRecordId: local.recordId, lastLocalModId: local.modId, remoteRecordId: rem.recordId, lastRemoteModId: rem.modId, lastRemoteModTs: rem.modTimestamp ?? null });
               logRow(store, runId, at, { key, layout, uuid: item.uuid, op: 'update', status: 'noop', remoteRecordId: rem.recordId, before: rem.modId, after: rem.modId, detail: 'no field differs (fields that can\'t be sent aside); nothing sent' });
             });
@@ -871,9 +915,16 @@ async function applySyncRun(store: SyncLocal & Partial<Pick<Store, 'present' | '
             if (!reviewsMatch()) throw new SyncWriteError(result.refused!, 'stale-review', true);
             if (!now_ || now_.modId !== rem.modId) throw new SyncWriteError(`${item.uuid}: changed on FileMaker since it was read (modId ${rem.modId} -> ${now_?.modId ?? 'gone'}); its files were not sent`, '306', true);
           }
-          const sent = files.length ? await sendFilesTo(item.uuid, layout, rem.recordId, files, beforeSend) : {};
+          // The scalar baseline and unfinished file fields survive a crash
+          // between the remote scalar update and the individual uploads.
+          atomically(store, () => {
+            markContainersPending(store, key, item.uuid, files);
+            upsertMap(store, key, { uuid: item.uuid, localRecordId: local.recordId, lastLocalModId: local.modId, remoteRecordId: rem.recordId, lastRemoteModId: modId, lastRemoteModTs: null });
+          });
+          const sent = files.length ? await sendFilesTo(item.uuid, layout, rem.recordId, files, beforeSend) : { completed: [] as string[] };
           modId = sent.modId ?? modId;
           atomically(store, () => {
+            clearContainersPending(store, key, item.uuid, [...fileWork.satisfied, ...sent.completed]);
             upsertMap(store, key, { uuid: item.uuid, localRecordId: local.recordId, lastLocalModId: local.modId, remoteRecordId: rem.recordId, lastRemoteModId: modId, lastRemoteModTs: null });
             finishRow(store, rowId, 'ok', { after: modId });
             crashPoint('sync-push:after-map');
