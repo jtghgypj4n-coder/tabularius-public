@@ -1225,6 +1225,7 @@ test('a record settled for FileMaker gives up the files it owed, and takes FileM
     assert.deepEqual(pendingRows(r.store), []);
     assert.equal(rows(r.store)[0].Name, 'EditedOnFM');
     assert.equal(r.store.container(Number(rows(r.store)[0].Photo))?.data.length, 'their file'.length);
+    assert.match(res.tables[0].containers.skipped.map((x) => x.reason).join(), /FileMaker's file \(10 bytes\) replaced the file here that was owed to it/);
   } finally { cleanup(r); }
 });
 
@@ -1236,8 +1237,10 @@ test('a record in use (301) keeps its owed file for the next run; a refusal that
     r.fm.uploadFailure = new SyncWriteError('Record is in use (error 301)', '301', true);
     const first = await r.run({ containers });
     assert.equal(first.stopped, undefined);
+    assert.deepEqual(first.tables[0].failed.map((x) => x.op), ['container'], 'counted as failed while it is tried again');
     assert.deepEqual(owedFields(r.store), ['u1:Photo']);
-    await again(r);
+    const second = await again(r);
+    assert.deepEqual(second.tables[0].failed, []);
     assert.deepEqual(sentFields(r), ['u1:Photo', 'u1:Photo']);
     assert.ok(r.fm.byUuid('u1')!.fields.Photo);
     assert.deepEqual(pendingRows(r.store), []);
@@ -1258,6 +1261,103 @@ test('after a kill that landed after the upload, a run that pulls nothing leaves
     const res = await again(r);
     assert.equal(res.refused, undefined);
     assert.equal(r.fm.byUuid('u1')!.fields.Name, 'Annie');
+  } finally { cleanup(r); }
+});
+
+test('a record settled for FileMaker whose file field is empty there keeps the file owed here, and sends it after', async () => {
+  const r = rig();
+  try {
+    const id = withFiles(r, 'u1', { Photo: 'photo bytes' });
+    r.fm.enableFetch();
+    await killed(r, { start: 0 });
+    const theirs = r.fm.byUuid('u1')!;
+    theirs.fields.Name = 'EditedOnFM';
+    theirs.modId++;
+    restart(r);
+    r.store.update('Contacts', id, { Name: 'EditedHere' });
+    const res = await again(r, { pull: true, resolve: 'filemaker-wins' });
+    assert.equal(rows(r.store)[0].Name, 'EditedOnFM');
+    assert.ok(Number(rows(r.store)[0].Photo) > 0, 'the file only this side holds is kept');
+    assert.equal(res.tables[0].containers.cleared, 0);
+    assert.match(res.tables[0].containers.skipped.map((x) => x.reason).join(), /whose field is empty: it is kept and sent/);
+    assert.deepEqual(owedFields(r.store), ['u1:Photo']);
+    assert.equal(r.fm.uploads.length, 0);
+    await again(r);
+    assert.deepEqual(sentFields(r), ['u1:Photo']);
+    assert.deepEqual(pendingRows(r.store), []);
+  } finally { cleanup(r); }
+});
+
+test('a conflict settled for FileMaker by a run that does not pull keeps the files owed', async () => {
+  const r = rig();
+  try {
+    const id = withFiles(r, 'u1', { Photo: 'photo bytes' });
+    r.fm.enableFetch();
+    await killed(r, { start: 0 });
+    const theirs = r.fm.byUuid('u1')!;
+    theirs.fields.Name = 'EditedOnFM';
+    theirs.modId++;
+    restart(r);
+    r.store.update('Contacts', id, { Name: 'EditedHere' });
+    await again(r, { resolve: 'filemaker-wins' });
+    assert.deepEqual(owedFields(r.store), ['u1:Photo']);
+    assert.equal(r.fm.uploads.length, 0);
+    assert.ok(Number(rows(r.store)[0].Photo) > 0);
+  } finally { cleanup(r); }
+});
+
+test('an owed file forgotten unsent (over the size limit) leaves FileMaker\'s newer file as a change for a pull', async () => {
+  const r = rig();
+  try {
+    withFiles(r, 'u1', { Photo: 'photo bytes' });
+    r.fm.enableFetch();
+    await killed(r, { start: 0 });
+    const known = readSyncMap(r.store, 'Local\u0000Contacts').find((m) => m.uuid === 'u1')!;
+    const theirs = r.fm.byUuid('u1')!;
+    r.fm.hold('container-theirs', Buffer.from('their own file'));
+    theirs.fields.Photo = 'container-theirs';
+    theirs.modId++;
+    restart(r);
+    const res = await again(r, { containers: { maxBytes: 5 } });
+    assert.match(res.tables[0].containers.skipped.map((x) => x.reason).join(), /over the 5-byte limit/);
+    assert.deepEqual(pendingRows(r.store), []);
+    assert.equal(readSyncMap(r.store, 'Local\u0000Contacts').find((m) => m.uuid === 'u1')!.lastRemoteModId, known.lastRemoteModId);
+    await again(r, { pull: true });
+    assert.equal(r.store.container(Number(rows(r.store)[0].Photo))?.data.length, 'their own file'.length);
+    assert.equal(r.fm.uploads.length, 0);
+  } finally { cleanup(r); }
+});
+
+test('a retry through a connection that cannot fetch files says the file was sent without comparing', async () => {
+  const r = rig();
+  try {
+    withFiles(r, 'u1', { Photo: 'photo bytes' });
+    await killed(r, { start: 0 });
+    const theirs = r.fm.byUuid('u1')!;
+    theirs.fields.Photo = 'container-theirs';
+    theirs.modId++;
+    restart(r);
+    const res = await again(r);
+    assert.deepEqual(sentFields(r), ['u1:Photo']);
+    assert.match(res.tables[0].containers.skipped.map((x) => x.reason).join(), /sent without comparing it with the one FileMaker holds: this connection can't fetch it/);
+  } finally { cleanup(r); }
+});
+
+test('a push with nothing to send but a file that agrees clears what was owed for it', async () => {
+  const r = rig();
+  try {
+    const id = withFiles(r, 'u1', { Photo: 'photo bytes' });
+    r.fm.enableFetch();
+    await r.run({ containers });
+    assert.equal(r.fm.uploads.length, 1);
+    // A save here that changes no value, and a file owed from an earlier run that did land.
+    r.store.update('Contacts', id, { Name: 'X' });
+    r.store.update('Contacts', id, { Name: 'Ann' });
+    r.store.sql.prepare('INSERT INTO _fm_sync_container_pending (table_key, uuid, field) VALUES (?, ?, ?)').run('Local\u0000Contacts', 'u1', 'Photo');
+    r.fm.calls.length = 0;
+    await again(r);
+    assert.deepEqual(r.fm.calls, []);
+    assert.deepEqual(pendingRows(r.store), []);
   } finally { cleanup(r); }
 });
 
