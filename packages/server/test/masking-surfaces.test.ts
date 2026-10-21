@@ -36,6 +36,12 @@ before(async () => {
     let raw = '';
     req.on('data', (c) => (raw += c));
     req.on('end', () => {
+      // The server writes each file's conversion-guide overview in the background as it starts hosting it, at no fixed
+      // moment: answered here, so it never takes an answer a test scripted for its own question.
+      if (/overview at the top of a conversion guide/.test(raw)) {
+        res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(text('An overview.')));
+        return;
+      }
       requests.push(raw);
       const next = script.shift();
       res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(next ? next(JSON.parse(raw)) : text('(no more answers)')));
