@@ -1709,7 +1709,7 @@ export class ODataEndpoint {
       }
       this.sessions.set(key, (session = new ScriptSession()));
     }
-    const r = await runScript(store, found.name, { parameter, account, session, ...this.host.scriptOptions(), executionAccount: account, executionVia: via, privileges: p });
+    const r = await runScript(store, found.name, { parameter, account, session, ...this.host.scriptOptions(store.name), executionAccount: account, executionVia: via, privileges: p });
     send(res, 200, { scriptResult: { code: r.error, resultParameter: r.result ?? '' } });
   }
 }

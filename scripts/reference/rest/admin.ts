@@ -273,6 +273,7 @@ export const groups: RestGroup[] = [
       String.raw`/^\/tabularius\/admin\/v1\/files\/[^/]+\/reconvert$/.test(`,
       `path === '/tabularius/admin/v1/reconvert-all'`,
       String.raw`/^\/tabularius\/admin\/v1\/locked\/[^/]+\/unlock$/.test(`,
+      `path.startsWith('/tabularius/admin/v1/script-network/')`,
       `path.startsWith('/tabularius/admin/v1/conversion-guide/')`,
       `path.startsWith('/tabularius/admin/v1/optimization/')`,
       `path.startsWith('/tabularius/admin/v1/stale-calcs')`,
@@ -281,6 +282,26 @@ export const groups: RestGroup[] = [
       `sub === '/undo'`,
     ],
     routes: [
+      {
+        method: 'GET',
+        path: '/tabularius/admin/v1/script-network/{database}',
+        summary: 'Whether the file\'s scripts may reach the network (Insert from URL, connections, MBS CURL). Off for every new or converted file until an administrator turns it on.',
+        permissions: READ,
+        params: [{ name: 'database', in: 'path', type: 'string', required: true, description: 'Hosted file (404 "No such hosted file").' }],
+        example: { request: `GET /tabularius/admin/v1/script-network/Invoices\n${COOKIE}`, status: 200, response: j({ on: false, serverWide: false }) },
+        notes: 'serverWide: the server was started with --allow-script-network, which allows every file whatever this switch says.',
+      },
+      {
+        method: 'POST',
+        path: '/tabularius/admin/v1/script-network/{database}',
+        summary: 'Turns script network access on or off for a file. Kept in the file and logged in its security events; it applies to the next script that runs. Scripts an AI app runs, debug runs on a scratch copy and dry runs stay offline either way.',
+        permissions: WRITE,
+        params: [
+          { name: 'database', in: 'path', type: 'string', required: true, description: 'Hosted file.' },
+          { name: 'on', in: 'body', type: 'boolean', required: true, description: 'true or false (400 "Send {\\"on\\": true} or {\\"on\\": false}" otherwise).' },
+        ],
+        example: { request: `POST /tabularius/admin/v1/script-network/Invoices\n${COOKIE}\n${W}\n${CT}\n\n${j({ on: true })}`, status: 200, response: j({ on: true, serverWide: false }) },
+      },
       {
         method: 'GET',
         path: '/tabularius/admin/v1/files/{name}/external-containers',

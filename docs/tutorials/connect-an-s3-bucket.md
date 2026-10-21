@@ -108,7 +108,7 @@ Insert from URL [ Select ; With dialog: Off ; Target: $r ; "connection://invoice
 ```
 
 A script cannot reach beyond the connection's bucket and folder, add ACLs, copy from another bucket or see the keys.
-Like every outbound step it works only on a server started with `--allow-script-network`, never when a capture-only
+Like every outbound step it works once **Script network** is turned on for the file in the admin console (or the server is started with `--allow-script-network`, which turns it on for every file), never when a capture-only
 file is anywhere on the call stack, and never for a script an AI runs. A scheduled script uses connections only while
 the files are as a person last approved them for that schedule.
 

@@ -14150,6 +14150,8 @@ Source: `packages/server/src/admin.ts`
 
 | Method | Path | What it does |
 | --- | --- | --- |
+| GET | [`/tabularius/admin/v1/script-network/{database}`](#admin-files-get-tabularius-admin-v1-script-network-database) | Whether the file's scripts may reach the network (Insert from URL, connections, MBS CURL). Off for every new or converted file until an administrator turns it on. |
+| POST | [`/tabularius/admin/v1/script-network/{database}`](#admin-files-post-tabularius-admin-v1-script-network-database) | Turns script network access on or off for a file. Kept in the file and logged in its security events; it applies to the next script that runs. Scripts an AI app runs, debug runs on a scratch copy and dry runs stay offline either way. |
 | GET | [`/tabularius/admin/v1/files/{name}/external-containers`](#admin-files-get-tabularius-admin-v1-files-name-external-containers) | Which container fields keep their files outside the file, and how many of those files are missing: the folder to bring over from FileMaker Server. |
 | GET | [`/tabularius/admin/v1/files/{name}/orphan-containers`](#admin-files-get-tabularius-admin-v1-files-name-orphan-containers) | Stored container data that no record refers to any more (left after records were deleted): how many, and each one's file name, external path and size. Nothing is removed. |
 | POST | [`/tabularius/admin/v1/files/{name}/orphan-containers`](#admin-files-post-tabularius-admin-v1-files-name-orphan-containers) | Removes the unreferenced container data the GET lists, including their files stored outside the file. Only with {"purge": true} (400 otherwise); answers what was removed and what is left. |
@@ -14167,6 +14169,75 @@ Source: `packages/server/src/admin.ts`
 | GET | [`/tabularius/admin/v1/stale-calcs`](#admin-files-get-tabularius-admin-v1-stale-calcs) | Stored calculations whose stored values differ from what their formula gives now, with examples, and the refreshes made so far. Changes nothing. |
 | POST | [`/tabularius/admin/v1/stale-calcs/refresh`](#admin-files-post-tabularius-admin-v1-stale-calcs-refresh) | Brings the chosen stored calculations up to date, all or none, as one batch written to the audit log as "admin console". |
 | POST | [`/tabularius/admin/v1/stale-calcs/undo`](#admin-files-post-tabularius-admin-v1-stale-calcs-undo) | Undoes a refresh: puts back the values it replaced, where they haven't changed again since. |
+
+<a id="admin-files-get-tabularius-admin-v1-script-network-database"></a>
+
+### `GET /tabularius/admin/v1/script-network/{database}`
+
+Whether the file's scripts may reach the network (Insert from URL, connections, MBS CURL). Off for every new or converted file until an administrator turns it on.
+
+**Permissions:** Admin console: a console sign-in (the tabularius_admin cookie from POST /tabularius/admin/v1/sign-in), or the admin password by HTTP Basic (any user name), or the folder's local channel token in x-tabularius-local (Tabularius commands on the server machine). With no admin password set, only requests from this machine (loopback) are let in.
+
+**Parameters:**
+
+| Name | In | Type | Required | Description |
+| --- | --- | --- | --- | --- |
+| `database` | path | string | yes | Hosted file (404 "No such hosted file"). |
+
+**Example:**
+
+```http
+GET /tabularius/admin/v1/script-network/Invoices
+Cookie: tabularius_admin=6b1f0c2e6b1f0c2e6b1f0c2e6b1f0c2e6b1f0c2e6b1f0c2e6b1f0c2e6b1f0c2e
+```
+
+Response `200`:
+
+```json
+{
+  "on": false,
+  "serverWide": false
+}
+```
+
+serverWide: the server was started with --allow-script-network, which allows every file whatever this switch says.
+
+<a id="admin-files-post-tabularius-admin-v1-script-network-database"></a>
+
+### `POST /tabularius/admin/v1/script-network/{database}`
+
+Turns script network access on or off for a file. Kept in the file and logged in its security events; it applies to the next script that runs. Scripts an AI app runs, debug runs on a scratch copy and dry runs stay offline either way.
+
+**Permissions:** Admin console: a console sign-in (the tabularius_admin cookie from POST /tabularius/admin/v1/sign-in), or the admin password by HTTP Basic (any user name), or the folder's local channel token in x-tabularius-local (Tabularius commands on the server machine). With no admin password set, only requests from this machine (loopback) are let in. Not a GET, so it also needs the header x-tabularius-admin: 1 (403 "missing x-tabularius-admin header" without it).
+
+**Parameters:**
+
+| Name | In | Type | Required | Description |
+| --- | --- | --- | --- | --- |
+| `database` | path | string | yes | Hosted file. |
+| `on` | body | boolean | yes | true or false (400 "Send {\"on\": true} or {\"on\": false}" otherwise). |
+
+**Example:**
+
+```http
+POST /tabularius/admin/v1/script-network/Invoices
+Cookie: tabularius_admin=6b1f0c2e6b1f0c2e6b1f0c2e6b1f0c2e6b1f0c2e6b1f0c2e6b1f0c2e6b1f0c2e
+x-tabularius-admin: 1
+Content-Type: application/json
+
+{
+  "on": true
+}
+```
+
+Response `200`:
+
+```json
+{
+  "on": true,
+  "serverWide": false
+}
+```
 
 <a id="admin-files-get-tabularius-admin-v1-files-name-external-containers"></a>
 

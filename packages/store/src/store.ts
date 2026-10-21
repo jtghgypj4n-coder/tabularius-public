@@ -3156,6 +3156,21 @@ export class Store {
     });
   }
 
+  /**
+   * Whether this file's scripts may reach the network (Insert from URL and the plug-in functions that follow it). Off
+   * unless an administrator turned it on; a converted or new file starts off. Kept in the file, and in its security log.
+   */
+  get scriptNetwork(): boolean { return this.meta('scriptNetwork') === true; }
+
+  setScriptNetwork(on: boolean, opts: { account?: string } = {}): void {
+    if (typeof on !== 'boolean') throw new StoreError(960, 'Script network access must be true or false');
+    this.securityChange(() => {
+      if (on === this.scriptNetwork) return;
+      this.sql.prepare(`INSERT INTO _fm_meta VALUES ('scriptNetwork', ?) ON CONFLICT(key) DO UPDATE SET json = excluded.json`).run(JSON.stringify(on));
+      this.logSecurity(on ? 'script-network-on' : 'script-network-off', { account: opts.account ?? null });
+    });
+  }
+
   /** Per-file AI-visible policy. Missing metadata is deliberately OFF for existing/imported files. */
   get aiPolicy(): boolean { return this.meta('aiPolicy') === true; }
 

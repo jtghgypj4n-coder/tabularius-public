@@ -504,6 +504,7 @@
   {"file":"packages/store/src/store.ts","fn":"Store/deleteScriptTest","gate":"CORE","sites":[{"api":"SQLite.prepare","hash":"14296d14a7576b462b77"},{"api":"Store.sql","hash":"14296d14a7576b462b77"}]},
   {"file":"packages/store/src/store.ts","fn":"Store/setAiAllowed","gate":"CORE","sites":[{"api":"SQLite.prepare","hash":"3b89e1bac8666bb8da9a"},{"api":"Store.sql","hash":"3b89e1bac8666bb8da9a"}]},
   {"file":"packages/store/src/store.ts","fn":"Store/setAiPolicy","gate":"CORE","sites":[{"api":"SQLite.prepare","hash":"c2e9dc39d6cf81a01c42"},{"api":"Store.sql","hash":"c2e9dc39d6cf81a01c42"}]},
+  {"file":"packages/store/src/store.ts","fn":"Store/setScriptNetwork","gate":"CORE","sites":[{"api":"SQLite.prepare","hash":"15a8553f0da9fbf9d03c"},{"api":"Store.sql","hash":"15a8553f0da9fbf9d03c"}]},
   {"file":"packages/store/src/store.ts","fn":"Store/setPiiIsolation","gate":"CORE","sites":[{"api":"SQLite.prepare","hash":"b8e092b433d1fc3b73da"},{"api":"Store.sql","hash":"b8e092b433d1fc3b73da"}]},
   {"file":"packages/store/src/store.ts","fn":"Store/markPiiField","gate":"CORE","sites":[{"api":"SQLite.prepare","hash":"352b618cbb523673d11b"},{"api":"Store.sql","hash":"352b618cbb523673d11b"}]},
   {"file":"packages/store/src/store.ts","fn":"Store/lastSignIns","gate":"CORE","sites":[{"api":"Store.auditLog","hash":"58691efe4c588fdd446d"}]},

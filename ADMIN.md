@@ -251,7 +251,8 @@ It prints what came over and what didn't, and why:
   know what to bring over when the old server's folder wasn't reachable.
 - **FileMaker script schedules** become Tabularius schedules with the same
   file, script, parameter, account and timing. Like all schedules here they
-  run offline. Weekly schedules that skip days come over turned off, since
+  run offline until the schedule's network option and the file's Script
+  network switch are both on. Weekly schedules that skip days come over turned off, since
   Tabularius schedules repeat every day or every few days; one that stopped at
   a time of day repeats around the clock. Schedule emails aren't sent.
 - **Backup schedules**: Tabularius has one backup schedule, so the most

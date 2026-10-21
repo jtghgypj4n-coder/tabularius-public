@@ -3843,6 +3843,7 @@ class Session implements Host {
     this.closePopover();
     this.clearDisplay();
     this.meta = meta;
+    showScriptNetwork(meta);
     this.layoutMenuSet();
     this.renderer = new LayoutRenderer(meta, SCOPE);
     this.focusedField = undefined;
@@ -6351,6 +6352,7 @@ class Session implements Host {
       this.cache.clear();
       this.states.clear();
       this.meta = meta;
+      showScriptNetwork(meta);
       // A set the script installed stays; otherwise the new layout's own set applies.
       if (!r.actions?.some((a) => a.step === 'Install Menu Set')) this.layoutMenuSet();
       this.renderer = new LayoutRenderer(meta, SCOPE);
@@ -8329,6 +8331,17 @@ if ('serviceWorker' in navigator && isSecureContext) {
   void navigator.serviceWorker.ready.then((reg) => reg.active?.postMessage({
     keep: [location.pathname, ...performance.getEntriesByType('resource').map((e) => e.name)],
   }));
+}
+
+// Scripts that can't reach the network yet (an administrator turns it on per file in the admin console): said until it is dismissed.
+const networkBanner = h('aside', { class: 'network-banner', role: 'status' },
+  h('span', {}, "Scripts can't reach the network yet. An administrator can turn it on when this copy is the live one."),
+  button('Dismiss', () => { networkBannerDismissed = true; networkBanner.remove(); }, { class: 'offline-action' }));
+let networkBannerDismissed = false;
+function showScriptNetwork(meta: LayoutMeta): void {
+  if (meta.scriptNetwork === false && !networkBannerDismissed) {
+    if (!networkBanner.isConnected) document.body.append(networkBanner);
+  } else networkBanner.remove();
 }
 
 // Without a connection: say so while it lasts, and what happens to changes, rather than failing request by request.
