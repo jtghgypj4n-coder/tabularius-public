@@ -12,7 +12,7 @@ import { unknownCalcTokens, type UnknownCalcToken } from '../../calc/src/unknown
 import { HIDDEN_VALUE, containsSecret, redactSecrets, secretName, storedSecretValues } from './ai-output.ts';
 import { externalFieldNames, PLUGIN_FUNCTIONS, scriptText, stepLine, type Field, type FieldRef as StepFieldRef, type LayoutObject, type StepParams, type Table } from '../../fmp12/src/index.ts';
 import { dataSourceFile, q } from '../../store/src/import.ts';
-import { lintFormula, type Privileges, type Store } from '../../store/src/index.ts';
+import { checkStoreFormula, lintFormula, type Privileges, type Store } from '../../store/src/index.ts';
 
 // --- references --------------------------------------------------------------
 
@@ -905,19 +905,19 @@ export function formulaGuard(store: Store, toId: number | undefined, formula: st
  * need a table occurrence), function names and argument counts. Optionally
  * evaluates it on the first few records of the layout.
  */
-export function checkCalculation(store: Store, layoutName: string, formula: string, sampleRecords = 0): CalculationCheck {
+export function checkCalculation(store: Store, layoutName: string, formula: string, sampleRecords = 0, privileges?: Privileges): CalculationCheck {
   const info = store.layout(layoutName);
   const toId = store.calc.occurrence(info.occurrence)?.id;
-  const check = checkFormula(store, toId, formula);
+  const check = checkFormula(store, toId, formula, privileges);
   if (check.error) return check;
-  const warnings = lintFormula(store, formula, { occurrence: toId }).filter((w) => w.code !== 'reference').map((w) => w.message);
+  const warnings = lintFormula(store, formula, { occurrence: toId, privileges }).filter((w) => w.code !== 'reference').map((w) => w.message);
   if (warnings.length) check.warnings = warnings;
   if (sampleRecords > 0) {
     const ids = store.findIds(info).slice(0, Math.min(sampleRecords, 20));
     const guard = formulaGuard(store, toId, formula);
     check.results = ids.map((recordId) => {
       try {
-        return { recordId, ...guard(store.evaluate(info, formula, recordId)) };
+        return { recordId, ...guard(store.evaluate(info, formula, recordId, privileges ? { account: privileges.account, privileges, typed: true } : {})) };
       } catch (e) {
         return { recordId, error: (e as Error).message };
       }
@@ -931,7 +931,19 @@ export function checkCalculation(store: Store, layoutName: string, formula: stri
  * names are its fields; none when the context is unknown). `variables` lists
  * the $ and $$ variables it reads.
  */
-export function checkFormula(store: Store, contextToId: number | undefined, formula: string): CalculationCheck & { variables: string[] } {
+export function checkFormula(store: Store, contextToId: number | undefined, formula: string, privileges?: Privileges): CalculationCheck & { variables: string[] } {
+  // For an account's own formula, names in another file resolve only as far as the account sees that file: a field it can't
+  // see is refused as one that doesn't exist is, before the catalog (which knows every file's fields) offers a "did you mean".
+  if (privileges) {
+    const seen = checkStoreFormula(store, formula, { occurrence: contextToId }, privileges);
+    // Refused when the account's view is what fails (the open check passes), or a name is missing in a formula that names
+    // a table of another file: the catalog's suggestions are for the rest, where no other file's field can come up.
+    const lower = formula.toLowerCase();
+    const other = store.schema.tableOccurrences.some((to) => to.dataSourceId && lower.includes(`${to.name.toLowerCase()}::`));
+    if (!seen.ok && ((seen.code === 102 && other) || checkStoreFormula(store, formula, { occurrence: contextToId }).ok)) {
+      return { ok: false, error: { code: seen.code, message: seen.message }, fields: [], functions: [], problems: [seen.message], variables: [] };
+    }
+  }
   const cat = solutionIndex(store).catalog;
   const names = cat.contextFor(contextToId);
   const tableName = contextToId !== undefined ? store.calc.occurrenceTable(contextToId)?.table.name ?? 'the current table' : 'the current table';

@@ -66,6 +66,44 @@ a summary input.
 Validation calculations and record-access rules also retain their internal
 full-data evaluation.
 
+## Formulas that read another file
+
+A formula that reads a table of another hosted file follows the account's
+privileges in **that** file, for whoever writes, tests or explains it. The
+account has to exist there: with no account in the other file, nothing in it
+resolves.
+
+- **Typing and testing a formula** (Specify Calculation's check, the formula
+  preview, Evaluate in the Data Viewer, the assistant's drafts, the MCP tools
+  `check_formula`, `check_calculation` and `evaluate_calculation`): a field of
+  another file the account cannot see (hidden or masked, in a table it cannot
+  view, or in a file where it has no account) is reported as missing, with the
+  same message as a field that does not exist, so naming it says nothing about
+  the file. Records the account's row rules do not allow are left out of what
+  the formula reads.
+- **Saving a stored formula** (a stored calculation, an auto-enter calculation, a
+  validation calculation or its message, a lookup) through the design route,
+  the staged-change apply route or MCP `change_design`: a stored value is worked
+  out with full data and kept for everyone, so it is refused when it reads a
+  field the account cannot see in the other file (again the same answer as for a
+  field that is not there), when it reads a table of which the account sees only
+  some records (use an unstored calculation, which is worked out for each
+  reader), or when it reads by name or query (`GetField`, `Evaluate`,
+  `ExecuteSQL`, also through a custom function) and the account cannot read all
+  of the other file. A relationship made on another file's field the account
+  cannot read is refused the same way. Accounts with Full Access in the other
+  file, and changes made without an account (the operator's, the owner's own
+  tools), are not restricted.
+- **Explain This Value and `explain_value`**: what the formula reads in the
+  other file is read as the account may, so the result and the steps over it
+  hold nothing it cannot see; a field of the other file it cannot see is not
+  listed, not even as "hidden".
+
+Not covered: a stored formula or relationship already in the file keeps what
+its author was allowed to write (it is not checked again), record-access rules
+are still worked out with full data, and a relationship the owner built on a
+field an account cannot see still lets that account's own key values probe it.
+
 ## Value-list membership validation: retained compatibility behavior
 
 The LOW finding is retained as the existing file-level integrity policy:

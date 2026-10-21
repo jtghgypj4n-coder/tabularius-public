@@ -3,7 +3,7 @@
 // formula boxes show it live as you type, and the assistant checks its drafts against it. Formulas only read;
 // nothing is stored.
 
-import type { Store } from '../../store/src/index.ts';
+import type { Privileges, Store } from '../../store/src/index.ts';
 
 export interface FormulaPreview {
   layout: string;
@@ -15,10 +15,11 @@ const SAMPLE_RECORDS = 5;
 /**
  * `text` evaluated from occurrence `contextTo` on up to `limit` records. `from` is where the person is (a layout
  * and record), used first when that layout is on the occurrence. None when no layout shows the occurrence or
- * it has no records.
+ * it has no records. With `privileges` (the account typing the formula), what it reads in another file is what the
+ * account may see there.
  */
 export function previewFormula(store: Store, contextTo: number | undefined, text: string,
-  from: { layout?: string; recordId?: unknown } = {}, limit = SAMPLE_RECORDS): FormulaPreview | undefined {
+  from: { layout?: string; recordId?: unknown } = {}, limit = SAMPLE_RECORDS, privileges?: Privileges): FormulaPreview | undefined {
   if (contextTo === undefined) return undefined;
   const on = store.schema.layouts.filter((l) => l.tableOccurrenceId === contextTo);
   const layout = on.find((l) => l.name === from.layout) ?? on[0];
@@ -38,7 +39,7 @@ export function previewFormula(store: Store, contextTo: number | undefined, text
     layout: layout.name,
     results: pick.map((recordId) => {
       try {
-        const { value } = store.evaluate(info, text, recordId);
+        const { value } = store.evaluate(info, text, recordId, privileges ? { account: privileges.account, privileges, typed: true } : {});
         return { recordId, value: value.length > 500 ? value.slice(0, 500) + '…' : value };
       } catch (e) {
         return { recordId, error: (e as Error).message.slice(0, 300) };
