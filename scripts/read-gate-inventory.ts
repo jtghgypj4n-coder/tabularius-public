@@ -10,9 +10,14 @@ export const READ_APIS = {
   related: new Set(['relatedRows', 'relatedIdList', 'firstRelatedEach', 'keyValue']),
   calc: new Set(['rowsById', 'rowsOf']),
 };
-/** The names of read APIs that are not also everyday method names (get, all, prepare), for members of untyped receivers. */
+/**
+ * The names of read APIs for members of untyped receivers. Everyday method names (get, find, select...) are reported
+ * only when the receiver is a cast of a Store, a calculation engine or a SQLite connection to any/unknown, so a
+ * Map or an array typed any is not.
+ */
+const EVERYDAY = new Set(['get', 'find', 'select', 'query', 'value', 'row', 'context', 'collect', 'related', 'summary', 'statement', 'describe', 'container', 'sql']);
 const NAMED = new Set([...READ_APIS.Store, ...READ_APIS.Calculations, ...READ_APIS.related, ...READ_APIS.calc]);
-for (const common of ['get', 'find', 'select', 'query', 'value', 'row', 'context', 'collect', 'related', 'summary', 'statement', 'describe', 'container', 'sql']) NAMED.delete(common);
+for (const common of EVERYDAY) NAMED.delete(common);
 export interface ReadSite { file: string; line: number; fn: string; api: string; hash: string }
 export interface AllowedReader { file: string; fn: string; gate: string; sites: { api: string; hash: string }[] }
 const digest = (text: string) => createHash('sha256').update(text).digest('hex').slice(0, 20);
@@ -84,10 +89,22 @@ export function collectReadSites(root = resolve(import.meta.dirname, '..'), over
     // member with a read-API name on it is reported by its name. A computed key on one (`(s as any)[key]()`) is not:
     // such keys are everywhere in code that has nothing to do with the store, so that case stays a known gap.
     const untyped = (e: ts.Expression) => (checker.getTypeAtLocation(e).flags & (ts.TypeFlags.Any | ts.TypeFlags.Unknown)) !== 0;
-    const unresolved = (receiver: ts.Expression, name: ts.Node): string | undefined => {
-      if (!untyped(receiver)) return;
-      if (ts.isStringLiteral(name) || ts.isIdentifier(name)) return NAMED.has(name.text) ? `Untyped.${name.text}` : undefined;
+    const holdsReader = (type: ts.Type) => (type.symbol?.declarations ?? []).some((d) => /\/(store\/src\/(store|calc|related)\.ts|node\/sqlite\.d\.ts)$/.test(d.getSourceFile().fileName));
+    // Whether an expression is a Store, calculation engine or connection cast to any/unknown, directly or through a variable.
+    const castOfReader = (e: ts.Expression, depth = 0): boolean => {
+      if (depth > 4) return false;
+      while (ts.isParenthesizedExpression(e) || ts.isNonNullExpression(e)) e = e.expression;
+      if (ts.isAsExpression(e) || ts.isTypeAssertionExpression(e)) return holdsReader(checker.getTypeAtLocation(e.expression)) || castOfReader(e.expression, depth + 1);
+      if (ts.isIdentifier(e)) {
+        const declaration = checker.getSymbolAtLocation(e)?.valueDeclaration;
+        if (declaration && ts.isVariableDeclaration(declaration) && declaration.initializer) return castOfReader(declaration.initializer, depth + 1);
+      }
+      return false;
     };
+    const untypedApi = (receiver: ts.Expression, name: string): string | undefined =>
+      untyped(receiver) && (NAMED.has(name) || (EVERYDAY.has(name) && castOfReader(receiver))) ? `Untyped.${name}` : undefined;
+    const unresolved = (receiver: ts.Expression, name: ts.Node): string | undefined =>
+      ts.isStringLiteral(name) || ts.isIdentifier(name) ? untypedApi(receiver, name.text) : undefined;
     const visit = (node: ts.Node) => {
       if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
         const name = ts.isPropertyAccessExpression(node) ? node.name : node.argumentExpression;
@@ -103,7 +120,7 @@ export function collectReadSites(root = resolve(import.meta.dirname, '..'), over
         if (ts.isVariableDeclaration(decl) && decl.initializer) {
           const name = (node.propertyName ?? node.name).getText();
           const symbol = checker.getTypeAtLocation(decl.initializer).getProperty(name);
-          const api = symbol?.declarations?.map(classify).find(Boolean);
+          const api = symbol?.declarations?.map(classify).find(Boolean) ?? untypedApi(decl.initializer, name);
           if (api) add(node, api);
         }
       }

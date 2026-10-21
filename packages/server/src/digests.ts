@@ -343,11 +343,14 @@ export class DigestRunner {
         return [name, file?.securityToken(), writes ? file?.writeToken() : undefined];
       }));
       let before = stamp();
-      const recheck = () => {
+      // After the webhook post the payload has gone out, so its record stays: the run says that it was sent.
+      const recheck = (posted = false) => {
         if (stamp() === before) return;
         const clean = withoutRecordData(run);
-        for (const key of ['summary', 'summaryNote', 'error', 'webhook'] as const) delete run[key];
-        Object.assign(run, clean, { outcome: 'error', error: 'Data or access changed while the digest was running; run it again.' });
+        for (const key of ['summary', 'summaryNote', 'error', ...(posted ? [] : ['webhook'] as const)] as const) delete run[key];
+        Object.assign(run, clean, { outcome: 'error', error: posted && run.webhook?.sent
+          ? 'Data or access changed while the digest was running, after it was sent to the webhook; run it again.'
+          : 'Data or access changed while the digest was running; run it again.' });
       };
       try {
         const account = store.accounts().find((a) => a.name.toLowerCase() === d.account.toLowerCase());
@@ -394,7 +397,7 @@ export class DigestRunner {
           }
         }
       }
-      recheck();
+      recheck(true);
       run.ms = Date.now() - started;
       new Digests(store).addRun(run);
       if (run.outcome === 'error') this.log(`digest "${d.name}" in ${store.name}: ${run.error}`);
