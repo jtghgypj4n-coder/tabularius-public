@@ -83,7 +83,8 @@ test('every row of the table holds on a server started with no flags', async (t)
 
   // node:http, not fetch: a request here has to be able to name another Host.
   const request: Ctx['request'] = (path, init = {}) => new Promise((resolve, reject) => {
-    const req = httpRequest({ host: '127.0.0.1', port, path, method: init.method ?? 'GET', headers: init.headers }, (res) => {
+    // No shared agent: a row that runs a command line (spawnSync) stops this process for seconds, long enough for the server to close a kept-alive socket.
+    const req = httpRequest({ host: '127.0.0.1', port, path, method: init.method ?? 'GET', headers: init.headers, agent: false }, (res) => {
       const chunks: Buffer[] = [];
       res.on('data', (c: Buffer) => chunks.push(c));
       res.on('end', () => {

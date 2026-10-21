@@ -295,12 +295,14 @@ Hosting (point it at a folder of .fmp12 files; each is converted once):
                                              converts afresh when edits can't be carried over
   tabularius passwd <folder> <database> <account> [--privilege-set S] [--must-change]
                                              Set an account's password (read from
-                                             TABULARIUS_PASSWORD or stdin); new accounts
-                                             need a privilege set. --must-change makes
+                                             TABULARIUS_PASSWORD or stdin; at least 12
+                                             characters unless the file's policy says
+                                             otherwise); new accounts need a privilege set. --must-change makes
                                              the person set a new one at next sign-in
   tabularius privileges <folder> <database> policy [minLength [maxAgeDays]]
                                              Show or set the file's password policy
-                                             (0 turns a limit off)
+                                             (0 turns a limit off; a file with no minimum
+                                             of its own takes 12, TABULARIUS_MIN_PASSWORD_LENGTH)
   tabularius privileges <folder> <database> must-change <account> [off]
                                              Require (or clear) a password change at
                                              the account's next sign-in

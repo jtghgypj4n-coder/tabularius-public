@@ -134,20 +134,23 @@ function migrateForm(sec: Sec): HTMLElement | undefined {
 /** The file-wide password policy (FileMaker's account options): minimum length and maximum age. */
 function policyForm(sec: Sec): HTMLElement {
   const policy = sec.security.passwordPolicy ?? {};
-  const num = (value: number | undefined, label: string) =>
-    h('input', { type: 'number', min: '0', step: '1', 'aria-label': label, placeholder: '0', value: value ? String(value) : '' }) as HTMLInputElement;
-  const minLen = num(policy.minLength, 'Minimum password length');
+  const num = (value: number | undefined, label: string, placeholder = '0') =>
+    h('input', { type: 'number', min: '0', step: '1', 'aria-label': label, placeholder, value: value ? String(value) : '' }) as HTMLInputElement;
+  // Blank keeps the server's default; 0 is a choice of no minimum, and is shown as 0.
+  const defaultMin = sec.security.minPasswordLength;
+  const minLen = num(policy.minLength, 'Minimum password length', defaultMin === undefined ? 'server default' : `server default (${defaultMin})`);
+  if (policy.minLength === 0) minLen.value = '0';
   const maxAge = num(policy.maxAgeDays, 'Maximum password age in days');
   const read = (el: HTMLInputElement) => { const n = Number(el.value); return el.value.trim() === '' || !Number.isFinite(n) ? 0 : Math.max(0, Math.trunc(n)); };
   const form = h('form', { class: 'd-inline-form sec-policy' },
     h('h2', {}, 'Password policy'),
-    field('Minimum length', minLen, '0 for no minimum'),
+    field('Minimum length', minLen, 'Blank for the server\'s default, 0 for no minimum'),
     field('Expires after (days)', maxAge, '0 to never expire'),
   );
   form.append(button('Save policy', () => form.requestSubmit()));
   form.addEventListener('submit', (e) => {
     e.preventDefault();
-    void sec.apply([{ op: 'setPasswordPolicy', policy: { minLength: read(minLen), maxAgeDays: read(maxAge) } }], 'Password policy saved');
+    void sec.apply([{ op: 'setPasswordPolicy', policy: { ...(minLen.value.trim() === '' ? {} : { minLength: read(minLen) }), maxAgeDays: read(maxAge) } }], 'Password policy saved');
   });
 
   // Require a second factor on every full-access account.
