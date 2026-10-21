@@ -63,15 +63,28 @@ const SQL_WORDS = /^(select|distinct|count|sum|avg|min|max|from|where|and|or|not
 
 /** A query reduced to its SQL keywords and punctuation: names become "x", literals "v", parameters "?". */
 export function queryShape(sql: string): string {
-  return sqlTokens(sql).map((t) => {
-    if (t.kind === 'comment') return ' ';
-    if (t.kind === 'string' || /^\d/.test(t.text)) return ' v ';
-    if (t.kind === 'identifier') return ' x ';
-    if (t.kind === 'parameter') return '?';
-    if (t.kind === 'word') return SQL_WORDS.test(t.text) ? t.text.toUpperCase() : 'x';
-    if (t.kind === 'symbol' && !/^[!#$%&()*+,./:;<=>?@[\]^{|}~-]$/u.test(t.text)) return ' x ';
-    return t.text;
-  }).join('')
+  let tokens: ReturnType<typeof sqlTokens>;
+  // A query with an unterminated quote or comment has no shape; it is still reported (as its problem), not thrown.
+  try { tokens = sqlTokens(sql); } catch { return '(unparsed)'; }
+  const operand = (t: (typeof tokens)[number] | undefined) => !!t && (t.kind === 'identifier' || t.kind === 'string' || (t.kind === 'word' && !SQL_WORDS.test(t.text)));
+  const shape: string[] = [];
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i];
+    // A dotted name (a.b, "a"."b", t.*) or a decimal number (1.5) is one name or one value.
+    if (t.kind === 'symbol' && t.text === '.' && i > 0 && operand(tokens[i - 1])) {
+      const next = tokens[i + 1];
+      if (operand(next) || (next?.kind === 'word' && /^\d/.test(next.text))) { i++; continue; }
+      if (next?.text === '*') continue;
+    }
+    if (t.kind === 'comment') shape.push(' ');
+    else if (t.kind === 'string' || /^\d/.test(t.text)) shape.push(' v ');
+    else if (t.kind === 'identifier') shape.push(' x ');
+    else if (t.kind === 'parameter') shape.push('?');
+    else if (t.kind === 'word') shape.push(SQL_WORDS.test(t.text) ? t.text.toUpperCase() : 'x');
+    else if (t.kind === 'symbol' && !/^[!#$%&()*+,./:;<=>?@[\]^{|}~-]$/u.test(t.text)) shape.push(' x ');
+    else shape.push(t.text);
+  }
+  return shape.join('')
     .replace(/\s+/g, ' ')
     .replace(/\bx(?: x)+\b/g, 'x')
     .trim();

@@ -43,7 +43,7 @@ const run = (query: string, params: (string | number)[] = []) => {
 };
 const rows = (query: string) => run(query).rows;
 
-test('AR-store-design-io-09', () => {
+test('placeholders keep their numbering when an ANY or ALL comparison is rewritten', () => {
   const db = new DatabaseSync(':memory:');
   try {
     const sql = anyAllToIn('SELECT ? > ALL (SELECT ?) AS result');
@@ -55,7 +55,7 @@ test('AR-store-design-io-09', () => {
   } finally { db.close(); }
 });
 
-test('AR-store-design-io-10', () => {
+test('ANY and ALL over an empty or NULL-bearing subquery give the standard answers', () => {
   const db = new DatabaseSync(':memory:');
   try {
     for (const [sql, expected] of [
@@ -69,7 +69,7 @@ test('AR-store-design-io-10', () => {
   } finally { db.close(); }
 });
 
-test('AR-store-design-io-10 aggregate operands do not bind to the quantified subquery', () => {
+test('aggregate operands do not bind to the quantified subquery', () => {
   for (const operand of ['COUNT(*)', 'COUNT(1)', 'SUM(1)', 'COUNT(?)']) {
     const query = `SELECT N, ${operand} FROM W GROUP BY N HAVING ${operand} > ALL (SELECT 1) ORDER BY N`;
     assert.equal(anyAllToIn(query), query);
@@ -78,7 +78,22 @@ test('AR-store-design-io-10 aggregate operands do not bind to the quantified sub
   assert.deepEqual(rows('SELECT N, SUM(N) FROM W GROUP BY N HAVING SUM(N) > ALL (SELECT 1) ORDER BY N'), [[2, 6], [3, 3]]);
 });
 
-test('AR-store-design-io-11', () => {
+test('aggregates of expressions with no column are left alone, and aggregates that name one are moved', () => {
+  const free = ['COUNT(1 IS NOT NULL)', 'COUNT(CURRENT_DATE)', 'COUNT(NOT 0)', 'COUNT(1 AND 1)', 'COUNT(1 BETWEEN 0 AND 2)', 'SUM((SELECT 1))',
+    'COUNT(:p)', 'COUNT($p)', 'COUNT(@p)', 'COUNT(1 COLLATE NOCASE)', "COUNT(X'00')", 'COUNT(CASE WHEN 1 THEN 2 END)', 'COUNT(ABS(-1))'];
+  for (const operand of free) {
+    const query = `SELECT N FROM W GROUP BY N HAVING ${operand} > ALL (SELECT 2 UNION ALL SELECT 2 UNION ALL SELECT 2)`;
+    assert.equal(anyAllToIn(query), query, operand);
+  }
+  // Correct answer (no group has more than the count it is compared with) instead of the rows of the moved subselect.
+  assert.deepEqual(rows('SELECT N FROM W GROUP BY N HAVING COUNT(N IS NOT NULL) > ALL (SELECT 3 UNION ALL SELECT 3)'), []);
+  for (const operand of ['COUNT(N)', 'COUNT("N")', 'SUM(ABS(N))', 'COUNT(DISTINCT N)', 'COUNT(CASE WHEN N > 1 THEN 1 END)', 'MAX((SELECT 1) + N)']) {
+    const query = `SELECT N FROM W GROUP BY N HAVING ${operand} > ALL (SELECT 0)`;
+    assert.notEqual(anyAllToIn(query), query, operand);
+  }
+});
+
+test('a quoted table and column name in the + string join, including doubled quotes', () => {
   const db = new DatabaseSync(':memory:');
   try {
     db.exec('CREATE TABLE T (Name TEXT); INSERT INTO T VALUES (\'A\')');
