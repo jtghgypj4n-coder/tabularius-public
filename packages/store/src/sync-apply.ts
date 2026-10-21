@@ -1031,14 +1031,17 @@ async function applySyncRun(store: SyncLocal & Partial<Pick<Store, 'present' | '
             if (!reviewsMatch()) throw new SyncWriteError(result.refused!, 'stale-review', true);
             if (!now_ || now_.modId !== rem.modId) throw new SyncWriteError(`${item.uuid}: changed on FileMaker since it was read (modId ${rem.modId} -> ${now_?.modId ?? 'gone'}); its files were not sent`, '306', true);
           }
-          // The scalar baseline is recorded before the uploads; the files owed were recorded with the attempt.
+          // The scalar baseline is recorded before the uploads; the files owed were recorded with the attempt. A run that ends
+          // before its uploads leaves every owed file owed, and the retry sends them (this side's file wins), so this is the same either way.
+          const known = mapBy.get(item.uuid)?.lastRemoteModId ?? undefined;
           atomically(store, () => {
             upsertMap(store, key, { uuid: item.uuid, localRecordId: local.recordId, lastLocalModId: local.modId, remoteRecordId: rem.recordId, lastRemoteModId: modId, lastRemoteModTs: null });
           });
           const sent = files.length ? await sendFilesTo(item.uuid, layout, rem.recordId, files, beforeSend) : { completed: [] as string[], uploaded: [] as string[] };
           modId = sent.modId ?? modId;
-          // A retried record keeps the version it was read at when a file owed was left unsent and FileMaker's differs.
-          const baseline = retryOnly.has(item.uuid) && leftDifferent(item.uuid, rem, fileWork, sent.uploaded) ? rem.modId : modId;
+          // A retried record with an owed file left unsent while FileMaker holds a different one keeps the baseline it had before the
+          // retry (FileMaker's record is then a change for a pull, whether or not an upload of this run moved its modId).
+          const baseline = retryOnly.has(item.uuid) && known !== undefined && leftDifferent(item.uuid, rem, fileWork, sent.uploaded) ? known : modId;
           atomically(store, () => {
             clearContainersPending(store, key, item.uuid, [...fileWork.satisfied, ...sent.completed]);
             upsertMap(store, key, { uuid: item.uuid, localRecordId: local.recordId, lastLocalModId: local.modId, remoteRecordId: rem.recordId, lastRemoteModId: baseline, lastRemoteModTs: null });
