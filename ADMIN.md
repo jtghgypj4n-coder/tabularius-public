@@ -772,7 +772,10 @@ place (that file's users are disconnected and it reopens).
 For a machine to take over if the server fails, run a **standby**:
 `tabularius serve <folder> --replication-token T` on the main server and
 `tabularius standby <folder> --primary URL --token T` on the second. To take
-over, stop the standby and `tabularius serve` its folder.
+over, stop the standby and `tabularius serve` its folder. What it keeps, what a
+takeover gives you and what it does not copy (sessions, externally stored
+containers, the settings files above) is in
+[docs/standby-guarantees.md](docs/standby-guarantees.md).
 
 ## Certificates (TLS)
 

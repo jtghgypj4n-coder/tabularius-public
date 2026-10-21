@@ -22911,7 +22911,7 @@ Authorization: Bearer 7c1f0e4b9a2d4e8f8b3a6c5d2e1f0a9b
 Response `200`:
 
 ```text
-(the file, Content-Type: application/vnd.sqlite3, with headers X-Tabularius-Run, X-Tabularius-Seq (the change it is from) and X-Tabularius-Whole-After (the change after which the copy is consistent))
+(the file, Content-Type: application/vnd.sqlite3, with headers X-Tabularius-Run, X-Tabularius-Seq (the change it is from) and X-Tabularius-Whole-After (the change after which the copy is consistent); the same three also as X-Openhbam-Run, -Seq and -Whole-After, for a standby from before the rename)
 ```
 
 <a id="replication-get-tabularius-replication-v1-files-database-changes"></a>
@@ -22941,7 +22941,7 @@ Authorization: Bearer 7c1f0e4b9a2d4e8f8b3a6c5d2e1f0a9b
 Response `200`:
 
 ```text
-(the encoded change records after `after`, at most 32 MB, Content-Type: application/octet-stream, with X-Tabularius-Run and X-Tabularius-Seq (the latest change); empty when the wait ran out)
+(the encoded change records after `after`, at most 32 MB, Content-Type: application/octet-stream, with X-Tabularius-Run and X-Tabularius-Seq (the latest change), also sent as X-Openhbam-Run and X-Openhbam-Seq; empty when the wait ran out)
 ```
 
 Errors carry the current run and seq: {"error", "run", "seq"}. 410 "too far behind: copy the file again" when the changes asked for are no longer kept; 409 "the file was taken up again: copy it again" when the file was reopened while waiting; 503 "the server is stopping".

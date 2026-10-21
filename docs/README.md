@@ -53,6 +53,7 @@ To read these pages offline with search, build the site: `npm run docs:build` wr
 - [Monitoring](monitoring.md) — Check server health and scrape its Prometheus metrics.
 - [Clock audit](clock-audit.md) — Which time checks use the monotonic clock, which stay on wall time, and the limits across restarts.
 - [What workers agree on](cluster-consistency.md) — What several `--workers` processes guarantee about record locks, modification ids and live updates, and the few places one may lag.
+- [Standby servers](standby-guarantees.md) — What a standby keeps, what a takeover gives you, what both sides taking writes does, the upgrade order, and what is not copied or not specified.
 - [Consistency across surfaces](consistency.md) — Where SQL, the web client and calculations agree, and where FileMaker's behaviour is not documented.
 - [Unknown tokens](unknown-token-ground-truth.md) — What a calculation does with a function or Get option the reader cannot name yet, and how `tabularius pair-tokens` names them from clipboard XML without printing private names.
 - [Calculation reads and field privileges](calculation-privileges.md) — What a calculation sees of a no-access, masked or read-only field, and how that compares with Claris documentation.

@@ -7,7 +7,7 @@ missing from it. `npm run docs:known-differences` rewrites it, and a test fails 
 marker (`<!-- known-difference: area ;; what ;; how it shows ;; what would settle it -->`). Internal working notes are not
 part of it.
 
-**76 entries in 16 areas.** Waiting on: 21 on a sample file, 43 on a FileMaker run or Design Report, 9 on a Claris answer, 15 on a decision by the owner (an entry can wait on more than one).
+**77 entries in 17 areas.** Waiting on: 21 on a sample file, 44 on a FileMaker run or Design Report, 10 on a Claris answer, 15 on a decision by the owner (an entry can wait on more than one).
 
 ## Data API
 
@@ -137,6 +137,12 @@ part of it.
 | What differs or is unknown | How it shows | What would settle it | Where it is written |
 | --- | --- | --- | --- |
 | vendor results for six constructs are unspecified in the cited pages | the conformance test records current behavior without an expected result | compare each construct with FileMaker and record the observed result | [docs/sql-grammar-conformance.md › Not verified](sql-grammar-conformance.md) — “…read do not say, so the file marks these entries unverified with no expected result (paths: []). The test…” |
+
+## Standby servers
+
+| What differs or is unknown | How it shows | What would settle it | Where it is written |
+| --- | --- | --- | --- |
+| Which of the standby behaviours listed on this page match FileMaker Server's own failover or cluster features is unverified; the feature is Tabularius's own | Someone expecting FileMaker's behaviour in a failover may see a different one | A FileMaker Server run or a Claris page on its failover | [docs/standby-guarantees.md › Not specified](standby-guarantees.md) — “…FileMaker Server does in any of these cases \| Unverified: no FileMaker behaviour was consulted” |
 
 ## Text comparison
 

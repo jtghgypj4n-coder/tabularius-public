@@ -175,6 +175,7 @@ export class Standby {
       try {
         const res = await this.get('/tabularius/replication/v1/files', 30);
         if (res.status === 401) throw new Error('the main server refused the replication token');
+        if (res.status === 404) throw new Error('the main server answered 404: it has no replication routes, because it was not started with --replication-token or because it is an older version (upgrade the main server first, then this standby)');
         if (!res.ok) throw new Error(`the main server answered ${res.status}`);
         const { files } = await res.json() as { files: { name: string }[] };
         for (const { name } of files) {
@@ -261,6 +262,9 @@ export class Standby {
       }
       for (const x of ['-wal', '-shm']) rmSync(partial + x, { force: true });
       for (const x of ['-wal', '-shm']) rmSync(target + x, { force: true });
+      // Noted before the file appears, and saved now rather than in a moment: a crash between the two must not leave a
+      // file in the folder that the next start takes for someone else's (a size and time that match nothing make it copy
+      // this one again, as for any copy the note of which is older than the file).
       this.state.files[name] = { run, seq, wholeAfter: Math.max(wholeAfter, seq + 1), size: -1, mtimeMs: -1, at: 0 };
       this.save();
       writeDurable(partial, target);
