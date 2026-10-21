@@ -755,7 +755,8 @@ administrator's way in is a bearer token: the one in `--mcp-token`, or else the
 one the server made on first start and keeps in `.openhbam-mcp-token` in the
 hosted folder, readable only by the account that runs the server. Print it with
 `tabularius mcp-token <folder>` and give it to the app as
-`Authorization: Bearer <token>`. Delete the file and restart to make a new one.
+`Authorization: Bearer <token>`. Delete the file and restart to make a new one. A cluster or a standby pair should be given the same `--mcp-token`, so every
+process, and a server that takes over, accepts the same token.
 Prefer a token made for one account in the admin console (**Connect an AI app**)
 over handing an app the administrator's.
 Every tool, with its parameters, permissions and an example, is in

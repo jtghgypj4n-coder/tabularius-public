@@ -20,7 +20,7 @@ before(async () => {
   if (skip) return;
   dir = mkdtempSync(join(tmpdir(), 'tabularius-mcp-sandbox-'));
   copyFileSync(fixture, join(dir, 'Charts.fmp12'));
-  const s = await serve({ dir, port: 0, log: () => {}, scriptNetwork: true, testOutbound: { allowHosts: ['127.0.0.1'] } });
+  const s = await serve({ mcpToken: 'test-admin-token', dir, port: 0, log: () => {}, scriptNetwork: true, testOutbound: { allowHosts: ['127.0.0.1'] } });
   server = s.server;
   base = s.url;
   host = s.host;
@@ -38,7 +38,7 @@ test('run_script from AI never reaches the network', { skip }, async () => {
   assert.equal(host.scriptOptions().network, true);
   const res = await fetch(`${base}/mcp`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-protocol-version': '2025-06-18' },
+    headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-protocol-version': '2025-06-18', authorization: 'Bearer test-admin-token' },
     body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'run_script', arguments: { database: 'Charts', script: 'Fetch', trace: true } } }),
   });
   const text: string = (await res.json()).result.content[0].text;
@@ -52,7 +52,7 @@ test('run_script from AI never uses outbound test mode: Send Mail is refused, no
   assert.ok(host.scriptOptions().outbound);
   const res = await fetch(`${base}/mcp`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-protocol-version': '2025-06-18' },
+    headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-protocol-version': '2025-06-18', authorization: 'Bearer test-admin-token' },
     body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'run_script', arguments: { database: 'Charts', script: 'Mail', trace: true } } }),
   });
   const text: string = (await res.json()).result.content[0].text;
@@ -65,7 +65,7 @@ test('run_script maxSeconds stops a script that never ends, saying which loop', 
   const t0 = Date.now();
   const res = await fetch(`${base}/mcp`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-protocol-version': '2025-06-18' },
+    headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-protocol-version': '2025-06-18', authorization: 'Bearer test-admin-token' },
     body: JSON.stringify({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'run_script', arguments: { database: 'Charts', script: 'Forever', maxSeconds: 1 } } }),
   });
   const run = JSON.parse((await res.json()).result.content[0].text);
@@ -75,7 +75,7 @@ test('run_script maxSeconds stops a script that never ends, saying which loop', 
   // More than the server's limit is refused by the tool's own schema.
   const over = await fetch(`${base}/mcp`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-protocol-version': '2025-06-18' },
+    headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-protocol-version': '2025-06-18', authorization: 'Bearer test-admin-token' },
     body: JSON.stringify({ jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'run_script', arguments: { database: 'Charts', script: 'Forever', maxSeconds: 600 } } }),
   });
   assert.match(JSON.stringify(await over.json()), /maxSeconds|too_big|less than or equal/i);

@@ -21,7 +21,7 @@ import { FmpDatabase, fileSource, encryptionInfo, readLayoutDesigns, segmentOf, 
 import { BUILT_IN_EXTENDED_PRIVILEGES, addCensus, styleCensus, styleCensusText, calcFidelity, censusText, exportSql, exportSqlSummary, planImportTables, importTables, importTablesSummary, notionMarkdownSheet, MAX_IMPORT_ROWS, type SheetInput, type ColumnOverrides, type ColumnKind, findStaleCalcs, layoutCensus, type LayoutCensus, createStore, designReport, importFmp12, PASSWORD_POLICY, DEFAULT_MIN_PASSWORD_LENGTH, reconvert, reconvertCheck, verifySecurityAudit, verifyRecordAudit, anchorHead, checkAnchor, Store, syncPlan, openForPlanning, applySync, readSyncLog, releaseHeldTables, type ConflictPolicy, writeBackKit, designText, writeDesignText, diffDesigns, planDesignApply, readDesignFolder, type DesignOp, type ReconvertPreview, csvField } from '../../store/src/index.ts';
 import { xlsxSheetNames } from '../../scripts/src/xlsx.ts';
 import { importFileRowIterator, neverAllowed, parseAllowList, SCREEN_STEPS, SERVER_STEPS, testScripts, type ScriptTestResult } from '../../scripts/src/index.ts';
-import { conversionReport, explainScriptFailure, type ScriptFailure, DEFAULT_MODEL, Host, serve, serveCluster, serveStdio, aiStatus, STORE_EXT, ENCRYPTED_EXT, encryptFileSync, decryptFileSync, setAdminPassword, adminPasswordProblem, localMcpToken, tokenExpiry, backupFolder, backupSets, defaultBackupDir, parseInterval, parseTime, restoreAt, restoreBackup, AccountChangesError, type AccountDifference, type ChangedSince, verifySet, describeCheck, resolveEmbedEndpoint, resolveImageEmbed, localCertificateFiles, Standby, S3, s3FromEnv, mirrorDown, fetchFmsExport, migrateFms, describeMigration, copySize, readSettings, runningServer, dataApiSource, dataApiClient, checkSyncAllowed, describeApply, describePlan, verifySync, describeSyncVerification, parseSyncConfig, CONTAINER_PULL_MAX_BYTES, type FmsExport } from '../../server/src/index.ts';
+import { conversionReport, explainScriptFailure, type ScriptFailure, DEFAULT_MODEL, Host, serve, serveCluster, serveStdio, aiStatus, STORE_EXT, ENCRYPTED_EXT, encryptFileSync, decryptFileSync, setAdminPassword, adminPasswordProblem, tokenExpiry, readLocalMcpToken, backupFolder, backupSets, defaultBackupDir, parseInterval, parseTime, restoreAt, restoreBackup, AccountChangesError, type AccountDifference, type ChangedSince, verifySet, describeCheck, resolveEmbedEndpoint, resolveImageEmbed, localCertificateFiles, Standby, S3, s3FromEnv, mirrorDown, fetchFmsExport, migrateFms, describeMigration, copySize, readSettings, runningServer, dataApiSource, dataApiClient, checkSyncAllowed, describeApply, describePlan, verifySync, describeSyncVerification, parseSyncConfig, CONTAINER_PULL_MAX_BYTES, type FmsExport } from '../../server/src/index.ts';
 // optimize's report (kept apart from the busy import line above).
 import { sheetsFromFile, checkSheetNames, sheetNameOf } from '../../server/src/import-sheets.ts';
 import { optimizationReport, openApiDocument, typesFromOpenApi, checkSolution, checkSolutionText, createFeed, importIcs, listFeeds, revokeFeed } from '../../server/src/index.ts';
@@ -1730,7 +1730,10 @@ function main(argv: string[]): number {
     case 'mcp-token': {
       const problem = hostFolderProblem(path);
       if (problem) throw new Error(`mcp-token: ${problem}`);
-      console.log(localMcpToken(path));
+      const token = readLocalMcpToken(path);
+      if (!token) throw new Error(`mcp-token: ${path} has no /mcp token yet. Start the server once (tabularius serve ${path}), which makes it, then run this again.`);
+      if (process.env.TABULARIUS_MCP_TOKEN) console.error('note: this server is started with TABULARIUS_MCP_TOKEN, which it uses instead of this token');
+      console.log(token);
       return 0;
     }
     case 'backup': {

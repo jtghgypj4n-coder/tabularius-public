@@ -363,15 +363,17 @@ test('the folder\'s own secret files, files the environment points at and a mist
   t.after(() => rmSync(s.root, { recursive: true, force: true }));
   writeFileSync(join(s.folder, '.openhbam-webhooks.json'), JSON.stringify([{ id: 1, url: 'https://hooks.example.org/in/abcdef-hook-secret' }]));
   writeFileSync(join(s.folder, '.openhbam-mcp-tokens.json'), JSON.stringify({ tokens: ['mcp-token-value-0001'] }));
+  writeFileSync(join(s.folder, '.openhbam-mcp-token'), 'tbmcp_folder-token-value-0002\n');
   writeFileSync(join(s.root, 'smtp-file'), 'smtp-file-secret-77\n');
   writeFileSync(join(s.folder, 'Logs', 'Event.log'), [
     '2026-10-17 12:00:00.000 +0000\tError\tnotify\tcould not reach abcdef-hook-secret',
     '2026-10-17 12:00:01.000 +0000\tError\tmcp\tbad token mcp-token-value-0001',
+    '2026-10-17 12:00:01.500 +0000\tError\tmcp\tbad token tbmcp_folder-token-value-0002',
     '2026-10-17 12:00:02.000 +0000\tError\tmail\tlogin with smtp-file-secret-77 failed',
   ].join('\n') + '\n');
   const bundle = await diagnostics(s.folder, { home: HOME, userFolder: s.userFolder, env: { ...s.env, TABULARIUS_SMTP_FILE: join(s.root, 'smtp-file') } });
   const all = everything(bundle);
-  for (const hidden of ['abcdef-hook-secret', 'mcp-token-value-0001', 'smtp-file-secret-77']) assert.ok(!all.includes(hidden), `${hidden} survived`);
+  for (const hidden of ['abcdef-hook-secret', 'mcp-token-value-0001', 'tbmcp_folder-token-value-0002', 'smtp-file-secret-77']) assert.ok(!all.includes(hidden), `${hidden} survived`);
 });
 
 test('a two-letter account name is hidden, a lower-case bearer token too, and an address after a letter', () => {
