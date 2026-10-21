@@ -5,9 +5,9 @@
 // on its own) are checked by the second part only.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { availableParallelism, tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { runCli } from './cli-run.ts';
 import { handWrittenDocs, inlineCode, tabulariusCall, root, shellCommands, shellFences } from './docs-examples.ts';
@@ -22,6 +22,27 @@ const helpOf = (command: string): Promise<string> => {
   if (!helpCache.has(command)) helpCache.set(command, runCli(main, ['help', command], { env: { ...process.env, PORT: '1' } }).then((r) => (r.status === 0 ? r.stdout : '')));
   return helpCache.get(command)!;
 };
+
+/**
+ * Every example is a separate process that loads the whole program, about two seconds of processor time each, and there are a hundred
+ * of them: one after another that is minutes on a three-core machine that runs other test files too. They don't depend on each
+ * other across pages, so pages (and the `help` pages checked) run side by side, as many as there are cores.
+ */
+async function inParallel<T, R>(items: readonly T[], run: (item: T) => Promise<R>): Promise<R[]> {
+  const out = new Array<R>(items.length);
+  let next = 0;
+  let failure: { error: unknown } | undefined;
+  const worker = async (): Promise<void> => {
+    // After a failure nothing new starts, and the ones running finish before it is thrown (the caller removes their folder next).
+    while (next < items.length && !failure) {
+      const i = next++;
+      try { out[i] = await run(items[i]); } catch (error) { failure ??= { error }; }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(items.length, Math.max(2, availableParallelism())) }, worker));
+  if (failure) throw failure.error;
+  return out;
+}
 
 test('every shell example that runs Tabularius carries a docs-example mark', () => {
   const unmarked: string[] = [];
@@ -43,6 +64,13 @@ test('every command, option and npm script the hand-written pages show exists', 
     // An inline span is an example only when it starts with the command; `tabularius process` inside a quoted message is not.
     for (const c of inlineCode(file)) if (/^(npm run (-s )?)?tabularius [a-z]/.test(c.text)) seen.push({ file, line: c.line, text: c.text });
   }
+  // The pages of `help` that the examples need, fetched side by side; the loop below then reads them from the cache.
+  const commands = new Set<string>(['serve']);
+  for (const { text } of seen) {
+    const call = tabulariusCall(text);
+    if (call && !['is', 'the', 'to'].includes(call.command)) commands.add(call.command);
+  }
+  await inParallel([...commands], helpOf);
   let calls = 0;
   for (const { file, line, text } of seen) {
     const npm = /(?:^|\s)npm run (?:-s )?([\w:-]+)/.exec(text);
@@ -64,28 +92,38 @@ test('every command, option and npm script the hand-written pages show exists', 
 
 const skip = existsSync(join(fixtures, 'Charts.fmp12')) ? false : 'fixtures missing: run npm run fixtures';
 
-test('the examples marked run or placeholders work, in an empty home folder with a hosted Invoices', { skip, timeout: 600_000 }, () => {
+test('the examples marked run or placeholders work, in an empty home folder with a hosted Invoices', { skip, timeout: 600_000 }, async () => {
   const dir = mkdtempSync(join(tmpdir(), 'tabularius-docs-run-'));
   const bin = join(dir, 'bin');
   mkdirSync(bin);
   try {
     writeFileSync(join(bin, 'tabularius'), `#!/bin/sh\nexec "${process.execPath}" --no-warnings "${main}" "$@"\n`);
     chmodSync(join(bin, 'tabularius'), 0o755);
-    let total = 0;
     const byFile = new Map<string, ReturnType<typeof shellFences>>();
     for (const file of handWrittenDocs()) {
       const runnable = shellFences(file).filter((f) => f.mark === 'run' || f.mark === 'placeholders');
       if (runnable.length) byFile.set(file, runnable);
     }
-    for (const [file, fences] of byFile) {
-      // Each page gets its own empty home, so one page's examples can't lean on another's.
+    // Each page gets its own empty home, so one page's examples can't lean on another's, and the pages can run side by side.
+    const counts = await inParallel([...byFile], async ([file, fences]) => {
       const home = mkdtempSync(join(dir, 'home-'));
       symlinkSync(join(root, 'examples'), join(home, 'examples'));
       symlinkSync(join(root, 'fixtures'), join(home, 'fixtures'));
       const env = { ...process.env, HOME: home, USERPROFILE: home, PATH: `${bin}${delimiter}${process.env.PATH ?? ''}`, PORT: '1' };
-      const sh = (cmd: string, input = 'a-test-password\n') => spawnSync('sh', ['-c', cmd], { cwd: home, env, input, encoding: 'utf8', timeout: 120_000 });
-      const made = sh('tabularius new ~/Databases Invoices --starter invoicing && tabularius passwd ~/Databases Invoices Admin');
+      const sh = (cmd: string, input = 'a-test-password\n') => new Promise<{ status: number | null; stdout: string; stderr: string }>((resolve) => {
+        const child = spawn('sh', ['-c', cmd], { cwd: home, env, timeout: 120_000, stdio: ['pipe', 'pipe', 'pipe'] });
+        let stdout = '';
+        let stderr = '';
+        child.stdout.setEncoding('utf8').on('data', (c: string) => { stdout += c; });
+        child.stderr.setEncoding('utf8').on('data', (c: string) => { stderr += c; });
+        child.stdin.on('error', () => {});
+        child.stdin.end(input);
+        child.on('error', (e) => resolve({ status: null, stdout, stderr: stderr + String(e) }));
+        child.on('close', (status) => resolve({ status, stdout, stderr }));
+      });
+      const made = await sh('tabularius new ~/Databases Invoices --starter invoicing && tabularius passwd ~/Databases Invoices Admin');
       assert.equal(made.status, 0, `${file}: the hosted Invoices could not be made\n${made.stdout}${made.stderr}`);
+      let ran = 0;
       for (const f of fences) {
         for (let cmd of shellCommands(f.body)) {
           for (const [from, to] of f.subs ?? []) cmd = cmd.split(from).join(to);
@@ -93,12 +131,14 @@ test('the examples marked run or placeholders work, in an empty home folder with
           const call = tabulariusCall(cmd);
           if (call && NEVER_RETURN.has(call.command)) continue;
           if (!call && /^(tabularius)$/.test(cmd.trim())) continue;
-          const r = sh(cmd);
+          const r = await sh(cmd);
           assert.equal(r.status, 0, `${file}:${f.line} \`${cmd}\` exited ${r.status}\n${r.stdout}${r.stderr}`);
-          total++;
+          ran++;
         }
       }
-    }
+      return ran;
+    });
+    const total = counts.reduce((a, b) => a + b, 0);
     assert.ok(total >= 15, `ran ${total} commands`);
-  } finally { rmSync(dir, { recursive: true, force: true }); }
+  } finally { rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }); }
 });

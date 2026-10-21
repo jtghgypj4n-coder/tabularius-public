@@ -92,13 +92,17 @@ async function probe(path: string, method: string, headers: Record<string, strin
       let text = '';
       res.on('data', (c) => { text += c; });
       res.on('end', () => {
-        // Do not close the client until we have observed whether the server closed its socket.
+        // Do not close the client until we have observed whether the server closed its socket. The server closes it once
+        // the answer is flushed, which on a slow or busy machine is later than any fixed pause could promise, so this waits
+        // for the close itself; a server that keeps the connection open runs into the timer below.
         const socket = seen.get(id)!.req.socket;
-        setTimeout(() => resolve({ status: res.statusCode!, connection: res.headers.connection, closed: socket.destroyed, text }), 30);
+        const done = () => resolve({ status: res.statusCode!, connection: res.headers.connection, closed: true, text });
+        if (socket.destroyed) done();
+        else socket.once('close', done);
       });
     });
     client.on('error', () => {});
-    timer = setTimeout(() => reject(new Error('server waited for the rest of the unauthorised body')), 1500);
+    timer = setTimeout(() => reject(new Error('server waited for the rest of the unauthorised body, or kept the connection open after answering')), 1500);
     if (chunked) {
       let sent = 0;
       drip = setInterval(() => {
