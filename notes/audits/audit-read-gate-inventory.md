@@ -497,35 +497,35 @@ The following reasons apply to the exact enumerated expressions in each named fu
 | [packages/store/src/calc.ts:1508](../../packages/store/src/calc.ts#L1508) `Calculations/lookup` | `Store.sql` (1508) | CALC |
 | [packages/store/src/calc.ts:1547](../../packages/store/src/calc.ts#L1547) `Calculations/foundSums` | `Store.sql` (1547) | CALC |
 | [packages/store/src/calc.ts:1610](../../packages/store/src/calc.ts#L1610) `Calculations/hopQuery` | `Calculations.value` (1610) | CALC |
-| [packages/store/src/calc.ts:1643](../../packages/store/src/calc.ts#L1643) `Calculations/columnNames` | `SQLite.all` (1643); `SQLite.prepare` (1643); `Store.sql` (1643) | CALC |
-| [packages/store/src/calc.ts:1654](../../packages/store/src/calc.ts#L1654) `Calculations/statement` | `SQLite.prepare` (1654); `Store.sql` (1654) | CALC |
-| [packages/store/src/calc.ts:1668](../../packages/store/src/calc.ts#L1668) `Calculations/ensureIndex` | `Store.sql` (1668, 1669) | CALC |
-| [packages/store/src/calc.ts:1694](../../packages/store/src/calc.ts#L1694) `Calculations/context/records` | `Calculations.firstRelated` (1694) | CALC |
-| [packages/store/src/calc.ts:1712](../../packages/store/src/calc.ts#L1712) `Calculations/context/field` | `Calculations.summary` (1712); `Calculations.globalValue` (1715); `Calculations.value` (1716) | CALC |
-| [packages/store/src/calc.ts:1725](../../packages/store/src/calc.ts#L1725) `Calculations/context/related` | `Calculations.globalValue` (1725); `Calculations.value` (1727, 1738); `Calculations.related` (1740) | CALC |
-| [packages/store/src/calc.ts:1760](../../packages/store/src/calc.ts#L1760) `Calculations/context/lookupNext` | `Store.canViewRecord` (1760) | CALC |
-| [packages/store/src/calc.ts:1775](../../packages/store/src/calc.ts#L1775) `Calculations/context/summary` | `Calculations.value` (1775, 1785); `Calculations.related` (1787); `Calculations.summary` (1805) | CALC |
-| [packages/store/src/calc.ts:1835](../../packages/store/src/calc.ts#L1835) `Calculations/context/get` | `Store.recordCount` (1835, 1839); `Calculations.statement` (1838); `SQLite.get` (1838) | CALC |
-| [packages/store/src/calc.ts:1858](../../packages/store/src/calc.ts#L1858) `Calculations/context/executeSQL` | `Calculations.executeSQL` (1858) | CALC |
-| [packages/store/src/calc.ts:1859](../../packages/store/src/calc.ts#L1859) `Calculations/context/persistentData` | `Store.persistentData` (1859) | CALC |
-| [packages/store/src/calc.ts:1860](../../packages/store/src/calc.ts#L1860) `Calculations/context/persistentDataIds` | `Store.persistentDataIds` (1860) | CALC |
-| [packages/store/src/calc.ts:1885](../../packages/store/src/calc.ts#L1885) `Calculations/design` | `Store.valueListItems` (1885) | CALC |
-| [packages/store/src/calc.ts:1902](../../packages/store/src/calc.ts#L1902) `Calculations/executeSQL` | `Calculations.translateSQL` (1902); `Store.select` (1940); `Store.sql` (1951) | CALC |
-| [packages/store/src/calc.ts:2055](../../packages/store/src/calc.ts#L2055) `Calculations/translateSQL` | `Store.scopedTableSql` (2055, 2086) | CALC |
-| [packages/store/src/calc.ts:2118](../../packages/store/src/calc.ts#L2118) `Calculations/shareColumn` | `Store.recordCount` (2118) | CALC |
-| [packages/store/src/calc.ts:2150](../../packages/store/src/calc.ts#L2150) `Calculations/defineComputedColumn/fm_computed` | `Calculations.related` (2150) | CALC |
-| [packages/store/src/calc.ts:2187](../../packages/store/src/calc.ts#L2187) `Calculations/computeColumn` | `Calculations.statement` (2187); `SQLite.get` (2187); `Calculations.value` (2190) | CALC |
-| [packages/store/src/calc.ts:2324](../../packages/store/src/calc.ts#L2324) `Calculations/beforeWrite` | `relatedRows` (2324); `Calculations.related` (2378); `Calculations.context` (2391) | CORE |
-| [packages/store/src/calc.ts:2442](../../packages/store/src/calc.ts#L2442) `Calculations/computeStored` | `Calculations.computeStoredStyled` (2442); `Calculations.value` (2442) | CALC |
-| [packages/store/src/calc.ts:2456](../../packages/store/src/calc.ts#L2456) `Calculations/computeStoredStyled` | `Calculations.context` (2456) | CORE |
-| [packages/store/src/calc.ts:2496](../../packages/store/src/calc.ts#L2496) `Calculations/validate/fail` | `Calculations.context` (2496) | CALC |
-| [packages/store/src/calc.ts:2510](../../packages/store/src/calc.ts#L2510) `Calculations/validate` | `Calculations.value` (2510); `Store.valueListItems` (2531); `Calculations.context` (2545) | CALC |
-| [packages/store/src/calc.ts:2607](../../packages/store/src/calc.ts#L2607) `nearest` | `SQLite.get` (2607); `SQLite.prepare` (2607); `Store.sql` (2607) | CALC |
-| [packages/store/src/calc.ts:2693](../../packages/store/src/calc.ts#L2693) `containerValue` | `Store.containerInfo` (2693); `Store.containerRange` (2700); `Store.container` (2701) | CALC |
-| [packages/store/src/calc.ts:2709](../../packages/store/src/calc.ts#L2709) `containerValue/read` | `Store.container` (2709) | CALC |
-| [packages/store/src/calc.ts:2722](../../packages/store/src/calc.ts#L2722) `containerValue/value` | `Store.containerRange` (2722) | CALC |
-| [packages/store/src/calc.ts:2840](../../packages/store/src/calc.ts#L2840) `sameValuesElsewhere` | `SQLite.all` (2840); `SQLite.prepare` (2840, 2847, 2849); `Store.sql` (2840, 2847, 2849); `Calculations.value` (2842); `SQLite.get` (2847, 2849) | CALC |
-| [packages/store/src/calc.ts:3153](../../packages/store/src/calc.ts#L3153) `rowsById/flush` | `Calculations.statement` (3153); `SQLite.iterate` (3153) | CALC |
+| [packages/store/src/calc.ts:1632](../../packages/store/src/calc.ts#L1632) `Calculations/columnNames` | `SQLite.all` (1632); `SQLite.prepare` (1632); `Store.sql` (1632) | CALC |
+| [packages/store/src/calc.ts:1643](../../packages/store/src/calc.ts#L1643) `Calculations/statement` | `SQLite.prepare` (1643); `Store.sql` (1643) | CALC |
+| [packages/store/src/calc.ts:1657](../../packages/store/src/calc.ts#L1657) `Calculations/ensureIndex` | `Store.sql` (1657, 1658) | CALC |
+| [packages/store/src/calc.ts:1683](../../packages/store/src/calc.ts#L1683) `Calculations/context/records` | `Calculations.firstRelated` (1683) | CALC |
+| [packages/store/src/calc.ts:1701](../../packages/store/src/calc.ts#L1701) `Calculations/context/field` | `Calculations.summary` (1701); `Calculations.globalValue` (1704); `Calculations.value` (1705) | CALC |
+| [packages/store/src/calc.ts:1714](../../packages/store/src/calc.ts#L1714) `Calculations/context/related` | `Calculations.globalValue` (1714); `Calculations.value` (1716, 1727); `Calculations.related` (1729) | CALC |
+| [packages/store/src/calc.ts:1749](../../packages/store/src/calc.ts#L1749) `Calculations/context/lookupNext` | `Store.canViewRecord` (1749) | CALC |
+| [packages/store/src/calc.ts:1764](../../packages/store/src/calc.ts#L1764) `Calculations/context/summary` | `Calculations.value` (1764, 1774); `Calculations.related` (1776); `Calculations.summary` (1794) | CALC |
+| [packages/store/src/calc.ts:1824](../../packages/store/src/calc.ts#L1824) `Calculations/context/get` | `Store.recordCount` (1824, 1828); `Calculations.statement` (1827); `SQLite.get` (1827) | CALC |
+| [packages/store/src/calc.ts:1847](../../packages/store/src/calc.ts#L1847) `Calculations/context/executeSQL` | `Calculations.executeSQL` (1847) | CALC |
+| [packages/store/src/calc.ts:1848](../../packages/store/src/calc.ts#L1848) `Calculations/context/persistentData` | `Store.persistentData` (1848) | CALC |
+| [packages/store/src/calc.ts:1849](../../packages/store/src/calc.ts#L1849) `Calculations/context/persistentDataIds` | `Store.persistentDataIds` (1849) | CALC |
+| [packages/store/src/calc.ts:1874](../../packages/store/src/calc.ts#L1874) `Calculations/design` | `Store.valueListItems` (1874) | CALC |
+| [packages/store/src/calc.ts:1891](../../packages/store/src/calc.ts#L1891) `Calculations/executeSQL` | `Calculations.translateSQL` (1891); `Store.select` (1929); `Store.sql` (1940) | CALC |
+| [packages/store/src/calc.ts:2044](../../packages/store/src/calc.ts#L2044) `Calculations/translateSQL` | `Store.scopedTableSql` (2044, 2075) | CALC |
+| [packages/store/src/calc.ts:2107](../../packages/store/src/calc.ts#L2107) `Calculations/shareColumn` | `Store.recordCount` (2107) | CALC |
+| [packages/store/src/calc.ts:2139](../../packages/store/src/calc.ts#L2139) `Calculations/defineComputedColumn/fm_computed` | `Calculations.related` (2139) | CALC |
+| [packages/store/src/calc.ts:2176](../../packages/store/src/calc.ts#L2176) `Calculations/computeColumn` | `Calculations.statement` (2176); `SQLite.get` (2176); `Calculations.value` (2179) | CALC |
+| [packages/store/src/calc.ts:2313](../../packages/store/src/calc.ts#L2313) `Calculations/beforeWrite` | `relatedRows` (2313); `Calculations.related` (2367); `Calculations.context` (2380) | CORE |
+| [packages/store/src/calc.ts:2431](../../packages/store/src/calc.ts#L2431) `Calculations/computeStored` | `Calculations.computeStoredStyled` (2431); `Calculations.value` (2431) | CALC |
+| [packages/store/src/calc.ts:2445](../../packages/store/src/calc.ts#L2445) `Calculations/computeStoredStyled` | `Calculations.context` (2445) | CORE |
+| [packages/store/src/calc.ts:2485](../../packages/store/src/calc.ts#L2485) `Calculations/validate/fail` | `Calculations.context` (2485) | CALC |
+| [packages/store/src/calc.ts:2499](../../packages/store/src/calc.ts#L2499) `Calculations/validate` | `Calculations.value` (2499); `Store.valueListItems` (2520); `Calculations.context` (2534) | CALC |
+| [packages/store/src/calc.ts:2596](../../packages/store/src/calc.ts#L2596) `nearest` | `SQLite.get` (2596); `SQLite.prepare` (2596); `Store.sql` (2596) | CALC |
+| [packages/store/src/calc.ts:2681](../../packages/store/src/calc.ts#L2681) `containerValue` | `Store.containerInfo` (2681); `Store.containerRange` (2688); `Store.container` (2689) | CALC |
+| [packages/store/src/calc.ts:2697](../../packages/store/src/calc.ts#L2697) `containerValue/read` | `Store.container` (2697) | CALC |
+| [packages/store/src/calc.ts:2710](../../packages/store/src/calc.ts#L2710) `containerValue/value` | `Store.containerRange` (2710) | CALC |
+| [packages/store/src/calc.ts:2828](../../packages/store/src/calc.ts#L2828) `sameValuesElsewhere` | `SQLite.all` (2828); `SQLite.prepare` (2828, 2835, 2837); `Store.sql` (2828, 2835, 2837); `Calculations.value` (2830); `SQLite.get` (2835, 2837) | CALC |
+| [packages/store/src/calc.ts:3141](../../packages/store/src/calc.ts#L3141) `rowsById/flush` | `Calculations.statement` (3141); `SQLite.iterate` (3141) | CALC |
 | [packages/store/src/damage.ts:93](../../packages/store/src/damage.ts#L93) `watchDatabase` | `SQLite.prepare` (93); `SQLite.iterate` (103) | CORE |
 | [packages/store/src/explain-related.ts:102](../../packages/store/src/explain-related.ts#L102) `explainRelated` | `Store.row` (102); `Store.get` (190); `Calculations.value` (239); `Calculations.context` (247) | RECORD |
 | [packages/store/src/explain-related.ts:180](../../packages/store/src/explain-related.ts#L180) `explainRelated/runFilter` | `Calculations.context` (180) | RECORD |
@@ -567,14 +567,14 @@ The following reasons apply to the exact enumerated expressions in each named fu
 | [packages/store/src/record-chain.ts:80](../../packages/store/src/record-chain.ts#L80) `linkRecordEntry` | `SQLite.prepare` (80, 81, 82, 85, 86); `SQLite.get` (81, 82) | CORE |
 | [packages/store/src/record-chain.ts:93](../../packages/store/src/record-chain.ts#L93) `pruneRecordEntries` | `SQLite.prepare` (93, 94, 95, 97); `SQLite.get` (94) | CORE |
 | [packages/store/src/record-chain.ts:115](../../packages/store/src/record-chain.ts#L115) `verifyRecordAudit` | `SQLite.get` (115, 129); `SQLite.prepare` (115, 119, 129, 132); `SQLite.all` (119); `SQLite.iterate` (132) | CORE |
-| [packages/store/src/related.ts:107](../../packages/store/src/related.ts#L107) `keyValue` | `Calculations.value` (107) | RELATED |
-| [packages/store/src/related.ts:118](../../packages/store/src/related.ts#L118) `condition` | `Store.canViewRecord` (118); `keyValue` (135) | RELATED |
-| [packages/store/src/related.ts:178](../../packages/store/src/related.ts#L178) `relatedRows` | `Calculations.relatedIds` (178); `rowsById` (179); `Calculations.statement` (194, 198, 208); `SQLite.get` (194); `SQLite.all` (198); `SQLite.iterate` (208) | RELATED |
-| [packages/store/src/related.ts:236](../../packages/store/src/related.ts#L236) `relatedIdList` | `Calculations.relatedIds` (236); `Calculations.statement` (241); `SQLite.iterate` (241) | RELATED |
-| [packages/store/src/related.ts:279](../../packages/store/src/related.ts#L279) `relatedKeys` | `keyValue` (279) | RELATED |
-| [packages/store/src/related.ts:299](../../packages/store/src/related.ts#L299) `firstRelatedEach/oneByOne` | `relatedRows` (299) | RELATED |
-| [packages/store/src/related.ts:311](../../packages/store/src/related.ts#L311) `firstRelatedEach/keysOf` | `keyValue` (311) | RELATED |
-| [packages/store/src/related.ts:332](../../packages/store/src/related.ts#L332) `firstRelatedEach` | `Calculations.statement` (332); `SQLite.all` (332) | RELATED |
+| [packages/store/src/related.ts:134](../../packages/store/src/related.ts#L134) `keyValue` | `Calculations.value` (134) | RELATED |
+| [packages/store/src/related.ts:145](../../packages/store/src/related.ts#L145) `condition` | `Store.canViewRecord` (145); `keyValue` (158) | RELATED |
+| [packages/store/src/related.ts:191](../../packages/store/src/related.ts#L191) `relatedRows` | `Calculations.relatedIds` (191); `rowsById` (192); `Calculations.statement` (207, 211, 221); `SQLite.get` (207); `SQLite.all` (211); `SQLite.iterate` (221) | RELATED |
+| [packages/store/src/related.ts:249](../../packages/store/src/related.ts#L249) `relatedIdList` | `Calculations.relatedIds` (249); `Calculations.statement` (254); `SQLite.iterate` (254) | RELATED |
+| [packages/store/src/related.ts:292](../../packages/store/src/related.ts#L292) `relatedKeys` | `keyValue` (292) | RELATED |
+| [packages/store/src/related.ts:312](../../packages/store/src/related.ts#L312) `firstRelatedEach/oneByOne` | `relatedRows` (312) | RELATED |
+| [packages/store/src/related.ts:325](../../packages/store/src/related.ts#L325) `firstRelatedEach/keysOf` | `keyValue` (325) | RELATED |
+| [packages/store/src/related.ts:346](../../packages/store/src/related.ts#L346) `firstRelatedEach` | `Calculations.statement` (346); `SQLite.all` (346) | RELATED |
 | [packages/store/src/results.ts:56](../../packages/store/src/results.ts#L56) `ResultCache/wrote` | `SQLite.prepare` (56) | CORE |
 | [packages/store/src/results.ts:65](../../packages/store/src/results.ts#L65) `ResultCache/lastWrite` | `SQLite.get` (65); `SQLite.prepare` (65) | CORE |
 | [packages/store/src/results.ts:74](../../packages/store/src/results.ts#L74) `ResultCache/get` | `SQLite.get` (74); `SQLite.prepare` (74) | CORE |
