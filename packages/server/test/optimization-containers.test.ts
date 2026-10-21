@@ -96,6 +96,47 @@ test('a field already set to store outside the file keeps its setting through a 
   }
 });
 
+test('AR-server-backup-ops-07 case 5', () => {
+  const { store, done } = ours();
+  try {
+    const id = Number(store.create('Items', { Name: 'x' }).recordId);
+    store.setContainer('Items', id, 'Pic', 1, { filename: 'x.png', mime: 'image/png', data: new Uint8Array(100) });
+    store.compactFile = () => { throw new Error('injected compaction failure'); };
+    const result = moveContainersToManagedStorage(store, 'Items', 'Pic');
+    assert.equal(result.move?.moved, 1);
+    assert.equal(result.move?.compacted, false);
+    assert.deepEqual(containerMoves(store).map((m) => m.id), [result.move!.id]);
+    assert.equal(undoContainerMove(store, result.move!.id).moved, 1);
+  } finally { done(); }
+});
+
+test('AR-server-backup-ops-07 case 6', () => {
+  const { store, done } = ours();
+  try {
+    const id = Number(store.create('Items', { Name: 'x' }).recordId);
+    store.setContainer('Items', id, 'Pic', 1, { filename: 'x.png', mime: 'image/png', data: new Uint8Array(100) });
+    store.sql.exec("CREATE TRIGGER reject_move BEFORE INSERT ON _fm_meta WHEN NEW.key = 'containerMoves' BEGIN SELECT RAISE(FAIL, 'injected'); END");
+    assert.throws(() => moveContainersToManagedStorage(store, 'Items', 'Pic', { compact: false }), /injected/);
+    assert.equal(store.embeddedContainerCount('Items', 'Pic').files, 1);
+    assert.equal(store.schema.tables.find((t) => t.name === 'Items')!.fields.find((f) => f.name === 'Pic')!.options?.externalStorage, undefined);
+    assert.deepEqual(containerMoves(store), []);
+  } finally { done(); }
+});
+
+test('AR-server-backup-ops-07 case 8', () => {
+  const { store, done } = ours();
+  try {
+    const id = Number(store.create('Items', { Name: 'x' }).recordId);
+    store.setContainer('Items', id, 'Pic', 1, { filename: 'x.png', mime: 'image/png', data: new Uint8Array(100) });
+    const moved = moveContainersToManagedStorage(store, 'Items', 'Pic', { compact: false }).move!;
+    store.sql.exec("CREATE TRIGGER reject_move_undo BEFORE UPDATE ON _fm_meta WHEN NEW.key = 'containerMoves' BEGIN SELECT RAISE(FAIL, 'injected'); END");
+    assert.throws(() => undoContainerMove(store, moved.id), /injected/);
+    assert.equal(store.embeddedContainerCount('Items', 'Pic').files, 0);
+    assert.ok(store.schema.tables.find((t) => t.name === 'Items')!.fields.find((f) => f.name === 'Pic')!.options?.externalStorage);
+    assert.deepEqual(containerMoves(store).map((m) => m.id), [moved.id]);
+  } finally { done(); }
+});
+
 test('the admin console and MCP preview, make and undo a move on a converted file', { skip: skipFixtures }, async (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'tabularius-opt-move-serve-'));
   copyFileSync(join(fixtures, 'DEMO_drawers.fmp12'), join(dir, 'Drawers.fmp12'));

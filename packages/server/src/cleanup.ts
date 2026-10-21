@@ -397,7 +397,7 @@ export function scanData(store: Store, req: { layout: string; checks?: Check[]; 
   out.fixes = out.fixes.sort((a, b) => b.count - a.count).slice(0, MAX_FIXES);
 
   if (checks.has('duplicates')) {
-    const r = findDuplicates(owner, table.name, rows, pick.filter((f) => roleOf(f.name)).map((f) => f.name));
+    const r = findDuplicates(owner, table.name, rows, pick.filter((f) => roleOf(f.name)).map((f) => f.name), privileges);
     out.compared = r.compared;
     out.duplicates = r.groups;
   }
@@ -405,7 +405,7 @@ export function scanData(store: Store, req: { layout: string; checks?: Check[]; 
 }
 
 /** Likely duplicates: the same email or phone, or names nearly alike (with the same address or city when there is one). */
-function findDuplicates(owner: Store, table: string, rows: Map<number, Record<string, SqlValue>>, fields: string[]): { compared: string[]; groups: DuplicateGroup[] } {
+function findDuplicates(owner: Store, table: string, rows: Map<number, Record<string, SqlValue>>, fields: string[], privileges?: Privileges): { compared: string[]; groups: DuplicateGroup[] } {
   const by = (role: Role) => fields.filter((f) => roleOf(f) === role);
   const names = by('name');
   const emails = by('email');
@@ -491,7 +491,14 @@ function findDuplicates(owner: Store, table: string, rows: Map<number, Record<st
     groups.set(root, g);
   }
   const shownFields = [...new Set([...compared, ...[...rows.values()][0] ? Object.keys([...rows.values()][0]) : []])];
-  const keys = mergeKeys(owner, table);
+  const pv = privileges?.in(owner);
+  const keys = mergeKeys(owner, table).filter((k) => !pv || pv.full ||
+    (pv.table(k.child).view !== false && pv.field(table, k.parentField) !== 'none' && pv.field(k.child, k.childField) !== 'none' && pv.layout(k.child).layout !== 'none'));
+  const visibleChildren = new Map<string, Set<number>>();
+  if (pv && !pv.full) for (const k of keys) if (!visibleChildren.has(k.child)) {
+    const info = owner.layout(k.child);
+    visibleChildren.set(k.child, new Set(owner.findIds(info, { privileges })));
+  }
   const out = [...groups.values()].filter((g) => g.ids.size <= 20).sort((a, b) => b.score - a.score).slice(0, MAX_GROUPS).map((g) => {
     const recs = [...g.ids].sort((a, b) => a - b).map((id) => ({ recordId: id, values: rows.get(id)! }));
     const filled = (r: Record<string, SqlValue>) => Object.values(r).filter((v) => str(v).trim() !== '').length;
@@ -513,7 +520,7 @@ function findDuplicates(owner: Store, table: string, rows: Map<number, Record<st
     }
     const related = keys.map((k) => ({
       table: k.child, via: `${k.childField} = ${table}::${k.parentField}`,
-      records: recs.filter((r) => r.recordId !== keep).reduce((n, r) => n + relatedCount(owner, k, r.recordId, keep), 0),
+      records: recs.filter((r) => r.recordId !== keep).reduce((n, r) => n + relatedCount(owner, k, r.recordId, keep, visibleChildren.get(k.child)), 0),
     })).filter((x) => x.records > 0);
     return { reason: [...g.reasons].join('; '), score: Math.min(100, g.score), records: recs.map((r) => ({ recordId: r.recordId, values: Object.fromEntries(compared.map((c) => [c, r.values[c] ?? null])) })), keep, fill, related };
   });
@@ -553,6 +560,29 @@ function mergeKeys(store: Store, table: string): MergeKey[] {
   return [...out.values()];
 }
 
+function unsupportedCascade(store: Store, table: string): boolean {
+  const s = store.schema;
+  for (const r of s.relationships) {
+    for (const [mine, other, cascade] of [
+      [r.leftTableOccurrenceId, r.rightTableOccurrenceId, r.rightDelete],
+      [r.rightTableOccurrenceId, r.leftTableOccurrenceId, r.leftDelete],
+    ] as const) {
+      if (!cascade) continue;
+      const parent = s.tableOccurrences.find((o) => o.id === mine);
+      const child = s.tableOccurrences.find((o) => o.id === other);
+      if (!parent || s.tables.find((t) => t.id === parent.baseTableId)?.name !== table) continue;
+      const parentTable = s.tables.find((t) => t.id === parent.baseTableId);
+      const childTable = s.tables.find((t) => t.id === child?.baseTableId);
+      if (!child || parent.dataSourceId || child.dataSourceId || !childTable || childTable.name === table || r.predicates.length !== 1 || r.predicates[0].operator !== '=') return true;
+      const p = r.predicates[0];
+      const childField = childTable.fields.find((f) => f.id === (mine === r.leftTableOccurrenceId ? p.rightFieldId : p.leftFieldId));
+      const parentField = parentTable?.fields.find((f) => f.id === (mine === r.leftTableOccurrenceId ? p.leftFieldId : p.rightFieldId));
+      if (!parentField || !childField || childField.kind !== 'normal') return true;
+    }
+  }
+  return false;
+}
+
 const occurrenceNamed = (store: Store, name: string) => {
   const to = store.schema.tableOccurrences.find((t) => t.name === name);
   return to ? occurrence(store, to.id) : undefined;
@@ -567,10 +597,10 @@ function relatedIds(store: Store, k: MergeKey, value: SqlValue): number[] {
   return (store.sql.prepare(`SELECT _fm_record_id AS id FROM ${q(k.child)} WHERE ${q(k.childField)} = ?`).all(value) as { id: number }[]).map((r) => Number(r.id));
 }
 
-function relatedCount(store: Store, k: MergeKey, from: number, to: number): number {
+function relatedCount(store: Store, k: MergeKey, from: number, to: number, visible?: Set<number>): number {
   const a = keyValue(store, k.parent, k.parentField, from);
   const b = keyValue(store, k.parent, k.parentField, to);
-  return str(a) === str(b) ? 0 : relatedIds(store, k, a).length;
+  return str(a) === str(b) ? 0 : relatedIds(store, k, a).filter((id) => !visible || visible.has(id)).length;
 }
 
 // --- apply and undo ---------------------------------------------------------------------
@@ -640,10 +670,12 @@ export function applyCleanup(store: Store, req: ApplyRequest, opts: { account?: 
   const merges = Array.isArray(req.merges) ? req.merges : [];
   if (!fixes.length && !merges.length) throw new CleanupError('Nothing to apply: pick fixes or merges');
   if (fixes.length > MAX_FIXES || merges.length > MAX_GROUPS) throw new CleanupError('Too many at once; apply them in smaller batches');
+  if (merges.length && unsupportedCascade(owner, table)) throw new CleanupError('This table has a cascading relationship that cannot be safely reparented; no records were changed');
   const write = { account: opts.account, privileges: opts.privileges };
   const undo: UndoOp[] = [];
   let fixed = 0;
   let merged = 0;
+  let batch: CleanupBatch | undefined;
   const current = (t: string, field: string, id: number) => keyValue(owner, t, field, id);
   // A field the account has no access to is missing to it, as in a find.
   const pv = opts.privileges?.in(owner);
@@ -664,6 +696,8 @@ export function applyCleanup(store: Store, req: ApplyRequest, opts: { account?: 
       apply();
       // The same checks and writes as applying, as the account, then all of it rolled back.
       if (req.dryRun === true) throw new DryRun();
+      const summary = [fixed ? `${fixed} value${fixed === 1 ? '' : 's'} fixed` : '', merged ? `${merged} set${merged === 1 ? '' : 's'} of duplicates merged` : ''].filter(Boolean).join(', ') || 'nothing changed';
+      batch = new CleanupJournal(owner).add({ account: opts.account, layout: info.name, summary, undo });
     }, req.dryRun === true);
   } catch (e) {
     if (!(e instanceof DryRun)) throw e;
@@ -673,8 +707,7 @@ export function applyCleanup(store: Store, req: ApplyRequest, opts: { account?: 
     const changes = undo.map((u) => (u.op === 'set' ? { table: u.table, recordId: u.recordId, field: u.field, from: u.before, to: u.after } : { table: u.table, recordId: u.op === 'restore' ? Number(u.row._fm_record_id) : u.recordId, delete: true as const }));
     return { dryRun: true, summary: summary.replace(/ fixed/, ' to fix').replace(/ merged/, ' to merge'), fixed, merged, changes: changes.slice(0, 200), total: changes.length };
   }
-  const batch = new CleanupJournal(owner).add({ account: opts.account, layout: info.name, summary, undo });
-  return { ...batch, fixed, merged };
+  return { ...batch!, fixed, merged };
 
   function apply(): void {
     for (const f of fixes) {
@@ -876,6 +909,7 @@ export function updateMany(store: Store, req: UpdateManyRequest, opts: { account
   const undo: UndoOp[] = [];
   const changes: UpdateManyPreview['changes'] = [];
   const touched = new Set<number>();
+  let batch: CleanupBatch | undefined;
   const apply = () => {
     for (const id of ids) {
       const before = new Map([...values.keys()].map((f) => [f, keyValue(owner, table, f, id)]));
@@ -898,6 +932,8 @@ export function updateMany(store: Store, req: UpdateManyRequest, opts: { account
     atomically(() => {
       apply();
       if (req.dryRun === true) throw new DryRun();
+      if (undo.length) batch = new CleanupJournal(owner).add({ account: opts.account, layout: info.name,
+        summary: `${touched.size} of ${ids.length} record${ids.length === 1 ? '' : 's'} changed`, undo });
     }, req.dryRun === true);
   } catch (e) {
     if (!(e instanceof DryRun)) throw e;
@@ -910,8 +946,7 @@ export function updateMany(store: Store, req: UpdateManyRequest, opts: { account
     };
   }
   if (!undo.length) return { id: '', at: new Date().toISOString(), layout: info.name, summary, changes: 0, matched: ids.length, records: 0 };
-  const batch = new CleanupJournal(owner).add({ account: opts.account, layout: info.name, summary, undo });
-  return { ...batch, matched: ids.length, records: touched.size };
+  return { ...batch!, matched: ids.length, records: touched.size };
 }
 
 /** Takes an applied batch back, all or none. Fields changed again since are left alone and listed. */
@@ -958,8 +993,8 @@ export function undoCleanup(store: Store, id: string, opts: { account?: string; 
       store.update(store.occurrenceInfo(occ), op.recordId, { [op.field]: op.before === null ? '' : op.before as string | number }, undefined, { ...write, restoring: true });
       undone++;
     }
+    journal.markUndone(id);
   });
-  journal.markUndone(id);
   return { undone, skipped };
 }
 

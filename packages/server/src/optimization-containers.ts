@@ -91,31 +91,36 @@ export function planContainerMove(store: Store, table: string, field: string): C
  */
 export function moveContainersToManagedStorage(
   store: Store, table: string, field: string, options: { preview?: boolean; expect?: number; compact?: boolean; account?: string } = {},
-): { plan: ContainerMovePlan; move?: ContainerMove } {
+): { plan: ContainerMovePlan; move?: ContainerMove; compactionError?: string } {
   const plan = planContainerMove(store, table, field);
   if (options.preview) return { plan };
   if (options.expect !== undefined && options.expect !== plan.files) {
     throw new Error(`The file has changed since the report: ${table}::${field} now keeps ${plan.files} files inside it, not ${options.expect}. Look again.`);
   }
-  if (plan.setsStorage) {
-    store.applyDesign([{ op: 'updateField', table, field, options: { externalStorage: { path: `"${table}/${field}/"` } } }] as never, { account: options.account });
+  let move: ContainerMove | undefined;
+  store.moveContainersOut(table, field, {
+    prepare: plan.setsStorage ? () => {
+      store.applyDesign([{ op: 'updateField', table, field, options: { externalStorage: { path: `"${table}/${field}/"` } } }] as never, { account: options.account });
+    } : undefined,
+    record: (out) => {
+      const moves = read(store);
+      move = {
+        id: (moves.at(-1)?.id ?? 0) + 1, at: new Date().toISOString(), table, field, moved: out.moved, bytes: out.bytes,
+        containerIds: out.ids, setStorage: plan.setsStorage, compacted: false,
+      };
+      write(store, [...moves, move]);
+    },
+  });
+  if (!move) throw new Error('Container move did not record its result');
+  if (options.compact !== false) {
+    try {
+      store.compactFile();
+      move.compacted = true;
+      write(store, read(store).map((m) => m.id === move!.id ? move! : m));
+    } catch (error) {
+      return { plan, move, compactionError: error instanceof Error ? error.message : String(error) };
+    }
   }
-  let out;
-  try {
-    out = store.moveContainersOut(table, field);
-  } catch (e) {
-    // The design change is undone with the move that didn't happen.
-    if (plan.setsStorage) store.applyDesign([{ op: 'updateField', table, field, options: { externalStorage: null } }] as never, { account: options.account });
-    throw e;
-  }
-  const compacted = options.compact !== false;
-  if (compacted) store.compactFile();
-  const moves = read(store);
-  const move: ContainerMove = {
-    id: (moves.at(-1)?.id ?? 0) + 1, at: new Date().toISOString(), table, field, moved: out.moved, bytes: out.bytes,
-    containerIds: out.ids, setStorage: plan.setsStorage, compacted,
-  };
-  write(store, [...moves, move]);
   return { plan, move };
 }
 
@@ -124,10 +129,11 @@ export function undoContainerMove(store: Store, id: number, options: { compact?:
   const moves = read(store);
   const move = moves.find((m) => m.id === id);
   if (!move) throw new Error(`No move #${id} to undo`);
-  const back = store.moveContainersIn(move.containerIds);
-  if (move.setStorage && !back.missing) {
-    store.applyDesign([{ op: 'updateField', table: move.table, field: move.field, options: { externalStorage: null } }] as never, { account: options.account });
-  }
-  write(store, moves.filter((m) => m.id !== id));
+  const back = store.moveContainersIn(move.containerIds, (result) => {
+    if (move.setStorage && !result.missing) {
+      store.applyDesign([{ op: 'updateField', table: move.table, field: move.field, options: { externalStorage: null } }] as never, { account: options.account });
+    }
+    write(store, moves.filter((m) => m.id !== id));
+  });
   return { ...back, move };
 }
