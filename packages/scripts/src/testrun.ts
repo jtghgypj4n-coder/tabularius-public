@@ -102,7 +102,7 @@ export function startingPoints(store: Store): Map<number, StartingPoint> {
       for (const o of objects ?? []) {
         if (o.name) here.add(o.name);
         const id = o.action?.scriptId;
-        if (id !== undefined) add(id, l.name, o.action?.parameter);
+        if (id !== undefined && !o.action?.file) add(id, l.name, o.action?.parameter);
         for (const t of o.triggers ?? []) add(t.scriptId, l.name, t.parameter);
         walk(o.children);
       }

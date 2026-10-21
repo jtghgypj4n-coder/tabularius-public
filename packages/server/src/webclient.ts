@@ -1651,9 +1651,12 @@ export class WebClient {
       // Compat clients show dates as MM/DD/YYYY; a script step reads text in the file's order.
       (key, typed) => { const type = fieldTypeOf(store, info, key); return type === 'date' || type === 'timestamp' ? inDateOrder(typed, store.dateOrder) : typed; }) : undefined;
     if (body.command !== undefined && !command) throw new ApiError(3, 'Command is unavailable', 400);
+    const buttonFile = event === undefined && !fromPage && !timer && !menuItem && !scriptsMenuItem && !fileTrigger && obj?.action?.stepId === 1 && obj.action.scriptId !== undefined ? obj.action.file : undefined;
     // A timer on another file's script runs it as Perform Script does there: its privileges in that file, and the
     // parameter worked out here, in the window that installed it.
-    const external = timer?.file ? { stepId: 1, step: 'Perform Script', params: { script: { id: timer.scriptId, name: '', file: timer.file }, ...(timer.parameter !== undefined ? { parameter: timer.parameter } : {}) } } : undefined;
+    const external = timer?.file ? { stepId: 1, step: 'Perform Script', params: { script: { id: timer.scriptId, name: '', file: timer.file }, ...(timer.parameter !== undefined ? { parameter: timer.parameter } : {}) } }
+      // A button on another file's script does the same, with the parameter worked out below passed on as the script's.
+      : buttonFile ? { stepId: 1, step: 'Perform Script', params: { script: { id: obj!.action!.scriptId!, name: '', file: buttonFile }, parameter: 'Get ( ScriptParameter )' } } : undefined;
     const single = external ?? command ?? (!action && event === undefined && !menuItem && obj?.action && obj.action.stepId !== 1 ? obj.action : undefined);
     if (!action && !single) throw new ApiError(3, event ? `No ${event} script trigger there` : 'That object does not run a script', 400);
     const byEvent = event !== undefined && !single && !timer && !menuItem && !scriptsMenuItem && !fileTrigger;
@@ -1673,7 +1676,7 @@ export class WebClient {
       : store.findIds(info, { query: queryOf(body.query), sort: sortOf(body.sort), privileges, dateOrder: store.fileMode === 'native' ? 'ISO' : 'MDY' });
     const w = { mode: String(body.mode ?? 'browse'), view: String(body.view ?? 'form'), foundCount: ids.length, totalCount: num0(body.totalCount), number: recordId === undefined ? undefined : ids.indexOf(recordId) + 1 };
     let parameter = fromPage ? said(body.parameter) : '';
-    if (action?.parameter && !external && !fromPage) {
+    if (action?.parameter && !timer?.file && !fromPage) {
       // A button in a portal row evaluates its parameter on that row's record.
       const row = body.row as { portal?: string; recordId?: unknown } | undefined;
       const p = row && info.plan?.portals.find((x) => x.name === row.portal);
