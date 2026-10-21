@@ -242,6 +242,10 @@
         "why": "build, install and check scripts"
       },
       {
+        "glob": "site/**",
+        "why": "the product website draft: pages and their content outline"
+      },
+      {
         "glob": "tsconfig.json",
         "why": "the TypeScript settings"
       },

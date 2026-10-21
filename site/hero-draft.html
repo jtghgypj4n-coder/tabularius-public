@@ -1,0 +1,331 @@
+<title>Tabularius Hero Loop</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: Apple-style product stage. Big quiet type on a white stage, the real app as the hero, one teal accent. */
+:root{
+  --bg:#ffffff; --fg:#14181b; --muted:#6b7378; --line:#e6e9eb;
+  --win:#ffffff; --chrome:#f4f6f7; --panel:#f7f9f9; --zebra:#fafbfb;
+  --accent:#0d6e7c; --accent-ink:#ffffff; --accent-soft:#e3f1f2; --hl:#d7eef0;
+  --shadow:rgba(20,40,48,.16);
+  --display:"Geist",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+  --body:"Geist",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"Geist Mono",ui-monospace,"SF Mono",Menlo,monospace;
+  --T:12s; --start:-9s;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0b0d0e; --fg:#eef2f3; --muted:#9aa4a8; --line:#262c2f;
+  --win:#14181a; --chrome:#1b2023; --panel:#171c1e; --zebra:#161a1c;
+  --accent:#4cc2cf; --accent-ink:#06282c; --accent-soft:#163a3e; --hl:#123c41;
+  --shadow:rgba(0,0,0,.55); color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0b0d0e; --fg:#eef2f3; --muted:#9aa4a8; --line:#262c2f;
+  --win:#14181a; --chrome:#1b2023; --panel:#171c1e; --zebra:#161a1c;
+  --accent:#4cc2cf; --accent-ink:#06282c; --accent-soft:#163a3e; --hl:#123c41;
+  --shadow:rgba(0,0,0,.55); color-scheme:dark}
+
+body{background:var(--bg);color:var(--fg);font-family:var(--body);font-size:16px;line-height:1.5;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.wrap{max-width:1180px;margin:0 auto}
+nav{display:flex;align-items:center;justify-content:space-between;gap:16px;padding-block:18px}
+.brand{display:flex;align-items:center;gap:10px;font-weight:600;font-size:17px;letter-spacing:-.01em}
+.brand svg{width:26px;height:26px}
+.brand .i{fill:var(--fg)} .brand .a{fill:var(--accent)}
+.navlinks{display:flex;align-items:center;gap:24px;font-size:14px;color:var(--muted)}
+.navlinks a{color:inherit;text-decoration:none}
+.navlinks a:hover{color:var(--fg)}
+.btn{display:inline-flex;align-items:center;gap:8px;border-radius:999px;padding:10px 18px;font:500 15px/1 var(--body);text-decoration:none;border:0;cursor:pointer}
+.btn.primary{background:var(--accent);color:var(--accent-ink)}
+.btn.ghost{color:var(--accent);background:transparent;padding-inline:4px}
+.btn:focus-visible,.pause:focus-visible,a:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.navlinks .btn{padding:8px 14px;font-size:14px}
+
+header.hero{text-align:center;padding-block:56px 28px}
+.eyebrow{font:500 13px/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+h1{font-family:var(--display);font-weight:700;font-size:clamp(44px,8vw,96px);line-height:.98;letter-spacing:-.045em;margin:18px auto 0;max-width:11ch;text-wrap:balance}
+.sub{font-size:clamp(17px,2vw,21px);color:var(--muted);max-width:40ch;margin:22px auto 0;text-wrap:balance;letter-spacing:-.01em}
+.ctas{display:flex;justify-content:center;flex-wrap:wrap;gap:12px 20px;margin-top:30px}
+.ctas .btn.primary{padding:14px 24px;font-size:16px}
+
+.stage{position:relative;margin-top:28px}
+.stage svg.film{display:block;width:100%;height:auto;max-width:100%}
+.caps{display:flex;justify-content:center;flex-wrap:wrap;gap:8px 36px;margin-top:8px;font-size:15px;font-weight:500;letter-spacing:-.01em}
+.cap{display:flex;align-items:center;gap:10px;animation:var(--T) linear var(--start) infinite both}
+.cap b{font:500 12px/1 var(--mono);color:var(--accent)}
+.cap1{animation-name:cap1}.cap2{animation-name:cap2}.cap3{animation-name:cap3}
+@keyframes cap1{0%,14%{opacity:1}17%,86%{opacity:.32}90%,100%{opacity:1}}
+@keyframes cap2{0%,14%{opacity:.32}17%,26%{opacity:1}29%,100%{opacity:.32}}
+@keyframes cap3{0%,26%{opacity:.32}29%,84%{opacity:1}88%,100%{opacity:.32}}
+.pause{position:absolute;right:8px;bottom:8px;width:36px;height:36px;border-radius:50%;border:1px solid var(--line);background:var(--bg);color:var(--fg);display:grid;place-items:center;cursor:pointer}
+.pause svg{width:14px;height:14px;fill:currentColor}
+.pause .play{display:none}
+.paused .pause .play{display:block}.paused .pause .bars{display:none}
+.paused *{animation-play-state:paused!important}
+.draft{margin:56px auto 40px;max-width:62ch;text-align:center;font-size:13px;color:var(--muted)}
+
+/* ---- film: everything below is the SVG hero, 12 s loop ---- */
+.film text{font-family:var(--body);fill:var(--fg)}
+.film .muted{fill:var(--muted)}
+.film .mono{font-family:var(--mono)}
+.film .cell{font-size:14px}
+.film .strong{font-weight:500}
+.film .th{font:500 11px var(--mono);letter-spacing:.08em;fill:var(--muted)}
+.f-win{fill:var(--win)} .f-chrome{fill:var(--chrome)} .f-panel{fill:var(--panel)} .f-line{fill:var(--line)}
+.s-line{stroke:var(--line)} .f-accent{fill:var(--accent)} .f-soft{fill:var(--accent-soft)} .f-zebra{fill:var(--zebra)}
+.f-fg{fill:var(--fg)} .f-muted{fill:var(--muted)}
+.film .on-accent{fill:var(--accent-ink)}
+.film .hl{fill:var(--hl)}
+.film .other .hl{display:none}
+.shadow{flood-color:var(--shadow)}
+
+.anim{animation:var(--T) cubic-bezier(.4,0,.2,1) var(--start) infinite both;transform-box:fill-box;transform-origin:center}
+.file{animation-name:file;opacity:0}
+.win{animation-name:win}
+.row{transform-box:fill-box;animation:rowIn var(--T) cubic-bezier(.4,0,.2,1) infinite both}
+.row{animation-delay:calc(var(--start) + var(--d,0s))}
+.panel{animation-name:panel}
+.bubble{animation-name:bubble}
+.typer{transform-box:fill-box;transform-origin:left center;animation:var(--T) linear var(--start) infinite both}
+.t1{animation-name:type1}.t2{animation-name:type2}
+.dots{animation-name:dots;opacity:0}
+.dots circle{animation:bob .9s ease-in-out infinite;transform-box:fill-box;transform-origin:center}
+.dots circle:nth-child(2){animation-delay:.15s}.dots circle:nth-child(3){animation-delay:.3s}
+.answer{animation-name:answer}
+.chips{animation-name:chips}
+.cta{animation-name:cta}
+.cursor{animation-name:cursor;opacity:0;transform-origin:0 0}
+.match .hl{animation:hl var(--T) cubic-bezier(.4,0,.2,1) var(--start) infinite both}
+.other{animation:dim var(--T) cubic-bezier(.4,0,.2,1) var(--start) infinite both;opacity:.28}
+.count1{animation-name:count1;opacity:0}
+.count2{animation-name:count2}
+
+@keyframes file{0%,6%{opacity:1;transform:none}14%{opacity:0;transform:translate(0,-210px) scale(.22)}88%{opacity:0;transform:scale(.7)}96%,100%{opacity:1;transform:none}}
+@keyframes win{0%,7%{opacity:0;transform:scale(.95)}16%,84%{opacity:1;transform:none}92%,100%{opacity:0;transform:scale(.95)}}
+@keyframes rowIn{0%,13%{opacity:0;transform:translateY(10px)}19%,86%{opacity:1;transform:none}94%,100%{opacity:0;transform:translateY(10px)}}
+@keyframes panel{0%,22%{opacity:0;transform:translateX(28px)}28%,92%{opacity:1;transform:none}94%,100%{opacity:0;transform:translateX(28px)}}
+@keyframes bubble{0%,28%{opacity:0;transform:translateY(8px)}30.5%,92%{opacity:1;transform:none}94%,100%{opacity:0}}
+@keyframes type1{0%,30%{transform:scaleX(0);animation-timing-function:steps(21,end)}37%,92%{transform:scaleX(1)}94%,100%{transform:scaleX(0)}}
+@keyframes type2{0%,37.5%{transform:scaleX(0);animation-timing-function:steps(26,end)}45%,92%{transform:scaleX(1)}94%,100%{transform:scaleX(0)}}
+@keyframes dots{0%,45.5%{opacity:0}46.5%,50%{opacity:1}51%,100%{opacity:0}}
+@keyframes bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}
+@keyframes answer{0%,50%{opacity:0;transform:translateY(6px)}53%,92%{opacity:1;transform:none}94%,100%{opacity:0}}
+@keyframes chips{0%,53%{opacity:0;transform:translateY(6px)}56%,92%{opacity:1;transform:none}94%,100%{opacity:0}}
+@keyframes cta{0%,56%{opacity:0;transform:translateY(6px)}58.5%,62.6%{opacity:1;transform:none}63.6%{transform:scale(.95)}65%,92%{opacity:1;transform:none}94%,100%{opacity:0}}
+@keyframes cursor{0%,57%{opacity:0;transform:translate(140px,190px)}59%{opacity:1;transform:translate(140px,190px)}62.6%{transform:translate(0,0)}63.6%{transform:scale(.88)}65%{opacity:1;transform:none}70%,100%{opacity:0;transform:none}}
+@keyframes hl{0%,64%{opacity:0}68%,92%{opacity:1}94%,100%{opacity:0}}
+@keyframes dim{0%,64%{opacity:1}68%,92%{opacity:.28}94%,100%{opacity:1}}
+@keyframes count1{0%,65%{opacity:1}67%,92%{opacity:0}94%,100%{opacity:1}}
+@keyframes count2{0%,65%{opacity:0}67%,92%{opacity:1}94%,100%{opacity:0}}
+
+@media (prefers-reduced-motion: reduce){
+  .stage *,.caps *{animation:none!important}
+  .pause{display:none}
+}
+@media (max-width:640px){
+  .navlinks a:not(.btn){display:none}
+  header.hero{padding-block:36px 16px}
+}
+</style>
+
+<div class="wrap">
+  <nav aria-label="Main">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><rect x="3" y="18.5" width="26" height="6.5" rx="2.4" class="i"/><rect x="3" y="10.5" width="26" height="6.5" rx="2.4" class="i" opacity=".72"/><rect x="7" y="2.5" width="22" height="6.5" rx="2.4" class="a" transform="rotate(-8 18 5.75)"/></svg>
+      Tabularius
+    </div>
+    <div class="navlinks">
+      <a href="#features">Features</a>
+      <a href="#ai">AI</a>
+      <a href="#hosting">Hosting</a>
+      <a class="btn primary" href="#trial">Join the trial</a>
+    </div>
+  </nav>
+
+  <header class="hero">
+    <div class="eyebrow">Open source · For every .fmp12 solution</div>
+    <h1>Open, hosted, AI-native.</h1>
+    <p class="sub">Drop in your .fmp12. Your layouts, scripts and calculations run in any browser, on a server you own, with AI that knows your solution.</p>
+    <div class="ctas">
+      <a class="btn primary" href="#trial">Join the trial</a>
+      <a class="btn ghost" href="#features">See what it does ›</a>
+    </div>
+  </header>
+
+  <section class="stage" id="stage" aria-label="Animation: a .fmp12 file opens as a web app, and the assistant finds customers in Ohio who haven't ordered since June">
+    <svg class="film" viewBox="0 0 1200 750" role="img" aria-hidden="true">
+      <defs>
+        <filter id="sh" x="-10%" y="-10%" width="120%" height="130%">
+          <feDropShadow dx="0" dy="16" stdDeviation="22" class="shadow" flood-opacity="1"/>
+        </filter>
+        <filter id="sh2" x="-30%" y="-30%" width="160%" height="170%">
+          <feDropShadow dx="0" dy="14" stdDeviation="16" class="shadow" flood-opacity="1"/>
+        </filter>
+        <clipPath id="c1"><rect class="typer t1" x="810" y="208" width="206" height="24"/></clipPath>
+        <clipPath id="c2"><rect class="typer t2" x="810" y="232" width="206" height="24"/></clipPath>
+      </defs>
+
+      <!-- the web app window -->
+      <g class="anim win">
+        <rect x="140" y="56" width="920" height="608" rx="18" class="f-win" filter="url(#sh)"/>
+        <rect x="140.5" y="56.5" width="919" height="607" rx="17.5" fill="none" class="s-line"/>
+        <path d="M158 56h884a18 18 0 0 1 18 18v26H140V74a18 18 0 0 1 18-18z" class="f-chrome"/>
+        <circle cx="166" cy="78" r="6" fill="#ff5f57"/><circle cx="186" cy="78" r="6" fill="#febc2e"/><circle cx="206" cy="78" r="6" fill="#28c840"/>
+        <text x="600" y="83" text-anchor="middle" class="muted" font-size="13">Customers · Tabularius</text>
+        <rect x="140" y="100" width="920" height="1" class="f-line"/>
+
+        <text x="164" y="134" font-size="17" font-weight="600">Customer List</text>
+        <rect x="292" y="116" width="66" height="24" rx="12" class="f-soft"/>
+        <text x="325" y="132" text-anchor="middle" font-size="12" font-weight="500" class="f-accent" style="fill:var(--accent)">Browse</text>
+        <g class="anim count1"><text x="736" y="133" text-anchor="end" class="muted mono" font-size="13">1,248 records</text></g>
+        <g class="anim count2"><text x="736" y="133" text-anchor="end" class="mono" font-size="13" style="fill:var(--accent)">3 found · 1,248 total</text></g>
+
+        <text x="180" y="180" class="th">NAME</text>
+        <text x="372" y="180" class="th">CITY</text>
+        <text x="508" y="180" class="th">STATE</text>
+        <text x="588" y="180" class="th">LAST ORDER</text>
+        <rect x="164" y="189" width="572" height="1" class="f-line"/>
+        <g class="row" style="--d:0.00s"><g class="match">
+  <rect class="hl" x="164" y="196" width="572" height="40" rx="8"/>
+  <text class="cell strong" x="180" y="221">Customer 101</text>
+  <text class="cell" x="372" y="221">Columbus</text>
+  <text class="cell" x="508" y="221">OH</text>
+  <text class="cell mono" x="588" y="221">03/14/2026</text>
+</g></g>
+<g class="row" style="--d:0.09s"><g class="other">
+  <rect class="hl" x="164" y="242" width="572" height="40" rx="8"/>
+  <text class="cell strong" x="180" y="267">Customer 102</text>
+  <text class="cell" x="372" y="267">Austin</text>
+  <text class="cell" x="508" y="267">TX</text>
+  <text class="cell mono" x="588" y="267">09/22/2026</text>
+</g></g>
+<g class="row" style="--d:0.18s"><g class="match">
+  <rect class="hl" x="164" y="288" width="572" height="40" rx="8"/>
+  <text class="cell strong" x="180" y="313">Customer 103</text>
+  <text class="cell" x="372" y="313">Dayton</text>
+  <text class="cell" x="508" y="313">OH</text>
+  <text class="cell mono" x="588" y="313">05/02/2026</text>
+</g></g>
+<g class="row" style="--d:0.27s"><g class="other">
+  <rect class="hl" x="164" y="334" width="572" height="40" rx="8"/>
+  <text class="cell strong" x="180" y="359">Customer 104</text>
+  <text class="cell" x="372" y="359">Denver</text>
+  <text class="cell" x="508" y="359">CO</text>
+  <text class="cell mono" x="588" y="359">10/01/2026</text>
+</g></g>
+<g class="row" style="--d:0.36s"><g class="other">
+  <rect class="hl" x="164" y="380" width="572" height="40" rx="8"/>
+  <text class="cell strong" x="180" y="405">Customer 105</text>
+  <text class="cell" x="372" y="405">Cleveland</text>
+  <text class="cell" x="508" y="405">OH</text>
+  <text class="cell mono" x="588" y="405">08/30/2026</text>
+</g></g>
+<g class="row" style="--d:0.45s"><g class="other">
+  <rect class="hl" x="164" y="426" width="572" height="40" rx="8"/>
+  <text class="cell strong" x="180" y="451">Customer 106</text>
+  <text class="cell" x="372" y="451">Portland</text>
+  <text class="cell" x="508" y="451">OR</text>
+  <text class="cell mono" x="588" y="451">07/11/2026</text>
+</g></g>
+<g class="row" style="--d:0.54s"><g class="match">
+  <rect class="hl" x="164" y="472" width="572" height="40" rx="8"/>
+  <text class="cell strong" x="180" y="497">Customer 107</text>
+  <text class="cell" x="372" y="497">Toledo</text>
+  <text class="cell" x="508" y="497">OH</text>
+  <text class="cell mono" x="588" y="497">04/19/2026</text>
+</g></g>
+<g class="row" style="--d:0.63s"><g class="other">
+  <rect class="hl" x="164" y="518" width="572" height="40" rx="8"/>
+  <text class="cell strong" x="180" y="543">Customer 108</text>
+  <text class="cell" x="372" y="543">Seattle</text>
+  <text class="cell" x="508" y="543">WA</text>
+  <text class="cell mono" x="588" y="543">09/05/2026</text>
+</g></g>
+
+        <!-- assistant panel -->
+        <g class="anim panel">
+          <rect x="752" y="116" width="292" height="532" rx="14" class="f-panel"/>
+          <path d="M776 146l3 7 7 3-7 3-3 7-3-7-7-3 7-3z" class="f-accent"/>
+          <text x="794" y="161" font-size="15" font-weight="600">Assistant</text>
+
+          <g class="anim bubble">
+            <rect x="796" y="198" width="232" height="62" rx="14" class="f-accent"/>
+            <g clip-path="url(#c1)"><text x="812" y="224" font-size="14" class="on-accent">Customers in Ohio who</text></g>
+            <g clip-path="url(#c2)"><text x="812" y="248" font-size="14" class="on-accent">haven't ordered since June</text></g>
+          </g>
+
+          <g class="anim dots"><circle cx="782" cy="292" r="3.5" class="f-muted"/><circle cx="794" cy="292" r="3.5" class="f-muted"/><circle cx="806" cy="292" r="3.5" class="f-muted"/></g>
+
+          <g class="anim answer">
+            <text x="772" y="298" font-size="14">3 customers in Ohio have no</text>
+            <text x="772" y="320" font-size="14">order since June 1.</text>
+          </g>
+          <g class="anim chips">
+            <rect x="772" y="340" width="96" height="26" rx="7" class="f-win"/>
+            <rect x="772.5" y="340.5" width="95" height="25" rx="6.5" fill="none" class="s-line"/>
+            <text x="820" y="357" text-anchor="middle" class="mono" font-size="12">State = OH</text>
+            <rect x="874" y="340" width="162" height="26" rx="7" class="f-win"/>
+            <rect x="874.5" y="340.5" width="161" height="25" rx="6.5" fill="none" class="s-line"/>
+            <text x="955" y="357" text-anchor="middle" class="mono" font-size="12">Last order &lt; Jun 1</text>
+            <text x="772" y="388" class="muted" font-size="12">Find requests, run as your account</text>
+          </g>
+          <g class="anim cta">
+            <rect x="772" y="404" width="252" height="40" rx="10" class="f-accent"/>
+            <text x="898" y="429" text-anchor="middle" font-size="14" font-weight="500" class="on-accent">Show 3 records</text>
+          </g>
+
+          <rect x="772" y="596" width="252" height="36" rx="10" class="f-win"/>
+          <rect x="772.5" y="596.5" width="251" height="35" rx="9.5" fill="none" class="s-line"/>
+          <text x="786" y="619" class="muted" font-size="13">Ask about this file…</text>
+        </g>
+
+        <!-- pointer -->
+        <g transform="translate(906 430)">
+          <g class="anim cursor">
+            <path d="M0 0v20l5-5 4 9 3.5-1.6-4-8.6H15z" fill="#14181b" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/>
+          </g>
+        </g>
+      </g>
+
+      <!-- the .fmp12 file -->
+      <g class="anim file">
+        <g filter="url(#sh2)">
+          <path d="M538 252h96l34 34v150a12 12 0 0 1-12 12H538a12 12 0 0 1-12-12V264a12 12 0 0 1 12-12z" class="f-win"/>
+        </g>
+        <path d="M538 252.5h95.8l33.7 33.7V436a11.5 11.5 0 0 1-11.5 11.5H538A11.5 11.5 0 0 1 526.5 436V264A11.5 11.5 0 0 1 538 252.5z" fill="none" class="s-line"/>
+        <path d="M634 252v24a10 10 0 0 0 10 10h24z" class="f-soft"/>
+        <g transform="translate(560 316) scale(2.5)">
+          <rect x="3" y="18.5" width="26" height="6.5" rx="2.4" class="f-fg"/>
+          <rect x="3" y="10.5" width="26" height="6.5" rx="2.4" class="f-fg" opacity=".72"/>
+          <rect x="7" y="2.5" width="22" height="6.5" rx="2.4" class="f-accent" transform="rotate(-8 18 5.75)"/>
+        </g>
+        <text x="597" y="424" text-anchor="middle" class="mono muted" font-size="13">.fmp12</text>
+        <text x="597" y="486" text-anchor="middle" font-size="16" font-weight="500">Customers.fmp12</text>
+      </g>
+    </svg>
+    <button class="pause" id="pause" type="button" aria-label="Pause animation" aria-pressed="false">
+      <svg class="bars" viewBox="0 0 14 14"><rect x="2" y="1" width="3.5" height="12" rx="1"/><rect x="8.5" y="1" width="3.5" height="12" rx="1"/></svg>
+      <svg class="play" viewBox="0 0 14 14"><path d="M3 1.5v11l9.5-5.5z"/></svg>
+    </button>
+  </section>
+
+  <div class="caps" aria-hidden="true">
+    <div class="cap cap1"><b>1</b>Drop in your .fmp12</div>
+    <div class="cap cap2"><b>2</b>It opens as a web app</div>
+    <div class="cap cap3"><b>3</b>Ask in plain English</div>
+  </div>
+
+  <p class="draft">Hero loop draft for review. Hand-made SVG, 12-second seamless loop. Sample customer data is made up.</p>
+</div>
+
+<script>
+(function(){
+  var stage=document.getElementById('stage'),btn=document.getElementById('pause'),root=document.querySelector('.wrap');
+  btn.addEventListener('click',function(){
+    var p=root.classList.toggle('paused');
+    btn.setAttribute('aria-pressed',p?'true':'false');
+    btn.setAttribute('aria-label',p?'Play animation':'Pause animation');
+  });
+})();
+</script>
