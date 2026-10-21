@@ -6,12 +6,21 @@ import { guardedAll, guardedMatches, guardedReplace, guardedSplit } from '../src
 import { MAX_TEXT_RESULT, substituteText } from '../src/text-budget.ts';
 
 // Generated inputs only. No processes, files, network or external programs.
+// The engine's deadline counts the CPU time of the thread that evaluates (see calculationTime in evaluate.ts), so the
+// tests measure with that clock too: wall time also counts the moments a busy or shared machine, a three-core CI
+// runner running four test files at once for one, has taken the thread off its core, and says nothing about the engine.
+const cpuNow = (): number => {
+  if (typeof process.threadCpuUsage === 'function') {
+    const { user, system } = process.threadCpuUsage();
+    return (user + system) / 1000;
+  }
+  return performance.now();
+};
 const budget = (run: () => void, runaways = 1) => {
-  const start = performance.now();
+  const start = cpuNow();
   run();
-  // Each runaway formula ends at the step cap or the 2,500 ms deadline; anything slower is a regression. A loaded
-  // runner can take the whole deadline for every runaway, so the limit grows with how many the test runs.
-  assert.ok(performance.now() - start < 2500 * runaways + 1500, 'work budget regression');
+  // Each runaway formula ends at the step cap or the 2,500 ms deadline; anything slower is a regression.
+  assert.ok(cpuNow() - start < 2500 * runaways + 1500, 'work budget regression');
 };
 const context = (values: Record<string, string>) => ({ variable: (name: string) => text(values[name] ?? '') });
 
@@ -119,10 +128,11 @@ test('regex time is counted only while a regex runs, so other slow work cannot u
 }));
 
 test('many expensive built-in calls stop at the deadline, not after the next 1,024 steps', () => {
-  const start = performance.now();
+  const start = cpuNow();
   const formula = 'Let(b = While([s="ab"]; Length(s) < 4000000; [s = s & s]; s); ' + Array.from({ length: 150 }, () => 'Length(Filter(b;"b"))').join(' + ') + ')';
   assert.throws(() => evaluateText(formula, context({})), /work budget/);
-  assert.ok(performance.now() - start < 6000, 'the clock is read at every function call');
+  // One Filter of the 4 MB text takes about 200 ms, so a clock read only every 1,024 steps lets all 150 run (30 s of CPU).
+  assert.ok(cpuNow() - start < 6000, 'the clock is read at every function call');
 });
 
 test('substitution that does not grow the text is not refused for its match count or an unmatched large input', () => {
