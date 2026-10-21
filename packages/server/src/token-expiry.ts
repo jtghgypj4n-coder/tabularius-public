@@ -17,7 +17,7 @@ export function defaultTokenDays(): number {
   const text = process.env.TABULARIUS_TOKEN_DEFAULT_DAYS?.trim();
   if (!text) return DEFAULT_TOKEN_DAYS;
   const n = Number(text);
-  return Number.isFinite(n) && n >= 0 && n <= MAX_TOKEN_DAYS ? n : DEFAULT_TOKEN_DAYS;
+  return /^\d+(\.\d+)?$/.test(text) && n <= MAX_TOKEN_DAYS ? n : DEFAULT_TOKEN_DAYS;
 }
 
 /**

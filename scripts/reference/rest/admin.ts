@@ -2543,7 +2543,7 @@ export const groups: RestGroup[] = [
           { name: 'account', in: 'body', type: 'string', description: 'An active account of the file; or give agent.' },
           { name: 'agent', in: 'body', type: 'object', description: '{name, privilegeSet, needsApproval}: adds an AI agent account first (no password, never [Full Access]; needsApproval holds its writes for a person to approve).' },
           { name: 'label', in: 'body', type: 'string', description: 'What it is for (default "AI app: <account> in <file>"; up to 200 characters).' },
-          { name: 'days', in: 'body', type: 'number', description: 'Days until it expires, 1 to 3650; none for no expiry.' },
+          { name: 'days', in: 'body', type: 'number', description: 'Days until it expires, 1 to 3650; left out, 90 (TABULARIUS_TOKEN_DEFAULT_DAYS changes that); 0 for no expiry.' },
           { name: 'readOnly', in: 'body', type: 'boolean', description: 'The token can only read.' },
           { name: 'layouts', in: 'body', type: 'array of string', description: 'Only these layouts.' },
         ],

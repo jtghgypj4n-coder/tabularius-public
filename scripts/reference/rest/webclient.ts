@@ -872,7 +872,7 @@ export const groups: RestGroup[] = [
           { name: 'query', in: 'body', type: 'string', description: 'A find as a JSON string: [{"Status":"open"}]' },
           { name: 'limit', in: 'body', type: 'number', description: 'Events at most, 1 to 5000' },
           { name: 'label', in: 'body', type: 'string', description: 'A name for the feed in the list (60 characters)' },
-          { name: 'expiresDays', in: 'body', type: 'number', description: 'Days until the link stops working (default: never)' },
+          { name: 'expiresDays', in: 'body', type: 'number', description: 'Days until the link stops working, up to 3650 (default: 365; 0 for a link that never expires)' },
         ],
         example: {
           request: 'POST /tabularius/calendar/v1/databases/Invoices/feeds\nAuthorization: Bearer 2f1c…\nContent-Type: application/json\n\n{"layout":"Invoices","start":"Due","title":"Number","label":"Team calendar"}',

@@ -4067,7 +4067,7 @@ Makes a calendar feed for the signed-in account and answers its address once.
 | `query` | body | string | no | A find as a JSON string: [{"Status":"open"}] |
 | `limit` | body | number | no | Events at most, 1 to 5000 |
 | `label` | body | string | no | A name for the feed in the list (60 characters) |
-| `expiresDays` | body | number | no | Days until the link stops working (default: never) |
+| `expiresDays` | body | number | no | Days until the link stops working, up to 3650 (default: 365; 0 for a link that never expires) |
 
 **Example:**
 
@@ -10822,7 +10822,7 @@ Mints a scoped API token for an account; the token is shown this once.
 | `account` | body | string | yes | The account the token acts as. |
 | `label` | body | string | no | A label to know it by. |
 | `readOnly` | body | boolean | no | Only reads: writes and scripts are refused. |
-| `expiresDays` | body | number | no | Days until it expires; left out, it doesn't. |
+| `expiresDays` | body | number | no | Days until it expires; left out, 90 (TABULARIUS_TOKEN_DEFAULT_DAYS changes that); 0 for a token that never expires. |
 | `surfaces` | body | array of string | no | Only these: fmrest, fmodata, fmxdbc, fmmcp. |
 | `layouts` | body | array of string | no | Only through these layouts (needs fmrest or fmmcp among the surfaces). |
 
@@ -20236,7 +20236,7 @@ Makes an API token for AI apps (surface fmmcp) for an account, or for a new AI a
 | `account` | body | string | no | An active account of the file; or give agent. |
 | `agent` | body | object | no | {name, privilegeSet, needsApproval}: adds an AI agent account first (no password, never [Full Access]; needsApproval holds its writes for a person to approve). |
 | `label` | body | string | no | What it is for (default "AI app: <account> in <file>"; up to 200 characters). |
-| `days` | body | number | no | Days until it expires, 1 to 3650; none for no expiry. |
+| `days` | body | number | no | Days until it expires, 1 to 3650; left out, 90 (TABULARIUS_TOKEN_DEFAULT_DAYS changes that); 0 for no expiry. |
 | `readOnly` | body | boolean | no | The token can only read. |
 | `layouts` | body | array of string | no | Only these layouts. |
 
