@@ -54,7 +54,7 @@ const GUIDES = [
 
 const WHAT: Record<Readiness, string> = {
   runs: 'Runs here: Tabularius has its own version, so it works without the plug-in. A function that reads or writes files works only inside a script.',
-  outbox: 'Does nothing outside the server. Inside a script, with the server started in test mode (--test-outbound), a request or message is written to the Outbox (or the call just answers empty); in a calculation, or without test mode, it gives ? and error 3.',
+  outbox: 'Needs network access. Inside a script, once Script network is turned on for the file, a web request is made (and a message sent, where the server is set up to send mail); with the server started in test mode (--test-outbound) a request or message is written to the Outbox instead. Otherwise, and in a calculation, it gives ? and error 3.',
   refused: 'Gives ? and error 3. It would use the clipboard, a file picker, a shell command, FTP, or open a file or web address on a desktop, which Tabularius never does on a server.',
   unavailable: 'Gives ?, as FileMaker does when the plug-in is not installed. A script that asks whether the plug-in is there still works.',
   unrecognised: 'No function has this name here, so a calculation that uses it fails with "The function … cannot be found" instead of giving ?. Check the spelling.',
