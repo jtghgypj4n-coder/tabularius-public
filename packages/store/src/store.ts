@@ -328,7 +328,10 @@ export { LOCKOUT, addressBucket } from './sign-in-failures.ts';
  * also be marked must-change on next sign-in (see Store.setMustChangePassword).
  */
 export interface PasswordPolicy {
-  /** Shortest password a person may set; 0 or undefined means no minimum. */
+  /**
+   * Shortest password a person may set. 0 means no minimum, and says so on purpose; left out, the server's default applies
+   * (12 characters on a server started by the command line; see defaultMinPasswordLength).
+   */
   minLength?: number;
   /** Days a password stays valid before a change is required; 0 or undefined means it never expires. */
   maxAgeDays?: number;
@@ -648,6 +651,21 @@ function catalogRef(sqlText: string): string | undefined {
 export function hashPassword(password: string): string {
   const salt = randomBytes(16);
   return `scrypt$${salt.toString('base64')}$${scryptSync(password, salt, 32).toString('base64')}`;
+}
+
+/** The shortest new password a server started by the command line takes when a file's own policy names no minimum. */
+export const DEFAULT_MIN_PASSWORD_LENGTH = 12;
+
+/**
+ * The minimum length for new passwords in a file whose policy says nothing: TABULARIUS_MIN_PASSWORD_LENGTH (0 for none), which
+ * the command line sets to DEFAULT_MIN_PASSWORD_LENGTH when it is not set (a cluster's workers inherit it). Used as a library
+ * with no variable there is no default minimum, so code that builds stores for its own use is not held to it.
+ */
+export function defaultMinPasswordLength(): number {
+  const text = process.env.TABULARIUS_MIN_PASSWORD_LENGTH?.trim();
+  if (!text) return 0;
+  const n = Number(text);
+  return Number.isInteger(n) && n >= 0 ? n : DEFAULT_MIN_PASSWORD_LENGTH;
 }
 
 /**
@@ -2705,7 +2723,7 @@ export class Store {
         targets = this.unmigratedAccounts();
       }
       const out = targets.map((account) => {
-        const password = generateTempPassword(this.passwordPolicy().minLength ?? 0);
+        const password = generateTempPassword(this.minPasswordLength());
         // Keep the privilege set: setPassword leaves it untouched when none is passed.
         this.setPassword(account, password, undefined, { mustChange: true });
         return { account, password };
@@ -2913,7 +2931,7 @@ export class Store {
   setPassword(account: string, password: string, privilegeSet?: string, opts: { mustChange?: boolean } = {}): void {
     return this.securityChange(() => {
       account = this.canonicalAccount(account) ?? account;
-      const min = this.passwordPolicy().minLength;
+      const min = this.minPasswordLength();
       if (min && password.length > 0 && password.length < min) {
         throw new StoreError(960, `Password must be at least ${min} characters`);
       }
@@ -2946,7 +2964,7 @@ export class Store {
   createAccount(account: string, password: string, privilegeSet: string, opts: { inactive?: boolean; mustChange?: boolean } = {}): void {
     return this.securityChange(() => {
       account = this.canonicalAccount(account) ?? account;
-      const min = this.passwordPolicy().minLength;
+      const min = this.minPasswordLength();
       if (min && password.length > 0 && password.length < min) throw new StoreError(960, `Password must be at least ${min} characters`);
       const set = this.privilegeSet(privilegeSet);
       if (!set) throw new StoreError(960, `No privilege set "${privilegeSet}"`);
@@ -2985,13 +3003,22 @@ export class Store {
 
   /**
    * The file's password policy (minimum length, maximum age). FileMaker keeps
-   * these as file-wide account options; an empty object means no limits.
+   * these as file-wide account options; an empty object means the file says nothing (see minPasswordLength for what then applies).
    */
   passwordPolicy(): PasswordPolicy {
     return this.meta('passwordPolicy') ?? {};
   }
 
-  /** Sets the file's password policy; a 0 or missing value turns that limit off. */
+  /**
+   * The shortest password a person may set in this file: the policy's own minimum (0 is a choice, and means none), else the
+   * server's default.
+   */
+  minPasswordLength(): number {
+    const own = this.passwordPolicy().minLength;
+    return own === undefined ? defaultMinPasswordLength() : own;
+  }
+
+  /** Sets the file's password policy. A 0 minLength is kept (no minimum, on purpose); a missing one leaves the server's default; a 0 or missing maxAgeDays means no expiry. */
   setPasswordPolicy(policy: PasswordPolicy): void {
     return this.securityChange(() => {
       const clean: PasswordPolicy = {};
@@ -2999,7 +3026,7 @@ export class Store {
         const v = policy[key];
         if (v === undefined || v === null) continue;
         if (!Number.isInteger(v) || v < 0) throw new StoreError(960, `${key} must be a whole number${key === 'minLength' ? ' of characters' : ' of days'}, or 0 for none`);
-        if (v > 0) clean[key] = v;
+        if (v > 0 || key === 'minLength') clean[key] = v;
       }
       this.sql.prepare(`INSERT INTO _fm_meta VALUES ('passwordPolicy', ?) ON CONFLICT(key) DO UPDATE SET json = excluded.json`).run(JSON.stringify(clean));
       this.logSecurity('password-policy-changed', { detail: { ...clean } });

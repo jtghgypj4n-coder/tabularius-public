@@ -60,12 +60,24 @@ test('tabularius admin-password reads a piped password', () => {
     const main = join(import.meta.dirname, '..', 'src', 'main.ts');
     const env = { ...process.env };
     delete env.TABULARIUS_PASSWORD;
-    const out = execFileSync(process.execPath, ['--no-warnings', main, 'admin-password', dir], { input: 'from a pipe\n', env }).toString();
+    const out = execFileSync(process.execPath, ['--no-warnings', main, 'admin-password', dir], { input: 'from a pipe, long enough\n', env }).toString();
     assert.match(out, /admin password set/);
     assert.match(readFileSync(join(dir, '.openhbam-admin'), 'utf8'), /\S/);
     const empty = spawnSync(process.execPath, ['--no-warnings', main, 'admin-password', dir], { input: '', env });
     assert.notEqual(empty.status, 0);
     assert.match(empty.stderr.toString(), /empty password/);
+    // Shorter than the minimum for new passwords: refused, and the stored one is left as it was.
+    const before = readFileSync(join(dir, '.openhbam-admin'), 'utf8');
+    const short = spawnSync(process.execPath, ['--no-warnings', main, 'admin-password', dir], { input: 'too short\n', env });
+    assert.equal(short.status, 1);
+    assert.match(short.stderr.toString(), /admin-password: the admin console password needs at least 12 characters/);
+    assert.equal(readFileSync(join(dir, '.openhbam-admin'), 'utf8'), before);
+    // The operator can lower the minimum.
+    const lowered = spawnSync(process.execPath, ['--no-warnings', main, 'admin-password', dir], { input: 'too short\n', env: { ...env, TABULARIUS_MIN_PASSWORD_LENGTH: '4' } });
+    assert.equal(lowered.status, 0, lowered.stderr.toString());
+    const bad = spawnSync(process.execPath, ['--no-warnings', main, 'admin-password', dir], { input: 'whatever long\n', env: { ...env, TABULARIUS_MIN_PASSWORD_LENGTH: 'many' } });
+    assert.equal(bad.status, 1);
+    assert.match(bad.stderr.toString(), /TABULARIUS_MIN_PASSWORD_LENGTH is the fewest characters/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
