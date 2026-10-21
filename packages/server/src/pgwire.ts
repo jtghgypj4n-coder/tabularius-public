@@ -25,7 +25,7 @@ import { FAULT_MESSAGE, isFault, logFault } from './fault-log.ts';
 import { createServer, type Server, type Socket } from 'node:net';
 import { createSecureContext, TLSSocket } from 'node:tls';
 import { randomBytes } from 'node:crypto';
-import { addressBucket, endTransaction, PrivilegeError, spendPasswordCheck, StoreError, writer, type Privileges, type Store, type Transaction } from '../../store/src/index.ts';
+import { addressBucket, endTransaction, PrivilegeError, schemaVisibility, spendPasswordCheck, StoreError, writer, type Privileges, type Store, type Transaction } from '../../store/src/index.ts';
 import { monotonicClock } from '../../store/src/monotonic.ts';
 import { executeWrite, parseWrite, returningColumns, WriteRefusal, type WritePlan, type WriteResult } from './pgwrite.ts';
 import { SignInFailures } from '../../store/src/sign-in-failures.ts';
@@ -769,7 +769,7 @@ class Connection {
         if (code.slice(offset, offset + text.length) !== text) return text;
         return call ? values[call.toLowerCase()] : `'${this.user.replace(/'/g, "''")}'`;
       });
-    const translated = this.store!.calc.translateSQL(pgFunctions);
+    const translated = this.store!.calc.translateSQL(pgFunctions, this.privileges);
     let { sql: text } = translated;
     const { target } = translated;
     if (!this.privileges!.in(target).readsEverything) {
@@ -794,9 +794,11 @@ class Connection {
       tables: store.schema.tableOccurrences.flatMap((to, i) => {
         const t = store.calc.occurrenceTable(to.id);
         if (!t) return [];
+        const visible = schemaVisibility(this.privileges!.in(t.store))!;
+        if (!visible(t.table.name)) return [];
         // The columns a query of it returns, typed as results are.
         const { names, types } = t.store.describe(`SELECT * FROM "${t.table.name.replace(/"/g, '""')}"`);
-        const columns = columnsOf(names, types, []).filter((c) => !c.name.startsWith('_fm_'));
+        const columns = columnsOf(names, types, []).filter((c) => !c.name.startsWith('_fm_') && visible(t.table.name, c.name));
         return [{ oid: FIRST_TABLE_OID + i, name: to.name, columns }];
       }),
     };

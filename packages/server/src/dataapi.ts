@@ -2159,6 +2159,7 @@ export class DataApi {
           const q = url.searchParams;
           const shown = responseLayout(q.get('layout.response'));
           return withScripts(scriptArgs(q), () => {
+            if (shown !== layout) store.get(layout, id, 'iso', undefined, privileges, { fields: [], summaries: false });
             const r = store.get(shown, id, storeDateFormat(store, q.get('dateformats')), portalPaging((k) => q.get(k), q.keys()), privileges, { layoutOnly: true });
             store.logRead(store.layout(layout).table, [id], { account, privileges });
             return { dataInfo: dataInfo(1, store.find(shown, { limit: 0, privileges }).totalCount, 1, shown), data: [recordOut(r, portalsAsked(q.get('portal')), shown)] };

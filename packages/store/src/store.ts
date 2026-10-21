@@ -973,6 +973,8 @@ export class Store {
   locks = new RecordLocks();
   /** Called after every change to a record (and lock changes), for live clients. */
   readonly listeners = new Set<(change: Change) => void>();
+  /** Additional live principals (including external identities on other workers) to check before deleting a row. */
+  readonly deleteReaders = new Set<() => Iterable<Privileges>>();
   /** Single-flight directory checks, keyed exactly like failures. No queue, timers or idle entries;
    * entries live only as long as their active authentication request and are released in finally.
    */
@@ -1818,13 +1820,13 @@ export class Store {
   }
 
   /** Tells live clients about a change. */
-  notify(kind: ChangeKind, table: string, recordId?: number, modId?: number, by?: { owner?: string; account?: string }, fields?: string[], ids?: number[]): void {
+  notify(kind: ChangeKind, table: string, recordId?: number, modId?: number, by?: { owner?: string; account?: string }, fields?: string[], ids?: number[], deletedVisibility?: Change['deletedVisibility']): void {
     if (this.securityBatchPublications) {
-      this.securityBatchPublications.push(() => this.notify(kind, table, recordId, modId, by, fields, ids));
+      this.securityBatchPublications.push(() => this.notify(kind, table, recordId, modId, by, fields, ids, deletedVisibility));
       return;
     }
     if (this.writePublications) {
-      this.writePublications.push(() => this.notify(kind, table, recordId, modId, by, fields, ids));
+      this.writePublications.push(() => this.notify(kind, table, recordId, modId, by, fields, ids, deletedVisibility));
       return;
     }
     if (this.keyPublications) {
@@ -1848,7 +1850,7 @@ export class Store {
       }
     }
     if (!this.listeners.size) return;
-    const change: Change = { kind, file: this.name, table, recordId, modId, account: w?.account, owner: w?.owner, ...(fields ? { fields } : {}), ...(ids ? { ids } : {}) };
+    const change: Change = { kind, file: this.name, table, recordId, modId, account: w?.account, owner: w?.owner, ...(fields ? { fields } : {}), ...(ids ? { ids } : {}), ...(kind === 'delete' && deletedVisibility ? { deletedVisibility } : {}) };
     for (const l of this.listeners) {
       try {
         l(change);
@@ -2145,9 +2147,10 @@ export class Store {
     if (!then && !now) return { action: 'unchanged', fields: [] };
     if (!then) {
       const orphaned = keyed ? this.parentKeysLeaving(t, now!, recordId, opts.privileges) : [];
+      const visibility = this.deleteVisibility(t.name, recordId);
       this.sql.prepare(`DELETE FROM ${T} WHERE _fm_record_id = ?`).run(recordId);
       this.audit('delete', t.name, recordId, Object.fromEntries(Object.entries(now!).filter(([k, v]) => !k.startsWith('_fm_') && v !== null)), opts);
-      this.notify('delete', t.name, recordId);
+      this.notify('delete', t.name, recordId, undefined, undefined, undefined, undefined, visibility);
       if (orphaned.length) this.followOnDelete(orphaned, opts);
       return { action: 'deleted', fields: [] };
     }
@@ -9065,6 +9068,24 @@ export class Store {
     return !pv || pv.table(table).view !== false;
   }
 
+  /** Keep decisions, not row values: rules can depend on related rows that the delete will also remove. */
+  private deleteVisibility(table: string, recordId: number): NonNullable<Change['deletedVisibility']> {
+    if (!this.listeners.size) return [];
+    const readers = this.accounts().map(({ name }) => this.privileges(name));
+    for (const provide of this.deleteReaders) readers.push(...provide());
+    const seen = new Set<string>();
+    const grants: NonNullable<Change['deletedVisibility']> = [];
+    for (const p of readers) {
+      const rule = p.table(table).view;
+      if (typeof rule !== 'string') continue;
+      const key = JSON.stringify([p.account, rule]);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      if (this.canViewRecord(table, recordId, p)) grants.push({ account: p.account, rule });
+    }
+    return grants;
+  }
+
   delete(layout: string | LayoutInfo, recordId: number, opts: WriteOptions = {}): void {
     const info = this.layoutInfo(layout);
     this.checkLayout(info, opts.privileges, true);
@@ -9085,6 +9106,7 @@ export class Store {
     const before = this.sql.prepare(`SELECT * FROM ${q(info.table)} WHERE _fm_record_id = ?`).get(recordId) as Record<string, SqlValue> | undefined;
     // Foreign keys this record is the parent of: restrict refuses now, before anything is changed.
     const orphaned = before && parent ? this.parentKeysLeaving(this.table(info), before, recordId, opts.privileges) : [];
+    const visibility = before ? this.deleteVisibility(info.table, recordId) : [];
     if (before && opts.cascade !== false) this.cascadeDelete(info.table, recordId, before, opts);
     const res = this.changeOne(this.table(info), recordId, before as Row | undefined, () => this.sql.prepare(`DELETE FROM ${q(info.table)} WHERE _fm_record_id = ?`).run(recordId));
     if (res.changes === 0) throw new StoreError(101, 'Record is missing');
@@ -9097,7 +9119,7 @@ export class Store {
       // later under the same id (the highest id is used again) would show as locked by someone who is not editing it.
       this.notify('unlock', info.table, recordId, undefined, { account: lock.account, owner: lock.owner });
     }
-    this.notify('delete', info.table, recordId);
+    this.notify('delete', info.table, recordId, undefined, undefined, undefined, undefined, visibility);
     if (orphaned.length) this.followOnDelete(orphaned, opts);
     };
     if (parent) this.keyStep(run);

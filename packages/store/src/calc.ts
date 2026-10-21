@@ -2265,7 +2265,7 @@ export class Calculations {
     // A limited account sees only the tables and fields it can read, each in the file it lives in.
     const visible = (to: { id: number }, field?: string) => {
       const t = this.occurrenceTable(to.id);
-      return !privileges || !t || (schemaVisibility(privileges.in(t.store))!(t.table.name, field));
+      return !privileges || (!!t && schemaVisibility(privileges.in(t.store))!(t.table.name, field));
     };
     if (tables) {
       const rows = schema.tableOccurrences.filter((to) => visible(to)).map((to) => {
