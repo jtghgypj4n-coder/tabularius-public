@@ -22,7 +22,8 @@ import { LayoutRenderer, containerKind, callWebViewer, answerPageCalls, tellPage
 import { editRuns, formatAt, restyleRange, type TextFormat } from './styled.ts';
 import { LockedError, Locks, Presence, currentLocks, currentViewers, listen, type Change } from './live.ts';
 import { relayedChange, relayedFrom, type Relayed } from './change-relay.ts';
-import { mergePrefs } from './prefs-merge.ts';
+import { clearWatches } from './watch-storage.ts';
+import { recentRecords, mergePrefs } from './prefs-merge.ts';
 import { showExplanation } from './explain.ts';
 import { showRecordHistory } from './record-history.ts';
 import { fromDevice, locate, scanBarcode, signature, takePhoto, type DeviceType } from './device.ts';
@@ -1041,8 +1042,9 @@ class Session implements Host {
     // One session at a time: signing in again replaces the last one's handlers.
     livePresences.add(this.presence);
     pageHandlers = { show: () => this.renderToolbar() };
-    answerPageCalls((id, method, args) => this.pageCall(id, method, args));
+    this.stopPageCalls = answerPageCalls((id, method, args) => this.pageCall(id, method, args));
     api.onExpired = () => {
+      if (this.accountName) clearWatches(this.api.db, this.accountName);
       // The session is gone: nothing here may keep talking to the server (presence, lock renewals), and the keys are the login page's.
       this.teardown();
       this.locks.dispose();
@@ -1809,8 +1811,12 @@ class Session implements Host {
   private changesChannel?: BroadcastChannel;
   private readonly onKeys = (e: KeyboardEvent): void => this.keys(e);
 
+  private stopPageCalls?: () => void;
+
   /** Stops everything this window does on its own, for a session that ended or a window that closed. Locks are the caller's: released when the session is still good. */
   private teardown(): void {
+    this.stopPageCalls?.();
+    this.stopPageCalls = undefined;
     this.stopLive?.();
     this.stopLive = undefined;
     this.presence.stop();
@@ -3377,16 +3383,32 @@ class Session implements Host {
         return undefined;
       }
     };
+    const recent = local(this.prefKey('recent'));
     this.prefs = {
       finds: local(this.findsKey()),
       sorts: local(this.prefKey('sorts')),
-      recent: local(this.prefKey('recent')),
+      ...(recent !== undefined ? { recent: recentRecords(recent) } : {}),
     };
-    if (this.api.copyOnly) return;
+    let migrateRecent = recent !== undefined && JSON.stringify(recent) !== JSON.stringify(this.prefs.recent);
+    if (recent !== undefined) {
+      localStorageSet(this.prefKey('recent'), JSON.stringify(this.prefs.recent));
+    }
+    if (this.api.copyOnly) {
+      if (migrateRecent) this.unsentPrefs.add('recent');
+      return;
+    }
     this.loadingPrefs = true;
     try {
       const kept = await this.api.prefs() as typeof this.prefs;
       this.serverPrefs = structuredClone(kept);
+      if (kept.recent !== undefined) {
+        const safe = recentRecords(kept.recent);
+        const changed = JSON.stringify(safe) !== JSON.stringify(kept.recent);
+        if (!this.unsentPrefs.has('recent')) this.prefs.recent = safe;
+        kept.recent = safe;
+        localStorageSet(this.prefKey('recent'), JSON.stringify(this.prefs.recent));
+        migrateRecent ||= changed;
+      }
       for (const k of PREF_NAMES) {
         // Changed here while loading, or what this browser kept before they lived on the server: goes up.
         if (this.unsentPrefs.has(k) || (kept[k] === undefined && this.prefs[k] !== undefined)) this.unsentPrefs.add(k);
@@ -3396,6 +3418,7 @@ class Session implements Host {
       // An older server, or offline: this browser's copy.
     }
     this.loadingPrefs = false;
+    if (migrateRecent) this.unsentPrefs.add('recent');
     this.sendPrefs();
   }
 
@@ -3407,8 +3430,9 @@ class Session implements Host {
   private unsentPrefs = new Set<PrefName>();
 
   private savePref<K extends PrefName>(key: K, value: NonNullable<Session['prefs'][K]>): void {
-    this.prefs[key] = value;
-    localStorageSet(key === 'finds' ? this.findsKey() : this.prefKey(key), JSON.stringify(value));
+    const safe = key === 'recent' ? recentRecords(value) : value;
+    (this.prefs as Record<string, unknown>)[key] = safe;
+    localStorageSet(key === 'finds' ? this.findsKey() : this.prefKey(key), JSON.stringify(safe));
     this.unsentPrefs.add(key);
     this.sendPrefs();
   }
@@ -3482,10 +3506,7 @@ class Session implements Host {
   private noteRecentRecord(): void {
     const rec = this.record;
     if (!rec || !this.meta || this.mode !== 'browse' || this.view !== 'form') return;
-    const keys = this.renderer?.fieldKeys().filter((k) => !k.includes('::')) ?? [];
-    const title = keys.map((k) => String(rec.fieldData[k] ?? '').replace(/\s+/g, ' ').trim()).filter(Boolean).slice(0, 3)
-      .map((v) => (v.length > 40 ? `${v.slice(0, 39)}…` : v)).join(' · ') || `Record ${rec.recordId}`;
-    const entry: RecentRecord = { layout: this.meta.layout.name, recordId: rec.recordId, title };
+    const entry: RecentRecord = { layout: this.meta.layout.name, recordId: rec.recordId, title: `Record ${rec.recordId}` };
     const kept = Array.isArray(this.prefs.recent) ? this.prefs.recent : [];
     const first = kept[0];
     if (first && first.layout === entry.layout && first.recordId === entry.recordId && first.title === entry.title) return;
@@ -8328,6 +8349,7 @@ class Session implements Host {
     // Claris's order: OnWindowClose (which can keep the window), then OnLastWindowClose.
     if (!(await this.windowCloseAllowed())) return;
     if (this.onLastWindowClose && this.meta) await this.fileTrigger('OnLastWindowClose');
+    if (this.accountName) clearWatches(this.api.db, this.accountName);
     this.teardown();
     await this.locks.releaseAll();
     await this.api.logout();

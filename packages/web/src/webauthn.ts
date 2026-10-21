@@ -4,6 +4,7 @@
 // The server (dataapi.ts) verifies everything; this only shuttles bytes between
 // the authenticator and the endpoints, as base64url.
 import { httpProblem } from './http-problem.ts';
+import { basicAuthorization } from './basic-auth.ts';
 
 const enc = encodeURIComponent;
 
@@ -49,7 +50,7 @@ async function fmPost(db: string, path: string, body: unknown, token?: string): 
 async function fmBasicPost(db: string, path: string, account: string, password: string, body: unknown): Promise<any> {
   const r = await fetch(`/fmi/data/vLatest/databases/${enc(db)}/${path}`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-tabularius-client': 'web', authorization: `Basic ${btoa(`${account}:${password}`)}` },
+    headers: { 'content-type': 'application/json', 'x-tabularius-client': 'web', authorization: basicAuthorization(account, password) },
     body: JSON.stringify(body ?? {}),
   });
   const json = await r.json().catch(() => ({}));
