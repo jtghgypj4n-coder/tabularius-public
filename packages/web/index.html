@@ -31,6 +31,13 @@
     addEventListener('error', function (e) { var t = e.target; if (!t || t === window || t.tagName === 'SCRIPT') show(); }, true);
     addEventListener('unhandledrejection', show);
   })();</script>
+  <script>/* An unsupported browser cannot run the module entry point, so replace Loading… before it stays blank. */
+  if (!('noModule' in HTMLScriptElement.prototype)) {
+    addEventListener('DOMContentLoaded', function () {
+      var loading = document.querySelector('#app .loading');
+      if (loading) { loading.className = 'fatal'; loading.textContent = 'Modules is unavailable. Use a current browser with JavaScript module support, then reload this page.'; }
+    });
+  }</script>
   <script type="module" src="src/main.ts"></script>
 </head>
 <body>

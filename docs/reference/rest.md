@@ -21267,7 +21267,8 @@ Response `200`:
 ```json
 {
   "status": "ok",
-  "uptimeSeconds": 3600
+  "uptimeSeconds": 3600,
+  "serverTime": "2026-01-01T00:00:00.000Z"
 }
 ```
 

@@ -45,6 +45,24 @@ function in [Claris's documentation](https://help.claris.com/en/pro-help/content
 `npm run test:e2e` drives the web client in a real browser (packages/web/e2e):
 opening a file, Find mode, editing, sorting, portals and record locking.
 
+## Browser support and self-check
+
+The automated browser tests in this repository run in Chromium through
+Playwright. This verifies the tested flows in that Chromium environment; other
+browser engines and specific browser release ranges have not been verified,
+so no Firefox, Safari, Chrome or Edge version range is claimed here. Use a
+current browser with JavaScript modules and `structuredClone` for the web
+client.
+
+Open `/app/self-check.html` to check browser features, local storage, the
+server connection, and an approximate clock difference. The server version is not
+public: Help > About shows it after sign-in. The
+page reports unavailable features with a fallback or next step. Its Copy
+results button includes only feature statuses, timing, server status,
+and whether a browser session is present. It does not include session
+tokens, file names, account names or the server address. If copying is blocked,
+select and copy the displayed results manually.
+
 Client-supplied found-set `ids` arrays accept at most 100,000 entries (including
 duplicates); larger arrays receive HTTP 400. Refresh Window accepts the browser's
 full found set so it can preserve display selection and order; its request body

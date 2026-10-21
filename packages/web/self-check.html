@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Browser self-check — Tabularius</title>
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="app.css">
+  <style>
+    body{max-width:52rem;margin:3rem auto;padding:0 1rem;color:var(--text);background:var(--bg);font:16px system-ui,sans-serif}
+    .check{padding:.65rem 0;border-bottom:1px solid var(--line)}
+    .check strong{display:inline-block;min-width:12rem}.failed{color:#a22626}.passed{color:#176b3a}
+    pre{white-space:pre-wrap;overflow-wrap:anywhere;padding:1rem;background:var(--panel);border:1px solid var(--line)}
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Browser self-check</h1>
+    <p>Checks this browser and its connection. Copying results includes browser capability status, server status and timing, and whether a local session is present. It never includes session tokens, file names, or account names.</p>
+    <ul id="checks" aria-live="polite"><li>Running checks…</li></ul>
+    <noscript><p class="failed">This check needs JavaScript. Turn it on in your browser settings and reload this page.</p></noscript>
+    <button id="copy" type="button" disabled>Copy results</button>
+    <p><a href="./">Return to sign in</a></p>
+    <pre id="results" aria-label="Self-check results"></pre>
+  </main>
+  <script>if (!('noModule' in HTMLScriptElement.prototype)) { var list = document.querySelector('#checks'); list.replaceChildren(); var item = document.createElement('li'); item.textContent = 'Modules is unavailable. Use a current browser with JavaScript module support.'; list.append(item); }</script>
+  <script type="module" src="src/self-check.ts"></script>
+</body>
+</html>
