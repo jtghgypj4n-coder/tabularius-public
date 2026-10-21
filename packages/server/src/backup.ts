@@ -39,7 +39,7 @@ import { LogShipper, applyLog, logReader, logRecords, startLog, writeLog } from 
 import type { LogFollower, LogWriter } from './logs.ts';
 import { backupInventory, checkedBackupCopies } from './backup-inventory.ts';
 import { readBackupInfo, updateBackupInfo, writeBackupInfo } from './backup-info.ts';
-import { isEncryptedSet, openAmenderSync, readVerified, signManifest } from './backup-auth.ts';
+import { isEncryptedSet, openAmenderSync, readVerified, signManifest, signedByOlderVersion } from './backup-auth.ts';
 import type { Amender } from './backup-auth.ts';
 import { EMPTY_CHAIN, LOGS, OLD_LOG, chainOf, extendChain, verifyLogs } from './backup-log-chain.ts';
 import type { LogChain } from './backup-log-chain.ts';
@@ -115,6 +115,7 @@ async function trustSet(setDir: string, passphrase: string | undefined, acceptUn
   const { state, info } = await readVerified(setDir, passphrase);
   if (state === 'signed') return { signed: true, info };
   if (acceptUnsigned || (!passphrase && !isEncryptedSet(setDir))) return { signed: false, info };
+  if (signedByOlderVersion(info)) throw new Error(`${join(setDir, 'backup.json')} was signed by an earlier version of Tabularius, whose signature covered less of the set (not the container files' sizes and times, nor the point-in-time logs), so it counts as having no signature. If you trust where this set has been, restore it anyway with --accept-unsigned-backup, or sign it again with \`verify-backup <folder> ${basename(setDir)} --sign\` (only for a set that has not been out of your hands).`);
   throw new Error(`${join(setDir, 'backup.json')} has no signature, so nothing says the checksums in it are the ones this backup was made with. A set made before signatures existed, or before the backup passphrase was set, has none, and so does one whose signature was removed or that someone put in the folder. If you trust where this set has been, restore it anyway with --accept-unsigned-backup. \`verify-backup <folder> ${basename(setDir)} --sign\` signs it after reading every copy back, but cannot tell whether the copies were swapped before it ran: use it only for a set that has not been out of your hands.`);
 }
 
@@ -1186,16 +1187,32 @@ async function trustPoint(copy: string, passphrase: string | undefined, acceptUn
   return { signed: set.signed, sums, external, logs };
 }
 
+/**
+ * What a restore of a point checks about the set before it reads the copy (see trustPoint), and, in a signed set, the saved
+ * logs: only the ones its manifest counts are returned, and every one of them has to be there.
+ */
+async function checkedPoint(point: { copy: string; logs: SavedLog[] }, passphrase: string | undefined, acceptUnsigned: boolean, trusted?: Map<string, Awaited<ReturnType<typeof trustSet>>>): Promise<{ signed: boolean; sums?: Record<string, string>; external: ExternalManifest; logs: SavedLog[] }> {
+  const checked = await trustPoint(point.copy, passphrase, acceptUnsigned, trusted);
+  if (!checked.signed) return { ...checked, logs: point.logs };
+  const name = plain(basename(point.copy)).slice(0, -STORE_EXT.length);
+  const recorded = checked.logs;
+  const vouched = verifyLogs(join(dirname(point.copy), 'progressive', name), recorded && Object.hasOwn(recorded, name) ? recorded[name] : undefined, name);
+  return { ...checked, logs: point.logs.filter((l) => l.file !== undefined && vouched.has(`${l.file}#${l.n}`)) };
+}
+
+/**
+ * Refuses a restore point whose set cannot be trusted (no signature, a signature that does not match, logs that were removed or
+ * changed) without touching anything. For a caller that has to close a live file before restoring it: it checks first, so a set
+ * that is going to be refused does not cost the file's users their connection.
+ */
+export async function checkRestorePoint(point: { copy: string; logs: SavedLog[] }, passphrase = backupKey(), acceptUnsigned = false): Promise<void> {
+  await checkedPoint(point, passphrase, acceptUnsigned);
+}
+
 /** Stage without touching any live database, so a folder restore can commit once. */
 async function stageRestorePoint(point: { copy: string; logs: SavedLog[] }, target: string, passphrase: string | undefined, securitySource = target, acceptUnsigned = false, trusted?: Map<string, Awaited<ReturnType<typeof trustSet>>>): Promise<{ external: ExternalManifest; logs: SavedLog[] }> {
-  const { signed, sums, external, logs: recorded } = await trustPoint(point.copy, passphrase, acceptUnsigned, trusted);
+  const { signed, sums, external, logs } = await checkedPoint(point, passphrase, acceptUnsigned, trusted);
   const name = plain(basename(point.copy)).slice(0, -STORE_EXT.length);
-  // In a signed set only the logs its manifest recorded are replayed, and every one of them has to be there.
-  let logs = point.logs;
-  if (signed) {
-    const vouched = verifyLogs(join(dirname(point.copy), 'progressive', name), recorded && Object.hasOwn(recorded, name) ? recorded[name] : undefined, name);
-    logs = point.logs.filter((l) => l.file !== undefined && vouched.has(`${l.file}#${l.n}`));
-  }
   const work = target + '.restoring';
   const scratch = [work, work + '-wal', work + '-shm', work + ENCRYPTED_EXT];
   for (const x of scratch) rmSync(x, { force: true });
@@ -1224,6 +1241,8 @@ async function stageRestorePoint(point: { copy: string; logs: SavedLog[] }, targ
     throw e;
   }
   retainCurrentCredentials(securitySource, work);
+  // Not whatever permissions the backup copy carried (a set on a shared drive can hold world-writable files).
+  giveLiveMode(work, target);
   crashPoint('restore-copy:after-verify');
   for (const x of [work + '-wal', work + '-shm']) rmSync(x, { force: true });
   return { external, logs };

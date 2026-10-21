@@ -33,6 +33,9 @@ export interface SignedParts {
 }
 
 const DOMAIN = 'tabularius-backup-manifest-v2';
+/** The form of `auth` this version writes. Version 1 signed fewer parts of the manifest (no container sizes and times, no logs): it is not trusted, and counts as no signature. */
+const AUTH_VERSION = 2;
+const olderAuth = (auth: SignedParts['auth']): boolean => !!auth && typeof auth === 'object' && auth.v === 1;
 
 const sorted = (o: Record<string, unknown> | undefined): [string, unknown][] =>
   Object.entries(o ?? {}).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
@@ -85,7 +88,7 @@ export async function prepareSigner(passphrase: string): Promise<(info: SignedPa
   return (info) => {
     const problem = shapeProblem(info);
     if (problem) throw new Error(`backup.json ${problem}, so it is not signed`);
-    info.auth = { v: 1, salt: salt.toString('hex'), mac: createHmac('sha256', key).update(signedBytes(info)).digest('hex') };
+    info.auth = { v: AUTH_VERSION, salt: salt.toString('hex'), mac: createHmac('sha256', key).update(signedBytes(info)).digest('hex') };
   };
 }
 
@@ -100,6 +103,11 @@ export async function signManifest(setDir: string, passphrase: string, change?: 
 
 export type ManifestSignature = 'signed' | 'unsigned';
 
+/** Whether a manifest carries a signature made by an earlier version of this code (see AUTH_VERSION): it is treated as unsigned, and signing the set again replaces it. */
+export function signedByOlderVersion(info: { auth?: unknown }): boolean {
+  return olderAuth(info.auth as SignedParts['auth']);
+}
+
 /** Whether a set holds any encrypted database copy (an unencrypted set has no signature to expect). */
 export function isEncryptedSet(setDir: string): boolean {
   return readdirSync(setDir).some((f) => f.endsWith(STORE_EXT + ENCRYPTED_EXT));
@@ -113,7 +121,7 @@ export function isEncryptedSet(setDir: string): boolean {
  */
 export async function readVerified(setDir: string, passphrase: string | undefined): Promise<{ state: ManifestSignature; info: SignedParts & Record<string, unknown> }> {
   const info = readBackupInfo<SignedParts & Record<string, unknown>>(setDir, true);
-  if (info.auth === undefined) return { state: 'unsigned', info };
+  if (info.auth === undefined || olderAuth(info.auth)) return { state: 'unsigned', info };
   const { salt, mac } = authFields(setDir, info.auth);
   if (!passphrase) throw new Error(`${setDir} is encrypted: set TABULARIUS_BACKUP_KEY to the passphrase the set was made with`);
   checkShape(setDir, info);
@@ -125,7 +133,7 @@ const bad = (setDir: string, why: string) => new Error(`${setDir}${setDir.endsWi
 
 /** The salt and signature of a manifest that has them in the form this version reads. */
 function authFields(setDir: string, auth: SignedParts['auth']): { salt: Buffer; mac: Buffer } {
-  if (!auth || typeof auth !== 'object' || auth.v !== 1 || typeof auth.salt !== 'string' || typeof auth.mac !== 'string' || !/^[0-9a-f]{32}$/.test(auth.salt) || !/^[0-9a-f]{64}$/.test(auth.mac)) {
+  if (!auth || typeof auth !== 'object' || auth.v !== AUTH_VERSION || typeof auth.salt !== 'string' || typeof auth.mac !== 'string' || !/^[0-9a-f]{32}$/.test(auth.salt) || !/^[0-9a-f]{64}$/.test(auth.mac)) {
     throw bad(setDir, 'has a signature in a form this version does not read, so the set is not trusted');
   }
   return { salt: Buffer.from(auth.salt, 'hex'), mac: Buffer.from(auth.mac, 'hex') };
@@ -171,27 +179,29 @@ export function openAmenderSync(setDir: string, passphrase: string): Amender {
   return finishAmending(setDir, first, salt, deriveKeySync(passphrase, salt));
 }
 
-const listsNothing = (info: SignedParts) => info.auth === undefined && !Object.keys(info.sha256 ?? {}).length;
+/** A manifest that has never listed anything: no signature (an older one counts as none), no copies, times, container files or logs. */
+const listsNothing = (info: SignedParts) => (info.auth === undefined || olderAuth(info.auth)) &&
+  [info.sha256, info.finished, info.external, info.logs].every((list) => !Object.keys(list ?? {}).length);
 
 function beginAmending(setDir: string): { first: SignedParts; salt: Buffer } {
   const first = readBackupInfo<SignedParts>(setDir, true);
   const holdsCopies = () => readdirSync(setDir).some((f) => f.endsWith(STORE_EXT) || f.endsWith(STORE_EXT + ENCRYPTED_EXT));
-  if (first.auth === undefined && !(listsNothing(first) && !holdsCopies())) {
+  if ((first.auth === undefined || olderAuth(first.auth)) && !(listsNothing(first) && !holdsCopies())) {
     throw new Error(`${join(setDir, 'backup.json')} has no signature, so nothing is added to this set: signing it would vouch for what is already in it`);
   }
-  return { first, salt: first.auth === undefined ? randomBytes(16) : authFields(setDir, first.auth).salt };
+  return { first, salt: first.auth === undefined || olderAuth(first.auth) ? randomBytes(16) : authFields(setDir, first.auth).salt };
 }
 
 function finishAmending(setDir: string, first: SignedParts, salt: Buffer, key: Buffer): Amender {
-  const fresh = first.auth === undefined;
-  if (first.auth !== undefined) {
+  const fresh = first.auth === undefined || olderAuth(first.auth);
+  if (!fresh) {
     checkShape(setDir, first);
     checkMac(setDir, first, key, authFields(setDir, first.auth).mac);
   }
   return {
     amend(change) {
       updateBackupInfo<SignedParts & Record<string, unknown>>(setDir, (info) => {
-        if (info.auth === undefined) {
+        if (info.auth === undefined || olderAuth(info.auth)) {
           // The copy being added is already in place by now; what matters is that the set never had a manifest of its own.
           if (!listsNothing(info) || !fresh) throw bad(setDir, 'lost its signature, so nothing is added to this set');
         } else {
@@ -202,7 +212,7 @@ function finishAmending(setDir: string, first: SignedParts, salt: Buffer, key: B
         }
         change(info);
         checkShape(setDir, info);
-        info.auth = { v: 1, salt: salt.toString('hex'), mac: macOf(key, info).toString('hex') };
+        info.auth = { v: AUTH_VERSION, salt: salt.toString('hex'), mac: macOf(key, info).toString('hex') };
       });
     },
   };

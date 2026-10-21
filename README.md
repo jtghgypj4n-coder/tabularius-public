@@ -1212,7 +1212,7 @@ a moment, refuses a set whose signature does not match, a copy that is swapped,
 renamed, or taken from an older set, and, while the passphrase is set, a set with no
 signature at all (including a set someone put in the folder), unless you say
 `--accept-unsigned-backup`. A set made before signatures existed, or before the
-passphrase was set, is such a set: `verify-backup <folder> <set> --sign` reads every
+passphrase was set, or signed by an earlier build (whose signature covered less), is such a set: `verify-backup <folder> <set> --sign` reads every
 copy back and signs it, but it cannot tell whether the copies were swapped before it
 ran, so use it only on a set that has not been out of your hands. A whole older set,
 signature and all, is still a valid set, so a restore says which files had changes
