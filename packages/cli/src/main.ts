@@ -16,7 +16,7 @@ import { askServer } from './ask-server.ts';
 import { defaultBundleName, diagnostics, writeBundle } from './diagnostics.ts';
 import { doctorText, runDoctor } from './doctor.ts';
 import { startDemo } from './demo.ts';
-import { checkPort, defaults, installed, installService, serviceFile, uninstallService, servicePlainRefusal, upgrade, validateServicePublicUrl, type Platform, type ServiceOptions } from './service.ts';
+import { checkPort, defaults, installed, installService, serviceFile, uninstallService, servicePlainRefusal, defaultServiceHost, upgrade, validateServicePublicUrl, type Platform, type ServiceOptions } from './service.ts';
 import { claimFolder } from '../../server/src/backup.ts';
 import { FmpDatabase, fileSource, encryptionInfo, readLayoutDesigns, segmentOf, inspectText, type Schema } from '../../fmp12/src/index.ts';
 import { BUILT_IN_EXTENDED_PRIVILEGES, addCensus, styleCensus, styleCensusText, calcFidelity, censusText, exportSql, exportSqlSummary, planImportTables, importTables, importTablesSummary, notionMarkdownSheet, MAX_IMPORT_ROWS, type SheetInput, type ColumnOverrides, type ColumnKind, findStaleCalcs, layoutCensus, type LayoutCensus, createStore, designReport, importFmp12, PASSWORD_POLICY, reconvert, reconvertCheck, verifySecurityAudit, verifyRecordAudit, anchorHead, checkAnchor, Store, syncPlan, openForPlanning, applySync, readSyncLog, releaseHeldTables, type ConflictPolicy, writeBackKit, designText, writeDesignText, diffDesigns, planDesignApply, readDesignFolder, type DesignOp, type ReconvertPreview, csvField } from '../../store/src/index.ts';
@@ -969,7 +969,7 @@ function serviceCommand(cmd: string, args: string[]): number {
     ...base,
     port: Number(flag(args, '--port') ?? 8080),
     // This computer only unless told otherwise: reaching it from the network is a choice made with --host (and HTTPS).
-    host: flag(args, '--host') ?? '127.0.0.1',
+    host: flag(args, '--host') ?? defaultServiceHost(extra),
     system: bool(args, '--system'),
     folder: '',
     extra,
@@ -981,8 +981,8 @@ function serviceCommand(cmd: string, args: string[]): number {
   const stray = args.find((a) => a.startsWith('--'));
   if (stray) throw new Error(`service ${action}: ${stray} is not an option of service ${action}. Options for serve go after "--", for example: tabularius service ${action} ${o.folder} -- ${stray} ...`);
   validateServicePublicUrl(o.extra);
-  const plainProblem = action === 'install' ? servicePlainRefusal(o) : undefined;
-  if (plainProblem) throw new Error(`service install: ${plainProblem}`);
+  const plainProblem = servicePlainRefusal(o);
+  if (plainProblem) throw new Error(`service ${action}: ${plainProblem}`);
   const folderProblem = action === 'install' ? hostFolderProblem(o.folder) : undefined;
   if (folderProblem) throw new Error(`service install: ${folderProblem}`);
   if (action === 'print') process.stdout.write(serviceFile(o, platform !== process.platform).text);
