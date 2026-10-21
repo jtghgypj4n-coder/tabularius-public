@@ -2370,7 +2370,10 @@ export class ScriptEngine {
    */
   private ragSpaceInfo(f: Frame, account: string, spaceId?: string): string | undefined {
     let rag: RagBackend | undefined;
-    try { rag = this.aiFor(f, 'GetRAGSpaceInfo').rag; } catch { return undefined; }
+    try {
+      this.checkRagRead(f);
+      rag = this.aiFor(f, 'GetRAGSpaceInfo').rag;
+    } catch { return undefined; }
     const ai = this.session.ai;
     const name = account.toLowerCase();
     if (!rag || !ai.ragConfigured || (ai.ragAccounts.size > 0 && !ai.ragAccounts.has(name))) return undefined;
@@ -2388,6 +2391,7 @@ export class ScriptEngine {
 
   private async ragAction(f: Frame, p: StepParams): Promise<void> {
     const step = 'Perform RAG Action';
+    this.checkRagRead(f);
     const ai = this.aiFor(f, step);
     const rag = ai.rag;
     if (!rag) throw new ScriptError(ERROR.unavailable, `${step} needs RAG spaces, and this server has none set up (it needs an embedding model: --ai-embed-url)`);
@@ -2553,6 +2557,14 @@ export class ScriptEngine {
   private useSourceFile(store: Store): void {
     this.opts.beforeFile?.(store);
     this.sourceFiles.add(store.name);
+  }
+
+  /** Saved spaces have no provenance for applying row rules or a token's independent ceiling. */
+  private checkRagRead(f: Frame): void {
+    const privileges = this.privileges;
+    if (privileges && (privileges.ceiling || !privileges.in(f.store).readsEverything)) {
+      throw new ScriptError(ERROR.privileges, 'Saved RAG spaces require unrestricted access to every record and field');
+    }
   }
 
   /**

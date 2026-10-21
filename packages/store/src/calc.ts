@@ -1770,6 +1770,8 @@ export class Calculations {
         const f = t && fieldOf(t.table, ref.field);
         const b = t && fieldOf(t.table, brk.field);
         if (!t || !f || !b || f.kind !== 'summary' || !rec || t.to.id !== toId || (brk.occurrence && this.occurrence(brk.occurrence)?.id !== toId)) return undefined;
+        // Group boundaries can disclose a hidden key even when the summarized values are visible.
+        if (t.store.fieldHidden(t.table.name, f.name, pass.privileges) || t.store.fieldHidden(t.table.name, b.name, pass.privileges)) return EMPTY;
         if (b.id === f.id) return this.value(rec, f, 1, pass);
         if (!pass.foundSet || !pass.sort?.some((x) => x.fieldName.split('::').pop()?.toLowerCase() === b.name.toLowerCase())) return EMPTY;
         const current = Number(rec.row._fm_record_id);

@@ -6028,6 +6028,12 @@ export class Store {
   private foundSetRowsCurrent(layout: string | LayoutInfo, portalName: string, ids: number[], page: { offset?: number; limit?: number }, opts: { dateFormat?: DateFormat; privileges?: Privileges; rows?: Map<number, Record<string, SqlValue>> } = {}): { rows: PortalRow[]; count: number; styles?: Record<string, Record<string, StyleRun[]>> } {
     const info = this.layoutInfo(layout);
     this.checkLayout(info, opts.privileges);
+    // A window's saved ids can outlive its record privileges. Filter before paging or counting.
+    const allowed = info.owner.viewableIds(info.table, opts.privileges);
+    if (allowed) {
+      const visible = new Set(allowed);
+      ids = ids.filter((id) => visible.has(id));
+    }
     const graph = info.home ?? this;
     const plan = info.plan;
     const portal = plan?.portals.find((x) => x.name === portalName);
@@ -6057,20 +6063,29 @@ export class Store {
   }
 
   private portalCountsCurrent(layout: string | LayoutInfo, recordId: number, privileges?: Privileges, read?: StoredRecord): Record<string, number> {
+    // Account-bearing reads must recheck current access before any cached result.
+    // An account-free snapshot can reuse its counts without refreshing metadata.
+    const checked = privileges ? this.layoutInfo(layout) : undefined;
+    if (checked) {
+      this.checkLayout(checked, privileges);
+      if (!this.canView(checked, recordId, privileges)) throw new StoreError(200, 'Record access is denied');
+    }
+    // Related rows or a time-dependent rule may have changed since the record was read.
+    const reuseCounts = !privileges || privileges.readsEverything;
     // Counts attached to the supplied record describe that read's snapshot; no
     // database access is needed when it already contains every portal's count.
     const previous = read && (typeof layout === 'string' ? this.layoutCache.value.get(layout) : layout);
     const counts = read && previous && (this.portalFound.get(read) ?? previous.home?.portalFound.get(read));
-    if (previous?.plan && counts?.privileges === privileges && counts && previous.plan.portals.every((p) => counts.counts[p.name] !== undefined)) {
+    if (reuseCounts && previous?.plan && counts?.privileges === privileges && counts && previous.plan.portals.every((p) => counts.counts[p.name] !== undefined)) {
       return Object.fromEntries(previous.plan.portals.map((p) => [p.name, counts.counts[p.name]]));
     }
-    const info = this.layoutInfo(layout);
+    const info = checked ?? this.layoutInfo(layout);
     const out: Record<string, number> = {};
     if (!info.plan) return out;
     const known = read && (this.portalFound.get(read) ?? info.home?.portalFound.get(read));
     let row: Record<string, SqlValue> | undefined;
     for (const p of info.plan.portals) {
-      const kept = known && known.privileges === privileges ? known.counts[p.name] : undefined;
+      const kept = reuseCounts && known && known.privileges === privileges ? known.counts[p.name] : undefined;
       if (kept !== undefined) {
         out[p.name] = kept;
         continue;
@@ -7471,6 +7486,8 @@ export class Store {
         const s = state.get(f.id)!;
         const restart = table.fields.find((x) => x.id === f.summary!.restartFieldId);
         if (restart && sort?.some((x) => x.fieldName.split('::').pop()?.toLowerCase() === restart.name.toLowerCase())) {
+          // Client-supplied sort state does not authorize reading a hidden break field.
+          if (this.fieldHidden(table.name, restart.name, privileges)) continue;
           const key = foldCase(asText(this.calc.value(rec, restart, 1, pass), this.dateOrder));
           if (s.key !== undefined && key !== s.key) { s.total = 0; s.count = 0; }
           s.key = key;
@@ -8648,10 +8665,20 @@ export class Store {
 
   private groupSummariesCurrent(layout: string | LayoutInfo, ids: number[], fields: string[], fmt: DateFormat = 'us', privileges?: Privileges): GroupRun[][] {
     const info = this.layoutInfo(layout);
+    this.checkLayout(info, privileges);
     if (info.owner !== this) return info.owner.groupSummaries(info, ids, fields, fmt, privileges);
+    const pv = this.local(privileges);
+    this.checkFieldsVisible(info, pv, fields);
+    // Check the table even for an empty list; supplied ids are not an authorization grant.
+    this.viewFilter(info, pv);
+    const allowed = this.viewableIds(info.table, privileges);
+    if (allowed) {
+      const visible = new Set(allowed);
+      ids = ids.filter((id) => visible.has(id));
+    }
     for (const f of fields) if (!info.fields.some((x) => x.name === f)) throw new StoreError(102, `Field "${f}" is missing`);
     const table = this.table(info);
-    const defs = table.fields.filter((f) => f.kind === 'summary' && info.fields.some((x) => x.name === f.name));
+    const defs = table.fields.filter((f) => f.kind === 'summary' && info.fields.some((x) => x.name === f.name) && !this.fieldHidden(info.table, f.name, privileges));
     // The found set is read in batches, once per level (only the grouped and summarized columns when they are stored).
     const summarized = summaryColumns(table, defs);
     const breaks = fields.map((name) => table.fields.find((f) => f.name === name)!);
@@ -8730,9 +8757,13 @@ export class Store {
 
   private sortIdsCurrent(layout: string | LayoutInfo, ids: number[], sort: SortSpec[], opts: { privileges?: Privileges; valueLists?: { store: Store; recordId?: number } } = {}): number[] {
     const info = this.layoutInfo(layout);
+    this.checkLayout(info, opts.privileges);
     if (info.owner !== this) return info.owner.sortIds(info, ids, sort, opts);
-    return (this.sql.prepare(`SELECT _fm_record_id AS id FROM ${q(info.table)} WHERE _fm_record_id IN (SELECT value FROM json_each(?)) ORDER BY ${this.orderBy(info, sort, opts.privileges, opts.valueLists)}`)
-      .all(JSON.stringify(ids)) as { id: number }[]).map((r) => Number(r.id));
+    const pv = this.local(opts.privileges);
+    this.checkFieldsVisible(info, pv, sort.map((s) => s.fieldName));
+    const view = this.viewFilter(info, pv);
+    return (this.sql.prepare(`SELECT _fm_record_id AS id FROM ${q(info.table)} WHERE _fm_record_id IN (SELECT value FROM json_each(?)) AND ${view.where} ORDER BY ${this.orderBy(info, sort, opts.privileges, opts.valueLists)}`)
+      .all(JSON.stringify(ids), ...view.params) as { id: number }[]).map((r) => Number(r.id));
   }
 
   /**

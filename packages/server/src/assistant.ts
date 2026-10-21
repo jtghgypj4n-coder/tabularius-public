@@ -1355,6 +1355,14 @@ export class Assistant {
       const refused = aiRefusal(store, { account, via: 'script' });
       if (refused) throw new StoreError(9, refused);
     };
+    const checkRag = (file: string, account?: string) => {
+      checkModel(file, account);
+      // Spaces may contain copies of records. They have no row/field provenance with
+      // which to filter their text, counts or search order for a restricted account.
+      if (account && !this.host.get(file)!.privileges(account).readsEverything) {
+        throw new StoreError(9, 'Insufficient privileges: saved RAG spaces require access to every record and field');
+      }
+    };
     return {
       refusal: (file, account, programs) => {
         const store = this.host.get(file);
@@ -1399,11 +1407,11 @@ export class Assistant {
       } : {}),
       ...(this.opts.embedUrl && this.opts.embedModel ? {
         rag: {
-          add: (r) => { checkModel(r.file, r.account); return this.ragStore().add({ ...r, model: this.opts.embedModel }); },
-          search: (r) => { checkModel(r.file, r.account); return this.ragStore().search(r); },
-          remove: (r) => { checkModel(r.file, r.account); return this.ragStore().remove(r); },
-          spaces: (r) => { checkModel(r.file, r.account); return this.ragStore().spaces(r); },
-          info: (r) => { checkModel(r.file, r.account); return this.ragStore().info(r); },
+          add: (r) => { checkRag(r.file, r.account); return this.ragStore().add({ ...r, model: this.opts.embedModel }); },
+          search: (r) => { checkRag(r.file, r.account); return this.ragStore().search(r); },
+          remove: (r) => { checkRag(r.file, r.account); return this.ragStore().remove(r); },
+          spaces: (r) => { checkRag(r.file, r.account); return this.ragStore().spaces(r); },
+          info: (r) => { checkRag(r.file, r.account); return this.ragStore().info(r); },
         },
         embed: async ({ file, account, texts, signal }) => {
           checkModel(file, account);
