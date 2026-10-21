@@ -166,6 +166,56 @@ test('an aggregate over a subquery is left alone when the subquery supplies ever
   assert.notEqual(anyAllToIn(havingW('SUM((SELECT v FROM T2 WHERE k = W.N))')), havingW('SUM((SELECT v FROM T2 WHERE k = W.N))'));
 });
 
+test('a subquery reaches outside through a derived table or a common table expression, and sees the tables around it', () => {
+  for (const operand of [
+    'COUNT((SELECT MAX(v) FROM (SELECT v FROM T2 WHERE k = N)))',
+    'COUNT((SELECT MAX(x) FROM (SELECT v AS x FROM T2 WHERE k = N) d))',
+    'COUNT((WITH c AS (SELECT v FROM T2 WHERE k = N) SELECT MAX(v) FROM c))',
+    'COUNT((WITH c(x) AS (SELECT v FROM T2 WHERE k = W.N) SELECT MAX(x) FROM c))',
+  ]) {
+    assert.notEqual(rewrite(havingW(operand)), havingW(operand), operand);
+    assert.deepEqual(run(havingW(operand)).rows, [[2]], operand);
+  }
+  // A select inside another takes the names of the tables of the one around it, and a common table expression hides a table of its name.
+  for (const operand of [
+    'COUNT((SELECT 1 FROM T2 WHERE EXISTS (SELECT 1 WHERE v > 0)))',
+    'COUNT((SELECT 1 FROM T2 WHERE EXISTS (SELECT 1 FROM W WHERE W.N = T2.k)))',
+    'COUNT((SELECT 1 FROM (SELECT v FROM T2) d WHERE EXISTS (SELECT 1 WHERE d.v > 0)))',
+    'COUNT((WITH C(n) AS (SELECT 1) SELECT MAX(n) FROM C))',
+  ]) assert.equal(rewrite(havingW(operand)), havingW(operand), operand);
+});
+
+test('TRUE and FALSE are columns only in the select that holds the aggregate, and only if its tables have or may have one of that name', () => {
+  // K has a column True; W does not. The aggregate belongs to the select it is in, whatever the query around it reads.
+  const inW = "SELECT Grp FROM K WHERE Grp IN (SELECT 'b' FROM W GROUP BY N HAVING COUNT(TRUE) > ALL (SELECT 2))";
+  assert.equal(rewrite(inW), inW);
+  const inK = 'SELECT N FROM W WHERE EXISTS (SELECT 1 FROM K GROUP BY Grp HAVING COUNT(True) > ALL (SELECT 0)) ORDER BY N';
+  assert.notEqual(rewrite(inK), inK);
+  assert.deepEqual(run(inK).rows, [[1], [2], [2], [2], [3]]);
+  // A table the rewrite cannot read may have the column.
+  const unknown = 'SELECT a FROM nosuch GROUP BY a HAVING COUNT(TRUE) > ALL (SELECT 2)';
+  assert.notEqual(rewrite(unknown), unknown);
+  for (const constant of ['TRUE', 'FALSE']) {
+    const query = havingW(`COUNT((SELECT 1 FROM T2 WHERE ${constant}))`);
+    assert.equal(rewrite(query), query, constant);
+  }
+});
+
+test('operator words inside a subquery, the internal ids and the account names are not columns of the outer query', () => {
+  for (const operator of ['LIKE', 'GLOB', 'MATCH', 'REGEXP']) {
+    const query = havingW(`COUNT((SELECT 1 FROM T2 WHERE v NOT ${operator} 'a'))`);
+    assert.equal(rewrite(query), query, operator);
+  }
+  for (const operand of ['COUNT((SELECT MAX(_fm_mod_id) FROM T2))', 'COUNT((SELECT MAX(_fm_record_id) FROM T2))', 'COUNT((SELECT MAX(rowid) FROM T2))', 'COUNT((SELECT MAX(oid) FROM T2))',
+    'COUNT(USER)', 'COUNT(USERNAME)', 'COUNT(CURRENT_USER)', 'COUNT((SELECT USER))']) {
+    assert.equal(rewrite(havingW(operand)), havingW(operand), operand);
+  }
+  // As written in FileMaker SQL, ROWMODID becomes _fm_mod_id before this rewrite. Such an aggregate names no column of the outer query, so SQLite reports it
+  // like any other (it used to be moved, and answered with the rows of the moved subquery).
+  assert.throws(() => rows(havingW('COUNT((SELECT MAX(ROWMODID) FROM T2))')), /near "ALL"/);
+  assert.throws(() => rows(havingW('COUNT(USER)')), /near "ALL"/);
+});
+
 test('a quoted table and column name in the + string join, including doubled quotes', () => {
   const db = new DatabaseSync(':memory:');
   try {
