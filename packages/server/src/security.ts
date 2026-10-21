@@ -114,7 +114,8 @@ export function securityOf(store: Store) {
     apiTokens: store.apiTokens(),
     // Changes proposed by approval-gated AI agents, waiting for a human to approve or reject.
     pendingChanges: store.pendingChanges(),
-    passwordPolicy: store.passwordPolicy(),
+    // The minimum shown is the one in force: the file's own, or the server's default when the file names none.
+    passwordPolicy: { ...store.passwordPolicy(), minLength: store.minPasswordLength() },
     // Days a new token lives when the form leaves it blank (0: none).
     tokenDefaultDays: defaultTokenDays(),
     requireTotpForFullAccess: store.requireTotpForFullAccess(),

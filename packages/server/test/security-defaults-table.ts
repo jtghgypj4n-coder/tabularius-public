@@ -26,6 +26,8 @@ export interface Ctx {
   source(path: string): string;
   /** The file's password policy, as JSON ('{}' when none was set). */
   passwordPolicy(): string;
+  /** What `tabularius passwd` and `admin-password` say to a 3-character and a 12-character password, run as the command line is. */
+  passwordRules(): string;
   /** What a token made with no options looks like. */
   apiTokenShape(): string;
   /** A setting a file made now starts with. */
@@ -228,13 +230,11 @@ export const ROWS: Row[] = [
   },
   {
     id: 'password-strength', section: 'Sign-in and accounts', setting: 'Password rules for file accounts and the admin console',
-    default: 'No minimum length and no expiry. The lockout above is the only brake on guessing',
-    changedBy: '`tabularius privileges <folder> <database> policy [minLength [maxAgeDays]]` for file accounts; the admin console has none',
-    risk: 'Leaving it means a one-character password is accepted. See "Owner decisions"',
-    how: 'probed', expect: 'no minimum, no expiry',
-    observe: async (c) => {
-      return c.passwordPolicy() === '{}' ? 'no minimum, no expiry' : c.passwordPolicy();
-    },
+    default: 'A new password needs at least 12 characters, for a file account (unless the file\'s own policy says otherwise) and for the admin console. Nothing expires. The lockout above is the other brake on guessing',
+    changedBy: '`tabularius privileges <folder> <database> policy [minLength [maxAgeDays]]` for one file (0 for no minimum, a number of days to make passwords expire); `TABULARIUS_MIN_PASSWORD_LENGTH` for the default (0 for none), which also sets the admin console\'s minimum',
+    risk: 'Lowering it accepts short passwords that a guesser, or a stolen password hash, gives up fast. Accounts that already have a shorter password keep it until it is changed; a blank password (an account that works from this computer only) is still allowed',
+    how: 'probed', expect: 'refuses 3 characters, takes 12',
+    observe: async (c) => c.passwordRules(),
   },
   {
     id: 'api-tokens', section: 'Sign-in and accounts', setting: 'API tokens (`ohbt_`) made for an account',
@@ -433,10 +433,6 @@ function assertNotLocked(r: { status: number; text: string }, i: number): void {
 }
 
 export const OWNER_DECISIONS: { title: string; text: string }[] = [
-  {
-    title: 'No minimum password length',
-    text: 'A file account or the admin console accepts a one-character password, and nothing expires. Only the lockout slows guessing. Recommended: a default minimum of 8 for new accounts (not for accounts converted from FileMaker, whose passwords do not carry over anyway) and 12 for the admin console, with the policy command able to lower it. It changes what `tabularius passwd` and the console accept, so it waits for a decision.',
-  },
   {
     title: '`/mcp` is open to programs on this computer',
     text: 'On a computer other people also sign in to, any of them can reach `/mcp` on the loopback address and act as the administrator. It is documented and gated against browsers (no origin, localhost host name), but not against other local users. Recommended: generate a token at first start and print where it is stored, or require `--mcp-token` as soon as the server listens beyond this computer (it already warns about plain HTTP there). Changing it breaks the local `tabularius mcp` set-up described in docs/connect-ai.md.',

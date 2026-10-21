@@ -18,10 +18,10 @@ import { startDemo } from './demo.ts';
 import { checkPort, defaults, installed, installService, serviceFile, uninstallService, servicePlainRefusal, defaultServiceHost, upgrade, validateServicePublicUrl, type Platform, type ServiceOptions } from './service.ts';
 import { claimFolder } from '../../server/src/backup.ts';
 import { FmpDatabase, fileSource, encryptionInfo, readLayoutDesigns, segmentOf, inspectText, type Schema } from '../../fmp12/src/index.ts';
-import { BUILT_IN_EXTENDED_PRIVILEGES, addCensus, styleCensus, styleCensusText, calcFidelity, censusText, exportSql, exportSqlSummary, planImportTables, importTables, importTablesSummary, notionMarkdownSheet, MAX_IMPORT_ROWS, type SheetInput, type ColumnOverrides, type ColumnKind, findStaleCalcs, layoutCensus, type LayoutCensus, createStore, designReport, importFmp12, PASSWORD_POLICY, reconvert, reconvertCheck, verifySecurityAudit, verifyRecordAudit, anchorHead, checkAnchor, Store, syncPlan, openForPlanning, applySync, readSyncLog, releaseHeldTables, type ConflictPolicy, writeBackKit, designText, writeDesignText, diffDesigns, planDesignApply, readDesignFolder, type DesignOp, type ReconvertPreview, csvField } from '../../store/src/index.ts';
+import { BUILT_IN_EXTENDED_PRIVILEGES, addCensus, styleCensus, styleCensusText, calcFidelity, censusText, exportSql, exportSqlSummary, planImportTables, importTables, importTablesSummary, notionMarkdownSheet, MAX_IMPORT_ROWS, type SheetInput, type ColumnOverrides, type ColumnKind, findStaleCalcs, layoutCensus, type LayoutCensus, createStore, designReport, importFmp12, PASSWORD_POLICY, DEFAULT_MIN_PASSWORD_LENGTH, reconvert, reconvertCheck, verifySecurityAudit, verifyRecordAudit, anchorHead, checkAnchor, Store, syncPlan, openForPlanning, applySync, readSyncLog, releaseHeldTables, type ConflictPolicy, writeBackKit, designText, writeDesignText, diffDesigns, planDesignApply, readDesignFolder, type DesignOp, type ReconvertPreview, csvField } from '../../store/src/index.ts';
 import { xlsxSheetNames } from '../../scripts/src/xlsx.ts';
 import { importFileRowIterator, neverAllowed, parseAllowList, SCREEN_STEPS, SERVER_STEPS, testScripts, type ScriptTestResult } from '../../scripts/src/index.ts';
-import { conversionReport, explainScriptFailure, type ScriptFailure, DEFAULT_MODEL, Host, serve, serveCluster, serveStdio, aiStatus, STORE_EXT, ENCRYPTED_EXT, encryptFileSync, decryptFileSync, setAdminPassword, tokenExpiry, backupFolder, backupSets, defaultBackupDir, parseInterval, parseTime, restoreAt, restoreBackup, AccountChangesError, type AccountDifference, type ChangedSince, verifySet, describeCheck, resolveEmbedEndpoint, resolveImageEmbed, localCertificateFiles, Standby, S3, s3FromEnv, mirrorDown, fetchFmsExport, migrateFms, describeMigration, copySize, readSettings, runningServer, dataApiSource, dataApiClient, checkSyncAllowed, describeApply, describePlan, verifySync, describeSyncVerification, parseSyncConfig, CONTAINER_PULL_MAX_BYTES, type FmsExport } from '../../server/src/index.ts';
+import { conversionReport, explainScriptFailure, type ScriptFailure, DEFAULT_MODEL, Host, serve, serveCluster, serveStdio, aiStatus, STORE_EXT, ENCRYPTED_EXT, encryptFileSync, decryptFileSync, setAdminPassword, adminPasswordProblem, tokenExpiry, backupFolder, backupSets, defaultBackupDir, parseInterval, parseTime, restoreAt, restoreBackup, AccountChangesError, type AccountDifference, type ChangedSince, verifySet, describeCheck, resolveEmbedEndpoint, resolveImageEmbed, localCertificateFiles, Standby, S3, s3FromEnv, mirrorDown, fetchFmsExport, migrateFms, describeMigration, copySize, readSettings, runningServer, dataApiSource, dataApiClient, checkSyncAllowed, describeApply, describePlan, verifySync, describeSyncVerification, parseSyncConfig, CONTAINER_PULL_MAX_BYTES, type FmsExport } from '../../server/src/index.ts';
 // optimize's report (kept apart from the busy import line above).
 import { sheetsFromFile, checkSheetNames, sheetNameOf } from '../../server/src/import-sheets.ts';
 import { optimizationReport, openApiDocument, typesFromOpenApi, checkSolution, checkSolutionText, createFeed, importIcs, listFeeds, revokeFeed } from '../../server/src/index.ts';
@@ -835,7 +835,8 @@ function privileges(store: Store, action?: string, a?: string, b?: string): void
     case 'policy': {
       const describe = () => {
         const p = store.passwordPolicy();
-        console.log(`password policy: minimum length ${p.minLength ?? 'none'}, maximum age ${p.maxAgeDays ? p.maxAgeDays + ' days' : 'none'}`);
+        const min = store.minPasswordLength();
+        console.log(`password policy: minimum length ${min || 'none'}${p.minLength === undefined && min ? ' (the server\'s default; set 0 for none)' : ''}, maximum age ${p.maxAgeDays ? p.maxAgeDays + ' days' : 'none'}`);
       };
       if (a === undefined && b === undefined) { describe(); return; }
       const num = (v?: string) => (v === undefined ? undefined : Number(v));
@@ -1709,6 +1710,8 @@ function main(argv: string[]): number {
       later((async () => {
         const password = process.env.TABULARIUS_PASSWORD ?? await readSecret('New admin console password', { confirm: true });
         if (!password) throw new Error('admin-password: empty password');
+        const problem = adminPasswordProblem(password);
+        if (problem) throw new Error(`admin-password: ${problem}`);
         setAdminPassword(path, password);
         console.log(`admin password set for ${path}`);
       })());
@@ -2277,9 +2280,9 @@ function main(argv: string[]): number {
           const password = process.env.TABULARIUS_PASSWORD ?? await readSecret(`New password for ${account}`, { confirm: true });
           if (!password) throw new Error(`passwd: empty password. Type one at the prompt, or pipe it in: echo 'new-password' | tabularius passwd ${path} ${database} ${account}`);
           store.setPassword(account, password, privilegeSet, { mustChange });
-          // Set anyway (a file's own policy, if any, has already refused what it won't take), but said out loud.
+          // Set anyway (the file's policy has already refused what it won't take), but said out loud.
           if (!password.trim()) console.error(`warning: the password for ${account} is only spaces; anyone can guess that`);
-          else if (password.length < 8) console.error(`warning: the password for ${account} is only ${password.length} character${password.length === 1 ? '' : 's'}; 8 or more is safer (change it with: tabularius passwd ${path} ${database} ${account})`);
+          else if (password.length < 12) console.error(`warning: the password for ${account} is only ${password.length} character${password.length === 1 ? '' : 's'}; 12 or more is safer (change it with: tabularius passwd ${path} ${database} ${account})`);
         } finally {
           store.close();
         }
@@ -2966,6 +2969,11 @@ function main(argv: string[]): number {
 let promptedPassphrase: string | undefined;
 
 try {
+  // New passwords need DEFAULT_MIN_PASSWORD_LENGTH characters, in a file whose own policy names no minimum and for the admin
+  // console, unless the operator sets another length (0 for none). Set here so a cluster's workers inherit it.
+  const minimum = process.env.TABULARIUS_MIN_PASSWORD_LENGTH?.trim();
+  if (!minimum) process.env.TABULARIUS_MIN_PASSWORD_LENGTH = String(DEFAULT_MIN_PASSWORD_LENGTH);
+  else if (!/^\d{1,3}$/.test(minimum)) throw new Error(`TABULARIUS_MIN_PASSWORD_LENGTH is the fewest characters a new password may have, a whole number (0 for no minimum), not "${minimum}"`);
   process.exitCode = main(process.argv.slice(2));
 } catch (e) {
   process.stderr.write(`error: ${plainError(e)}\n`);
