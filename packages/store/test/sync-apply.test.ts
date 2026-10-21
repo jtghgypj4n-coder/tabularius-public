@@ -25,9 +25,11 @@ interface FmRecord { recordId: string; modId: number; fields: Record<string, str
 class FakeFm implements RemoteSource, RemoteWriter {
   records = new Map<string, FmRecord>();
   calls: string[] = [];
+  uploads: { uuid: string; field: string; filename: string | null; data: Uint8Array }[] = [];
+  failFirstUpload = false;
   next = 1;
   /** Fields the layout lets a write set. */
-  writable = new Set(['uuid', 'Name', 'Met', 'Amount']);
+  writable = new Set(['uuid', 'Name', 'Met', 'Amount', 'Photo']);
   /** Runs before a write goes through (a test's way to make something happen meanwhile). */
   before?: (op: string, recordId: string) => void;
   /** Make the nth write (counting from 1) fail. */
@@ -97,6 +99,19 @@ class FakeFm implements RemoteSource, RemoteWriter {
     beforeSend?.();
     this.calls.push(`delete ${this.records.get(recordId)?.fields.uuid}`);
     this.gate('delete', recordId, () => void this.records.delete(recordId));
+  }
+  async uploadContainer(_layout: string, recordId: string, field: string, file: { filename: string | null; mime: string; data: Uint8Array }, beforeSend?: () => void) {
+    beforeSend?.();
+    const record = this.records.get(recordId);
+    if (!record) throw new SyncWriteError('Record is missing (error 101)', '101', true);
+    this.uploads.push({ uuid: record.fields.uuid, field, filename: file.filename, data: new Uint8Array(file.data) });
+    if (this.failFirstUpload) {
+      this.failFirstUpload = false;
+      throw new SyncWriteError('transient upload failure', 'network');
+    }
+    record.fields[field] = `container-${this.uploads.length}`;
+    record.modId++;
+    return { modId: String(record.modId) };
   }
 }
 
@@ -178,6 +193,39 @@ test('write: creates and updates on FileMaker, logs each, and a second run has n
     assert.deepEqual([again.tables[0].created, again.tables[0].updated, again.tables[0].deleted, again.tables[0].adopted], [0, 0, 0, 0]);
     const dry = await syncPlan(r.store, 'Local', [config], r.fm);
     assert.equal(dry[0].pushes.length + dry[0].pulls.length + dry[0].conflicts.length, 0);
+  } finally {
+    cleanup(r);
+  }
+});
+
+test('AR-store-core-05 retries a failed container upload after restart without creating another row', async () => {
+  const r = rig();
+  try {
+    const made = r.store.create('Contacts', { uuid: 'u1', Name: 'Ann' });
+    r.store.setContainer('Contacts', made.recordId, 'Photo', 1, { filename: 'small.txt', mime: 'text/plain', data: Buffer.from('container bytes') });
+    r.fm.failFirstUpload = true;
+
+    const first = await r.run({ containers: { maxBytes: 1024 } });
+    assert.match(first.stopped ?? '', /run it again/i);
+    assert.equal(r.fm.records.size, 1);
+    assert.equal(r.fm.uploads.length, 1);
+    assert.equal(r.fm.byUuid('u1')?.fields.Photo, undefined);
+    const pending = r.store.sql.prepare('SELECT uuid, field FROM _fm_sync_container_pending').get() as { uuid: string; field: string };
+    assert.equal(pending.uuid, 'u1');
+    assert.equal(pending.field, 'Photo');
+
+    r.store.close();
+    r.store = new Store(join(r.dir, 'Local.sqlite'), 'Local');
+    const second = await applySync(r.store, 'Local', [config], r.fm, r.fm, { write: true, containers: { maxBytes: 1024 } });
+    assert.equal(second.stopped, undefined);
+    assert.equal(r.fm.records.size, 1);
+    assert.equal(r.fm.uploads.length, 2);
+    assert.equal(r.fm.uploads[1].uuid, 'u1');
+    assert.equal(r.fm.uploads[1].field, 'Photo');
+    assert.equal(Buffer.from(r.fm.uploads[1].data).toString(), 'container bytes');
+    assert.ok(r.fm.byUuid('u1')?.fields.Photo);
+    assert.equal((r.store.sql.prepare('SELECT count(*) AS n FROM _fm_sync_container_pending').get() as { n: number }).n, 0);
+    assert.deepEqual(second.tables.map((t) => [t.created, t.updated]), [[0, 1]]);
   } finally {
     cleanup(r);
   }

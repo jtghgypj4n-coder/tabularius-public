@@ -219,6 +219,14 @@ export function ensureSyncTables(store: SyncLocal): void {
     paused INTEGER NOT NULL DEFAULT 0,
     paused_reason TEXT
   ) WITHOUT ROWID`);
+  // Container uploads are independent of scalar record versions: keep each
+  // unfinished field until its remote write has been confirmed.
+  store.sql.exec(`CREATE TABLE IF NOT EXISTS _fm_sync_container_pending (
+    table_key TEXT NOT NULL,
+    uuid TEXT NOT NULL,
+    field TEXT NOT NULL,
+    PRIMARY KEY (table_key, uuid, field)
+  ) WITHOUT ROWID`);
   // The audit log of the apply step: one row per write to FileMaker (written
   // before the request goes out, then finished with its outcome) and per run.
   store.sql.exec(`CREATE TABLE IF NOT EXISTS _fm_sync_log (
