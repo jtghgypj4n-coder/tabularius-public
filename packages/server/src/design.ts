@@ -15,7 +15,7 @@
 //   POST /tabularius/design/v1/databases/{db}/restyle       {"theme"} or {"tokens", "name"?}, "consistent"?, "layouts"?: [ids]: every
 //                                                          layout onto one theme, before and after each, and the changes
 //                                                          that do it (not applied; a new theme from tokens comes first)
-//   POST /tabularius/design/v1/databases/{db}/import-tables  multipart/form-data: files ("file" parts: CSV, Excel, Markdown; "pages" + "folder": a folder of
+//   POST /tabularius/design/v1/databases/{db}/import-tables  multipart/form-data: files ("file" parts: CSV, Excel, Markdown, a Notion ZIP; "pages" + "folder": a folder of
 //                                                          Notion pages), "overrides" (JSON {sheet: {column: kind}}); ?stage=preview (default)|import, ?links=0:
 //                                                          the plan with a few rows of each sheet, or the tables made (counts); as `tabularius import-tables`
 //   POST /tabularius/design/v1/databases/{db}/modernize    {"tables"?, "styles"?, "folder"?, "fromLayouts"?}: a list, detail, list and detail, classic list

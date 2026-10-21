@@ -183,8 +183,9 @@ const MAX_DECLARED_XLSX_BYTES = 4 * MAX_XLSX_BYTES;
  * A reader of the files in a zip archive (stored or deflated): each call inflates only the files it names, so parts
  * nobody reads (pivot caches, pictures, other sheets) are never inflated, and all calls share one budget. Of entries
  * with the same name the last counts; the others are never inflated. A damaged archive throws an Error saying so.
+ * `inflateBudget` is the most bytes all the calls inflate together.
  */
-function zipReader(zip: Uint8Array): { names: () => Iterable<string>; read: (names: Iterable<string>) => Map<string, Uint8Array> } {
+export function zipReader(zip: Uint8Array, inflateBudget = MAX_XLSX_BYTES): { names: () => Iterable<string>; read: (names: Iterable<string>) => Map<string, Uint8Array> } {
   const view = new DataView(zip.buffer, zip.byteOffset, zip.byteLength);
   const bad = (): never => { throw new Error('bad zip directory'); };
   const u16 = (at: number) => (at >= 0 && at + 2 <= zip.length ? view.getUint16(at, true) : bad());
@@ -258,9 +259,9 @@ function zipReader(zip: Uint8Array): { names: () => Iterable<string>; read: (nam
     if (entry.start + packed > directoryStart) throw new Error(`bad zip entry ${name} (payload past directory)`);
     rejectZip64Extra(local + 30 + localNameLen, localExtraLen);
   }
-  let budget = MAX_XLSX_BYTES;
+  let budget = inflateBudget;
   const cache = new Map<string, Uint8Array>();
-  const overBudget = (): never => { throw new Error(`the zip file expands to more than ${MAX_XLSX_BYTES / 1024 / 1024} MB`); };
+  const overBudget = (): never => { throw new Error(`the zip file expands to more than ${inflateBudget / 1024 / 1024} MB`); };
   const read = (names: Iterable<string>) => {
     const out = new Map<string, Uint8Array>();
     for (const name of names) {

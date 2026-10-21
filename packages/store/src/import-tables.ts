@@ -478,6 +478,13 @@ function portalFor(store: Store, plan: PlannedSheet, joins: { name: string; name
 export function notionMarkdownSheet(name: string, pages: { file: string; text: string }[]): SheetInput {
   const rows: Record<string, string>[] = [];
   const columns = ['Title'];
+  // A Set beside the list keeps a page of many distinct properties linear; past the column limit more are not kept, as the plan refuses the sheet anyway.
+  const known = new Set(columns);
+  const addColumn = (name: string) => {
+    if (known.has(name) || columns.length > MAX_IMPORT_COLUMNS) return;
+    known.add(name);
+    columns.push(name);
+  };
   for (const page of pages) {
     const lines = page.text.replace(/^﻿/, '').replace(/\r\n?/g, '\n').split('\n');
     let i = 0;
@@ -490,11 +497,11 @@ export function notionMarkdownSheet(name: string, pages: { file: string; text: s
     for (; i < lines.length; i++) {
       const prop = /^([^:\n]{1,60}):\s?(.*)$/.exec(lines[i]);
       if (!prop || !lines[i].trim()) break;
-      if (!columns.includes(prop[1])) columns.push(prop[1]);
+      addColumn(prop[1]);
       row[prop[1]] = stripNotionLink(prop[2]).trim();
     }
     const body = lines.slice(i).join('\n').trim();
-    if (body) { if (!columns.includes('Body')) columns.push('Body'); row.Body = body; }
+    if (body) { addColumn('Body'); row.Body = body; }
     rows.push(row);
   }
   return { name, rows: [columns, ...rows.map((r) => columns.map((c) => r[c] ?? ''))] };

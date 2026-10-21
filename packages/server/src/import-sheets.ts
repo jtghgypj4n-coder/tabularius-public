@@ -5,7 +5,7 @@
 
 import { notionMarkdownSheet, MAX_IMPORT_ROWS, type SheetInput } from '../../store/src/index.ts';
 import { importFileRowIterator } from '../../scripts/src/index.ts';
-import { unzip, xlsxSheetNames } from '../../scripts/src/xlsx.ts';
+import { xlsxSheetNames, zipReader } from '../../scripts/src/xlsx.ts';
 
 /** A file that cannot be read as sheets: the message says why, without the file's name. */
 export class ImportSheetsError extends Error {}
@@ -13,6 +13,60 @@ export class ImportSheetsError extends Error {}
 /** A sheet's name from its file's: without the extension, Airtable's view suffix and the page id Notion adds. */
 export function sheetNameOf(file: string): string {
   return file.replace(/^.*[\\/]/, '').replace(/\.[A-Za-z0-9]+$/, '').replace(/\s[0-9a-f]{32}$/, '').replace(/\s*-\s*Grid view$/i, '').trim() || 'Sheet';
+}
+
+/** A ZIP of exports is held to what one uploaded file may be: its files unpacked together stay under the 50 MB a request may carry. */
+export const MAX_ZIP_UNPACKED_BYTES = 50 * 1024 * 1024;
+export const MAX_ZIP_SHEETS = 100;
+export const MAX_ZIP_PAGES = 5000;
+
+/** `base`, or `base 2`, `base 3`... when a table of that name (in any case) is already taken. */
+function freeName(base: string, taken: Set<string>): string {
+  let name = base;
+  for (let n = 2; taken.has(name.toLowerCase()); n++) name = `${base} ${n}`;
+  taken.add(name.toLowerCase());
+  return name;
+}
+
+/**
+ * The sheets in a Notion Markdown & CSV export: each CSV is a sheet and the Markdown pages are one more. Only those
+ * files are unpacked (pictures and other assets are not), within the limits above. Two CSVs of one name in different
+ * folders become `Name` and `Name 2`, and the page table is named after the ZIP unless a CSV has taken that name.
+ */
+function sheetsFromZip(name: string, data: Uint8Array): SheetInput[] {
+  try {
+    const archive = zipReader(data, MAX_ZIP_UNPACKED_BYTES);
+    const wanted: { path: string; kind: 'csv' | 'md' }[] = [];
+    const counts = { csv: 0, md: 0 };
+    const seen = new Set<string>();
+    for (const path of archive.names()) {
+      const base = path.split(/[\\/]/).pop()!;
+      // macOS adds a __MACOSX folder of ._ resource-fork files to a ZIP; they are not exports.
+      if (/(^|[\\/])__MACOSX[\\/]/.test(path) || base.startsWith('._') || seen.has(path)) continue;
+      const kind = /\.csv$/i.test(base) ? 'csv' : /\.md$/i.test(base) ? 'md' : undefined;
+      if (!kind) continue;
+      seen.add(path);
+      if (++counts[kind] > (kind === 'csv' ? MAX_ZIP_SHEETS : MAX_ZIP_PAGES)) {
+        throw new ImportSheetsError(kind === 'csv' ? `the ZIP holds more than ${MAX_ZIP_SHEETS} CSV files` : `the ZIP holds more than ${MAX_ZIP_PAGES} Markdown pages`);
+      }
+      wanted.push({ path, kind });
+    }
+    if (!wanted.length) throw new ImportSheetsError('the ZIP has no CSV or Markdown exports');
+    const files = archive.read(wanted.map((w) => w.path));
+    const taken = new Set<string>();
+    const sheets: SheetInput[] = [];
+    const pages: { file: string; text: string }[] = [];
+    for (const { path, kind } of wanted) {
+      const base = path.split(/[\\/]/).pop()!;
+      if (kind === 'csv') {
+        for (const sheet of sheetsFromFile(base, files.get(path)!)) sheets.push({ ...sheet, name: freeName(sheet.name, taken) });
+      } else pages.push({ file: base, text: Buffer.from(files.get(path)!).toString('utf8') });
+    }
+    if (pages.length) sheets.push(notionMarkdownSheet(freeName(sheetNameOf(name), taken), pages));
+    return sheets;
+  } catch (e) {
+    throw e instanceof ImportSheetsError ? e : new ImportSheetsError(e instanceof Error ? e.message : String(e));
+  }
 }
 
 /** The sheets one file holds. `name` decides how it is read: .xlsx has several, .md is a Notion page, anything else is text rows. */
@@ -29,24 +83,7 @@ export function sheetsFromFile(name: string, data: Uint8Array): SheetInput[] {
     }
     return rows;
   };
-  if (/\.zip$/i.test(name)) {
-    try {
-      const files = unzip(data);
-      const sheets: SheetInput[] = [];
-      const pages: { file: string; text: string }[] = [];
-      for (const [path, bytes] of files) {
-        // Notion's Markdown & CSV export is a ZIP. Ignore its asset files; only
-        // the textual table and page exports become imported tables.
-        if (/\.csv$/i.test(path)) sheets.push(...sheetsFromFile(path.split(/[\\/]/).pop()!, bytes));
-        else if (/\.md$/i.test(path)) pages.push({ file: path.split(/[\\/]/).pop()!, text: Buffer.from(bytes).toString('utf8') });
-      }
-      if (pages.length) sheets.push(notionMarkdownSheet(sheetNameOf(name), pages));
-      if (!sheets.length) throw new ImportSheetsError('the ZIP has no CSV or Markdown exports');
-      return sheets;
-    } catch (e) {
-      throw e instanceof ImportSheetsError ? e : new ImportSheetsError(e instanceof Error ? e.message : String(e));
-    }
-  }
+  if (/\.zip$/i.test(name)) return sheetsFromZip(name, data);
   if (/\.xlsx$/i.test(name)) {
     try {
       return xlsxSheetNames(data).map((sheet) => ({ name: sheet, rows: rowsOf(sheet) }));
