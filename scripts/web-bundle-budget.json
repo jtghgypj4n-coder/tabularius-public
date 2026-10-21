@@ -2,8 +2,8 @@
   "generatedFrom": "measured source bytes + 20%",
   "assets": {
     "packages/web/src/main.ts": {
-      "raw": 539822,
-      "gzip": 147977
+      "raw": 543330,
+      "gzip": 148684
     },
     "packages/web/src/layout.ts": {
       "raw": 100386,
@@ -97,13 +97,13 @@
       "raw": 7649,
       "gzip": 2900
     },
+    "packages/web/src/styles.ts": {
+      "raw": 7563,
+      "gzip": 2996
+    },
     "packages/web/src/connection-card.ts": {
       "raw": 7385,
       "gzip": 2739
-    },
-    "packages/web/src/styles.ts": {
-      "raw": 7314,
-      "gzip": 2921
     },
     "packages/web/src/refresh.ts": {
       "raw": 6810,
@@ -188,6 +188,10 @@
     "packages/web/src/brand.ts": {
       "raw": 1426,
       "gzip": 773
+    },
+    "packages/web/src/session-lifetime.ts": {
+      "raw": 1293,
+      "gzip": 539
     },
     "packages/web/src/keystrokes.ts": {
       "raw": 1251,
