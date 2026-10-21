@@ -14,7 +14,7 @@ import type { Store } from '../../store/src/index.ts';
 import { q } from '../../store/src/import.ts';
 import { EXTERNAL, VOLATILE } from '../../store/src/fidelity.ts';
 import { redactSecrets } from './ai-output.ts';
-import { solutionIndex } from './insight.ts';
+import { canVerifyUnused, solutionIndex } from './insight.ts';
 import { imageInfo } from '../../calc/src/image-info.ts';
 import { fixAction, fixChanges, type FixId } from './optimization-fix.ts';
 import { dataFindings, layoutFindings } from './optimization-data.ts';
@@ -544,6 +544,9 @@ export function unusedFindings(store: Store, containers: ContainerUse[], into?: 
   const out: Finding[] = [];
   const s = store.schema;
   const index = solutionIndex(store);
+  if (!index.referenceComplete) {
+    out.push({ id: 'unverified-references', impact: 'low', title: 'Cannot verify some unused objects', what: 'Some calculations could not be indexed. Objects they may name are excluded from removal advice.', count: 0, where: [] });
+  }
   // Everything any formula, script step, layout object or relationship names. A name written inside a string counts too.
   const named = new Set<string>();
   const occurrences = new Set<string>();
@@ -596,7 +599,7 @@ export function unusedFindings(store: Store, containers: ContainerUse[], into?: 
   for (const t of s.tables) {
     for (const f of t.fields) {
       const k = key(t, f);
-      if (named.has(k) || texts.includes(lower(k))) continue;
+      if (named.has(k) || texts.includes(lower(k)) || !canVerifyUnused(index, k) || !canVerifyUnused(index, f.name)) continue;
       // Keys and bookkeeping fields (ids, serial numbers, creation stamps) are used by data outside the file.
       if (f.options?.autoEnter?.serial || /^(?:_?pk|_?fk|id|uuid|primarykey|foreignkey)\b/i.test(f.name) || f.options?.autoEnter?.value) continue;
       unused.push({ t, f, bytes: unused.length < 200 ? heldBytes(store, t, f, containers) : 0 });
@@ -620,7 +623,7 @@ export function unusedFindings(store: Store, containers: ContainerUse[], into?: 
   const inRelationship = new Set(s.relationships.flatMap((r) => [r.leftTableOccurrenceId, r.rightTableOccurrenceId]));
   const idle = s.tableOccurrences.filter((to) => {
     if (to.dataSourceId || onLayout.has(to.id) || inRelationship.has(to.id)) return false;
-    if (occurrences.has(lower(to.name)) || texts.includes(lower(to.name))) return false;
+    if (occurrences.has(lower(to.name)) || texts.includes(lower(to.name)) || !canVerifyUnused(index, to.name)) return false;
     return s.tableOccurrences.some((o) => o.id !== to.id && o.baseTableId === to.baseTableId && !o.dataSourceId);
   });
   if (into) into.occurrences = idle.map((to) => to.name);
@@ -639,7 +642,7 @@ export function unusedFindings(store: Store, containers: ContainerUse[], into?: 
   if (!dynamic) {
     const stray = s.scripts.filter((sc) => {
       const n = lower(sc.name);
-      return !index.callers.has(n) && !index.buttons.has(n) && !index.starters.has(n) && !texts.includes(`"${n}"`) && !texts.includes(`'${n}'`);
+      return !index.callers.has(n) && !index.buttons.has(n) && !index.starters.has(n) && !texts.includes(`"${n}"`) && !texts.includes(`'${n}'`) && canVerifyUnused(index, sc.name);
     });
     if (into) into.scripts = stray.map((sc) => sc.name);
     const shown = stray.filter((sc) => !s.scriptOrder.find((o) => o.kind === 'item' && o.id === sc.id)?.hidden);
@@ -658,7 +661,7 @@ export function unusedFindings(store: Store, containers: ContainerUse[], into?: 
   }
 
   // Value lists named nowhere.
-  const lists = s.valueLists.filter((vl) => !valueLists.has(lower(vl.name)) && !texts.includes(lower(vl.name)));
+  const lists = s.valueLists.filter((vl) => !valueLists.has(lower(vl.name)) && !texts.includes(lower(vl.name)) && canVerifyUnused(index, vl.name));
   if (into) into.valueLists = lists.map((vl) => vl.name);
   if (lists.length) {
     out.push({
