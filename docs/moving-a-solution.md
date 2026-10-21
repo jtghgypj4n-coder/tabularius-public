@@ -625,10 +625,14 @@ failing answer (a 4xx or 5xx status) is saved or returned like any other, with e
 0, so check `BE_HTTP_ResponseCode`. The Documents folder belongs to the server, not
 to one file: with Script network on, a file's scripts can send any file in it,
 including an export another file's script left there. MBS
-`CURL.Perform` follows the same switch. FTP (`BE_FTP_Upload`, `UploadFile`,
-`Delete`), and the `ftp`, `ftps` and `sftp` addresses `BE_HTTP_GET_File` takes in
-BaseElements, are not built in and give "?" and error 3. Shell and clipboard
-calls are not either. <!-- known-difference: Vendor plug-ins ;; BaseElements' web calls answer with the body as text (BaseElements answers with a container), and the error number a failed request sets (7) is inferred ;; A script that reads the container or tests for another error number can behave differently ;; A run of the real plug-in against a failing address --> Of MBS, the `Text.*`
+`CURL.Perform` follows the same switch. `BE_FTP_Upload`, `BE_FTP_UploadFile` and
+`BE_FTP_Delete` work over `ftp://` and `ftps://` addresses (TLS from the start,
+certificate checked) the same way; plain FTP sends the password in the clear, so
+prefer `ftps://`. They never connect to an address the server's reply names, only
+the one the first connection reached. `sftp://` addresses, which run over SSH,
+are not built in <!-- known-difference: Vendor plug-ins ;; BaseElements' FTP functions work over ftp and ftps only: sftp is not built, and the error numbers (curl's 7, 35, 67, 25 and 21) and the upload and delete path rules follow BaseElements' documentation without a run of the plug-in ;; A script that uses an sftp address gets ? and error 3; one that tests for another error number can behave differently ;; A run of the real plug-in against an FTP and an SFTP server -->, and neither are the `ftp`, `ftps` and `sftp` addresses
+`BE_HTTP_GET_File` takes in BaseElements: those give "?" and error 3. Shell and
+clipboard calls are not built in either. <!-- known-difference: Vendor plug-ins ;; BaseElements' web calls answer with the body as text (BaseElements answers with a container), and the error number a failed request sets (7) is inferred ;; A script that reads the container or tests for another error number can behave differently ;; A run of the real plug-in against a failing address --> Of MBS, the `Text.*`
 functions run natively, following MBS's own documentation: case, trimming,
 lists and words, Base64, hex, URL, quoted-printable, HTML and XML encoding in
 the text encoding you name (UTF-8, UTF-16, Latin-1, Windows, Mac, Hex,
