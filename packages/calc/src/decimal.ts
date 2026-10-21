@@ -1,6 +1,6 @@
 // Fixed-point decimal arithmetic for SetPrecision. All intermediates have guard
 // digits; only the result crossing the SetPrecision boundary is rounded.
-import { EMPTY, isEmpty, num, type Value } from './values.ts';
+import { EMPTY, asNumberOrEmpty, isEmpty, num, type Value } from './values.ts';
 
 // Decimal work is synchronous. Keep the enclosing evaluation's clock active
 // through nested operations, and restore it after each SetPrecision call.
@@ -162,10 +162,12 @@ function quotient(a: bigint, b: bigint): bigint {
 export function decimalFunction(name: string, values: Value[], places: number): Value | undefined {
   const key = name.toLowerCase();
   if (!DECIMAL_FUNCTIONS.has(key)) return undefined;
-  if (values.length && isEmpty(values[0]) && !['sum','average','min','max','count'].includes(key)) return EMPTY;
   const aggregate = ['sum','average','min','max','count','variance','variancep','stdev','stdevp'].includes(key);
+  if (!aggregate && values.length && asNumberOrEmpty(values[0]) === undefined) return EMPTY;
   try {
-    const ds = (aggregate ? values.filter((v) => !isEmpty(v)) : values).map((v) => Decimal.value(v, places));
+    if (key === 'count') return Decimal.parse(String(values.filter((v) => !isEmpty(v)).length), places).value();
+    const eligible = aggregate ? values.filter((v) => !isEmpty(v) && asNumberOrEmpty(v) !== undefined) : values;
+    const ds = eligible.map((v) => Decimal.value(v, places));
     const zero = Decimal.parse('0', places), one = Decimal.parse('1', places);
     const a = ds[0] ?? zero, b = ds[1] ?? zero, c = ds[2] ?? zero;
     let r: Decimal;
@@ -209,7 +211,6 @@ export function decimalFunction(name: string, values: Value[], places: number): 
         r = ds.reduce((acc, d) => acc.add(d), zero);
         if (key === 'average') r = r.div(Decimal.parse(String(ds.length), places)); break;
       }
-      case 'count': return Decimal.parse(String(ds.length), places).value();
       case 'min': case 'max': {
         if (!ds.length) return EMPTY;
         r = ds.reduce((acc, d) => key === 'min' ? (d.n < acc.n ? d : acc) : (d.n > acc.n ? d : acc)); break;

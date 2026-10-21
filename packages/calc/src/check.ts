@@ -37,7 +37,7 @@ export function checkFormula(src: string, opts: CheckOptions = {}): CheckResult 
   const names = opts.names instanceof NameTable ? opts.names : new NameTable(opts.names);
   let node: Node;
   try {
-    node = parse(src, names);
+    node = parse(src, names, (opts.parameters ?? []).map((p) => p.trim()));
     assertTraversalDepth(node);
   } catch (e) {
     if (!(e instanceof CalcError)) throw e;
@@ -49,7 +49,7 @@ export function checkFormula(src: string, opts: CheckOptions = {}): CheckResult 
   const plugins = new Map<string, [number, number | undefined]>();
   for (const [name, min, max] of opts.plugins ?? []) plugins.set(name.toLowerCase(), [min, max]);
   const unresolved = new Set([...opts.unresolved ?? []].map((t) => t.toLowerCase()));
-  const params = new Set((opts.parameters ?? []).map((p) => p.toLowerCase()));
+  const params = new Set((opts.parameters ?? []).map((p) => p.trim().toLowerCase()));
   const scopes: Set<string>[] = [];
   const bound = (name: string) => params.has(name.toLowerCase()) || scopes.some((s) => s.has(name.toLowerCase()));
   // Markers the file decoder leaves (⟨fn:37⟩, <Function Missing>) are reported by evaluation, not here.
