@@ -7,7 +7,7 @@ import type { IncomingMessage } from 'node:http';
 import { MAX_IMPORT_COLUMNS, importTables, importTablesSummary, notionMarkdownSheet, planImportTables, type ColumnOverrides, type SheetInput, type Store } from '../../store/src/index.ts';
 import type { Privileges } from '../../store/src/index.ts';
 import { ApiError, multipartParts, readBody } from './dataapi.ts';
-import { ImportSheetsError, checkSheetNames, sheetsFromFile } from './import-sheets.ts';
+import { ImportSheetsError, checkSheetNames, sheetsFromFile, zipAllowance } from './import-sheets.ts';
 import { parseRequestJson } from './request-json.ts';
 
 /** The body cap: the same 50 MB a record import takes, plus the form's own bytes. */
@@ -27,12 +27,13 @@ export function readImportTablesRequest(contentType: string, body: Buffer): Impo
   let folder = '';
   let overrides: ColumnOverrides = {};
   let files = 0;
+  const allowance = zipAllowance();
   for (const part of multipartParts(contentType, body)) {
     if (part.name === 'file' && part.filename) {
       if (!part.data.length) throw new ApiError(3, `${part.filename} is empty`, 400);
       if (++files > MAX_FILES) throw new ApiError(3, `Choose at most ${MAX_FILES} files at once`, 400);
       try {
-        sheets.push(...sheetsFromFile(part.filename, part.data));
+        sheets.push(...sheetsFromFile(part.filename, part.data, allowance));
       } catch (e) {
         if (e instanceof ImportSheetsError) throw new ApiError(3, `${part.filename}: ${e.message}`, 400);
         throw e;
