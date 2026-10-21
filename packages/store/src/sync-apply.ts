@@ -216,6 +216,26 @@ const clearContainersPending = (store: SyncLocal, key: string, uuid: string, fie
   for (const field of fields) remove.run(key, uuid, field);
 };
 
+/**
+ * The container fields an earlier run did not finish sending, by record uuid. The policy for them:
+ * - A file owed is this side's until sent: no pull empties or replaces it, and it replaces a different file FileMaker holds for the field.
+ * - It stays owed while FileMaker holds a change here that a pull has not brought (a field, or another container): the retry waits for that pull.
+ * - A file that cannot be sent when the retry runs (missing on disk, too big, the field no longer on the layout or writable)
+ *   is reported and forgotten: it is not sent when it comes back, only if a later comparison finds it different.
+ */
+function owedContainers(store: SyncLocal, key: string): Map<string, Set<string>> {
+  const out = new Map<string, Set<string>>();
+  let rows: { uuid: string; field: string }[] = [];
+  try {
+    rows = store.sql.prepare('SELECT uuid, field FROM _fm_sync_container_pending WHERE table_key = ?').all(key) as typeof rows;
+  } catch (e) {
+    // A file that has never been written to by a sync has no such table yet: nothing is owed.
+    if (!/no such table/.test((e as Error).message)) throw e;
+  }
+  for (const { uuid, field } of rows) out.set(uuid, (out.get(uuid) ?? new Set()).add(field));
+  return out;
+}
+
 /** Why a table was held back from writing by an earlier run, or undefined. */
 function heldReason(store: SyncLocal, key: string): string | undefined {
   const row = store.sql.prepare('SELECT paused, paused_reason FROM _fm_sync_state WHERE table_key = ?').get(key) as { paused: number; paused_reason: string | null } | undefined;
@@ -334,6 +354,7 @@ async function applySyncRun(store: SyncLocal & Partial<Pick<Store, 'present' | '
       if (d.plan.paused || !d.plan.convergedBoth?.length) continue;
       const tableFields = store.schema?.tables.find((x) => x.name === d.config.localTable)?.fields ?? [];
       const fields = tableFields.filter((f) => f.kind === 'normal' && f.type === 'container' && (f.options?.repetitions ?? 1) <= 1).map((f) => f.name);
+      const owedHere = owedContainers(store, d.plan.tableKey);
       for (const uuid of d.plan.convergedBoth) {
         const local = d.locals.find((r) => r.uuid === uuid);
         const rem = d.remotes.find((r) => r.uuid === uuid);
@@ -341,6 +362,8 @@ async function applySyncRun(store: SyncLocal & Partial<Pick<Store, 'present' | '
         const cl: FieldClash[] = [];
         for (const field of fields) {
           if (!(field in rem.fields)) continue;
+          // A file this side still owes FileMaker is not a difference to settle: it is sent (a record whose run ended before its upload).
+          if (owedHere.get(uuid)?.has(field) && Number(local.fields[field]) > 0) continue;
           const had = Number(local.fields[field]);
           const info = Number.isInteger(had) && had > 0 ? ls.containerInfo(had) : undefined;
           const mine = info ? `${info.filename ?? 'a file'} (${info.size} bytes)` : '';
@@ -521,26 +544,69 @@ async function applySyncRun(store: SyncLocal & Partial<Pick<Store, 'present' | '
       return out;
     };
 
-    // Records whose only work is the container files an earlier run did not finish (see _fm_sync_container_pending).
+    // What a pull sets here: FileMaker's stored fields, as text; on create, the ones that aren't empty (the file's
+    // own defaults stay for the rest), on update, the ones that differ.
+    const pullNames = [...fieldTypes].filter(([n, f]) => f.kind === 'normal' && f.type !== 'container' && n !== d.config.modTimestampField).map(([n]) => n);
+    const pullData = (loc: LocalRecord | undefined, r: RemoteRecord): Record<string, string> => {
+      const out: Record<string, string> = {};
+      for (const n of pullNames) {
+        if (!(n in r.fields)) continue;
+        const rv = r.fields[n];
+        if (loc) {
+          if (n === d.config.uuidField || sameValue(loc.fields[n] ?? null, rv, fieldTypes.get(n)?.type)) continue;
+        } else if (rv === '') continue;
+        out[n] = rv;
+      }
+      return out;
+    };
+    // Container files owed to FileMaker by an earlier run that did not finish them (see _fm_sync_container_pending). They are this
+    // side's until sent: a pull never empties or replaces one, and the owed record is retried with files only.
+    const owedBy = opts.containers ? owedContainers(store, key) : new Map<string, Set<string>>();
+    // Whether a pull of this record would change anything here besides the files owed: a field, or another container.
+    const pullWouldChange = async (loc: LocalRecord, rem: RemoteRecord, owed: Set<string>): Promise<boolean> => {
+      if (Object.keys(pullData(loc, rem)).length) return true;
+      for (const [field, f] of fieldTypes) {
+        if (f.kind !== 'normal' || f.type !== 'container' || !(field in rem.fields) || repeatingHere(field) || owed.has(field)) continue;
+        const had = Number(loc.fields[field]);
+        const address = rem.fields[field];
+        if (address === '') { if (Number.isInteger(had) && had > 0) return true; continue; }
+        if (!remote.fetchContainer || typeof ls.container !== 'function') return true;
+        try {
+          const got = await remote.fetchContainer(d.config.remoteLayout, address, opts.containers!.maxBytes);
+          assertWritable();
+          const current = Number.isInteger(had) && had > 0 ? ls.container(had) : undefined;
+          if ('skipped' in got || !current || !Buffer.from(current.data.buffer, current.data.byteOffset, current.data.byteLength).equals(got.data)) return true;
+        } catch (e) {
+          assertWritable();
+          return true;
+        }
+      }
+      return false;
+    };
     const retryOnly = new Set<string>();
     if (opts.write && opts.containers) {
       // A pending field that can no longer be sent (the field is not sent now, the record or its file is gone here) is dropped.
-      const owed = store.sql.prepare('SELECT uuid, field FROM _fm_sync_container_pending WHERE table_key = ?').all(key) as { uuid: string; field: string }[];
-      const stale = owed.filter(({ uuid, field }) => {
+      const stale: { uuid: string; field: string }[] = [];
+      for (const [uuid, fields] of owedBy) {
         const here = localBy.get(uuid);
-        return !here || !sendFileFields.includes(field) || !(Number(here.fields[field]) > 0);
-      });
+        for (const field of fields) if (!here || !sendFileFields.includes(field) || !(Number(here.fields[field]) > 0)) stale.push({ uuid, field });
+      }
       if (stale.length) atomically(store, () => { for (const x of stale) clearContainersPending(store, key, x.uuid, [x.field]); });
-      // A record in conflict, or already planned, is settled by the plan. A record FileMaker changed is left to the pull when
-      // this run pulls; when it does not, it is retried if no field it holds differs from ours (a file just uploaded changes
-      // its modId, which is all a run that ended after the upload will find), and left alone if one does (an edit made there).
+      for (const x of stale) { const left = owedBy.get(x.uuid)!; left.delete(x.field); if (!left.size) owedBy.delete(x.uuid); }
+      // A record in conflict, or already planned, is settled by the plan. A record FileMaker changed is retried only when
+      // pulling it would change nothing here but the files owed (a file just uploaded changes its modId, which is all a run
+      // that ended after the upload will find); otherwise it is left as it is, with its map baseline, for the pull.
       const planned = new Set([...d.plan.pushes, ...d.plan.conflicts].map((item) => item.uuid));
       const pulled = new Set(d.plan.pulls.map((item) => item.uuid));
-      for (const uuid of new Set(owed.filter((x) => !stale.includes(x)).map((x) => x.uuid))) {
+      for (const [uuid, owed] of owedBy) {
         const here = localBy.get(uuid);
         const there = remoteBy.get(uuid);
         if (planned.has(uuid) || !here || !there) continue;
-        if (pulled.has(uuid) && (opts.pull || Object.keys(data(here, there)).length)) continue;
+        if (pulled.has(uuid)) {
+          if (await pullWouldChange(here, there, owed)) continue;
+          d.plan.pulls = d.plan.pulls.filter((item) => item.uuid !== uuid);
+          if (opts.pull) progressTotal--;
+        }
         d.plan.pushes.push({ uuid, direction: 'push', op: 'update', reason: 'pending container upload' });
         retryOnly.add(uuid);
         progressTotal++;
@@ -572,21 +638,6 @@ async function applySyncRun(store: SyncLocal & Partial<Pick<Store, 'present' | '
       }
     }
 
-    // What a pull sets here: FileMaker's stored fields, as text; on create, the ones that aren't empty (the file's
-    // own defaults stay for the rest), on update, the ones that differ.
-    const pullNames = [...fieldTypes].filter(([n, f]) => f.kind === 'normal' && f.type !== 'container' && n !== d.config.modTimestampField).map(([n]) => n);
-    const pullData = (loc: LocalRecord | undefined, r: RemoteRecord): Record<string, string> => {
-      const out: Record<string, string> = {};
-      for (const n of pullNames) {
-        if (!(n in r.fields)) continue;
-        const rv = r.fields[n];
-        if (loc) {
-          if (n === d.config.uuidField || sameValue(loc.fields[n] ?? null, rv, fieldTypes.get(n)?.type)) continue;
-        } else if (rv === '') continue;
-        out[n] = rv;
-      }
-      return out;
-    };
     // Container files come only with a pull that asks for them. A repeating container is left alone.
     const wantContainers = !!opts.containers && (!!opts.pull || dry);
     const tableFields = store.schema?.tables.find((x) => x.name === d.config.localTable)?.fields ?? [];
@@ -602,6 +653,7 @@ async function applySyncRun(store: SyncLocal & Partial<Pick<Store, 'present' | '
         if (repeating(field)) { skipContainer(rem.uuid, field, 'a repeating container isn\'t brought'); continue; }
         const address = rem.fields[field];
         const had = loc ? Number(loc.fields[field]) : NaN;
+        if (had > 0 && owedBy.get(rem.uuid)?.has(field)) { skipContainer(rem.uuid, field, 'the file here is still owed to FileMaker: it is sent first, not replaced'); continue; }
         if (address === '') {
           if (Number.isInteger(had) && had > 0) out.push({ field, file: null });
           continue;
