@@ -196,6 +196,11 @@ export class Standby {
         if (!res.ok) throw new Error(`the main server answered ${res.status}`);
         const { files } = await res.json() as { files: { name: string }[] };
         for (const { name } of files) {
+          // A name from the main server becomes a path in this folder: it must be a file name and nothing else.
+          if (typeof name !== 'string' || !name || name === '.' || name === '..' || /[\\/\0]/.test(name)) {
+            this.trouble(`the main server listed a name that is not a file name: ${JSON.stringify(name)}`);
+            continue;
+          }
           if (!this.following.has(name)) this.following.set(name, this.follow(name));
         }
         if (this.problem?.startsWith("can't reach")) this.problem = undefined;

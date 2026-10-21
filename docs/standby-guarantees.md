@@ -91,10 +91,11 @@ the writes you keep to the one that does not; it never merges two histories and 
   the notes true. The model test "a standby does not silently discard writes made on its own folder" holds this.
 - What is left open: a crash of the standby while one change is being applied to the file (a checkpoint partway through), or
   in the milliseconds between a change being applied and its note being saved, leaves the file in a state the notes do not
-  list. That is refused, not copied over, so the cost is a `--overwrite` you may not have needed. A write made by another
+  list. That is refused, not copied over, so after an unclean stop the first start can say a file "changed here" when nothing was written; the cost is an `--overwrite` you may not have needed, which only copies the file again. A write made by another
   process in the few microseconds between the last check and the file being replaced is not seen: the folder lock keeps
   other standbys out, not other programs. Notes written before this (a size of -1 and nothing else) cannot say which states
   are the standby's own, so for such a file whatever is in the folder is taken as its own once, and is copied again.
+- A file name in the main server's list that is not a file name (empty, `.` or `..`, or holding a slash, a backslash or a NUL) is reported and skipped, so that a main server cannot make the standby write outside its folder.
 - The same rule means a standby whose `--primary` address changed (a new name, a new port) treats its own folder as foreign
   and refuses, because the note of what it copied is for the address it followed.
 - After `--overwrite` the old primary's folder is a standby of the promoted server and follows it exactly (the model

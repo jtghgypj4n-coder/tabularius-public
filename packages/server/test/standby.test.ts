@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -424,6 +424,36 @@ test('a batch that fails half done is noted as it was left, and what is written 
     try { edit.exec("UPDATE rows SET value = 'local edit'"); } finally { edit.close(); }
     assert.equal(changedHere(), true);
   } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a name from the main server that is not a file name is never followed', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'tabularius-standby-names-'));
+  const folder = join(root, 'spare');
+  mkdirSync(folder);
+  const source = join(root, 'source.sqlite');
+  const primary = 'http://primary.invalid';
+  const seen = { copies: 0, changes: 0 };
+  const lines: string[] = [];
+  let standby: Standby | undefined;
+  try {
+    tinyDb(source, 'primary copy');
+    standby = new Standby({ folder, primary, token: TOKEN, log: (m) => void lines.push(m), wait: 0 });
+    fakePrimary(standby, source, seen);
+    const reach = (standby as unknown as { get: (path: string) => Promise<Response> }).get;
+    Object.assign(standby, { get: async (path: string) => {
+      if (path.endsWith('/files')) return Response.json({ files: ['../escape', 'a/b', 'a\\b', '..', '', 'Local'].map((name) => ({ name })) });
+      if (!path.includes('/Local/') && !path.includes('/files')) throw new Error(`asked for a file that is not Local: ${path}`);
+      return reach.call(standby, path);
+    } });
+    standby.start();
+    await until('Local is copied', () => lines.includes('copied Local'), 5000);
+    assert.ok(lines.some((m) => m.includes('not a file name')), lines.join('\n'));
+    assert.deepEqual(readdirSync(folder).filter((f) => f.endsWith(STORE_EXT)), ['Local' + STORE_EXT]);
+    assert.equal(existsSync(join(root, 'escape' + STORE_EXT)), false);
+  } finally {
+    await standby?.stop();
     rmSync(root, { recursive: true, force: true });
   }
 });
