@@ -5,7 +5,7 @@ import { pathToFileURL } from 'node:url';
 import { join } from 'node:path';
 import { existsSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { decryptFileSync, encryptFile, encryptFileSync } from '../src/encrypt.ts';
+import { decryptFile, decryptFileSync, encryptFile, encryptFileSync } from '../src/encrypt.ts';
 
 const moduleUrl = pathToFileURL(join(import.meta.dirname, '..', 'src', 'encrypt.ts')).href;
 
@@ -104,6 +104,25 @@ test('decrypted plaintext written synchronously stays private to the account wha
     encryptFileSync(join(dir, 'plain'), join(dir, 'enc'), 'key');
     decryptFileSync(join(dir, 'enc'), join(dir, 'out'), 'key');
     assert.equal(statSync(join(dir, 'out')).mode & 0o077, 0);
+  } finally {
+    process.umask(before);
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('decrypted plaintext written asynchronously stays private to the account whatever the umask; encrypted output is private too', { skip: process.platform === 'win32' }, async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'tabularius-encrypt-mode-async-'));
+  const before = process.umask(0);
+  try {
+    writeFileSync(join(dir, 'plain'), 'secret records');
+    encryptFileSync(join(dir, 'plain'), join(dir, 'enc-sync'), 'key');
+    await encryptFile(join(dir, 'plain'), join(dir, 'enc-async'), 'key');
+    // The file-system boundary creates every file it writes private to the account, the encrypted copies included.
+    assert.equal(statSync(join(dir, 'enc-sync')).mode & 0o777, 0o600);
+    assert.equal(statSync(join(dir, 'enc-async')).mode & 0o777, 0o600);
+    await decryptFile(join(dir, 'enc-async'), join(dir, 'out'), 'key');
+    assert.equal(statSync(join(dir, 'out')).mode & 0o077, 0);
+    assert.equal(readFileSync(join(dir, 'out'), 'utf8'), 'secret records');
   } finally {
     process.umask(before);
     rmSync(dir, { recursive: true, force: true });
