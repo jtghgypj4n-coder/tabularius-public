@@ -5,7 +5,6 @@
 import { webViewerBridge, viewerMessage, restoreViewer, type ViewerState } from './web-viewer.ts';
 import { StyleSheet, elementOf } from './styles.ts';
 import { formatValue } from './format.ts';
-import { renderChart } from './chart.ts';
 import { editRuns, styledNodes } from './styled.ts';
 import { rotationOf, turnedBox } from './rotation.ts';
 import type { DataFormat, DataRecord, FieldMeta, FieldRef, LayoutMeta, LayoutObject, LayoutPart, PortalRow, Value, ViewState } from './types.ts';
@@ -319,10 +318,15 @@ export class LayoutRenderer {
       case 'popover': return undefined; // drawn when its button is clicked
       case 'chart':
         if (o.chart && host.mode === 'browse' && host.record) {
-          const chart = renderChart(o.chart, host.state?.charts?.[o.id], b.right - b.left, b.bottom - b.top);
-          // No title: screen readers say its tooltip or name instead of just "image".
-          if (!chart.hasAttribute('aria-label') && (tip || o.name)) chart.setAttribute('aria-label', tip || o.name!);
-          el.append(chart);
+          const loading = h('div', { class: 'fm-content fm-placeholder' }, 'Chart');
+          el.append(loading);
+          void import('./chart.ts').then(({ renderChart }) => {
+            if (!loading.isConnected) return;
+            const chart = renderChart(o.chart!, host.state?.charts?.[o.id], b.right - b.left, b.bottom - b.top);
+            // No title: screen readers say its tooltip or name instead of just "image".
+            if (!chart.hasAttribute('aria-label') && (tip || o.name)) chart.setAttribute('aria-label', tip || o.name!);
+            loading.replaceWith(chart);
+          });
           break;
         }
         el.append(h('div', { class: 'fm-content fm-placeholder' }, 'Chart'));
