@@ -136,5 +136,6 @@ export function getParameter(param: string, env: Env): Value {
   }
   const v = env.ctx.get?.(param);
   if (v !== undefined) return v;
-  return DEFAULTS[param.toLowerCase()]?.(env) ?? EMPTY;
+  const key = param.toLowerCase();
+  return Object.hasOwn(DEFAULTS, key) ? DEFAULTS[key](env) : EMPTY;
 }

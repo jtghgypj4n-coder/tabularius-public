@@ -6,7 +6,7 @@
 import './evaluate.ts';
 import { FUNCTIONS, pluginNotInstalled } from './functions.ts';
 import { GET_NAMES } from './get-names.ts';
-import { NameTable, parse, type CalcNames, type Node } from './parser.ts';
+import { assertTraversalDepth, NameTable, parse, type CalcNames, type Node } from './parser.ts';
 import { CalcError, ERR } from './values.ts';
 
 export interface CheckOptions {
@@ -38,6 +38,7 @@ export function checkFormula(src: string, opts: CheckOptions = {}): CheckResult 
   let node: Node;
   try {
     node = parse(src, names);
+    assertTraversalDepth(node);
   } catch (e) {
     if (!(e instanceof CalcError)) throw e;
     const m = / at (\d+)$/.exec(e.message);

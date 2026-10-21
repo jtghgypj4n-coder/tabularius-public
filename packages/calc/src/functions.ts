@@ -6,7 +6,7 @@
 
 import { charCount, charsBefore, unitAt } from './text.ts';
 import { rethrowExecutionRefusal } from './execution-refusal.ts';
-import { substituteText } from './text-budget.ts';
+import { checkCalcTextSize, joinCalcText, substituteText } from './text-budget.ts';
 import { ComplexityError } from './complexity-error.ts';
 import { constants as cryptoConstants, createCipheriv, createDecipheriv, createHash, createHmac, createPrivateKey, createPublicKey, generateKeyPairSync, pbkdf2Sync, privateDecrypt, publicEncrypt, randomBytes, sign, verify } from 'node:crypto';
 import { gunzipSync, gzipSync, inflateSync } from 'node:zlib';
@@ -69,11 +69,15 @@ const N = (v: Value | undefined) => (v === undefined ? 0 : asNumber(v));
 
 /** Number result, or empty when an input number is empty (FileMaker propagates empty). */
 function numeric(names: string | string[], min: number, max: number, f: (...n: number[]) => number): void {
-  eager(names, min, max, (v) => {
+  numericWithEnv(names, min, max, (ns) => f(...ns));
+}
+
+function numericWithEnv(names: string | string[], min: number, max: number, f: (ns: number[], env: Env) => number): void {
+  eager(names, min, max, (v, env) => {
     const ns = v.map(asNumberOrEmpty);
     if (ns[0] === undefined) return EMPTY;
     // A result that is not a number (Sqrt ( -1 ), anything of 1/0) shows as "?", as in FileMaker.
-    return num(f(...ns.map((n) => n ?? 0)));
+    return num(f(ns.map((n) => n ?? 0), env));
   });
 }
 
@@ -117,7 +121,7 @@ export function splitValues(t: string): string[] {
   return parts;
 }
 
-const joinValues = (vs: string[]) => (vs.length ? vs.join('\r') + '\r' : '');
+const joinValues = (vs: string[]) => joinCalcText(vs, '\r', vs.length ? '\r' : '');
 
 // --- logical -------------------------------------------------------------------
 
@@ -333,6 +337,7 @@ def('Substitute', 2, undefined, (a, env) => {
   try {
     for (const [s, r] of pairs) t = substituteText(t, s, r);
   } catch (e) {
+    rethrowExecutionRefusal(e);
     if (!(e instanceof RangeError)) throw e;
     throw new ComplexityError(e.message);
   }
@@ -341,7 +346,10 @@ def('Substitute', 2, undefined, (a, env) => {
 eager('Replace', 4, 4, (v, env) => {
   const t = T(v[0], env);
   const start = Math.max(1, Math.trunc(N(v[1]))) - 1;
-  return text(t.slice(0, unitAt(t, start)) + T(v[3], env) + t.slice(unitAt(t, start + Math.max(0, Math.trunc(N(v[2]))))));
+  const from = unitAt(t, start), to = unitAt(t, start + Math.max(0, Math.trunc(N(v[2]))));
+  const replacement = T(v[3], env);
+  checkCalcTextSize(from + replacement.length + t.length - to);
+  return text(t.slice(0, from) + replacement + t.slice(to));
 });
 eager('Position', 4, 4, (v, env) => {
   const t = T(v[0], env).toLowerCase();
@@ -501,9 +509,10 @@ eager('SortValues', 1, 3, (v, env) => {
   return text(joinValues(keyed.map((k) => k.s)));
 });
 def('List', 1, undefined, (a, env) => {
-  const out: string[] = [];
-  for (const arg of a) for (const v of env.values(arg)) if (!isEmpty(v)) out.push(env.textOf(v));
-  return text(out.join('\r'));
+  function* values(): Generator<string> {
+    for (const arg of a) for (const v of env.values(arg)) if (!isEmpty(v)) yield env.textOf(v);
+  }
+  return text(joinCalcText(values(), '\r'));
 });
 
 // --- text formatting -----------------------------------------------------------
@@ -614,15 +623,30 @@ numeric('Acos', 1, 1, Math.acos);
 numeric('Atan', 1, 1, Math.atan);
 numeric('Degrees', 1, 1, (r) => (r * 180) / Math.PI);
 numeric('Radians', 1, 1, (d) => (d * Math.PI) / 180);
-numeric('Factorial', 1, 2, (n, k) => {
+numericWithEnv('Factorial', 1, 2, ([n, k = 0], env) => {
+  if (!Number.isSafeInteger(Math.trunc(n)) || !Number.isFinite(k)) {
+    throw new ComplexityError('Factorial exceeds the supported work budget');
+  }
   let r = 1;
   const stop = k ? Math.max(0, n - k) : 0;
-  for (let i = Math.trunc(n); i > stop; i--) r *= i;
+  // Bound clock-sampling overhead while charging every multiplication to the step budget.
+  for (let i = Math.trunc(n); i > stop;) {
+    const end = Math.max(stop, i - 16);
+    env.checkWorkBudget(Math.ceil(i - end));
+    for (; i > end; i--) r *= i;
+  }
   return r;
 });
-numeric('Combination', 2, 2, (n, k) => {
+numericWithEnv('Combination', 2, 2, ([n, k], env) => {
+  if (!Number.isSafeInteger(Math.trunc(n)) || !Number.isSafeInteger(Math.trunc(k))) {
+    throw new ComplexityError('Combination exceeds the supported work budget');
+  }
   let r = 1;
-  for (let i = 1; i <= k; i++) r = (r * (n - k + i)) / i;
+  for (let i = 1; i <= k;) {
+    const end = Math.min(k, i + 15);
+    env.checkWorkBudget(Math.floor(end - i) + 1);
+    for (; i <= end; i++) r = (r * (n - k + i)) / i;
+  }
   return Math.round(r);
 });
 numeric('PMT', 3, 3, (p, r, t) => (r === 0 ? p / t : (p * r) / (1 - Math.pow(1 + r, -t))));
@@ -849,7 +873,8 @@ eager('CryptGenerateSignature', 4, 4, (v, env) => {
     const key = createPrivateKey({ key: T(v[2], env), format: 'pem', passphrase: T(v[3], env) });
     if (key.asymmetricKeyType !== 'rsa') return text('?');
     return binary(sign(algo, bytesOf(v[0], env), key));
-  } catch {
+  } catch (e) {
+    rethrowExecutionRefusal(e);
     return text('?');
   }
 });
@@ -863,7 +888,8 @@ eager('CryptVerifySignature', 4, 4, (v, env) => {
     const key = createPublicKey({ key: pem, format: 'pem' });
     if (key.asymmetricKeyType !== 'rsa') return text('?');
     return num(verify(algo, bytesOf(v[0], env), key, bytesOf(v[3], env)) ? 1 : 0);
-  } catch {
+  } catch (e) {
+    rethrowExecutionRefusal(e);
     return text('?');
   }
 });
@@ -901,7 +927,8 @@ const cryptDecrypt = (data: Uint8Array, key: string): Value => {
     return kind === 1
       ? { type: 'container', value: b.subarray(8, nameEnd).toString('utf8'), data: new Uint8Array(out) }
       : text(out.toString('utf8'));
-  } catch {
+  } catch (e) {
+    rethrowExecutionRefusal(e);
     return EMPTY;
   }
 };
@@ -1000,7 +1027,8 @@ export function embeddingOf(v: Value): number[] | undefined {
   try {
     const a: unknown = JSON.parse(asText(v));
     return Array.isArray(a) && a.length && a.every((x) => typeof x === 'number') ? (a as number[]) : undefined;
-  } catch {
+  } catch (e) {
+    rethrowExecutionRefusal(e);
     return undefined;
   }
 }
@@ -1233,7 +1261,8 @@ export function convertToFileMakerPath(t: string, format: number): string {
     if (fmnet) {
       try {
         return `fmnet:/${fmnet[1]}${decodeURIComponent(fmnet[2] ?? '')}`;
-      } catch {
+      } catch (e) {
+        rethrowExecutionRefusal(e);
         return '?';
       }
     }
@@ -1241,7 +1270,8 @@ export function convertToFileMakerPath(t: string, format: number): string {
     if (!m) return '?';
     try {
       return decodeURIComponent(m[1]);
-    } catch {
+    } catch (e) {
+      rethrowExecutionRefusal(e);
       return '?';
     }
   }
@@ -1436,6 +1466,7 @@ def('MBS', 1, undefined, (a, env) => {
       // The regular expressions in one call share a time limit, so a pattern that backtracks without end can't hold the server.
       return withRegexBudget(() => f(args, env));
     } catch (e) {
+      rethrowExecutionRefusal(e);
       // Too large or too deep for JavaScript (a string past its length limit, a stack too deep) is an MBS error too.
       if (!(e instanceof MbsError) && !(e instanceof RangeError) && !(e instanceof RegexTimeout)) throw e;
       mbsErrors.set(scope, true);
@@ -1505,6 +1536,7 @@ eager('BE_JSONPath', 2, 2, (v, env) => {
   try {
     doc = JSON.parse(T(v[0], env));
   } catch (e) {
+    rethrowExecutionRefusal(e);
     if (e instanceof HostWait) throw e;
     beErrors.set(env.ctx, (e as Error).message);
     return text('?');
@@ -1570,6 +1602,7 @@ eager('BE_FileReadText', 1, 4, (v, env) => {
         return guardedSplit(new RegExp(delimiter.length > 32768 ? '(' : delimiter), all);
       });
     } catch (e) {
+      rethrowExecutionRefusal(e);
       // A delimiter that backtracks without end, or isn't an expression, is refused as in BE_RegularExpression.
       if (!(e instanceof RegexTimeout) && !(e instanceof SyntaxError)) throw e;
       return beResult(env, -1, text('?'));
@@ -1701,6 +1734,7 @@ const beUnzip = (paths: boolean) => (v: Value[], env: Env): Value => {
   try {
     entries = unzip(bytes, { maxTotalBytes: 20 * 1024 * 1024 });
   } catch (e) {
+    rethrowExecutionRefusal(e);
     beErrors.set(env.ctx, (e as Error).message);
     return beResult(env, BE_ZIP_ERROR, text('?'));
   }
@@ -1738,7 +1772,8 @@ function beRegex(input: string, expression: string, opts: string, replaceWith?: 
   try {
     assertPatternNesting(source);
     re = new RegExp(source, flags);
-  } catch {
+  } catch (e) {
+    rethrowExecutionRefusal(e);
     return undefined;
   }
   const global = options.includes('g');
@@ -1757,6 +1792,7 @@ function beRegexGuarded(input: string, expression: string, opts: string, replace
   try {
     return withRegexBudget(() => beRegex(input, expression, opts, replaceWith));
   } catch (e) {
+    rethrowExecutionRefusal(e);
     if (e instanceof RegexTimeout || (e instanceof RangeError && /too large/.test(e.message))) return undefined;
     throw e;
   }
@@ -2092,6 +2128,7 @@ eager('BE_JSON_ArraySize', 1, 2, (v, env) => {
   try {
     cur = JSON.parse(T(v[0], env));
   } catch (e) {
+    rethrowExecutionRefusal(e);
     if (e instanceof HostWait) throw e;
     return num(0);
   }
@@ -2156,7 +2193,8 @@ eager('BE_GetPublicKey', 1, 1, (v, env) => {
   try {
     const pub = createPublicKey(rsaPrivate(pemLines(T(v[0], env))));
     return beResult(env, 0, text(pub.export({ type: 'pkcs1', format: 'pem' }).toString()));
-  } catch {
+  } catch (e) {
+    rethrowExecutionRefusal(e);
     return beKeyFail(env);
   }
 });
@@ -2164,7 +2202,8 @@ eager('BE_EncryptWithKey', 2, 2, (v, env) => {
   try {
     const out = publicEncrypt({ key: rsaPublic(pemLines(T(v[1], env))), padding: cryptoConstants.RSA_PKCS1_PADDING }, Buffer.from(T(v[0], env), 'utf8'));
     return beResult(env, 0, text(out.toString('base64')));
-  } catch {
+  } catch (e) {
+    rethrowExecutionRefusal(e);
     return beKeyFail(env);
   }
 });
@@ -2172,7 +2211,8 @@ eager('BE_DecryptWithKey', 2, 2, (v, env) => {
   try {
     const out = privateDecrypt({ key: rsaPrivate(pemLines(T(v[1], env))), padding: cryptoConstants.RSA_PKCS1_PADDING }, Buffer.from(T(v[0], env).replace(/\s/g, ''), 'base64'));
     return beResult(env, 0, text(out.toString('utf8')));
-  } catch {
+  } catch (e) {
+    rethrowExecutionRefusal(e);
     return beKeyFail(env);
   }
 });
@@ -2183,7 +2223,8 @@ eager('BE_SignatureGenerateRSA', 2, 5, (v, env) => {
   try {
     const signature = sign(algo, bytesOf(v[0], env), rsaPrivate(pemLines(T(v[1], env)), v[2] ? T(v[2], env) : undefined));
     return beResult(env, 0, { type: 'container', value: (v[4] ? T(v[4], env) : '') || 'signature.sig', data: new Uint8Array(signature) });
-  } catch {
+  } catch (e) {
+    rethrowExecutionRefusal(e);
     return beKeyFail(env);
   }
 });
@@ -2194,7 +2235,8 @@ eager('BE_SignatureVerifyRSA', 3, 4, (v, env) => {
   try {
     const signature = v[2].type === 'container' ? bytesOf(v[2], env) : Buffer.from(T(v[2], env).replace(/\s/g, ''), 'base64');
     return beResult(env, 0, bool(verify(algo, bytesOf(v[0], env), rsaPublic(pemLines(T(v[1], env))), signature)));
-  } catch {
+  } catch (e) {
+    rethrowExecutionRefusal(e);
     return beKeyFail(env);
   }
 });
@@ -2212,6 +2254,7 @@ eager('BE_JSON_jq', 2, 3, (v, env) => {
     beErrors.set(env.ctx, '');
     return beResult(env, 0, text(out));
   } catch (e) {
+    rethrowExecutionRefusal(e);
     if (e instanceof HostWait) throw e;
     if (!(e instanceof JqError) && !(e instanceof RegexTimeout)) throw e;
     beErrors.set(env.ctx, e instanceof RegexTimeout ? 'regular expression took too long' : e.message);
@@ -2235,7 +2278,8 @@ eager('BE_UnGzip', 1, 2, (v, env) => {
   let out: Buffer;
   try {
     out = data[0] === 0x1f && data[1] === 0x8b ? gunzipSync(data, { maxOutputLength: MAX_UNZIPPED }) : inflateSync(data, { maxOutputLength: MAX_UNZIPPED });
-  } catch {
+  } catch (e) {
+    rethrowExecutionRefusal(e);
     return beResult(env, -1, text('?'));
   }
   const name = (v[1] ? T(v[1], env) : '') || fileNameOf(v[0], env).replace(/\.gz$/, '');
@@ -2289,6 +2333,7 @@ const beCipher = (decrypt: boolean) => (v: Value[], env: Env): Value => {
     const file = T(v[5], env);
     return beResult(env, 0, file ? { type: 'container', value: file, data: new Uint8Array(out) } : text(out.toString('hex').toUpperCase()));
   } catch (e) {
+    rethrowExecutionRefusal(e);
     if (e instanceof HostWait) throw e;
     return beResult(env, -1, text('?'));
   }
@@ -2305,6 +2350,7 @@ const beXPath = (all: boolean) => (v: Value[], env: Env): Value => {
     beErrors.set(env.ctx, '');
     return beResult(env, 0, text(all ? xpathValues(r) : beBool(v[3], true) ? xpathText(r) : xpathXml(r)));
   } catch (e) {
+    rethrowExecutionRefusal(e);
     if (e instanceof HostWait) throw e;
     beErrors.set(env.ctx, (e as Error).message);
     return beResult(env, -1, text('?'));
@@ -2318,6 +2364,7 @@ const beXslt = (env: Env, xml: string, xslt: string): { ok: boolean; out: string
   try {
     return { ok: true, out: applyXslt(xml, xslt.replace(/\r\n?/g, '\n')) };
   } catch (e) {
+    rethrowExecutionRefusal(e);
     if (e instanceof HostWait) throw e;
     beErrors.set(env.ctx, (e as Error).message);
     return { ok: false, out: (e as Error).message + '\n' };
@@ -2347,6 +2394,7 @@ eager('BE_XMLParse', 1, 1, (v, env) => {
     parseXmlDocument(T(v[0], env));
     return beResult(env, 0, text(''));
   } catch (e) {
+    rethrowExecutionRefusal(e);
     if (e instanceof HostWait) throw e;
     return beResult(env, 0, text((e as Error).message + '\n'));
   }
@@ -2356,6 +2404,7 @@ eager('BE_XMLCanonical', 1, 1, (v, env) => {
   try {
     return beResult(env, 0, text(canonicalXml(T(v[0], env))));
   } catch (e) {
+    rethrowExecutionRefusal(e);
     if (e instanceof HostWait) throw e;
     return beResult(env, 0, text(''));
   }
@@ -2366,6 +2415,7 @@ eager('BE_XMLTidy', 1, 1, (v, env) => {
   try {
     return beResult(env, 0, text(tidyXml(T(v[0], env))));
   } catch (e) {
+    rethrowExecutionRefusal(e);
     if (e instanceof HostWait) throw e;
     beErrors.set(env.ctx, (e as Error).message);
     return beResult(env, BE_XML_PARSE_ERROR, text('?'));
@@ -2405,6 +2455,7 @@ eager('BE_XMLStripNodes', 3, 3, (v, env) => {
     if (!files?.write(T(v[1], env), out, false)) return beResult(env, BE_NO_FILE, text('?'));
     return beResult(env, 0, text(''));
   } catch (e) {
+    rethrowExecutionRefusal(e);
     if (e instanceof HostWait) throw e;
     beErrors.set(env.ctx, (e as Error).message);
     return beResult(env, BE_XML_PARSE_ERROR, text('?'));

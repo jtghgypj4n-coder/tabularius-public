@@ -3,7 +3,7 @@
 import { rethrowExecutionRefusal } from './execution-refusal.ts';
 import type { CalcContext } from './evaluate.ts';
 import type { Compiled } from './index.ts';
-import type { Node } from './parser.ts';
+import { assertTraversalDepth, type Node } from './parser.ts';
 import { asText, CalcError, type Value } from './values.ts';
 
 const BINARY: Record<string, number> = {
@@ -15,30 +15,35 @@ const BINARY: Record<string, number> = {
 const quote = (s: string) => '"' + s.replace(/[\\"¶\n]/g, '\\$&').replace(/\r/g, '¶') + '"';
 /** A parse tree back in FileMaker calculation syntax (spacing normalized, comments gone). */
 export function nodeText(n: Node, parent = 0, precise = false): string {
+  assertTraversalDepth(n);
+  return renderNodeText(n, parent, precise);
+}
+
+function renderNodeText(n: Node, parent = 0, precise = false): string {
   switch (n.k) {
     case 'num': return (precise || n.raw === 'Pi' ? n.raw : undefined) ?? (n.exact !== undefined ? n.exact.toString() : Number.isFinite(n.value) ? String(n.value) : '1e999');
     case 'str': return n.value === '\r' ? '¶' : quote(n.value);
-    case 'field': return (n.occurrence ? `${n.occurrence}::${n.name}` : n.name) + (n.rep ? ` [ ${nodeText(n.rep, 0, precise)} ]` : '');
-    case 'var': return n.name + (n.rep ? ` [ ${nodeText(n.rep, 0, precise)} ]` : '');
+    case 'field': return (n.occurrence ? `${n.occurrence}::${n.name}` : n.name) + (n.rep ? ` [ ${renderNodeText(n.rep, 0, precise)} ]` : '');
+    case 'var': return n.name + (n.rep ? ` [ ${renderNodeText(n.rep, 0, precise)} ]` : '');
     case 'get': return `Get ( ${n.param} )`;
-    case 'let': return `Let ( [ ${n.binds.map(([name, v, r]) => `${name}${r ? ` [ ${nodeText(r, 0, precise)} ]` : ''} = ${nodeText(v, 0, precise)}`).join(' ; ')} ] ; ${nodeText(n.body, 0, precise)} )`;
+    case 'let': return `Let ( [ ${n.binds.map(([name, v, r]) => `${name}${r ? ` [ ${renderNodeText(r, 0, precise)} ]` : ''} = ${renderNodeText(v, 0, precise)}`).join(' ; ')} ] ; ${renderNodeText(n.body, 0, precise)} )`;
     case 'unary': {
       const p = n.op === 'not' ? 3 : 9;
-      const s = n.op === 'not' ? `not ${nodeText(n.a, p, precise)}` : `${n.op}${nodeText(n.a, p, precise)}`;
+      const s = n.op === 'not' ? `not ${renderNodeText(n.a, p, precise)}` : `${n.op}${renderNodeText(n.a, p, precise)}`;
       return p < parent ? `( ${s} )` : s;
     }
     case 'bin': {
       const p = BINARY[n.op] ?? 4;
-      const s = `${nodeText(n.a, p, precise)} ${n.op} ${nodeText(n.b, p + 1, precise)}`;
+      const s = `${renderNodeText(n.a, p, precise)} ${n.op} ${renderNodeText(n.b, p + 1, precise)}`;
       return p < parent ? `( ${s} )` : s;
     }
     case 'call':
-      if (n.name === '[]') return `[ ${n.args.map((a) => nodeText(a, 0, precise)).join(' ; ')} ]`;
+      if (n.name === '[]') return `[ ${n.args.map((a) => renderNodeText(a, 0, precise)).join(' ; ')} ]`;
       if (n.name === 'While' && n.args.length === 2 && n.args[0].k === 'let' && n.args[1].k === 'let') {
-        const binds = (v: Extract<Node, { k: 'let' }>) => `[ ${v.binds.map(([name, value, r]) => `${name}${r ? ` [ ${nodeText(r, 0, precise)} ]` : ''} = ${nodeText(value, 0, precise)}`).join(' ; ')} ]`;
-        return `While ( ${binds(n.args[0])} ; ${nodeText(n.args[0].body, 0, precise)} ; ${binds(n.args[1])} ; ${nodeText(n.args[1].body, 0, precise)} )`;
+        const binds = (v: Extract<Node, { k: 'let' }>) => `[ ${v.binds.map(([name, value, r]) => `${name}${r ? ` [ ${renderNodeText(r, 0, precise)} ]` : ''} = ${renderNodeText(value, 0, precise)}`).join(' ; ')} ]`;
+        return `While ( ${binds(n.args[0])} ; ${renderNodeText(n.args[0].body, 0, precise)} ; ${binds(n.args[1])} ; ${renderNodeText(n.args[1].body, 0, precise)} )`;
       }
-      return `${n.name} ( ${n.args.map((a, i) => nodeText(a, 0, precise || (n.name.toLowerCase() === 'setprecision' && i === 0))).join(' ; ')} )`;
+      return `${n.name} ( ${n.args.map((a, i) => renderNodeText(a, 0, precise || (n.name.toLowerCase() === 'setprecision' && i === 0))).join(' ; ')} )`;
   }
 }
 

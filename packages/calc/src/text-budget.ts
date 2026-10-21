@@ -1,3 +1,5 @@
+import { ComplexityError } from './complexity-error.ts';
+
 // Implementation limits, not FileMaker compatibility claims. Check before
 // allocating expanded text; a time limit alone cannot prevent an allocation.
 export const MAX_TEXT_RESULT = 8_000_000;
@@ -19,6 +21,27 @@ export function substituteText(input: string, search: string, replacement: strin
   if (!count) { if (limitUnchanged) checkTextSize(input.length); return input; }
   checkTextSize(input.length + count * (replacement.length - search.length));
   return input.replaceAll(search, () => replacement);
+}
+
+/** Core calculation outputs use a marked refusal; plug-ins keep their RangeError translation. */
+export function checkCalcTextSize(size: number): void {
+  try { checkTextSize(size); } catch (e) {
+    if (!(e instanceof RangeError)) throw e;
+    throw new ComplexityError(e.message);
+  }
+}
+
+/** Count every separator and suffix before joining, checking as each part arrives. */
+export function joinCalcText(parts: Iterable<string>, separator = '', suffix = ''): string {
+  const out: string[] = [];
+  let size = suffix.length;
+  checkCalcTextSize(size);
+  for (const part of parts) {
+    size += part.length + (out.length ? separator.length : 0);
+    checkCalcTextSize(size);
+    out.push(part);
+  }
+  return out.join(separator) + suffix;
 }
 
 /** Total UTF-16 payload length without constructing the joined text. */
