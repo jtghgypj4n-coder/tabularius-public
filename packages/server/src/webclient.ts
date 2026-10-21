@@ -1221,16 +1221,13 @@ export class WebClient {
       return store.schema.tables.find((t) => t.id === to?.baseTableId)?.fields.find((x) => x.name === m[2]);
     };
     const kinds = fields.map((f) => def(f)?.type);
-    const summaries = fields.filter((f) => def(f)?.kind === 'summary');
+    const hasSummary = fields.some((f) => def(f)?.kind === 'summary');
     // The common "all records" export walks the primary key in bounded pages.
-    // A supplied found set, query or sort still uses its exact order.
-    const allInIdOrder = !('ids' in body) && !('query' in body) && !('sort' in body) && !summaries.length;
+    // A supplied found set, query or sort still uses its exact order, and so does a summary: a running total or a
+    // fraction of the total differs from record to record, so each batch works its summaries out in the found set's order.
+    const allInIdOrder = !('ids' in body) && !('query' in body) && !('sort' in body) && !hasSummary;
     const ids = allInIdOrder ? undefined : foundIds(store, layout, body, privileges);
-    // A summary of a found set is calculated once, not for each 500-row batch.
-    const summary = summaries.length && ids?.length
-      ? store.getMany(layout, [ids[0]], ids, { privileges, fields: summaries })[0]?.fieldData ?? {}
-      : {};
-    const ordinary = fields.filter((f) => !summaries.includes(f));
+    const sort = sortOf(body.sort);
     const cell = (v: string | number, i: number) => {
       const one = String(v).replace(/\r\n|[\r\n]/g, '\v');
       return format === 'tab' ? formulaGuard(one.replace(/\t/g, ' '), kinds[i]) : csvField(one, { quoteAll: true, type: kinds[i] });
@@ -1249,8 +1246,8 @@ export class WebClient {
       offset += chunk.length;
       lastId = chunk[chunk.length - 1];
       const lines: string[] = [];
-      for (const r of store.getMany(layout, chunk, ids ?? chunk, { privileges, fields: ordinary })) {
-        lines.push(fields.map((f, k) => cell(privileges.fieldAccess(info.table, f) === 'masked' ? '' : r.fieldData[f] ?? summary[f] ?? '', k)).join(sepr) + '\r\n');
+      for (const r of store.getMany(layout, chunk, ids ?? chunk, { privileges, sort, fields })) {
+        lines.push(fields.map((f, k) => cell(privileges.fieldAccess(info.table, f) === 'masked' ? '' : r.fieldData[f] ?? '', k)).join(sepr) + '\r\n');
         sent++;
         if (audited.length < 100) audited.push(Number(r.recordId));
       }
@@ -1275,19 +1272,26 @@ export class WebClient {
       }
       return !res.destroyed;
     };
+    // What was read is logged however the download ends: finished, cut off by the client, or stopped by a later batch failing.
+    let failure: Error | undefined;
     try {
       const header = body.fieldNames === true || format === 'mer' ? fields.map((name) => cell(name, -1)).join(sepr) + '\r\n' : '';
-      if (!(await write((body.bom === true ? '\ufeff' : '') + header))) return;
-      while (batch !== undefined) {
-        if (res.destroyed) return;
-        if (batch && !(await write(batch))) return;
-        batch = nextBatch();
+      if (await write((body.bom === true ? '\ufeff' : '') + header)) {
+        while (batch !== undefined && !res.destroyed) {
+          if (batch && !(await write(batch))) break;
+          batch = nextBatch();
+        }
       }
-      store.logRead(info.table, audited, { privileges }, sent);
-      res.end();
     } catch (e) {
-      res.destroy(e instanceof Error ? e : new Error(String(e)));
+      failure = e instanceof Error ? e : new Error(String(e));
     }
+    try {
+      store.logRead(info.table, audited, { privileges }, sent);
+    } catch (e) {
+      failure ??= e instanceof Error ? e : new Error(String(e));
+    }
+    if (failure) res.destroy(failure);
+    else if (!res.destroyed) res.end();
   }
 
   /**

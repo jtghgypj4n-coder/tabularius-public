@@ -1,7 +1,7 @@
 // Synthetic scale probe. Run separately from the test suite:
 //   node --max-old-space-size=2048 scripts/scale-5m.ts
 //   node --max-old-space-size=2048 scripts/scale-5m.ts --records 200000
-// It creates only disposable files. A 5M run requires 20 GiB free and a 1-minute load average below 20.
+// It creates only disposable files. It requires free space in proportion to the rows (20 GiB for 5M) and, from 1M rows up, a 1-minute load average below 20.
 import assert from 'node:assert/strict';
 import { createWriteStream, mkdtempSync, rmSync, statfsSync, statSync } from 'node:fs';
 import { once as eventOnce } from 'node:events';
@@ -17,10 +17,11 @@ const at = process.argv.indexOf('--records');
 const records = at < 0 ? 5_000_000 : Number(process.argv[at + 1]);
 if (!Number.isSafeInteger(records) || records < 1_000 || records > 5_000_000) throw new Error('--records must be 1000..5000000');
 const free = (() => { const s = statfsSync(tmpdir()); return s.bavail * s.bsize; })();
-if (records === 5_000_000 && free < 20 * 1024 ** 3) throw new Error('Stop: less than 20 GiB free on the temporary volume');
-if (loadavg()[0] >= 20) throw new Error(`Stop: one-minute load average ${loadavg()[0].toFixed(1)} is at least 20`);
+const needBytes = Math.ceil(20 * 1024 ** 3 * records / 5_000_000);
+if (free < needBytes) throw new Error(`Stop: less than ${(needBytes / 1024 ** 3).toFixed(1)} GiB free on the temporary volume`);
+if (records >= 1_000_000 && loadavg()[0] >= 20) throw new Error(`Stop: one-minute load average ${loadavg()[0].toFixed(1)} is at least 20`);
 
-const dir = mkdtempSync(join(tmpdir(), 'openhbam-scale-5m-'));
+const dir = mkdtempSync(join(tmpdir(), 'tabularius-scale-5m-'));
 const path = join(dir, 'Scale.openhbam.sqlite');
 const timings: Record<string, number> = {};
 const memory: Record<string, { rss: number; heapUsed: number }> = {};
@@ -182,7 +183,7 @@ try {
   assert.equal(login.status, 200);
   const token = (await login.json() as { response: { token: string } }).response.token;
   await measure('export_csv_http', async () => {
-    const res = await fetch(`${server!.url}/openhbam/app/v1/databases/Scale/layouts/Invoice%20List/export`, {
+    const res = await fetch(`${server!.url}/tabularius/app/v1/databases/Scale/layouts/Invoice%20List/export`, {
       method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
       body: JSON.stringify({ fields: ['Id', 'Customer', 'Region', 'Amount', 'Notes'], format: 'csv', fieldNames: true }),
     });

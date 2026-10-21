@@ -173,8 +173,9 @@ Run `node --max-old-space-size=2048 scripts/scale-5m.ts` separately from the
 test suite. Its JSON output includes the machine, native file and CSV sizes,
 each operation's elapsed milliseconds, sampled `process.memoryUsage()` and
 peak resident memory. `--records 200000` runs the same path with fewer rows.
-The script requires 20 GiB free on the temporary volume and a one-minute load
-average below 20 before it makes anything; it removes its temporary folder
+Before it makes anything the script requires free space on the temporary
+volume in proportion to the rows (20 GiB for 5,000,000) and, from 1,000,000
+rows up, a one-minute load average below 20; it removes its temporary folder
 afterward, including on failure. It binds HTTP and pgwire only to `127.0.0.1`.
 
 The input is generated in code and bulk-loaded into a native SQLite store.
@@ -194,6 +195,12 @@ guard therefore prevented the measurement. The generated 200k regression
 test exported all rows in 3.7 s on Apple M5 Max (18 logical CPUs, 128 GiB
 memory), macOS 26.4, Node v22.22.2, but that is a test result, not a 5M
 estimate. Do not extrapolate a 5M result from it.
+
+Upgrade impact: CSV, tab and merge exports from the web client are now sent a
+batch at a time with no `content-length`, so a download can no longer fail as a
+clean error after its first batch (it ends early instead), and the read-audit
+entry, when read logging is on, is written when the download ends. Summaries in
+such an export are worked out in the found set's order, as in the other formats.
 
 ## Drawing big layouts in the web client
 
