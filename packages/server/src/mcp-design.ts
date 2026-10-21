@@ -4,17 +4,16 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { callerText } from './fault-log.ts';
 import { z } from 'zod';
-import type { DesignOp, Privileges, SnippetPick, Store } from '../../store/src/index.ts';
-import { checkStoreFormula, speedPlan, lintLayout, lintScript, fixLayout, storeStats, type LintIssue, designSnippet, isLayoutSnippet, layoutObjectsFromSnippet, layoutSnippet, snippetChanges } from '../../store/src/index.ts';
+import type { DesignOp, Privileges, SnippetPick, Store, Privileges } from '../../store/src/index.ts';
+import { checkStoreFormula, speedPlan, lintLayout, lintScript, fixLayout, storeStats, type LintIssue, isLayoutSnippet, layoutObjectsFromSnippet, snippetChanges } from '../../store/src/index.ts';
 import type { LayoutObject } from '../../fmp12/src/index.ts';
 import { designOf, formulaContext, layoutTheme, styleNames } from './design.ts';
 import { auditForModel, redactSecrets, redactStep } from './ai-output.ts';
 import { recordHistory } from './record-history.ts';
 import { dryRunChanges } from './dry-run.ts';
 import { applySecurityChanges, securityOf } from './security.ts';
-import { aiBlocker } from './ai-access.ts';
 import { assertAiSecurityChanges } from './ai-security.ts';
-import { assertAiDesignChanges } from './ai-policy.ts';
+import { assertAiDesignChanges, assertAiPolicy } from './ai-policy.ts';
 import { findAdvice } from './find-advice.ts';
 import type { Profiler } from './profiler.ts';
 import { reviewPrivileges } from './privilege-review.ts';
@@ -26,6 +25,7 @@ import { modernizeChange, STYLES } from './modernize.ts';
 import { draftLayoutChange, layoutsBefore, ordersBefore, previewDesign, restyleChange, restyleFileChange, undoChanges } from './design-preview.ts';
 import { reviewGraph } from './graph-review.ts';
 import { checkSolution } from './check-solution.ts';
+import { designSnippetForModel, layoutSnippetForModel } from './clipboard-for-model.ts';
 
 const json = (value: unknown) => ({ content: [{ type: 'text' as const, text: JSON.stringify(value) }] });
 const fail = (message: string) => ({ isError: true, content: [{ type: 'text' as const, text: message }] });
@@ -109,7 +109,7 @@ Renaming a field or occurrence rewrites every formula, layout and script that re
  * `privilegesFor` gives the client's privileges in a file (none for the administrator): what a formula it writes, tests or
  * stores may read of another file is what it may read there.
  */
-export function registerDesignTools(server: McpServer, host: Host, guard: (s: Store) => void = () => {}, canCreate = true, visible: (s: Store) => boolean = () => true, readOtherFile?: (file: Store) => boolean, privilegesFor?: (file: Store) => Privileges | undefined): void {
+export function registerDesignTools(server: McpServer, host: Host, guard: (s: Store) => Privileges | undefined = () => undefined, canCreate = true, visible: (s: Store) => boolean = () => true, readOtherFile?: (file: Store) => boolean, privilegesFor?: (file: Store) => Privileges | undefined): void {
   const applyAiDesign = (store: Store, changes: DesignOp[]) => applyAi(store, changes, readOtherFile, privilegesFor?.(store));
   const withStore = (database: string, fn: (s: Store) => unknown) => {
     const store = host.get(database);
@@ -597,11 +597,10 @@ export function registerDesignTools(server: McpServer, host: Host, guard: (s: St
     if (!store) return fail(`No hosted database named "${database}". Hosted: ${aiHostedNames(host, visible)}`);
     try {
       guard(store);
-      // Other files are checked too, but a file with AI off (or one that uses it) is only counted, never named.
-      const otherStores = host.openStores().filter((s) => s !== store);
-      const others = otherStores.filter((s) => !aiBlocker(s));
-      const hiddenOthers = otherStores.filter((s) => aiBlocker(s));
-      return json(await changeImpact(store, host.logs, kind, name, change ?? 'rename', { others, hiddenOthers }));
+      return json(await changeImpact(store, host.logs, kind, name, change ?? 'rename', {
+        others: host.openStores().filter((s) => s !== store),
+        canRead: (s) => { if (!visible(s)) return false; const p = guard(s); assertAiPolicy(s, p, 'MCP check_change_impact'); return true; },
+      }));
     } catch (e) {
       return fail(callerText(e));
     }
@@ -747,14 +746,14 @@ export function registerDesignTools(server: McpServer, host: Host, guard: (s: St
     },
     annotations: { readOnlyHint: true },
   }, async ({ database, layout, objects, ...pick }) => withStore(database, (s) => {
-    if (!objects) return designSnippet(s.schema, pick as SnippetPick);
+    if (!objects) return designSnippetForModel(s.schema, pick as SnippetPick);
     const design = layout === undefined ? undefined : s.design(layout);
     if (!design) throw new Error('Name the layout the objects are on');
     const want = new Set(objects);
     const found: LayoutObject[] = [];
     const walk = (list: LayoutObject[]) => list.forEach((o) => (want.has(o.id) ? found.push(o) : walk(o.children ?? [])));
     walk(design.objects);
-    return layoutSnippet(found, s.schema, { theme: layoutTheme(s, design.id) });
+    return layoutSnippetForModel(found, s.schema, { theme: layoutTheme(s, design.id) });
   }));
 
   server.registerTool('list_images', {

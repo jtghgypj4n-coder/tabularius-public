@@ -97,7 +97,7 @@ test('change impact across hosted files', async () => {
     assert.ok(crossFileImpact(data, [ui], target('valueList', 'States'), 'delete').some((u) => u.file === 'UI' && u.where.includes('"FromData"')));
 
     // changeImpact: UI is named; Archive (AI off) is only counted, with a summary line.
-    const impact = await changeImpact(data, undefined, 'table', 'Customers', 'delete', { others: [ui], hiddenOthers: [archive] });
+    const impact = await changeImpact(data, undefined, 'table', 'Customers', 'delete', { others: [ui], hiddenOthers: [archive], canRead: () => true });
     assert.deepEqual(impact.crossFile.map((c) => c.file), ['UI']);
     assert.equal(impact.crossFileHidden, 1);
     assert.ok(impact.summary.some((l) => l.includes('UI') && l.includes('break')));

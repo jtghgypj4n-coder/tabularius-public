@@ -321,3 +321,17 @@ export function redactStep<T>(step: T): T {
   // Text that merely names a field ("Okapi Key") is judged by redactSecrets above; this pass hides values under secret-named keys and their copies.
   return new CredentialRedactor().data(walk(step), undefined, false) as T;
 }
+
+/** Track source reads, since even a transformed secret must not leave a script run or debugger. */
+export function scriptOutputForModel() {
+  let fieldRead = false;
+  let sqlRead = false;
+  return {
+    onFieldRead: (name: string, _value: string) => { if (secretName(name)) fieldRead = true; },
+    onExecuteSQL: (query: string) => { if (sqlMayReadSecret(query)) sqlRead = true; },
+    withheld: (run?: { error: number; halted?: boolean; steps: number }) => fieldRead || sqlRead ? {
+      ...(run ? { error: run.error, halted: run.halted, steps: run.steps } : {}),
+      note: sqlRead ? 'Script output withheld: an ExecuteSQL query may have read a secret field.' : 'Script output withheld: the script read a secret field.',
+    } : undefined,
+  };
+}

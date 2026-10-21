@@ -1161,7 +1161,7 @@ export class Assistant {
     if (refused) throw new StoreError(9, refused);
     const groups = scriptDocFacts(store);
     const who = accountKey(store, account);
-    const route = { model: this.fastModel() ?? this.opts.model ?? DEFAULT_MODEL, maxTokens: 8000 };
+    const route = { model: this.fastModel() ?? this.opts.model ?? DEFAULT_MODEL, maxTokens: 8000, ...piiRoute(store, account) };
     const system = 'You document the scripts of a FileMaker solution for the developer taking it over. For each script you are given ' +
       '(its name, what starts it, what it performs, what it reaches outside with, and its steps, with secrets hidden), write a ### heading ' +
       'with its exact name, then two to four plain sentences: what it does and why someone would run it, what starts it, what it changes ' +
