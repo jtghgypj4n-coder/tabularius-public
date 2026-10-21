@@ -774,7 +774,7 @@ export function registerDesignTools(server: McpServer, host: Host, guard: (s: St
       'privilegeSet?, mustChange?} (creates or changes an account; passwords are never set here: people set their own, or the ' +
       'administrator uses tabularius passwd), {op:"setExternalAccount", name: group, privilegeSet}, {op:"deleteAccount", name}, ' +
       '{op:"savePrivilegeSet", set: a privilege set as get_security shows it}, {op:"deletePrivilegeSet", name}, ' +
-      '{op:"setPasswordPolicy", policy}, {op:"disableTotp", account}, {op:"createExtendedPrivilege", name} / ' +
+      '{op:"setPasswordPolicy", policy} (it may keep or raise the minimum password length, never lower it), {op:"disableTotp", account}, {op:"createExtendedPrivilege", name} / ' +
       '{op:"updateExtendedPrivilege", extendedPrivilege: name or id, name} / {op:"deleteExtendedPrivilege", extendedPrivilege} ' +
       '(a custom "way in" a privilege set can grant, Manage Security\'s Extended Privileges tab). API tokens are managed in Manage Security. Returns the result as get_security does.',
     inputSchema: { database: db, changes: z.array(z.record(z.string(), z.unknown())).min(1) },

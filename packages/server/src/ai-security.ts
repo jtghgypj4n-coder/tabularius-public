@@ -31,6 +31,13 @@ export function assertAiSecurityChanges(store: Store, changes: readonly Record<s
   assertNoAiVisibility(changes);
   for (const change of changes) {
     if (change.op === 'savePrivilegeSet') assertAiPrivilegeSet(store, change.set);
+    // The minimum password length is a human's call: an AI tool may keep or raise it, never lower it (0 turns it off).
+    if (change.op === 'setPasswordPolicy') {
+      const min = change.policy && typeof change.policy === 'object' ? (change.policy as { minLength?: unknown }).minLength : undefined;
+      if (typeof min === 'number' && min < store.minPasswordLength()) {
+        throw new StoreError(9, `AI tools cannot lower the minimum password length (now ${store.minPasswordLength()}); a person can change it in Manage Security, the admin console or the CLI`);
+      }
+    }
     if (change.op === 'deletePrivilegeSet') assertAiPrivilegeSet(store, { name: change.name });
     if (change.op === 'createPrivilegeSet') assertAiPrivilegeSet(store, change.set);
     if (change.op === 'createAccount') {

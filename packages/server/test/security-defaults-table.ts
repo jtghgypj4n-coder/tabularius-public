@@ -232,7 +232,7 @@ export const ROWS: Row[] = [
     id: 'password-strength', section: 'Sign-in and accounts', setting: 'Password rules for file accounts and the admin console',
     default: 'A new password needs at least 12 characters, for a file account (unless the file\'s own policy says otherwise) and for the admin console. Nothing expires. The lockout above is the other brake on guessing',
     changedBy: '`tabularius privileges <folder> <database> policy [minLength [maxAgeDays]]` for one file (0 for no minimum, a number of days to make passwords expire); `TABULARIUS_MIN_PASSWORD_LENGTH` for the default (0 for none), which also sets the admin console\'s minimum',
-    risk: 'Lowering it accepts short passwords that a guesser, or a stolen password hash, gives up fast. Accounts that already have a shorter password keep it until it is changed; a blank password is refused as well (the empty password a converted file\'s account keeps still works from this computer only)',
+    risk: 'Lowering it accepts short passwords that a guesser, or a stolen password hash, gives up fast. Accounts that already have a shorter password keep it until it is changed; while any minimum is in force a blank password is refused as well (the empty password a converted file\'s account keeps still works from this computer only)',
     how: 'probed', expect: 'refuses 3 characters, takes 12',
     observe: async (c) => c.passwordRules(),
   },

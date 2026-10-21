@@ -18,7 +18,7 @@ nothing reads, so this list and the code cannot drift apart.
 | --- | --- | --- |
 | `TABULARIUS_HOST` | `--host` | The address to listen on (`127.0.0.1` by default; `0.0.0.0` with `--https name`). Beyond this computer it needs HTTPS or `TABULARIUS_ALLOW_PLAIN_HTTP`. |
 | `TABULARIUS_ALLOW_PLAIN_HTTP` | `--allow-plain-http` | Lets the server listen beyond this computer over plain HTTP, which it otherwise refuses to do (a proxy or network you control does the HTTPS). Set in the Docker image. |
-| `TABULARIUS_MIN_PASSWORD_LENGTH` | | The fewest characters a new password may have in a file whose own policy names no minimum, and for the admin console. 12 when unset; `0` for none. A file's own minimum (`tabularius privileges <folder> <db> policy`) wins. |
+| `TABULARIUS_MIN_PASSWORD_LENGTH` | | The fewest characters a new password may have in a file whose own policy names no minimum, and for the admin console. 12 when unset (for the command line program and the server it starts; code that embeds the library sets none unless told); `0` for none. An AI tool can keep or raise a file's minimum but not lower it. A file's own minimum (`tabularius privileges <folder> <db> policy`) wins. |
 | `TABULARIUS_HTTPS` | `--https` | `name[,name]` for a Let's Encrypt certificate, or `local` for this server's own authority. |
 | `TABULARIUS_HTTPS_EMAIL` | `--https-email` | The contact address given to Let's Encrypt. |
 | `TABULARIUS_HTTP_PORT` | `--http-port` | The port that answers the certificate challenge and redirects to https (80 by default). |
