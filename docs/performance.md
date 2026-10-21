@@ -240,6 +240,41 @@ What the numbers show:
 
 Set `TABULARIUS_PERF_OUT` and it writes `<name>-render.json` beside the other web numbers.
 
+## Web startup and bundle budget
+
+`packages/web/test/bundle-budget.test.ts` walks the static JavaScript import
+graph for the browse page and its two stylesheets. It records each source
+file's raw UTF-8 size and its gzip size, and fails if either exceeds the
+per-file limit in `scripts/web-bundle-budget.json`. Each limit is 120% of the
+measured file size. The budget names the eight largest JavaScript files so a
+growth has an obvious owner. Dynamic imports are outside the initial graph.
+
+The largest measured initial JavaScript contributors are `main.ts` (449,851
+raw bytes), `layout.ts` (83,655), `assistant.ts` (57,040), `api.ts` (45,333),
+and `menubar.ts` (24,412). The browse graph and its CSS total 1,015,604 raw
+bytes; compressing each source file with gzip level 9 totals 301,488 bytes.
+The test budget allows 1,218,745 raw bytes and 361,806 gzip bytes in total
+(individual files are checked, so a saving in one cannot hide growth in
+another).
+
+Before this change, the browse graph also statically included `chart.ts` and
+`dashboard-view.ts`, adding 24,989 raw bytes and 8,449 gzip bytes. Rebuilding
+the same graph from the sources before this change gives 1,039,985 raw bytes and
+309,777 gzip bytes. The changes remove those files from first load and load
+them only when a chart or assistant dashboard is drawn. Design mode,
+Dashboards, the debugger and the admin console keep their own page entry
+points; the browse page does not request those entry pages.
+
+`packages/web/e2e/bundle-startup.e2e.ts` signs in to a local synthetic file
+under a 150 ms latency and 1.5 Mbps download profile. On the run recorded when
+this was written (an earlier tree, so its byte counts are lower than the totals above), the
+first usable layout appeared in 4,338 ms after 49 JavaScript/CSS resources
+(966,477 raw bytes; 270,985 bytes when those resources are gzip-compressed for
+comparison). The assertion allows 45 seconds, over ten times the measured
+time to leave headroom on slower runners. The test also checks that browse
+does not fetch design, debugger, dashboard-view or chart modules. This is a
+machine-specific measurement, not a promise for every hosted file or device.
+
 ## Launch-day overload capacity
 
 On 2026-10-17, a three-second synthetic HTTP load test ran on macOS 25.4, Apple M5 Max (18 reported CPUs), 128 GiB RAM, Node 22.22.2. With one worker and 5,000 generated records, 64 concurrent mixed-workload sessions gave find p95 of 311 ms at 850 completed requests/s; 96 sessions gave find p95 of 805 ms at 629 completed requests/s and 20 HTTP 503s. Find p95 remained below one second through 96 tested sessions, including a 30,000-record file, because the gate shed work first. The lower completed rate at 96 sessions reflects closed-loop clients waiting and requests shed under overload.
