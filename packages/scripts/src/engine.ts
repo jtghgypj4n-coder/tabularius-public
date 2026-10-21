@@ -8737,8 +8737,11 @@ export class ScriptEngine {
       attachments.push({ name: basename(path), data: readFileSync(path) });
     }
     // "Name <address>" gives the address.
-    const bare = (list: string) => addresses(list).map((a) => /<([^<>]*)>\s*$/.exec(a)?.[1].trim() ?? a);
-    const replyTo = bare(calc(m.fromEmail))[0];
+    const bare = (list: string) => addresses(list);
+    const reply = (list: string) => addresses(list).map((a) => /<([^<>]*)>\s*$/.exec(a)?.[1].trim() ?? a);
+    const fromField = calc(m.fromEmail);
+    if (/[\r\n\0]/.test(fromField)) throw new ScriptError(ERROR.mailNotSent, 'Send Mail: From contains a line break or NUL');
+    const replyTo = reply(fromField)[0];
     const message: OutgoingMail = {
       to: bare(calc(m.to)), cc: bare(calc(m.cc)), bcc: bare(calc(m.bcc)),
       subject: calc(m.subject), text: calc(m.message), fromName: calc(m.fromName), ...(replyTo ? { replyTo } : {}), attachments, files,
