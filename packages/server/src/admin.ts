@@ -714,6 +714,7 @@ export class Admin {
       return true;
     }
     if (path === '/tabularius/admin/v1/sign-out' && req.method === 'POST') {
+      if (req.headers['x-tabularius-admin'] !== '1') return json(403, { error: 'missing x-tabularius-admin header' }), true;
       const id = this.consoleSession(req);
       if (id) this.signedIn.delete(id);
       json(200, { signedIn: false }, { 'set-cookie': 'tabularius_admin=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0' });
@@ -780,7 +781,8 @@ export class Admin {
       }
       await sendAsset(req, res, {
         'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache', 'x-content-type-options': 'nosniff',
-        'x-frame-options': 'DENY', 'referrer-policy': 'no-referrer',
+        // Same-origin downloads retain provenance even over HTTP without Fetch Metadata.
+        'x-frame-options': 'DENY', 'referrer-policy': 'same-origin',
         'content-security-policy': "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'self'",
       }, await loadAsset(PAGE));
       return true;

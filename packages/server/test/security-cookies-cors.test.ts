@@ -1,16 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, copyFileSync, existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { serve, setAdminPassword } from '../src/index.ts';
 
-const fixture = join(import.meta.dirname, '..', '..', '..', 'fixtures', 'fmp12', 'Charts.fmp12');
-const skip = existsSync(fixture) ? false : 'fixtures missing: run npm run fixtures';
-
-test('SECURITY.md describes every admin cookie and OAuth CORS response', { skip }, async () => {
+test('SECURITY.md describes every admin cookie and OAuth CORS response', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'tabularius-security-headers-'));
-  copyFileSync(fixture, join(dir, 'Charts.fmp12'));
   setAdminPassword(dir, 'admin secret');
   const s = await serve({ dir, port: 0, log: () => {} });
   const url = (path: string) => `${s.url}${path}`;
@@ -59,8 +55,8 @@ test('SECURITY.md describes every admin cookie and OAuth CORS response', { skip 
     assert.equal(preflight.headers.get('access-control-allow-credentials'), null);
     assert.match(doc, /methods `GET, POST`, headers\s+`content-type, authorization`, and max age 600 seconds/);
     assert.match(doc, /`Access-Control-Allow-Credentials` is never sent/);
-    assert.match(doc, /General admin routes do not check the `Origin` header/);
-    assert.match(doc, /passkey assertions\s+validate the WebAuthn origin/);
+    assert.match(doc, /Console reads and writes reject cross-origin `Origin`/);
+    assert.match(doc, /Passkey assertions additionally validate the WebAuthn origin/);
   } finally {
     await new Promise<void>((resolve, reject) => s.server.close((error) => error ? reject(error) : resolve()));
     rmSync(dir, { recursive: true, force: true });

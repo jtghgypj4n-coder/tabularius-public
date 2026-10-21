@@ -36,7 +36,7 @@ import type { Host } from './host.ts';
 import type { Live } from './live.ts';
 import { ApiError, readBoundedJson } from './dataapi.ts';
 import { drainSmallBody } from './request-body.ts';
-import { requestOrigin } from './public-origin.ts';
+import { sameOriginRequest } from './browser-request.ts';
 import { PASSWORD_POLICY } from '../../store/src/index.ts';
 import { CertificateError, type ImportedCertificates } from './cert-import.ts';
 import { ScheduleError, type Schedule, type ScheduleInput, type Schedules } from './schedules.ts';
@@ -327,14 +327,7 @@ export class AdminApi {
   private async login(req: IncomingMessage, send: (status: number, response: unknown, code?: number, text?: string, headers?: Record<string, string>) => void): Promise<true> {
     // Browsers may attach cached Basic credentials to a cross-site form. Refuse it before authenticating or
     // allocating a token; native clients need neither Origin nor Fetch Metadata (including bodyless logins).
-    const site = req.headers['sec-fetch-site'];
-    if (site !== undefined && site !== 'same-origin' && site !== 'none') throw new AdminApiError(9, 'Access denied', 403);
-    if (req.headers.origin !== undefined) {
-      const { proto, host } = requestOrigin(req, this.host.publicUrl);
-      let own: string | undefined;
-      try { own = new URL(`${proto}://${host}`).origin; } catch { /* Invalid host: refuse browser sign-in. */ }
-      if (!own || req.headers.origin !== own) throw new AdminApiError(9, 'Access denied', 403);
-    }
+    if (!sameOriginRequest(req, this.host.publicUrl, this.host.browserOrigins)) throw new AdminApiError(9, 'Access denied', 403);
     if (!/^Basic\s+/i.test(req.headers.authorization ?? '')) throw new AdminApiError(1702, 'Authentication information wasn\'t provided in the correct format; verify the value of the Authorization header', 401);
     const passwordFingerprint = this.admin.passwordFingerprint();
     const denied = this.admin.checkBasic(req);

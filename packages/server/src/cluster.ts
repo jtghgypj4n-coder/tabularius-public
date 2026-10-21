@@ -626,6 +626,7 @@ export async function serveCluster(opts: ServeOptions, workers: number, blankFro
     // Only the leader runs what must happen once.
     const workerOpts: Omit<ServeOptions, 'log'> = {
       ...rest, publicUrl: opts.publicUrl ?? url, publicUrlIsDefault: !opts.publicUrl, tlsCert: undefined, tlsKey: undefined, acme: undefined, mcpAllowedOrigins: [...(opts.mcpAllowedOrigins ?? []), ...(opts.acme ? acmeOrigins(opts.acme.domains, opts.port ?? 443) : [])], background: true, certificateManaged: certificateManaged(opts),
+      browserOrigins: [...(opts.browserOrigins ?? []), ...(opts.acme ? acmeOrigins(opts.acme.domains, opts.port ?? 443) : [])],
       ...(role.leader ? {} : { backups: undefined, offsite: undefined, sqlPort: undefined, webhooks: false, watch: false }),
     };
     const child = fork(join(import.meta.dirname, 'cluster-worker.ts'), [], { execArgv: ['--no-warnings', ...process.execArgv.filter((a) => a !== '--no-warnings')], stdio: ['ignore', 'inherit', 'inherit', 'ipc'] });

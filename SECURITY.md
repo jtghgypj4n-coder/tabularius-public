@@ -350,8 +350,22 @@ General properties:
   `Origin` is not this server's public origin, before checking the password or
   allocating a token, so a browser that has cached the Basic credentials cannot
   be used cross-site to fill the token slots.
-  General admin routes do not check the `Origin` header; passkey assertions
-  validate the WebAuthn origin against the request or configured public URL.
+  Console reads and writes reject cross-origin `Origin`, or `Referer` when
+  Origin is absent, and Fetch Metadata other than `same-origin` or `none`.
+  The same guard covers Basic-authenticated Data API, OData, SQL and XML
+  requests, Admin API login, OAuth authorization POST, and originless MCP
+  requests. An opaque `Origin: null` is refused. Without `--public-url`,
+  ambient-credential routes accept only IP literals, localhost and its
+  subdomains, or operator-configured `--https` domains as Host; otherwise
+  configure the public URL when serving a DNS name.
+  Forwarded headers cannot nominate an allowed origin. Native clients may
+  omit Origin, Referer and Fetch Metadata, but console cookie or console Basic
+  authentication without any of them requires `x-tabularius-console: 1` or
+  `x-tabularius-admin: 1`.
+  The console page sends a Referer only to its own origin, so its download links
+  retain same-origin proof even on plain HTTP. Explicit file API bearer/header
+  tokens are not ambient credentials; the console has no such exemption.
+  Passkey assertions additionally validate the WebAuthn origin.
   OAuth routes under
   `/.well-known/oauth-*` and `/oauth/*` answer `OPTIONS` with
   `Access-Control-Allow-Origin: *`, methods `GET, POST`, headers
