@@ -27,6 +27,7 @@ import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { appendFileSync, existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { addressBucket, writer } from '../../store/src/index.ts';
 import { captureOnly, runScript } from '../../scripts/src/index.ts';
 import type { Host } from './host.ts';
@@ -67,6 +68,8 @@ export class HookError extends Error {}
 
 const HOOKS_FILE = 'inbound-hooks.json';
 const CALLS_FILE = 'inbound-hook-calls.jsonl';
+const REPLAYS_FILE = 'inbound-hook-replays.sqlite';
+export const MAX_REPLAY_CLAIMS = 100_000;
 /** The largest body a call may send. */
 export const MAX_BODY = 256 * 1024;
 /** How far a call's timestamp may be from the server's clock. */
@@ -91,8 +94,6 @@ export class InboundHooks {
   private hooks: InboundHook[] = [];
   /** The hooks file's modification time when read: another worker's change is read again. */
   private readAt = -1;
-  /** Signatures seen in the last SKEW_S * 2 seconds, so a call can't be sent again. */
-  private readonly seen = new Map<string, number>();
   /** Recent calls per hook and recent bad calls per address, for the rate limits (per server process). */
   private readonly recent = new Map<string, number[]>();
   private readonly bad = new Map<string, number[]>();
@@ -269,6 +270,35 @@ export class InboundHooks {
     return full;
   }
 
+  /** Independent of file transactions: a committed claim survives a script failure or worker restart. */
+  private claim(hook: string, signature: string, stamp: number): 'claimed' | 'replay' | 'expired' | 'full' {
+    const db = new DatabaseSync(join(this.host.dir, REPLAYS_FILE));
+    try {
+      db.exec(`PRAGMA busy_timeout = 1000; PRAGMA synchronous = FULL;
+        CREATE TABLE IF NOT EXISTS claims (hook TEXT NOT NULL, signature TEXT NOT NULL, expires INTEGER NOT NULL, PRIMARY KEY (hook, signature));
+        CREATE INDEX IF NOT EXISTS claims_expiry ON claims (expires);
+        CREATE TABLE IF NOT EXISTS clock (id INTEGER PRIMARY KEY CHECK (id = 1), high_water INTEGER NOT NULL);
+        INSERT OR IGNORE INTO clock VALUES (1, 0);
+        BEGIN IMMEDIATE`);
+      // Expired claims never become valid again after a backward clock adjustment.
+      const now = Math.max(Date.now(), Number(db.prepare('SELECT high_water FROM clock WHERE id = 1').get()!.high_water));
+      db.prepare('UPDATE clock SET high_water = ? WHERE id = 1').run(now);
+      db.prepare('DELETE FROM claims WHERE expires < ?').run(now);
+      let result: 'claimed' | 'replay' | 'expired' | 'full';
+      if (Math.abs(now / 1000 - stamp) > SKEW_S) result = 'expired';
+      else if (db.prepare('SELECT 1 FROM claims WHERE hook = ? AND signature = ?').get(hook, signature)) result = 'replay';
+      else if (Number(db.prepare('SELECT COUNT(*) AS n FROM claims').get()!.n) >= MAX_REPLAY_CLAIMS) result = 'full';
+      else {
+        db.prepare('INSERT INTO claims VALUES (?, ?, ?)').run(hook, signature, (stamp + SKEW_S) * 1000);
+        result = 'claimed';
+      }
+      db.exec('COMMIT');
+      return result;
+    } finally {
+      db.close();
+    }
+  }
+
   async handle(req: IncomingMessage, res: ServerResponse, url: URL): Promise<boolean> {
     const m = /^\/tabularius\/hooks\/v1\/([^/]+)$/.exec(url.pathname);
     if (!m) return false;
@@ -321,10 +351,14 @@ export class InboundHooks {
     }
     const size = body.length;
     if (!verify(hook.secret, stamp, body, given)) return refuse(true, 401, 'The signature does not match');
-    const now = performance.now();
-    for (const [k, t] of this.seen) if (now - t > SKEW_S * 2000) this.seen.delete(k);
-    if (this.seen.has(given)) return refuse(true, 409, 'This call was already received');
-    this.seen.set(given, now);
+    if (req.aborted || req.socket.destroyed || res.destroyed) return true;
+    let claim: ReturnType<InboundHooks['claim']>;
+    try { claim = this.claim(hook.id, given, Number(stamp)); }
+    catch { return send(503, { error: 'Replay protection is unavailable' }), true; }
+    if (req.aborted || req.socket.destroyed || res.destroyed) return true;
+    if (claim === 'replay') return refuse(true, 409, 'This call was already received');
+    if (claim === 'expired') return refuse(true, 401, 'The timestamp is outside the acceptance window');
+    if (claim === 'full') return send(503, { error: 'Replay protection is at capacity; try again later' }), true;
     // Signed: a call over the hook's own limit isn't a bad call from its address.
     if (this.over(this.recent, hook.id, hook.perMinute)) {
       this.logCall(hook.id, { at: new Date(started).toISOString(), status: 429, outcome: 'refused', message: `over ${hook.perMinute} calls a minute`, bytes: size, from });
