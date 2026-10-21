@@ -24,7 +24,7 @@ import { z } from 'zod';
 import type { Host } from './host.ts';
 import { accessDenialContext, type AccessDenial } from '../../store/src/access-denial.ts';
 import { PASSKEY_SECOND_FACTOR_REQUIRED } from '../../store/src/error-codes.ts';
-import { explainAccessDenial, PrivilegeError, StoreError, PendingApprovalError, checkRecord, explainField, explainRelated, ExplainRelatedError, lintFormula, findStaleCalcs, refreshStaleCalcs, undoStaleRefresh, staleRefreshHistory, type FieldExplanation, type RecordCheck, type RelatedExplanation, type Privileges, Store } from '../../store/src/index.ts';
+import { atomicWrites, explainAccessDenial, PrivilegeError, StoreError, PendingApprovalError, checkRecord, explainField, explainRelated, ExplainRelatedError, lintFormula, findStaleCalcs, refreshStaleCalcs, undoStaleRefresh, staleRefreshHistory, type FieldExplanation, type RecordCheck, type RelatedExplanation, type Privileges, Store } from '../../store/src/index.ts';
 import { scriptText } from '../../fmp12/src/index.ts';
 import { PORTAL_ROWS, auditForModel, compactPortals, containsSecret, dashboardForModel, fieldValueForModel, recordForModel, redactSecrets, redactStep, rowsForModel, secretName, secretText, secretValues, sqlMayReadSecret, storedSecretValues, summaryForModel } from './ai-output.ts';
 import { ScriptDebugger, ScriptError, ScriptSession, captureOnly, runScript, scriptDenial, offlineScriptOptions } from '../../scripts/src/index.ts';
@@ -1017,7 +1017,7 @@ export function createMcpServer(host: Host, who: McpIdentity = { admin: true }, 
       deleteRelated: z.array(z.string()).optional().describe('Portal rows to delete, as "Portal.recordId"'),
     },
     annotations: { idempotentHint: true },
-  }, async ({ database, layout, recordId, fieldData: data, modId, portalData, deleteRelated }) => withStore(database, (s, privileges) => {
+  }, async ({ database, layout, recordId, fieldData: data, modId, portalData, deleteRelated }) => withStore(database, (s, privileges) => atomicWrites(() => {
     const opts = { privileges, account: privileges?.account };
     const portalEdit = Object.keys(portalData ?? {}).length > 0 || !!deleteRelated?.length;
     const fieldEdit = !!data && Object.keys(data).length > 0;
@@ -1029,7 +1029,7 @@ export function createMcpServer(host: Host, who: McpIdentity = { admin: true }, 
     }
     if (!fieldEdit) return { modId: s.get(layout, recordId, 'iso', undefined, privileges, { fields: [] }).modId };
     return s.update(layout, recordId, data!, modId, { ...opts, dataEntry: true });
-  }));
+  })));
 
   server.registerTool('update_records', {
     description: 'Set the same fields on every record a find gives (up to 1,000), as this account, all or none: a record that cannot take the ' +

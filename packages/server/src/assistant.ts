@@ -738,12 +738,15 @@ export class Assistant {
 
   /** Tokens used today (UTC day) on this server, and the limit when there is one. */
   usageToday(): { tokens: number; limit?: number } {
-    return { tokens: this.counts.today(), ...(this.opts.dailyTokens ? { limit: this.opts.dailyTokens } : {}) };
+    return { tokens: this.counts.today() + this.pendingToday(), ...(this.opts.dailyTokens ? { limit: this.opts.dailyTokens } : {}) };
   }
 
   /** This month's (UTC) running total: tokens, dollars and questions, against the budget when there is one. */
   usageMonth(): { month: string; tokens: number; costUsd: number; questions: number; unpriced: number; budgetUsd?: number } {
-    return { ...this.counts.month(), ...(this.opts.monthlyBudgetUsd ? { budgetUsd: this.opts.monthlyBudgetUsd } : {}) };
+    const month = this.counts.month();
+    const pending = this.pendingMonth(month.month);
+    return { ...month, tokens: month.tokens + pending.tokens, costUsd: month.costUsd + pending.costUsd,
+      ...(this.opts.monthlyBudgetUsd ? { budgetUsd: this.opts.monthlyBudgetUsd } : {}) };
   }
 
   /** For the admin console: today, the month against its budget, and the latest questions with their tokens, cost and time. */
@@ -782,16 +785,19 @@ export class Assistant {
 
   /** An account's tokens today, and its limit when there is one. */
   private accountToday(who: string): { tokens: number; limit?: number } {
-    return { tokens: this.counts.today(who), ...(this.opts.accountDailyTokens ? { limit: this.opts.accountDailyTokens } : {}) };
+    return { tokens: this.counts.today(who) + this.pendingToday(who), ...(this.opts.accountDailyTokens ? { limit: this.opts.accountDailyTokens } : {}) };
   }
 
   /** Why no more questions today, if that is so: the server's limit or the account's. */
   private overLimit(who: string): string | undefined {
+    this.flushPendingUsage();
+    if (this.usageOverflowed || this.pendingUsage.size >= Assistant.MAX_PENDING_USAGE)
+      return 'assistant usage accounting is unavailable; try again after it recovers';
     const server = this.usageToday();
     if (server.limit !== undefined && server.tokens >= server.limit) return `the assistant has used today's limit of ${server.limit.toLocaleString('en-US')} tokens on this server`;
     const mine = this.accountToday(who);
     if (mine.limit !== undefined && mine.tokens >= mine.limit) return `your account has used its daily limit of ${mine.limit.toLocaleString('en-US')} tokens`;
-    const month = this.counts.month();
+    const month = this.usageMonth();
     if (this.opts.monthlyBudgetUsd && month.costUsd >= this.opts.monthlyBudgetUsd) return `the assistant has used this month's budget of $${this.opts.monthlyBudgetUsd.toFixed(2)} on this server`;
     return undefined;
   }
@@ -2087,16 +2093,78 @@ export class Assistant {
   }
 
   /** Adds what an answer has used since last counted to today's total. */
+  private readonly pendingUsage = new Map<string, { who: string; day: string; tokens: number; costUsd: number }>();
+  private pendingOverflow = { tokens: 0, costUsd: 0 };
+  private usageOverflowed = false;
+  private usageFailureLogged = false;
+  private static readonly MAX_PENDING_USAGE = 4096;
+
+  private pendingToday(who?: string): number {
+    const day = new Date().toISOString().slice(0, 10);
+    let tokens = who === undefined ? this.pendingOverflow.tokens : 0;
+    for (const entry of this.pendingUsage.values()) if (entry.day === day && (who === undefined || entry.who === who)) tokens += entry.tokens;
+    return tokens;
+  }
+
+  private pendingMonth(month: string): { tokens: number; costUsd: number } {
+    const total = { ...this.pendingOverflow };
+    for (const entry of this.pendingUsage.values()) if (entry.day.startsWith(month)) {
+      total.tokens += entry.tokens;
+      total.costUsd += entry.costUsd;
+    }
+    return total;
+  }
+
+  private flushPendingUsage(): void {
+    for (const [key, entry] of this.pendingUsage) {
+      try {
+        this.usage.add(entry.who, entry.tokens, entry.costUsd, new Date(`${entry.day}T12:00:00Z`));
+        this.pendingUsage.delete(key);
+      } catch { return; }
+    }
+    if (this.pendingOverflow.tokens || this.pendingOverflow.costUsd) {
+      try {
+        this.usage.add('', this.pendingOverflow.tokens, this.pendingOverflow.costUsd);
+        this.pendingOverflow = { tokens: 0, costUsd: 0 };
+      } catch { /* Retained for the next call. */ }
+    }
+  }
+
+  private retainUsage(who: string, tokens: number, costUsd: number): void {
+    const day = new Date().toISOString().slice(0, 10);
+    const key = `${day}\0${who}`;
+    const existing = this.pendingUsage.get(key);
+    if (existing) {
+      existing.tokens += tokens;
+      existing.costUsd += costUsd;
+    } else if (this.pendingUsage.size < Assistant.MAX_PENDING_USAGE) {
+      this.pendingUsage.set(key, { who, day, tokens, costUsd });
+    } else {
+      // At capacity, keep server totals and refuse more calls until account attribution can be restored.
+      this.pendingOverflow.tokens += tokens;
+      this.pendingOverflow.costUsd += costUsd;
+      this.usageOverflowed = true;
+    }
+    if (!this.usageFailureLogged) {
+      this.usageFailureLogged = true;
+      this.opts.log?.('AI usage persistence failed; pending usage is counted in this process and will be retried');
+    }
+  }
+
   private counted = new WeakMap<Usage, { tokens: number; costUsd: number }>();
   private count(usage: Usage, who: string): void {
+    this.flushPendingUsage();
     const billed = billedTokens(usage);
     const before = this.counted.get(usage) ?? { tokens: 0, costUsd: 0 };
-    this.counted.set(usage, { tokens: billed, costUsd: usage.costUsd ?? 0 });
+    const tokens = billed - before.tokens;
+    const costUsd = (usage.costUsd ?? 0) - before.costUsd;
+    if (!tokens && !costUsd) return;
     try {
-      this.usage.add(who, billed - before.tokens, (usage.costUsd ?? 0) - before.costUsd);
+      this.usage.add(who, tokens, costUsd);
     } catch {
-      // A full disk (or a busy file past its wait) shouldn't stop answers.
+      this.retainUsage(who, tokens, costUsd);
     }
+    this.counted.set(usage, { tokens: billed, costUsd: usage.costUsd ?? 0 });
   }
 
   /** A finished question, for the admin console's list and the month's count. */

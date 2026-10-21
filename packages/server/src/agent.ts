@@ -12,7 +12,7 @@ import { mkdtempSync, rmSync, statSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Store, StoreError, writer, NOT_LOGGED, type FindRequest, type Privileges } from '../../store/src/index.ts';
+import { atomicWritesAsync, Store, StoreError, writer, NOT_LOGGED, type FindRequest, type Privileges } from '../../store/src/index.ts';
 import type { SqlValue } from '../../store/src/find.ts';
 import { recordChanges, runScript, type RecordChanges } from '../../scripts/src/index.ts';
 import { appendToBatch, cleanupBatchById, CleanupError, journalBatch, snapshotRows, undoCleanup, type UndoOp } from './cleanup.ts';
@@ -212,6 +212,15 @@ async function runStep(store: Store, step: AgentStep, state: RunState, who: { ac
       }
     }
   });
+  // Commit callbacks have not fired for rows held by an approved step's outer transaction.
+  // Read only this writer's staged rows, including sequence numbers remapped by independent window writes.
+  const tx = writer.getStore()?.transaction?.open;
+  if (tx) for (const file of tx.files.keys()) {
+    if (!(file instanceof Store)) continue;
+    const staged = file.pendingAuditSeqs(tx, onAudit);
+    if (file === store) mine.push(...staged);
+    else elsewhere += staged.length;
+  }
   // What this step changed: its own audit entries that are still there (a script's reverted transaction takes its back).
   const wanted = new Set(mine);
   const entries: ReturnType<Store['auditLog']> = [];
@@ -329,14 +338,16 @@ export async function runApprovedStep(store: Store, plan: AgentPlan, step: numbe
     const batch = cleanupBatchById(store, run);
     if (!batch || batch.undone || (batch.account ?? '') !== who.account || !batch.summary.startsWith(plan.summary)) throw new AgentError('No such run to add to');
   }
-  const r = await runStep(store, plan.steps[step], start, who);
-  const summary = (n: number) => `${plan.summary} (${n} of ${plan.steps.length} step${plan.steps.length === 1 ? '' : 's'} run)`;
-  let id = run;
-  if (r.undo.length) {
-    if (id) appendToBatch(store, id, r.undo, summary(step + 1));
-    else id = journalBatch(store, { account: who.account, layout: start.layout, summary: summary(step + 1), undo: r.undo }).id;
-  }
-  return { result: { step, ...r.result }, state: r.state, ...(id ? { run: id } : {}) };
+  return atomicWritesAsync(async () => {
+    const r = await runStep(store, plan.steps[step], start, who);
+    const summary = (n: number) => `${plan.summary} (${n} of ${plan.steps.length} step${plan.steps.length === 1 ? '' : 's'} run)`;
+    let id = run;
+    if (r.undo.length) {
+      if (id) appendToBatch(store, id, r.undo, summary(step + 1));
+      else id = journalBatch(store, { account: who.account, layout: start.layout, summary: summary(step + 1), undo: r.undo }).id;
+    }
+    return { result: { step, ...r.result }, state: r.state, ...(id ? { run: id } : {}) };
+  });
 }
 
 // --- HTTP --------------------------------------------------------------------------------

@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { importFmp12, Store, PendingApprovalError } from '../src/index.ts';
+import { atomicWrites, importFmp12, Store, PendingApprovalError } from '../src/index.ts';
 
 const fixture = join(import.meta.dirname, '..', '..', '..', 'fixtures', 'fmp12', 'Charts.fmp12');
 const skip = existsSync(fixture) ? false : 'fixtures missing: run npm run fixtures';
@@ -134,5 +134,21 @@ test('an already-approved replay (approvedChange) is not re-gated', { skip }, ()
   } finally {
     store.close();
     rmSync(dir, { recursive: true });
+  }
+});
+
+test('a gated agent write inside an atomic section still leaves its proposal and event behind', { skip }, () => {
+  const { store, dir } = fresh();
+  try {
+    store.setAgentAccount('bot', agentSet(store), { needsApproval: true });
+    const p = store.privileges('bot');
+    assert.throws(() => atomicWrites(() => store.create('Congress', { Name: 'by the bot' }, { privileges: p, account: 'bot' })),
+      (e) => e instanceof PendingApprovalError);
+    assert.equal(store.pendingChanges().length, 1, 'the proposal was not rolled back with the refused write');
+    assert.ok(store.auditLog({ kind: 'agent-change-proposed', security: true }).some((e) => e.target === 'Congress'));
+    assert.equal(agentCreates(store), 0, 'and nothing was created');
+  } finally {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
   }
 });

@@ -17,7 +17,7 @@ import type { SqlValue } from './find.ts';
 import type { Value } from '../../calc/src/index.ts';
 import type { Store } from './store.ts';
 import { monotonicClock } from './monotonic.ts';
-import { StoreError } from './errors.ts';
+import { PendingApprovalError, StoreError } from './errors.ts';
 
 /**
  * A session's own global field values. In FileMaker each user of a hosted
@@ -96,6 +96,40 @@ export function endTransaction(tx: Transaction, keep: boolean): void {
   }
   tx.releaseLocks?.clear();
   if (failed !== undefined) throw failed;
+}
+
+/**
+ * An approval-gated agent's write is refused with PendingApprovalError, but the proposal and its security event were
+ * stored on purpose (the gate runs before any mutation), so ending the transaction must keep them.
+ */
+const keepsOnRefusal = (error: unknown): boolean => error instanceof PendingApprovalError;
+
+/** Run related writes and their metadata in one transaction across every touched store. */
+export function atomicWrites<T>(fn: () => T): T {
+  if (writer.getStore()?.transaction?.open) return fn();
+  const tx: Transaction = { files: new Map() };
+  try {
+    const result = writer.run({ ...(writer.getStore() ?? {}), transaction: { open: tx } }, fn);
+    endTransaction(tx, true);
+    return result;
+  } catch (error) {
+    endTransaction(tx, keepsOnRefusal(error));
+    throw error;
+  }
+}
+
+/** Async form for operations that compute their journal after awaited work. */
+export async function atomicWritesAsync<T>(fn: () => Promise<T>): Promise<T> {
+  if (writer.getStore()?.transaction?.open) return fn();
+  const tx: Transaction = { files: new Map() };
+  try {
+    const result = await writer.run({ ...(writer.getStore() ?? {}), transaction: { open: tx } }, fn);
+    endTransaction(tx, true);
+    return result;
+  } catch (error) {
+    endTransaction(tx, keepsOnRefusal(error));
+    throw error;
+  }
 }
 
 /** Async context naming the current writer. The server runs each request in `writer.run({}, ...)` and fills it in on login. */

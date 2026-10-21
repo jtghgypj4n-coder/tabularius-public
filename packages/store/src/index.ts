@@ -20,7 +20,7 @@ export { Privileges, PrivilegeError, FULL_ACCESS, BUILT_IN_EXTENDED_PRIVILEGES, 
 export { accessReport, explainAccess, diffPrivilegeSet, testAccount, type AccessReport, type TableAccess, type RuleFact, type SetChange, type AccessExplanation, type TableExplanation, type AccessFact, type FieldFact, type SurfaceFact, type AccountTest, type AccountTestLayout, type AccountTestScript, type AccountTestBlocked } from './access-report.ts';
 export { designText, designObjects, writeDesignText, stableJson, DESIGN_MANIFEST, type DesignSource } from './design-text.ts';
 export { planDesignApply, readDesignFolder, DesignApplyError, type DesignPlan } from './design-apply.ts';
-export { DESIGN_TABLE, DESIGN_SCRIPTS, DESIGN_TABLES, isDesignTable, RecordLocks, SharedRecordLocks, writer, endTransaction, renewTransactionLocks, LOCK_TTL_MS, MAX_SESSION_LOCKS, type Transaction, type Change, type ChangeKind, type RecordLock, type SessionGlobals, type Writer } from './activity.ts';
+export { DESIGN_TABLE, DESIGN_SCRIPTS, DESIGN_TABLES, isDesignTable, RecordLocks, SharedRecordLocks, writer, endTransaction, atomicWrites, atomicWritesAsync, renewTransactionLocks, LOCK_TTL_MS, MAX_SESSION_LOCKS, type Transaction, type Change, type ChangeKind, type RecordLock, type SessionGlobals, type Writer } from './activity.ts';
 export { monotonicClock } from './monotonic.ts';
 export { applyOp, applyOps, generateLayout, emptySchema, DesignError, NATIVE_FIELD_TYPES, type DesignOp, type DesignState, type Effect, type FieldSpec, type StepSpec, type PredicateSpec, type ValueListFieldSpec, type Ref as DesignRef } from './design.ts';
 export { snippetChanges, parseXml, type SnippetChanges, type SnippetOptions, type XmlElement } from './snippet.ts';

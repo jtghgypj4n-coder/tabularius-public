@@ -51,7 +51,7 @@ export interface UsageCounts {
   today(who?: string): number;
   month(): MonthUsage;
   recent(): QuestionRecord[];
-  add(who: string, tokens: number, costUsd: number): void;
+  add(who: string, tokens: number, costUsd: number, at?: Date): void;
   question(q: QuestionRecord): void;
 }
 
@@ -89,10 +89,15 @@ export class MemoryUsage implements UsageCounts {
   recent(): QuestionRecord[] {
     return [...this.latest].reverse();
   }
-  add(who: string, tokens: number, costUsd: number): void {
-    for (const w of who === SERVER ? [SERVER] : [SERVER, who]) this.days.set(`${dayOf()}\0${w}`, this.today(w) + tokens);
-    const m = this.month();
-    this.months.set(m.month, { ...m, tokens: m.tokens + tokens, costUsd: m.costUsd + costUsd });
+  add(who: string, tokens: number, costUsd: number, at = new Date()): void {
+    const day = dayOf(at);
+    for (const w of who === SERVER ? [SERVER] : [SERVER, who]) {
+      const key = `${day}\0${w}`;
+      this.days.set(key, (this.days.get(key) ?? 0) + tokens);
+    }
+    const month = monthOf(at);
+    const m = this.months.get(month) ?? { month, tokens: 0, costUsd: 0, questions: 0, unpriced: 0 };
+    this.months.set(month, { ...m, tokens: m.tokens + tokens, costUsd: m.costUsd + costUsd });
   }
   question(q: QuestionRecord): void {
     const m = this.month();
@@ -156,15 +161,15 @@ export class AiUsage implements UsageCounts {
   }
 
   /** Adds tokens (and their cost) to today's totals, the server's and the account's, and to the month's. */
-  add(who: string, tokens: number, costUsd: number): void {
+  add(who: string, tokens: number, costUsd: number, at = new Date()): void {
     if (!tokens && !costUsd) return;
-    const day = dayOf();
+    const day = dayOf(at);
     this.tx(() => {
       const daily = this.db.prepare('INSERT INTO daily (day, who, tokens) VALUES (?, ?, ?) ON CONFLICT (day, who) DO UPDATE SET tokens = tokens + excluded.tokens');
       daily.run(day, SERVER, tokens);
       if (who !== SERVER) daily.run(day, who, tokens);
       this.db.prepare(`INSERT INTO monthly (month, tokens, cost, questions, unpriced) VALUES (?, ?, ?, 0, 0)
-        ON CONFLICT (month) DO UPDATE SET tokens = tokens + excluded.tokens, cost = cost + excluded.cost`).run(monthOf(), tokens, costUsd);
+        ON CONFLICT (month) DO UPDATE SET tokens = tokens + excluded.tokens, cost = cost + excluded.cost`).run(monthOf(at), tokens, costUsd);
     });
   }
 
