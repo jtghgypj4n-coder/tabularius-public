@@ -75,9 +75,15 @@ export function signV4(o: {
   const service = o.service ?? 's3';
   const amzDate = (o.date ?? new Date()).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
   const day = amzDate.slice(0, 8);
-  const headers: Record<string, string> = { ...o.headers, host: o.host, 'x-amz-content-sha256': o.payloadHash, 'x-amz-date': amzDate };
-  const names = Object.keys(headers).map((h) => h.toLowerCase()).sort();
-  const lower = Object.fromEntries(Object.entries(headers).map(([k, v]) => [k.toLowerCase(), String(v).replace(/^[ \t]+|[ \t]+$/g, '').replace(/ +/g, ' ')]));
+  const headers: Record<string, string> = {};
+  for (const [name, value] of Object.entries(o.headers ?? {})) {
+    const lower = name.toLowerCase();
+    if (['authorization', 'host', 'x-amz-content-sha256', 'x-amz-date'].includes(lower)) continue;
+    headers[lower] = headers[lower] === undefined ? value : headers[lower] + ',' + value;
+  }
+  Object.assign(headers, { host: o.host, 'x-amz-content-sha256': o.payloadHash, 'x-amz-date': amzDate });
+  const names = Object.keys(headers).sort();
+  const lower = Object.fromEntries(Object.entries(headers).map(([k, v]) => [k, String(v).replace(/^[ \t]+|[ \t]+$/g, '').replace(/[ \t]+/g, ' ')]));
   const query = (o.query ?? []).map(([k, v]) => [enc(k), enc(v)]).sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : a[1] < b[1] ? -1 : 1)).map(([k, v]) => `${k}=${v}`).join('&');
   const canonical = [o.method, o.path, query, names.map((n) => `${n}:${lower[n]}\n`).join(''), names.join(';'), o.payloadHash].join('\n');
   const scope = `${day}/${o.region}/${service}/aws4_request`;

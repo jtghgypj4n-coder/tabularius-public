@@ -593,20 +593,17 @@ export class Oidc {
 
   /** Checks an ID token and returns its claims. */
   private async verify(s: ProviderState, idToken: string, d: Discovery, nonce: string): Promise<Record<string, unknown>> {
-    const parts = idToken.split('.');
-    if (parts.length !== 3) throw new SignInError('Malformed ID token');
-    const header = JSON.parse(Buffer.from(parts[0], 'base64url').toString()) as { alg?: string; kid?: string };
-    const claims = JSON.parse(Buffer.from(parts[1], 'base64url').toString()) as Record<string, unknown>;
-    const alg = ALGORITHMS[header.alg ?? ''];
-    if (!alg) throw new SignInError(`ID token signed with an unsupported algorithm (${header.alg})`);
-    const key = await this.key(s, header.kid, d);
-    const ok = verifySignature(alg.hash, Buffer.from(`${parts[0]}.${parts[1]}`), { key: createPublicKey({ key, format: 'jwk' }), ...alg.options }, Buffer.from(parts[2], 'base64url'));
-    if (!ok) throw new SignInError('ID token signature is not valid');
+    const { header } = decodeIdToken(idToken);
+    const key = await this.key(s, header, d);
+    const claims = verifyIdTokenSignature(idToken, key);
     const now = expiryClock.now() / 1000;
     const aud = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
-    if (claims.iss !== d.issuer) throw new SignInError('ID token is from another issuer');
-    if (!aud.includes(s.provider.clientId)) throw new SignInError('ID token is for another application');
-    if (typeof claims.exp !== 'number' || claims.exp < now - 60) throw new SignInError('ID token has expired');
+    if (!sameIssuer(claims.iss, d.issuer) || !sameIssuer(d.issuer, s.provider.issuer)) throw new SignInError('ID token is from another issuer');
+    if (!aud.length || !aud.every((a) => typeof a === 'string') || !aud.includes(s.provider.clientId)) throw new SignInError('ID token is for another application');
+    if ((aud.length > 1 || claims.azp !== undefined) && claims.azp !== s.provider.clientId) throw new SignInError('ID token has another authorized party');
+    if (typeof claims.exp !== 'number' || !Number.isFinite(claims.exp) || claims.exp <= now - 60) throw new SignInError('ID token has expired');
+    if (claims.nbf !== undefined && (typeof claims.nbf !== 'number' || !Number.isFinite(claims.nbf) || claims.nbf > now + 60)) throw new SignInError('ID token is not yet valid');
+    if (typeof claims.sub !== 'string' || !claims.sub || typeof claims.iat !== 'number' || !Number.isFinite(claims.iat)) throw new SignInError('ID token has invalid subject or issued-at claims');
     if (claims.nonce !== nonce) throw new SignInError('ID token does not match this sign-in');
     return claims;
   }
@@ -616,18 +613,25 @@ export class Oidc {
     const r = await guardedFetch(`${s.provider.issuer.replace(/\/$/, '')}/.well-known/openid-configuration`, {}, IDP_NET);
     if (!r.ok) throw new SignInError(`Can't reach the identity provider (${r.status})`);
     const value = await r.json() as Discovery;
+    if (!sameIssuer(value.issuer, s.provider.issuer)) throw new SignInError('Identity provider discovery has another issuer');
     s.discovery = { value, at: performance.now() };
     return value;
   }
 
   /** The provider's signing key; keys are fetched again when an unknown one turns up (rotation). */
-  private async key(s: ProviderState, kid: string | undefined, d: Discovery): Promise<JsonWebKey> {
-    const find = () => s.keys?.value.find((k) => (kid === undefined || k.kid === kid) && (k.use === undefined || k.use === 'sig'));
+  private async key(s: ProviderState, header: IdTokenHeader, d: Discovery): Promise<JsonWebKey> {
+    const find = () => {
+      const keys = s.keys?.value.filter((k) => (header.kid === undefined || k.kid === header.kid) && matchesAlgorithm(k, header.alg)) ?? [];
+      if (keys.length > 1) throw new SignInError('ID token signing key is ambiguous');
+      return keys[0];
+    };
     let k = s.keys && performance.now() - s.keys.at < 3600_000 ? find() : undefined;
     if (!k) {
       const r = await guardedFetch(d.jwks_uri, {}, IDP_NET);
       if (!r.ok) throw new SignInError(`Can't fetch the identity provider's keys (${r.status})`);
-      s.keys = { value: ((await r.json()) as { keys: JsonWebKey[] }).keys ?? [], at: performance.now() };
+      const keys = ((await r.json()) as { keys?: JsonWebKey[] }).keys;
+      if (!Array.isArray(keys)) throw new SignInError('Malformed identity provider keys');
+      s.keys = { value: keys, at: performance.now() };
       k = find();
     }
     if (!k) throw new SignInError('ID token signed with an unknown key');
@@ -701,6 +705,8 @@ function isBusy(e: unknown): boolean {
   return String(error.code ?? '').includes('SQLITE_BUSY') || error.errcode === 5;
 }
 
+/** Issuers match exactly except for one trailing slash, which providers and admins disagree on (Auth0 publishes one, Google does not). */
+const sameIssuer = (a: unknown, b: unknown) => typeof a === 'string' && typeof b === 'string' && a.replace(/\/$/, '') === b.replace(/\/$/, '');
 const jwtPart = (v: unknown) => Buffer.from(JSON.stringify(v)).toString('base64url');
 
 async function readBody(req: IncomingMessage): Promise<string> {
@@ -715,6 +721,45 @@ const ALGORITHMS: Record<string, { hash: string; options: Record<string, unknown
   ES256: { hash: 'sha256', options: { dsaEncoding: 'ieee-p1363' } },
   ES384: { hash: 'sha384', options: { dsaEncoding: 'ieee-p1363' } },
 };
+
+interface IdTokenHeader { alg: string; kid?: string; }
+
+function decodeIdToken(token: string): { parts: string[]; header: IdTokenHeader; claims: Record<string, unknown> } {
+  const parts = token.split('.');
+  if (parts.length !== 3 || parts.some((p) => !/^[A-Za-z0-9_-]+$/.test(p) || Buffer.from(p, 'base64url').toString('base64url') !== p)) throw new SignInError('Malformed ID token');
+  let header, claims;
+  try {
+    const utf8 = new TextDecoder('utf-8', { fatal: true });
+    header = JSON.parse(utf8.decode(Buffer.from(parts[0], 'base64url')));
+    claims = JSON.parse(utf8.decode(Buffer.from(parts[1], 'base64url')));
+  } catch { throw new SignInError('Malformed ID token JSON'); }
+  if (!header || typeof header !== 'object' || Array.isArray(header) || !claims || typeof claims !== 'object' || Array.isArray(claims)) throw new SignInError('Malformed ID token objects');
+  if (typeof header.alg !== 'string' || !Object.hasOwn(ALGORITHMS, header.alg)) throw new SignInError('ID token signed with an unsupported algorithm');
+  if (header.kid !== undefined && typeof header.kid !== 'string') throw new SignInError('Malformed ID token key id');
+  // No JOSE critical extensions or unencoded payloads are implemented here.
+  if (header.crit !== undefined || header.b64 !== undefined) throw new SignInError('Unsupported ID token header extension');
+  return { parts, header, claims };
+}
+
+function matchesAlgorithm(key: JsonWebKey, alg: string): boolean {
+  if (!key || typeof key !== 'object') return false;
+  const ec = alg.startsWith('ES');
+  return key.kty === (ec ? 'EC' : 'RSA') && (!ec || key.crv === (alg === 'ES256' ? 'P-256' : 'P-384'))
+    && (key.alg === undefined || key.alg === alg) && (key.use === undefined || key.use === 'sig')
+    && (key.key_ops === undefined || (Array.isArray(key.key_ops) && key.key_ops.includes('verify')));
+}
+
+/** Signature layer, shared by the OIDC claim validator and published JWS vector tests. */
+export function verifyIdTokenSignature(token: string, key: JsonWebKey): Record<string, unknown> {
+  const { parts, header, claims } = decodeIdToken(token);
+  if (!matchesAlgorithm(key, header.alg)) throw new SignInError('ID token algorithm does not match its signing key');
+  const alg = ALGORITHMS[header.alg];
+  const publicKey = createPublicKey({ key, format: 'jwk' });
+  if (key.kty === 'RSA' && (publicKey.asymmetricKeyDetails?.modulusLength ?? 0) < 2048) throw new SignInError('ID token RSA signing key must be at least 2048 bits');
+  const ok = verifySignature(alg.hash, Buffer.from(`${parts[0]}.${parts[1]}`), { key: publicKey, ...alg.options }, Buffer.from(parts[2], 'base64url'));
+  if (!ok) throw new SignInError('ID token signature is not valid');
+  return claims;
+}
 
 /** Personal Microsoft accounts' tenant: anyone can make one, so it isn't one organisation's directory. */
 const MICROSOFT_CONSUMERS = '9188040d-6c67-4c5b-b112-36a304b66dad';
