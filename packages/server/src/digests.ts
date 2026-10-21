@@ -333,6 +333,7 @@ export class DigestRunner {
       outcome: 'ok', highlights: [], data: [], ms: 0,
     };
     this.running.add(d.id);
+    const digests = new Digests(store);
     try {
       // Includes related hosted files: a summary can read through the relationship graph. A change of accounts or
       // privileges always voids the run; a record write only does for an account whose view of records can depend on
@@ -355,6 +356,7 @@ export class DigestRunner {
           : 'Data or access changed while the digest was running; run it again.' });
       };
       try {
+        if (!digests.get(d.id)) throw new DigestError('This digest is no longer available');
         const account = store.accounts().find((a) => a.name.toLowerCase() === d.account.toLowerCase());
         if (account?.inactive) throw new DigestError(`The account "${d.account}" it runs as is inactive`);
         const privileges = store.privileges(account?.name ?? d.account);
@@ -384,8 +386,17 @@ export class DigestRunner {
         run.outcome = 'error';
         run.error = e instanceof DigestError || e instanceof StoreError ? e.message : `Couldn't run: ${(e as Error).message}`;
       }
+      const exists = !!digests.get(d.id);
+      if (!exists) {
+        run.outcome = 'error';
+        run.error = 'This digest is no longer available';
+        run.data = [];
+        run.highlights = [];
+        delete run.summary;
+        delete run.summaryNote;
+      }
       recheck();
-      if (d.webhook) {
+      if (exists && d.webhook) {
         if (!this.poster?.allowed) run.webhook = { sent: false, error: 'Not sent: webhooks are off on this server (start it with --allow-webhooks)' };
         else {
           try {
@@ -401,7 +412,7 @@ export class DigestRunner {
       }
       recheck(true);
       run.ms = Date.now() - started;
-      new Digests(store).addRun(run);
+      if (digests.get(d.id)) digests.addRun(run);
       if (run.outcome === 'error') this.log(`digest "${d.name}" in ${store.name}: ${run.error}`);
       return run;
     } finally {
