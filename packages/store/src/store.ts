@@ -7267,7 +7267,7 @@ export class Store {
     const found = opts.query?.length ? (this.sql.prepare(`SELECT count(*) AS n FROM ${t} WHERE ${where}`).get(...params) as { n: number }).n : total;
     const offset = Math.max(1, opts.offset ?? 1) - 1;
     const order = this.orderBy(info, opts.sort, opts.privileges);
-    const rows = opts.sort?.length && found >= SORTED_KEEP_MIN
+    const rows = opts.sort?.length && found >= SORTED_KEEP_MIN && t !== 'temp._fm_find'
       ? this.sortedPage(t, where, params, order, offset, limit, found)
       : this.sql.prepare(`SELECT * FROM ${t} WHERE ${where} ORDER BY ${order} LIMIT ? OFFSET ?`).all(...params, limit, offset) as Record<string, SqlValue>[];
     // Every record found (no find, no record-level limits): summaries over the whole table, kept while the data is the same.
@@ -7311,7 +7311,7 @@ export class Store {
     if (!kept || kept.stamp !== stamp) {
       // The count is already known. Iterate straight into the final typed array so a 5M sort
       // does not also hold 5M SQLite row objects and a second JS number array at its peak.
-      const ids = new Int32Array(found);
+      const ids = new Float64Array(found);
       let n = 0;
       for (const row of this.sql.prepare(`SELECT _fm_record_id AS id FROM ${t} WHERE ${where} ORDER BY ${order}`).iterate(...params) as Iterable<{ id: number }>) {
         ids[n++] = Number(row.id);
@@ -7333,7 +7333,7 @@ export class Store {
     return page.map((id) => byId.get(id)).filter((r): r is Record<string, SqlValue> => !!r);
   }
 
-  private sortedIds = new PreparedCache(new Map<string, { stamp: string; ids: Int32Array }>(), (value) => new Map(value));
+  private sortedIds = new PreparedCache(new Map<string, { stamp: string; ids: Float64Array }>(), (value) => new Map(value));
 
   /** Duplicate groups contain only records this account may view, before any request criteria. */
   private duplicateSource(from: string, table: Table, pv?: Privileges): { from: string; params: SqlValue[] } {

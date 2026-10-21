@@ -32,7 +32,7 @@ import { checkMemory, timeLeft } from './errors.ts';
 import { traceNote, tracing } from './trace.ts';
 import { schemaVisibility, tableDDL } from './table-ddl.ts';
 import { customFunctionDef } from './javascript.ts';
-import { relatedRows, relationPath } from './related.ts';
+import { relatedRows, relationPath, matchPredicate } from './related.ts';
 import { repetitionText } from './text-styles.ts';
 import { foldCase, sortFunction, sortLanguage } from '../../calc/src/collation.ts';
 
@@ -1611,27 +1611,16 @@ export class Calculations {
       if (isEmpty(v)) return undefined;
       // FileMaker reads "Left::a < Right::b" as left op right; the query is about their side, so walking left to right flips it.
       const op = hop.reverse ? p.operator : FLIP[p.operator];
-      const col = q(theirs.name);
-      const decimal = mine.type === 'decimal' || theirs.type === 'decimal';
-      const uuid = mine.type === 'uuid' || theirs.type === 'uuid';
-      const matchCol = decimal && (op !== '=' || theirs.type !== 'decimal') ? `fm_decimal_key(${col})` : uuid && theirs.type !== 'uuid' ? `lower(${col})` : col;
-      const matchParam = decimal ? (op === '=' && theirs.type === 'decimal' ? '?' : 'fm_decimal_key(?)') : uuid ? 'lower(?)' : '?';
       const sourceText = mine.type === 'decimal' && typeof rec.row[mine.name] === 'string' ? rec.row[mine.name] as string : asText(v);
       target.store.calc.ensureIndex(target.table, theirs);
-      const nocase = theirs.type === 'text' ? ' COLLATE NOCASE' : '';
-      if (op === '=') {
-        // A match field holding several lines matches any of them (a multikey).
-        const keys = sourceText.split(/\r|\n/).filter((k) => k !== '').map((k) => decimal ? nativeValue(k, 'decimal') ?? null : toStored(text(k), calcFieldType(theirs.type) ?? 'unknown', this.store.dateOrder));
-        const usable = keys.filter((k) => k !== null);
-        if (!usable.length) return undefined;
-        where.push(`${matchCol}${nocase} IN (${usable.map(() => matchParam).join(', ')})`);
-        params.push(...usable);
-        continue;
-      }
-      const s = decimal ? nativeValue(sourceText, 'decimal') ?? null : toStored(v, calcFieldType(theirs.type) ?? 'unknown', this.store.dateOrder);
-      if (s === null) return undefined;
-      where.push(`${col} IS NOT NULL AND ${col} != '' AND ${matchCol}${nocase} ${SQL_OPS[op]} ${matchParam}`);
-      params.push(s);
+      const raw = op === '=' ? sourceText.split(/\r|\n/).filter((k) => k !== '') : [sourceText];
+      const values = raw.map((k) => mine.type === 'decimal' || theirs.type === 'decimal' ? k
+        : op === '=' ? toStored(text(k), calcFieldType(theirs.type) ?? 'unknown', this.store.dateOrder)
+          : toStored(v, calcFieldType(theirs.type) ?? 'unknown', this.store.dateOrder));
+      const predicate = matchPredicate(op, mine, theirs, values);
+      if (!predicate) return undefined;
+      where.push(predicate.where);
+      params.push(...predicate.params);
     }
     const sql = `SELECT ${select} FROM ${q(target.table.name)}${where.length ? ` WHERE ${where.join(' AND ')}` : ''} ORDER BY _fm_record_id${limit ? ` LIMIT ${limit}` : ''}`;
     return { sql, params: params as (string | number)[] };
@@ -2351,13 +2340,13 @@ export class Calculations {
     }
     const pending = [...deps.keys()];
     const lower = (s: Set<string>) => new Set([...s].map((x) => x.toLowerCase()));
-    for (let round = 0; pending.length && round <= pending.length; round++) {
+    while (pending.length) {
       let progressed = false;
       for (let i = 0; i < pending.length; i++) {
         const f = pending[i];
         const d = deps.get(f)!;
         // Wait for formulas this one reads that may still change.
-        if (pending.some((g) => g !== f && d.local.has(g.name.toLowerCase())) && round < pending.length) continue;
+        if (pending.some((g) => d.local.has(g.name.toLowerCase()))) continue;
         pending.splice(i--, 1);
         progressed = true;
         const ch = lower(changed);
@@ -2411,7 +2400,7 @@ export class Calculations {
         if (f.kind === 'calculation' && v === null) opts.calcRuns?.set(f.name, undefined);
         if (v !== row[f.name]) assign(f, v);
       }
-      if (!progressed) break;
+      if (!progressed) throw new Error(`Cyclic calculation dependencies: ${pending.map((f) => f.name).join(', ')}`);
     }
 
     // Validation, for the fields the client entered (and required fields of a new record, or of a script's new record
@@ -2608,7 +2597,6 @@ function nearest(target: { store: Store; table: Table }, table: Table, row: Row,
 }
 
 const FLIP: Record<string, string> = { '=': '=', '≠': '≠', '<': '>', '>': '<', '≤': '≥', '≥': '≤', '×': '×' };
-const SQL_OPS: Record<string, string> = { '≠': '!=', '<': '<', '>': '>', '≤': '<=', '≥': '>=' };
 
 /** Get ( AccountPrivilegeSetName ): the privilege set of a FileMaker account (names match case-insensitively). */
 export function privilegeSetName(schema: Schema, account: string): string | undefined {
