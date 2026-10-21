@@ -562,6 +562,12 @@ async function applySyncRun(store: SyncLocal & Partial<Pick<Store, 'present' | '
     // Container files owed to FileMaker by an earlier run that did not finish them (see _fm_sync_container_pending). They are this
     // side's until sent: a pull never empties or replaces one, and the owed record is retried with files only.
     const owedBy = opts.containers ? owedContainers(store, key) : new Map<string, Set<string>>();
+    // A record settled for FileMaker's side (a conflict policy or a review) takes its files too: the files owed are given up.
+    if (opts.containers && opts.pull) {
+      const given = d.plan.pulls.filter((item) => item.op === 'update' && /^conflict:/.test(item.reason) && owedBy.has(item.uuid));
+      if (given.length) atomically(store, () => { for (const item of given) clearContainersPending(store, key, item.uuid, [...owedBy.get(item.uuid)!]); });
+      for (const item of given) owedBy.delete(item.uuid);
+    }
     // Whether a pull of this record would change anything here besides the files owed: a field, or another container.
     const pullWouldChange = async (loc: LocalRecord, rem: RemoteRecord, owed: Set<string>): Promise<boolean> => {
       if (Object.keys(pullData(loc, rem)).length) return true;
@@ -808,7 +814,6 @@ async function applySyncRun(store: SyncLocal & Partial<Pick<Store, 'present' | '
         if (!Number.isInteger(had) || had <= 0) {
           // Nothing here. A container emptied here isn't emptied on FileMaker: the file there is left and the run says so.
           if ((rem?.fields[field] ?? '') !== '') skipContainer(local.uuid, field, 'no file here, but FileMaker has one: it is left as it is (the sync never empties a container on FileMaker)');
-          satisfied.push(field);
           continue;
         }
         if (!w.uploadContainer) { skipContainer(local.uuid, field, 'this connection can\'t send container files'); continue; }
@@ -818,21 +823,25 @@ async function applySyncRun(store: SyncLocal & Partial<Pick<Store, 'present' | '
         if (info.external?.missing) { skipContainer(local.uuid, field, 'the file is missing here'); satisfied.push(field); continue; }
         if (info.size > maxFile) { skipContainer(local.uuid, field, `the file is ${info.size} bytes, over the ${maxFile}-byte limit`); satisfied.push(field); continue; }
         const mine = ls.container(had);
-        if (!mine) { satisfied.push(field); continue; }
+        if (!mine) continue;
         const address = rem?.fields[field] ?? '';
         if (rem && address !== '') {
           if (!remote.fetchContainer) {
             if (!retrying.has(field)) { skipContainer(local.uuid, field, 'FileMaker\'s file can\'t be fetched to compare'); continue; }
+            skipContainer(local.uuid, field, 'the file owed was sent without comparing it with the one FileMaker holds: this connection can\'t fetch it');
           } else {
             t.containers.checked++;
             const got = await remote.fetchContainer(d.config.remoteLayout, address, maxFile);
             assertWritable();
             if ('skipped' in got) {
               if (!retrying.has(field)) { skipContainer(local.uuid, field, `not compared with FileMaker's file: ${got.skipped}`); continue; }
+              skipContainer(local.uuid, field, `the file owed was sent without comparing it with the one FileMaker holds: ${got.skipped}`);
             } else if (Buffer.from(mine.data.buffer, mine.data.byteOffset, mine.data.byteLength).equals(got.data)) {
               t.containers.unchanged++;
               satisfied.push(field);
               continue;
+            } else if (retrying.has(field)) {
+              skipContainer(local.uuid, field, `the file owed replaced a different file FileMaker held (${got.data.length} bytes, ${got.filename ?? 'no name'})`);
             }
           }
         }
@@ -856,7 +865,11 @@ async function applySyncRun(store: SyncLocal & Partial<Pick<Store, 'present' | '
           completed.push(f.field);
         } catch (e) {
           assertWritable();
-          if (e instanceof SyncWriteError && e.recordLevel && e.code !== 'stale-review') { skipContainer(uuid, f.field, e.message); completed.push(f.field); }
+          if (e instanceof SyncWriteError && e.recordLevel && e.code !== 'stale-review') {
+            skipContainer(uuid, f.field, e.message);
+            // A record in use (301) or changed meanwhile (306) is tried again by the next run; any other refusal is final.
+            if (e.code !== '301' && e.code !== '306') completed.push(f.field);
+          }
           else return { modId, fatal: e, completed };
         }
       }
@@ -963,8 +976,12 @@ async function applySyncRun(store: SyncLocal & Partial<Pick<Store, 'present' | '
           const files = fileWork.files;
           if (files.length) { assertWritable(); if (!reviewsMatch()) return finish('refused'); }
           if (retryOnly.has(item.uuid) && !files.length) {
-            // Nothing is left to send for it: no request, no log row, and what can no longer be sent is forgotten.
-            atomically(store, () => clearContainersPending(store, key, item.uuid, fileWork.satisfied));
+            // Nothing is left to send for it: no request, no log row, and what can no longer be sent is forgotten. Pulling it
+            // would have changed nothing here, so FileMaker's version (moved by the upload that did land) is the baseline now.
+            atomically(store, () => {
+              clearContainersPending(store, key, item.uuid, fileWork.satisfied);
+              upsertMap(store, key, { uuid: item.uuid, localRecordId: local.recordId, lastLocalModId: local.modId, remoteRecordId: rem.recordId, lastRemoteModId: rem.modId, lastRemoteModTs: rem.modTimestamp ?? null });
+            });
             continue;
           }
           if (!Object.keys(fieldData).length && !files.length) {
