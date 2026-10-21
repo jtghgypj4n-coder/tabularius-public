@@ -37,9 +37,8 @@ const EXTENDED_PRIVILEGE_OPS = new Set<string>(['createExtendedPrivilege', 'upda
  * Applies a Manage Security change batch: mostly SecurityOp (applySecurity), but
  * extended privileges are a schema catalog (Manage Security's own tab in
  * FileMaker, but kept with the design log here, like scripts or value lists),
- * so those three ops go through applyDesign instead. Each group applies
- * all-or-none, design ops first; a batch is normally all one kind in
- * practice, so the two never need to interleave. Shared by the HTTP endpoint
+ * so those three ops go through applyDesign first. Mixed batches share one
+ * transaction, including schema/cache rollback. Shared by the HTTP endpoint
  * below and the change_security MCP tool.
  */
 export function applySecurityChanges(store: Store, changes: (SecurityOp | ExtendedPrivilegeOp)[], account?: string): void {
@@ -50,8 +49,9 @@ export function applySecurityChanges(store: Store, changes: (SecurityOp | Extend
     if (EXTENDED_PRIVILEGE_OPS.has(op.op)) designOps.push(op as ExtendedPrivilegeOp);
     else securityOps.push(op as SecurityOp);
   }
-  if (designOps.length) store.applyDesign(designOps, { account });
-  if (securityOps.length) store.applySecurity(securityOps);
+  if (designOps.length && securityOps.length) store.applySecurityWithCatalog(designOps, securityOps, { account });
+  else if (designOps.length) store.applyDesign(designOps, { account });
+  else if (securityOps.length) store.applySecurity(securityOps);
 }
 
 /** The whole security picture, plus the schema lists the pickers need. */
@@ -159,17 +159,25 @@ export class SecurityApi {
     };
     try {
       const db = decodeURIComponent(m[1]);
-      const session = this.api.authorize(req, db);
+      let session = this.api.authorize(req, db);
       const store = this.host.get(db);
       if (!store) throw new ApiError(802, 'Unable to open file', 404);
       if (!sessionPrivileges(store, session).full) throw new ApiError(9, `Account "${session.account}" doesn't have full access, which security changes need`, 403);
 
+      const authorize = () => {
+        session = this.api.authorize(req, db);
+        if (this.host.get(db) !== store) throw new ApiError(802, 'Unable to open file', 404);
+        if (!sessionPrivileges(store, session).full) throw new ApiError(9, 'Security changes require full access', 403);
+      };
       const sub = m[2];
       const account = m[3] ? decodeURIComponent(m[3]) : undefined;
+      const needsBody = req.method === 'POST' && (!sub || ['tokens', 'migrate', 'record-rule/preview'].includes(sub) || !!(account && m[4]));
+      const body = needsBody ? await (sub === 'migrate'
+        ? readJson(req).catch(lenient({} as Record<string, unknown>)) : readJson(req)) : {};
+      if (needsBody) authorize();
       if (req.method === 'GET' && !sub) {
         send(200, securityOf(store));
       } else if (req.method === 'POST' && !sub) {
-        const body = await readJson(req);
         if (!Array.isArray(body.changes)) throw new ApiError(960, 'Send {"changes": [...]}', 400);
         // An agent's creator is the signed-in full-access account, stamped by the
         // server — the client can't claim a different one.
@@ -182,7 +190,6 @@ export class SecurityApi {
         }
         send(200, securityOf(store));
       } else if (req.method === 'POST' && sub === 'tokens') {
-        const body = await readJson(req);
         if (typeof body.account !== 'string') throw new ApiError(960, 'account is required', 400);
         const expires = body.expiresDays !== undefined && body.expiresDays !== null
           ? new Date(expiryClock.now() + Number(body.expiresDays) * 86_400_000) : undefined;
@@ -196,12 +203,10 @@ export class SecurityApi {
         });
         send(200, { token, security: securityOf(store) });
       } else if (req.method === 'POST' && sub === 'migrate') {
-        const body = await readJson(req).catch(lenient({} as Record<string, unknown>));
         const accounts = Array.isArray(body.accounts) ? body.accounts.map(String) : undefined;
         const migrated = store.migrateAccounts({ accounts });
         send(200, { migrated, security: securityOf(store) });
       } else if (req.method === 'POST' && sub === 'record-rule/preview') {
-        const body = await readJson(req);
         if (typeof body.table !== 'string' || typeof body.rule !== 'string') throw new ApiError(960, 'Send {"table": "...", "rule": "..."}', 400);
         send(200, store.previewRecordRule(body.table, body.rule, {
           account: typeof body.account === 'string' ? body.account : undefined,
@@ -210,7 +215,6 @@ export class SecurityApi {
       } else if (req.method === 'POST' && account && !m[4]) {
         send(200, { ...store.enrollTotp(account), security: securityOf(store) });
       } else if (req.method === 'POST' && account && m[4]) {
-        const body = await readJson(req);
         const confirmed = store.confirmTotp(account, said(body.code));
         send(confirmed ? 200 : 400, { confirmed, security: securityOf(store) });
       } else if (req.method === 'POST' && m[5]) {

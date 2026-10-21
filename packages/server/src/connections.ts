@@ -920,13 +920,19 @@ export class Connections {
     }
   }
 
-  private save(changed?: Connection, removedId?: string, create = false): void {
+  private save(changed?: Connection, removedId?: string, create = false, testOnly = false): void {
     const saved = updateJsonStateSync<{ connections: Connection[] }>(this.file, { connections: [] }, (current) => {
       const connections = current.connections ?? [];
-      return { connections: removedId ? connections.filter((c) => c.id !== removedId)
-        : changed ? connections.some((c) => c.id === changed.id)
-          ? connections.map((c) => c.id === changed.id ? changed : c) : create ? [...connections, changed] : connections
-          : connections };
+      if (removedId) return { connections: connections.filter((c) => c.id !== removedId) };
+      if (!changed) return { connections };
+      const exists = connections.some((c) => c.id === changed.id);
+      if (!exists) return { connections: create ? [...connections, changed] : connections };
+      return { connections: connections.map((c) => {
+        if (c.id !== changed.id) return c;
+        if (!testOnly) return changed;
+        if (c.type !== changed.type || JSON.stringify(c.config) !== JSON.stringify(changed.config)) return c;
+        return { ...c, lastTest: changed.lastTest };
+      }) };
     }, { mode: 0o600 });
     this.list_ = saved.connections;
     const st = statSync(this.file);
@@ -1116,7 +1122,7 @@ export class Connections {
 
   /** Asks the service something harmless. Allowed for a draft too, so the person can check what they pasted before approving. */
   async test(idOrName: string): Promise<ConnectionTest> {
-    const c = this.find(idOrName);
+    const c = structuredClone(this.find(idOrName));
     const t = this.type(c.type);
     const started = Date.now();
     let result: ConnectionTest;
@@ -1129,8 +1135,7 @@ export class Connections {
       // What the service echoed never includes a secret: the result is kept and shown to the AI's tools too.
       result = { at: new Date().toISOString(), ok: false, message: maskSecrets((e as Error).message, Object.values(this.secretsOf(c))) };
     }
-    c.lastTest = result;
-    this.save(c);
+    this.save({ ...c, lastTest: result }, undefined, false, true);
     return result;
   }
 

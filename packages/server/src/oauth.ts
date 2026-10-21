@@ -454,7 +454,7 @@ export class OAuthServer {
     // The account is asked for first, so the order of the checks doesn't tell a hosted file from one that isn't.
     if (!account) return again('Enter an account name.', 400);
     // Without a list to choose from, a name that isn't hosted is refused like a wrong password, so it doesn't say which files exist.
-    if (!store) return this.host.listFilesPublicly ? again('Choose a hosted file.', 400) : again('The file, account or password is wrong.');
+    if (!store) return this.host.listFilesPublicly ? again('Choose a hosted file.', 400) : again(PASSWORD_REFUSAL);
     // Every check, and the token, use the account's name as the file keeps it, found the way the file finds it at sign-in
     // (SQLite's case folding), so no name that only matches another one under a wider folding can stand in for it.
     const name = storedName(store, account) ?? account;
@@ -490,13 +490,13 @@ export class OAuthServer {
     // Blocked by an administrator: refused before the password is checked (allowed() checks again for the other ways in).
     if (this.host.config.blockNewUsers()) {
       warn('the server is blocking new users');
-      return BLOCKED;
+      return this.host.listFilesPublicly ? BLOCKED : PASSWORD_REFUSAL;
     }
     if (!(await store.verifyAsync(account, password, from))) {
       store.auditSignIn(account, from, false);
       const until = store.lockedOut(account, from);
       warn(until ? 'locked out after too many failed sign-ins' : 'wrong account or password');
-      return publicPasswordLockout(until, from) ? `Too many failed sign-ins; try again after ${new Date(until!).toLocaleTimeString('en-US')}.` : PASSWORD_REFUSAL;
+      return this.host.listFilesPublicly && publicPasswordLockout(until, from) ? `Too many failed sign-ins; try again after ${new Date(until!).toLocaleTimeString('en-US')}.` : PASSWORD_REFUSAL;
     }
     if (store.hasTotp(account)) {
       if (!otp) return 'Enter the one-time code from your authenticator app.';
