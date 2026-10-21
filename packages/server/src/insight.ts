@@ -258,7 +258,9 @@ function layoutObjectSites(cat: Catalog, layout: string, toId: number | undefine
       parts.push(`portal of ${o.portal.tableOccurrence}`);
     }
     if (o.action) {
-      if (o.action.script) {
+      if (o.action.file) {
+        parts.push(`button: Perform Script in ${o.action.file.name}`);
+      } else if (o.action.script) {
         refs.scripts.add(lower(o.action.script));
         parts.push(`button: Perform Script ${quoted(o.action.script)}`);
       } else if (o.action.layout) {

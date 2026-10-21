@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { FmpDatabase, readLayoutDesigns, readImageLibrary, readFieldBehavior, webViewerFlags, webViewerOptions, type LayoutObject } from '../src/index.ts';
+import { FmpDatabase, buttonFile, readLayoutDesigns, readImageLibrary, readFieldBehavior, webViewerFlags, webViewerOptions, type LayoutObject } from '../src/index.ts';
 
 const dir = join(import.meta.dirname, '..', '..', '..', 'fixtures', 'fmp12');
 const path = (f: string) => join(dir, f);
@@ -349,4 +349,13 @@ test('merge fields: plain, repeating, large-id fallback and unresolvable', () =>
   );
   // Unresolvable on every reading: the raw marker is kept.
   assert.equal(decodeMergeFields(mf(`${to163}022102`), () => undefined), '<<⟨field:163.8578⟩>>');
+});
+
+test('a button\'s Perform Script names its file by data source id, only when the file has that source', () => {
+  const schema = { dataSources: [{ id: 2, name: 'Data', paths: ['file:Data'] }] } as never;
+  assert.deepEqual(buttonFile(Uint8Array.of(1, 2), schema), { id: 2, name: 'Data' });
+  // A data source the file doesn't have, or no reference at all, leaves the button as a script of this file.
+  assert.equal(buttonFile(Uint8Array.of(1, 1), schema), undefined);
+  assert.equal(buttonFile(undefined, schema), undefined);
+  assert.equal(buttonFile(Uint8Array.of(0), schema), undefined);
 });

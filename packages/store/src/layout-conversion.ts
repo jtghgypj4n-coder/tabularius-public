@@ -68,7 +68,7 @@ export function layoutConversion(layouts: LayoutDesign[], schema: Schema, images
         if (o.kind === 'portal' && !o.portal?.tableOccurrence) add('unresolved-portal', 'A portal\'s table occurrence could not be named', o);
         if (o.kind === 'button' || o.kind === 'popover-button') {
           if (!o.action) add('no-action', `${label} has no action`, o);
-          else if (o.action.scriptId !== undefined && !o.action.script) add('unresolved-script', `${label} runs script ${o.action.scriptId}, which is not in the file`, o);
+          else if (o.action.scriptId !== undefined && !o.action.script && !o.action.file) add('unresolved-script', `${label} runs script ${o.action.scriptId}, which is not in the file`, o);
           else if (o.action.layoutId !== undefined && !o.action.layout && o.action.layoutId > 0) add('unresolved-layout', `${label} goes to layout ${o.action.layoutId}, which is not in the file`, o);
         }
         if (o.kind === 'graphic' && images && o.imageId !== undefined && !images.has(o.imageId)) add('missing-image', `${label} uses image ${o.imageId}, which is not in the image library`, o);

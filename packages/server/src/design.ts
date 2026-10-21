@@ -701,7 +701,8 @@ export class DesignApi {
       if (!store) throw new ApiError(802, 'Unable to open file', 404);
       const privileges = sessionPrivileges(store, session);
       // Another hosted file's tables, for occurrences into it, only when this account may design that file too.
-      const other = (name: string) => { const o = this.host.get(name); return o && privileges.in(o).full ? o : undefined; };
+      const mayDesign = (o: Store) => privileges.in(o).full;
+      const other = (name: string) => { const o = this.host.get(name); return o && mayDesign(o) ? o : undefined; };
       if (!privileges.full) throw new ApiError(9, `Account "${session.account}" doesn't have full access, which design changes need`, 403);
       if (req.method === 'GET' && m[2] === 'history') send(200, { history: store.designHistory() });
       else if (req.method === 'GET' && m[2] === 'ddr') {
@@ -935,12 +936,12 @@ export class DesignApi {
         const body = await readJson(req);
         if (!Array.isArray(body.changes)) throw new ApiError(960, 'Send {"changes": [...]}', 400);
         if (url.searchParams.get('preview') === '1') {
-          send(200, previewDesign(store, body.changes as DesignOp[]));
+          send(200, previewDesign(store, body.changes as DesignOp[], { readOtherFile: mayDesign }));
           return true;
         }
         const before = layoutsBefore(store, body.changes as DesignOp[]);
         const orders = ordersBefore(store, body.changes as DesignOp[]);
-        const { applied } = store.applyDesign(body.changes as DesignOp[], { account: session.account });
+        const { applied } = store.applyDesign(body.changes as DesignOp[], { account: session.account, readOtherFile: mayDesign });
         const undo = undoChanges(applied, before, orders);
         send(200, { applied, ...(undo ? { undo } : {}), design: designOf(store, this.host.names(), other) });
       } else throw new ApiError(3, 'Command is unavailable', 405);

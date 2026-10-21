@@ -52,7 +52,7 @@ export async function dryRunScript(store: Store, name: string, text: string, max
  * Design changes applied to a throwaway copy of the file, then each named script run there once, offline:
  * what a proposed fix does before anyone applies it.
  */
-export async function dryRunChanges(store: Store, changes: unknown[], scripts: string[], maxBytes = DRY_RUN_MAX_BYTES, opts: { changes?: boolean } = {}): Promise<{ script: string; run: DryRun }[]> {
+export async function dryRunChanges(store: Store, changes: unknown[], scripts: string[], maxBytes = DRY_RUN_MAX_BYTES, opts: { changes?: boolean; readOtherFile?: (file: Store) => boolean } = {}): Promise<{ script: string; run: DryRun }[]> {
   if (!scripts.length) return [];
   let size = 0;
   try {
@@ -70,7 +70,10 @@ export async function dryRunChanges(store: Store, changes: unknown[], scripts: s
     await store.backup(file);
     copy = new Store(file, store.name);
     copy.readContainersLike(store); // its externally stored container files stay where they are
-    copy.applyDesign(changes as never, { account: 'AI dry run' });
+    // The copy sees other hosted files only while the changes apply, and only those the caller may design (as the real change would); scripts run on it with no other file.
+    if (opts.readOtherFile) copy.resolveFile = (name) => store.resolveFile(name);
+    copy.applyDesign(changes as never, { account: 'AI dry run', ...(opts.readOtherFile ? { readOtherFile: opts.readOtherFile } : {}) });
+    copy.resolveFile = () => undefined;
     const out: { script: string; run: DryRun }[] = [];
     for (const name of scripts) {
       const script = copy.schema.scripts.find((s) => s.name === name);

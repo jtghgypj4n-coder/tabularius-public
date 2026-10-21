@@ -54,7 +54,7 @@ export function portableObjects(objects: LayoutObject[], schema: Schema, fields:
       }
     }
     if (o.action) {
-      if (o.action.scriptId !== undefined) o.action.script = script(o.action.scriptId, o.action.script);
+      if (o.action.scriptId !== undefined && !o.action.file) o.action.script = script(o.action.scriptId, o.action.script);
       if (o.action.layoutId !== undefined) o.action.layout = schema.layouts.find((l) => l.id === o.action!.layoutId)?.name ?? o.action.layout;
       // Steps read from a .fmp12 hold ids in their options: the line names them, for the other file to read by name.
       if (o.action.stepId !== 1 && o.action.line === undefined) o.action.line = stepLine(o.action.step, o.action.params);

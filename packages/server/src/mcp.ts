@@ -396,6 +396,16 @@ const DESIGN_READS = new Set([
 ]);
 
 export function createMcpServer(host: Host, who: McpIdentity = { admin: true }, extras: { sync?: SyncConsole; schedules?: Schedules } = {}): McpServer {
+  /** Another hosted file whose tables a design change here may use: one this identity may design too and AI may read (checked in that order, so a closed file's log isn't touched). */
+  const readOtherFile = (o: Store): boolean => {
+    if (aiBlocker(o)) return false;
+    try {
+      const p = privilegesIn(o, who);
+      return !p || p.full;
+    } catch {
+      return false;
+    }
+  };
   const server = new McpServer(
     { name: 'tabularius', version: SERVER_VERSION },
     {
@@ -499,7 +509,7 @@ export function createMcpServer(host: Host, who: McpIdentity = { admin: true }, 
                     scripts: ['run_script', 'debug_script', 'explain_script_failure', 'try_automation'].includes(name),
                     uncertain: ['try_design_change', 'try_automation'].includes(name),
                   });
-                  if (Array.isArray(args.changes)) assertAiDesignChanges(store, args.changes, p);
+                  if (Array.isArray(args.changes)) assertAiDesignChanges(store, args.changes, p, readOtherFile);
                   for (const watch of Array.isArray(args.watch) ? args.watch : []) if (typeof watch === 'string') assertAiPolicy(store, p, `MCP ${name} watch`, { formula: watch });
                 }
               }
@@ -2051,7 +2061,7 @@ export function createMcpServer(host: Host, who: McpIdentity = { admin: true }, 
   registerDesignTools(server, host, (s) => {
     const p = privilegesIn(s, who);
     if (p && !p.full) throw new Error(`Insufficient privileges: design changes need [Full Access]; "${p.account}" has "${p.name}"`);
-  }, 'admin' in who, canSee(who));
+  }, 'admin' in who, canSee(who), readOtherFile);
   // Sync status is the administrator's: a file's account never sees another file's connection to FileMaker Server.
   if ('admin' in who && extras.sync && extras.schedules) {
     registerSyncTools(server, extras.sync, extras.schedules, (name) => {

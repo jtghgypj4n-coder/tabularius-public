@@ -21,7 +21,7 @@ import { pathValue } from './chunks.ts';
 import { Pb } from './proto.ts';
 import { readRules, readTheme, styleScope, type FontTable, type StyleRule, type Theme } from './styles.ts';
 import { scriptStepName } from './script-steps.ts';
-import { decodeStepParams, type ParamContext, type StepParams } from './script-params.ts';
+import { decodeStepParams, shortRef, type ParamContext, type StepParams } from './script-params.ts';
 import { CalcDecodeError, calcTokens, decodeCalc, schemaFieldNamer } from './calc.ts';
 import { FmpError, type FmpFile } from './file.ts';
 import type { Schema } from './schema.ts';
@@ -238,8 +238,10 @@ export interface FieldRef {
 export interface ButtonAction {
   stepId: number;
   step: string;
-  /** Perform Script: the script. */
+  /** Perform Script: the script (by id in `file` when the button runs a script in another file). */
   scriptId?: number;
+  /** Perform Script: the data source naming the other file the script is in; its script's name is read there. */
+  file?: { id: number; name: string };
   /** Go to Layout: the layout. */
   layoutId?: number;
   /** The step's single id parameter, whatever it refers to. */
@@ -452,6 +454,13 @@ export function readTriggers(n: Node | undefined, schema: Schema | undefined, fo
     out.push(trigger);
   }
   return out;
+}
+
+/** The data source a button's Perform Script names in key 32 ([length][id]), when the file still has it. */
+export function buttonFile(b: Uint8Array | undefined, schema: Schema): { id: number; name: string } | undefined {
+  const id = shortRef(b);
+  const source = id === undefined ? undefined : schema.dataSources.find((d) => d.id === id);
+  return source ? { id: source.id, name: source.name } : undefined;
 }
 
 export interface LayoutPart {
@@ -1109,8 +1118,15 @@ function readObject(ctx: Ctx, m: Pb, origin: { top: number; left: number }, dept
           obj.action.scriptId = param;
           const parameter = ctx.formula(node?.child(17, 128, 5));
           if (parameter) obj.action.parameter = parameter;
-          const s = ctx.index ? ctx.index.scripts.get(param) : ctx.schema?.scripts.find((x) => x.id === param)?.name;
-          if (s) obj.action.script = s;
+          // A script in another file keeps its data source in key 32 of the step's options, as a Perform Script step
+          // does; that id is the other file's, so the script's name is not looked up here. A data source the file no
+          // longer has leaves the button as it was (read as this file's script).
+          const file = ctx.schema ? buttonFile(node?.child(17)?.kv.get(32), ctx.schema) : undefined;
+          if (file) obj.action.file = file;
+          else {
+            const s = ctx.index ? ctx.index.scripts.get(param) : ctx.schema?.scripts.find((x) => x.id === param)?.name;
+            if (s) obj.action.script = s;
+          }
         }
         if (stepId === 6 && param !== undefined) {
           obj.action.layoutId = param;
