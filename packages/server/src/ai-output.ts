@@ -1,6 +1,8 @@
 // What AI tools hand a model: no secrets, and nothing so long it pushes the rest of an answer out of
 // the model's context. People see the real values in the web client; a model gets a note instead.
 
+import { CredentialRedactor } from '../../scripts/src/redaction.ts';
+
 import type { AuditEntry, Store } from '../../store/src/index.ts';
 import type { Widget, WidgetData } from './dashboards.ts';
 import type { SummaryResult } from './summarize.ts';
@@ -92,8 +94,8 @@ function matchesJoined(letters: string): boolean {
 
 /** Audit entries with secret-looking field values hidden, as in record reads. */
 export function auditForModel(entries: AuditEntry[]): AuditEntry[] {
-  return entries.map((e) => (e.changes && !e.security
-    ? { ...e, changes: Object.fromEntries(Object.entries(e.changes).map(([k, v]) => [k, secretName(k) && v !== '' && v !== null ? HIDDEN : v])) }
+  return entries.map((e) => (e.changes
+    ? { ...e, changes: values(e.changes, undefined, Infinity) }
     : e));
 }
 
@@ -124,7 +126,10 @@ export const SECRET_EMBEDDED_CHARS = 8;
 
 /** Secret values from the unfiltered record (trimmed; values under SECRET_MIN_CHARS are left out). */
 export function secretValues(data: Record<string, unknown>): string[] {
-  return Object.entries(data).filter(([name]) => secretName(name)).map(([, value]) => value == null ? '' : String(value).trim())
+  const leaves = (value: unknown): string[] => Array.isArray(value) ? value.flatMap(leaves)
+    : value && typeof value === 'object' ? Object.values(value).flatMap(leaves)
+    : value == null ? [] : [String(value).trim()];
+  return Object.entries(data).filter(([name]) => secretName(name)).flatMap(([, value]) => leaves(value))
     .filter((value) => value.length >= SECRET_MIN_CHARS);
 }
 
@@ -310,5 +315,5 @@ export function redactStep<T>(step: T): T {
   const walk = (v: unknown): unknown => typeof v === 'string' ? redactSecrets(v, force)
     : Array.isArray(v) ? v.map(walk)
     : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, walk(x)])) : v;
-  return walk(step) as T;
+  return new CredentialRedactor().data(walk(step)) as T;
 }

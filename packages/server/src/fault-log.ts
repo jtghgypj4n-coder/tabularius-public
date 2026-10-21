@@ -3,6 +3,7 @@
 // and over can't fill the disk. The first ones of each minute keep their cause; the rest are counted, and the count is
 // logged when the next minute begins.
 
+import { redactDiagnosticText } from '../../scripts/src/redaction.ts';
 import { monotonicClock } from '../../store/src/monotonic.ts';
 
 export const FAULT_LOGS_PER_MINUTE = 20;
@@ -10,6 +11,21 @@ export const FAULT_LOGS_PER_MINUTE = 20;
 // The sink looks console.error up at each call, so a test that replaces it sees the lines.
 export interface FaultLog {
   (e: unknown): void;
+}
+
+function diagnosticChain(error: unknown): string {
+  const seen = new Set<unknown>();
+  const parts: string[] = [];
+  let current = error;
+  while (current !== undefined) {
+    if (seen.has(current)) { parts.push('[circular cause]'); break; }
+    seen.add(current);
+    parts.push(current instanceof Error ? (current.stack ?? current.message) : String(current));
+    if (!(current instanceof Error)) break;
+    current = current.cause;
+  }
+  // Redact together so a labelled value in one error is also hidden when echoed by a cause.
+  return redactDiagnosticText(parts.join('\nCaused by: '));
 }
 
 export function faultLog(sink: (...args: unknown[]) => void = (...args) => console.error(...args), now: () => number = () => monotonicClock.now(), perMinute = FAULT_LOGS_PER_MINUTE,
@@ -47,7 +63,8 @@ export function faultLog(sink: (...args: unknown[]) => void = (...args) => conso
     }
     if (logged < perMinute) {
       logged++;
-      sink(e);
+      // Error inspection also prints causes and custom properties; never forward those objects.
+      sink(diagnosticChain(e));
     } else {
       held++;
       if (!flushTimer) scheduleFlush();
@@ -90,5 +107,5 @@ export function callerText(e: unknown): string {
     logFault(e);
     return FAULT_MESSAGE;
   }
-  return e instanceof Error ? e.message : String(e);
+  return redactDiagnosticText(e instanceof Error ? e.message : String(e));
 }

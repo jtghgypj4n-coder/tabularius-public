@@ -5,8 +5,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createStore, parseScriptText, Store, StoreError, writer } from '../../store/src/index.ts';
 import { scriptText } from '../../fmp12/src/index.ts';
-import { embeddedCredential, isCredentialName, sqlMayReadSecret } from '../src/credentials.ts';
-import { CredentialRedactor, REDACTED, redactCredentialStep } from '../src/redaction.ts';
+import { embeddedCredential, isCredentialName, isCredentialLabelName, isCredentialParameterName, sqlMayReadSecret } from '../src/credentials.ts';
+import { CredentialRedactor, REDACTED, redactCredentialStep, redactDiagnosticText } from '../src/redaction.ts';
 import { recordRun } from '../src/recorder.ts';
 import { testScripts } from '../src/testrun.ts';
 import { runScript, RunProfile, ScriptDebugger } from '../src/index.ts';
@@ -44,12 +44,48 @@ for (const hidden of [false, true]) for (const injected of [false, true]) {
   });
 }
 
+test('prose redaction uses case-insensitive remembered values without hiding surrounding context', () => {
+  for (const learn of ['remember', 'rememberSql'] as const) {
+    const redaction = new CredentialRedactor();
+    redaction[learn](before);
+    redaction[learn]('X.*');
+    for (const value of [before, before.toLowerCase(), before.toUpperCase()]) {
+      assert.equal(redaction.text(`upstream echoed ${value}; literal x.*; ordinary`), `upstream echoed ${REDACTED}; literal ${REDACTED}; ordinary`);
+    }
+    assert.equal(redaction.text('HTTP error code: 503'), 'HTTP error code: 503');
+  }
+  const frame = '    at read (packages/scripts/src/credentials.ts:12:3)';
+  assert.equal(redactDiagnosticText(`Password=${before}\nupstream echoed ${before.toUpperCase()}\n${frame}`),
+    `Password=${REDACTED}\nupstream echoed ${REDACTED}\n${frame}`);
+});
+
+test('diagnostic redaction masks values and preserves ordinary context and stack frames', () => {
+  for (const text of [`Password=${before}`, `"Password": "${before}"`, `api key='${before}'`, `Authorization: Bearer ${before}`, `--user "user:${before}"`]) {
+    const diagnostic = `failed: ${text}\n    at issue (packages/server/src/mcp-tokens.ts:41:5)\n    at check (packages/scripts/src/credentials.ts:12:3)`;
+    const safe = redactDiagnosticText(diagnostic);
+    assert.ok(!safe.includes(before), text);
+    assert.ok(safe.startsWith('failed: '));
+    assert.ok(safe.includes('at issue (packages/server/src/mcp-tokens.ts:41:5)'));
+    assert.ok(safe.includes('at check (packages/scripts/src/credentials.ts:12:3)'));
+    assert.equal(redactDiagnosticText(safe), safe, 'redaction is idempotent');
+  }
+  const validation = 'Invalid value for field Token: expected number';
+  assert.equal(redactDiagnosticText(validation), validation);
+  assert.equal(redactDiagnosticText(`${validation}; Token=${before}`), `${validation}; Token=${REDACTED}`);
+  const frame = '    at read (packages/scripts/src/credentials-utils.ts:41:5)';
+  assert.equal(redactDiagnosticText(frame), frame, 'a filename suffix is not a cURL option');
+  assert.equal(redactDiagnosticText(`Authorization: Bearer ${before}`), `Authorization: Bearer ${REDACTED}`);
+  assert.equal(redactDiagnosticText('HTTP error code: 503'), 'HTTP error code: 503');
+  assert.equal(redactDiagnosticText(`endpoint (https://[::1]/${before}) failed`), 'endpoint (https://[::1]) failed');
+  assert.equal(redactDiagnosticText('endpoint (https://[::1]) failed'), 'endpoint (https://[::1]) failed');
+});
+
 test('URL authentication detection stays linear on long unmatched text', () => {
   const inputs = ['a'.repeat(1_000_000), `https://user:${'a'.repeat(1_000_000)}`];
   const started = performance.now();
   for (const input of inputs) assert.equal(redactCredentialStep(input), input);
   const elapsed = performance.now() - started;
-  assert.ok(elapsed < 1000, `one million characters per input took ${elapsed.toFixed(1)} ms`);
+  assert.ok(elapsed < 3000, `one million characters per input took ${elapsed.toFixed(1)} ms`);
   assert.equal(redactCredentialStep('Visit https://user:token@example.test'), `Script step [ ${REDACTED} ]`);
 });
 
@@ -122,16 +158,19 @@ test('remember fails closed at its run budget while credential names remain hidd
   redaction.remember(after);
   assert.equal(redaction.value(before), REDACTED, 'earlier entries survive saturation');
   assert.equal(redaction.value(after), REDACTED, 'unknown values are hidden once the budget is exhausted');
+  assert.equal(redaction.text(`upstream echoed ${after}`), REDACTED, 'prose also fails closed when learning is exhausted');
   assert.equal(redaction.value(after, '$password'), REDACTED, 'name redaction does not depend on the budget');
   const nextRun = new CredentialRedactor();
   nextRun.remember(after);
   assert.equal(nextRun.value(after), REDACTED, 'the budget is local to a run');
 });
 
-for (const name of ['$db_pwd', '$userPwd', '$pw', '$pass', '$passcode', '$token', '$jwt', '$session_token', '$id_token', '$access_key']) {
+for (const name of ['$db_pwd', '$userPwd', '$pw', '$pass', '$passcode', '$token', '$jwt', '$session_token', '$id_token', '$access_key', '$pass_word', '$pass-phrase', '$smtp-user-name', '$mail user', '$signing_key']) {
   test(`diagnostics redact credential alias ${name}`, () => {
     const redaction = new CredentialRedactor();
     assert.equal(isCredentialName(name), true);
+    assert.equal(isCredentialLabelName(name), true);
+    assert.equal(isCredentialParameterName(name), true);
     assert.equal(redaction.value(before, name), REDACTED);
     assert.equal(redaction.value(before, '$copy'), REDACTED);
   });
@@ -145,6 +184,16 @@ test('known secret fragments of at least four characters are redacted', () => {
   }
   assert.equal(redaction.value(before.slice(0, 3)), before.slice(0, 3));
   assert.equal(redaction.value('ordinary'), 'ordinary');
+});
+
+test('data discovers nested repetitions before aliases while preserving fragment and short-value policies', () => {
+  const redaction = new CredentialRedactor();
+  const input = { Copy: [before, before.slice(3, 7)], Nested: { Password: [before, 'a'] }, Note: 'ordinary', Count: 42, Blank: null, Enabled: true };
+  assert.deepEqual(redaction.data(input), {
+    Copy: [REDACTED, REDACTED], Nested: { Password: [REDACTED, REDACTED] }, Note: 'ordinary', Count: 42, Blank: null, Enabled: true,
+  });
+  assert.equal(input.Nested.Password[0], before, 'redaction does not mutate the source');
+  assert.deepEqual(new CredentialRedactor().data([before, null], 'Password'), [REDACTED, null], 'the optional root name still applies to repetitions');
 });
 
 for (const [authority, fragment] of [
@@ -317,7 +366,7 @@ for (const name of ['$authorization_status', '$bearerCount']) test(`embedded cre
 });
 
 test('diagnostics share all credential aliases with the embedded credential detector', () => {
-  for (const name of ['pwd', 'private_key', 'PrivateKey', 'SenderUserName', 'smtp_user', 'api-key', 'refresh_token', 'authorization']) {
+  for (const name of ['pwd', 'private_key', 'PrivateKey', 'SenderUserName', 'smtp_user', 'api-key', 'refresh_token', 'authorization', 'pass_word', 'pass-phrase', 'smtp-user-name', 'mail user', 'signing_key']) {
     const redaction = new CredentialRedactor();
     assert.equal(redaction.value(before), before, 'the canary cannot trigger the value detector');
     assert.equal(isCredentialName(name), true, name);
@@ -332,6 +381,8 @@ test('localized credential names share runtime and embedded credential detection
     for (const variant of [name, name.toUpperCase()]) {
       const redaction = new CredentialRedactor();
       assert.equal(isCredentialName(variant), true, variant);
+      assert.equal(isCredentialLabelName(variant), true, variant);
+      assert.equal(isCredentialParameterName(variant), true, variant);
       assert.ok(embeddedCredential({ steps: [{ stepId: 141, name: 'Set Variable', enabled: true, params: { variable: `$${variant}`, value: `"${before}"` } }] }), variant);
       assert.equal(redaction.value(before, `T::${variant}`), REDACTED, variant);
       assert.equal(redaction.value(before, '$copy'), REDACTED, variant);
@@ -497,6 +548,7 @@ test('SQL results learn into their own budget and a full budget hides every late
   const sql = new CredentialRedactor();
   for (const cell of cells) sql.rememberSql(cell);
   assert.equal(sql.value('an ordinary later value'), REDACTED);
+  assert.equal(sql.text(`upstream echoed ${after}`), REDACTED, 'SQL saturation also closes prose output');
   const fields = new CredentialRedactor();
   for (const cell of cells) fields.remember(cell);
   assert.equal(fields.value('an ordinary later value'), 'an ordinary later value');

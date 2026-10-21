@@ -2,6 +2,7 @@
 // API in FileMaker's shapes: field names, repetitions as "Field(2)", and
 // dates in US (M/D/YYYY) or ISO format.
 
+import { isCredentialName } from '../../scripts/src/credentials.ts';
 import { cleanSql, sqlName, sqlTokens } from './sql-tokens.ts';
 import { SignInFailures, LOCKOUT, NO_ADDRESS_BUDGET, addressBucket, accountsSharingLockout, lockoutName } from './sign-in-failures.ts';
 import { expiryClock } from './clock.ts';
@@ -2092,7 +2093,7 @@ export class Store {
     const out: Record<string, string[]> = {};
     for (const t of this.schema?.tables ?? []) {
       const listed = new Set((Object.entries(s.excludeFields).find(([n]) => n.toLowerCase() === t.name.toLowerCase())?.[1] ?? []).map((f) => f.toLowerCase()));
-      const names = t.fields.filter((f) => f.kind === 'normal' && !listed.has(f.name.toLowerCase()) && SENSITIVE_FIELD.test(f.name.replace(/([a-z])([A-Z])/g, '$1 $2'))).map((f) => f.name);
+      const names = t.fields.filter((f) => f.kind === 'normal' && !listed.has(f.name.toLowerCase()) && (isCredentialName(f.name) || SENSITIVE_FIELD.test(f.name.replace(/([a-z])([A-Z])/g, '$1 $2')))).map((f) => f.name);
       if (names.length) out[t.name] = names;
     }
     return out;
@@ -2140,7 +2141,7 @@ export class Store {
   private auditHides(table: string, field: string): boolean {
     const s = this.auditSettings();
     const name = field.replace(/\(\d+\)$/, '');
-    if (s.redactSensitive && SENSITIVE_FIELD.test(name.replace(/([a-z])([A-Z])/g, '$1 $2'))) return true;
+    if (s.redactSensitive && (isCredentialName(name) || SENSITIVE_FIELD.test(name.replace(/([a-z])([A-Z])/g, '$1 $2')))) return true;
     const listed = Object.entries(s.excludeFields).find(([t]) => t.toLowerCase() === table.toLowerCase())?.[1];
     return !!listed?.some((f) => f.toLowerCase() === name.toLowerCase());
   }

@@ -1,7 +1,7 @@
 import { compile, nodeText, type CalcNames, type Node } from '../../calc/src/index.ts';
 import { FUNCTIONS } from '../../calc/src/functions.ts';
 import type { Script, ScriptStep } from '../../fmp12/src/index.ts';
-import { isCredentialName } from './credentials.ts';
+import { isCredentialName, isCredentialLabelName } from './credentials.ts';
 
 const CREDENTIAL_STEPS = new Map([
   [83, 'Change Password'], [134, 'Add Account'], [136, 'Reset Account Password'],
@@ -511,6 +511,12 @@ export class CredentialRedactor {
     // A secret held in a URL path or a flag with no password part has no component to keep, so keep the whole value.
     if (!wrapped || !added) this.addValue(value, sql);
   }
+  /** Mask known values in prose without treating diagnostic labels as credential inputs. */
+  text(value: string): string {
+    if (this.rememberFull || this.sqlRememberFull) return REDACTED;
+    const escaped = [...this.values].sort((a, b) => b.length - a.length).map((s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    return escaped.length ? value.replace(new RegExp(escaped.join('|'), 'gi'), REDACTED) : value;
+  }
   /** SQL results have their own cap so wide result sets cannot consume field-read learning. */
   rememberSql(value: string): void { this.remember(value, true); }
   value(value: string, name?: string, suppress = false, scriptLiteral = false): string {
@@ -534,13 +540,21 @@ export class CredentialRedactor {
     }
     return value;
   }
-  /** Preserve ordinary field types and repetitions while masking credential values. */
+  /** Preserve field types and repetitions; discover named secrets before emitting sibling aliases. */
   data(value: unknown, name?: string): unknown {
-    if (Array.isArray(value)) return value.map((v) => this.data(v, name));
-    if (value && typeof value === 'object') return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, this.data(v, k)]));
-    if (value === null || value === undefined) return value;
-    const shown = this.value(String(value), name);
-    return shown === REDACTED ? REDACTED : value;
+    const discover = (v: unknown, key?: string): void => {
+      if (key && this.sensitiveName(key)) strings(v).forEach((s) => this.remember(s));
+      if (Array.isArray(v)) v.forEach((x) => discover(x, key));
+      else if (v && typeof v === 'object') Object.entries(v).forEach(([k, x]) => discover(x, k));
+    };
+    discover(value, name);
+    const walk = (v: unknown, key?: string): unknown => {
+      if (Array.isArray(v)) return v.map((x) => walk(x, key));
+      if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, walk(x, k)]));
+      if (v === null || v === undefined) return v;
+      return this.value(String(v), key) === REDACTED ? REDACTED : v;
+    };
+    return walk(value, name);
   }
   line(step: ScriptStep, suppress = false): string {
     const line = step.line ?? step.name ?? `Step ${step.stepId}`;
@@ -550,4 +564,60 @@ export class CredentialRedactor {
   error(message: string, step: ScriptStep, suppress = false): string {
     return suppress || this.line(step) !== (step.line ?? step.name ?? `Step ${step.stepId}`) || this.value(message) !== message ? 'Credential step failed' : message;
   }
+}
+
+/** Configured endpoints are identified by scheme and host, never userinfo, path, query or fragment. */
+export function diagnosticEndpoint(value: string): string {
+  try {
+    const url = new URL(value);
+    return url.host ? `${url.protocol}//${url.host}` : REDACTED;
+  } catch { return REDACTED; }
+}
+
+/** Mask values rather than entire diagnostics, so stack locations and cause chains remain useful. */
+export function redactDiagnosticText(text: string): string {
+  const values = new CredentialRedactor();
+  const hide = (value: string) => { if (value !== REDACTED && value.length >= 4) values.remember(value); return REDACTED; };
+  let safe = text
+    .replace(/-----BEGIN ([A-Z ]*PRIVATE KEY)-----[\s\S]*?(?:-----END \1-----|$)/g, hide)
+    .replace(/\b(?:AKIA|ASIA)[0-9A-Z]{16}\b|\b(?:sk[-_]|github_pat_|gh[pousr]_|xox[baprs]-)[A-Za-z0-9_-]{20,}/g, hide)
+    .replace(/\b[a-z][a-z\d+.-]{0,31}:\/\/[^\s<>"]+/gi, (url) => {
+      // Source locations use file URLs; retain those unless they themselves contain userinfo.
+      if (/^file:\/\//i.test(url) && !hasUrlAuth(url)) return url;
+      const suffix = /[),;:']+$/.exec(url)?.[0] ?? '';
+      return diagnosticEndpoint(url.slice(0, url.length - suffix.length)) + suffix;
+    })
+    .replace(/(\b(?:Bearer|Basic)[ \t]+)([^\s,;"']+)/gi, (_all, prefix: string, value: string) => prefix + hide(value))
+    .replace(/(^|[ \t])((?:--(?:user|proxy-user|oauth2-bearer)[= \t]+|-u[ \t]*))((?:"(?:[^"\\]|\\.)*"|'[^']*'|[^\s;]+))/gm,
+      (_all, space: string, option: string, value: string) => space + option + hide(value));
+  // Scan separators once and bound label inspection. File locations end in an extension
+  // ("credentials.ts:41:5"), not an assignment label; never treat a whole frame as a value.
+  const spans: { start: number; end: number; replacement: string }[] = [];
+  for (const match of safe.matchAll(/[:=]/g)) {
+    const left = safe.slice(Math.max(0, match.index - 80), match.index);
+    const label = /([\w$-]+(?:[ \t]+[\w$-]+){0,2})["']?[ \t]*$/.exec(left)?.[1];
+    if (!label || !isCredentialLabelName(label)) continue;
+    const rest = safe.slice(match.index + 1);
+    // Authentication schemes are useful labels; their payload was already masked above.
+    if (/\bauthorization$/i.test(label) && /^[ \t]*(?:Bearer|Basic)[ \t]+/i.test(rest)) continue;
+    // This names the invalid field and the expected type; it does not supply a credential.
+    if (/\bfield[ \t]+[\w$-]+["']?[ \t]*$/i.test(left) && /^[ \t]*expected\b/i.test(rest)) continue;
+    const value = /^[ \t]*("(?:[^"\\\r\n]|\\.)*"|'[^'\r\n]*'|[^\s,;&}\])"']+)/.exec(rest);
+    if (!value) continue;
+    const raw = value[1];
+    const quoted = raw.startsWith('"') || raw.startsWith("'");
+    const content = quoted ? raw.slice(1, -1) : raw;
+    spans.push({ start: match.index + 1 + value[0].length - raw.length, end: match.index + 1 + value[0].length,
+      replacement: quoted ? raw[0] + hide(content) + raw[0] : hide(content) });
+  }
+  let end = 0;
+  const parts: string[] = [];
+  for (const span of spans) {
+    if (span.start < end) continue;
+    parts.push(safe.slice(end, span.start), span.replacement);
+    end = span.end;
+  }
+  parts.push(safe.slice(end));
+  safe = values.text(parts.join(''));
+  return safe.split('\n').map((line) => CREDENTIAL_LINE.test(line) ? hiddenLine(line) : line).join('\n');
 }

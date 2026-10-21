@@ -21,6 +21,8 @@
 //                                                         entries, newest first
 //   GET /tabularius/admin/v1/logs/<name>/download          the file as it is
 
+import { isCredentialParameterName } from '../../scripts/src/credentials.ts';
+import { redactDiagnosticText } from '../../scripts/src/redaction.ts';
 import { appendFile, mkdir, rename, stat } from 'node:fs/promises';
 import { existsSync, mkdirSync, readFileSync, statSync, appendFileSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
@@ -66,7 +68,11 @@ const clean = (s: string) => s.replace(/[\t\r\n]+/g, ' ');
 
 /** Session tokens in Data API paths (signing out names one) are cut out. */
 export function redactPath(path: string): string {
-  return path.replace(/(\/sessions\/)[^/?]+/i, '$1…').replace(/([?&](?:token|access_token|code|state)=)[^&]*/gi, '$1…');
+  return path.replace(/(\/sessions\/)[^/?]+/i, '$1…').replace(/([?&])([^=&#]+)=([^&#]*)/g, (all, prefix: string, name: string) => {
+    let decoded = name;
+    try { decoded = decodeURIComponent(name.replace(/\+/g, ' ')); } catch { /* Match malformed names as written. */ }
+    return isCredentialParameterName(decoded) ? `${prefix}${name}=…` : all;
+  });
 }
 
 export class ServerLogs {
@@ -92,6 +98,8 @@ export class ServerLogs {
 
   write(log: LogName, type: LogType, source: string, message: string): void {
     if (this.closed) return;
+    source = redactDiagnosticText(source);
+    message = redactDiagnosticText(message);
     try { this.onEntry?.(type, source, message); } catch { /* a listener never stops logging */ }
     const line = `${logTime()}\t${type}\t${clean(source)}\t${clean(message)}\n`;
     const lines = this.pending.get(log) ?? [];
@@ -221,4 +229,14 @@ export function parseLogTime(at: string): number {
   const utc = Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6], +m[7]);
   const off = (+m[9] * 60 + +m[10]) * (m[8] === '+' ? 1 : -1);
   return utc - off * 60_000;
+}
+
+/** The process callback and disk log share the same credential boundary. */
+export function serverLog(logs: ServerLogs, print: (message: string) => void, source = 'server'): (message: string) => void {
+  return (message) => {
+    const type = /\b(error|failed|could not|can't|cannot)\b/i.test(message) ? 'Error' : 'Information';
+    const safe = redactDiagnosticText(message);
+    print(safe);
+    logs.event(type, safe, source);
+  };
 }

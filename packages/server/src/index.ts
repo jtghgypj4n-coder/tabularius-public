@@ -62,7 +62,8 @@ import { listenError } from './listen-error.ts';
 import { Metrics } from './metrics.ts';
 import { SERVER_VERSION } from './version.ts';
 import { StatsLog } from './stats-log.ts';
-import { ServerLogs, redactPath } from './server-logs.ts';
+import { logFault, callerText } from './fault-log.ts';
+import { ServerLogs, redactPath, serverLog } from './server-logs.ts';
 import { PgServer } from './pgwire.ts';
 import { auditSurface } from './audit-surface.ts';
 import { AutoTls, type AcmeOptions } from './acme.ts';
@@ -275,10 +276,7 @@ export async function serve(opts: ServeOptions): Promise<{ server: Server; host:
     });
     const source = opts.cluster ? `server ${opts.cluster.role.id}` : 'server';
     const print = opts.log ?? ((m: string) => console.log(m));
-    const log = (m: string) => {
-      print(m);
-      logs.event(/\b(error|failed|could not|can't|cannot)\b/i.test(m) ? 'Error' : 'Information', m, source);
-    };
+    const log = serverLog(logs, print, source);
     // A certificate first: without one there is nothing to serve https with.
     const auto = opts.acme ? new AutoTls(opts.dir, { ...opts.acme, httpsPort: opts.port ?? 443, log }) : undefined;
     if (auto) disposers.push(() => auto.stop());
@@ -452,7 +450,7 @@ export async function serve(opts: ServeOptions): Promise<{ server: Server; host:
       catch (e) {
         const error = (e as Error).message;
         admin.oidcStatus = { on: false, error };
-        (opts.log ?? console.log)(`OIDC sign-in disabled: ${error}`);
+        log(`OIDC sign-in disabled: ${error}`);
       }
       if (oidc) admin.oidcStatus = { on: true, ...(oidc.storageWarning ? { warning: oidc.storageWarning } : {}) };
     }
@@ -714,7 +712,7 @@ export async function serve(opts: ServeOptions): Promise<{ server: Server; host:
       } catch (e) {
         // A request the caller got wrong (a body that is too large, or not JSON) is theirs to hear about, not a server error to log.
         if (e instanceof ApiError && e.status < 500) {
-          if (!res.headersSent) res.writeHead(e.status, { 'content-type': 'application/json' }).end(JSON.stringify({ error: e.message }));
+          if (!res.headersSent) res.writeHead(e.status, { 'content-type': 'application/json' }).end(JSON.stringify({ error: callerText(e) }));
           return;
         }
         // A malformed % escape in the path (/databases/%zz/...) is the caller's mistake, whichever route decoded it.
@@ -722,7 +720,7 @@ export async function serve(opts: ServeOptions): Promise<{ server: Server; host:
           if (!res.headersSent) res.writeHead(400, { 'content-type': 'application/json' }).end(JSON.stringify({ error: 'The request path has an invalid % escape.' }));
           return;
         }
-        console.error(e);
+        logFault(e);
         if (!res.headersSent) sendError(req, res, 500);
       }
       } finally { release?.(); }
