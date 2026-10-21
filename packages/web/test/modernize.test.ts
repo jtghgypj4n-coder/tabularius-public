@@ -253,8 +253,9 @@ test('modernize: compat pages are byte-identical to 9091a0ea in every mode and v
     }
   }
   // Captured from the untouched PR head, including date and timestamp calendars. The only change since is the product
-  // name in the page text (openhbam to tabularius); the pages are otherwise the same bytes.
-  assert.equal(createHash('sha256').update(JSON.stringify(pages)).digest('hex'), '0c8e95a08285755cb29fa95c934b0b057f502ea738e058792ebb3c9864e96185');
+  // name in the page text (openhbam to tabularius); the pages are otherwise the same bytes. Then the delete confirmation
+  // became per record (it no longer carries over to another record or a new form): the one intended change to the runtime.
+  assert.equal(createHash('sha256').update(JSON.stringify(pages)).digest('hex'), '0392bd7f7abb8588673b07b7ef2836326182c1f7e30a043e6c12e3b5f7eaa89a');
 });
 
 for (const native of [true, false]) for (const type of ['date', 'timestamp'] as const) {
