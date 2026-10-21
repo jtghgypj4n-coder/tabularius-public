@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createStore, importTables, notionMarkdownSheet, parseNumber, planImportTables, Store, type SheetInput } from '../src/index.ts';
+import { createStore, importTables, MAX_IMPORT_COLUMNS, notionMarkdownSheet, parseNumber, planImportTables, Store, type SheetInput } from '../src/index.ts';
 
 let dir: string;
 let n = 0;
@@ -176,6 +176,13 @@ test('Notion Markdown pages become rows: title, properties and body', () => {
     { file: 'Second 0123456789abcdef0123456789abcdef.md', text: 'Status: Done\n\nBody only' },
   ]);
   assert.deepEqual(sheet.rows, [['Title', 'Status', 'Owner', 'Body'], ['First', 'Open', 'Ann', 'Hello\nworld'], ['Second', 'Done', '', 'Body only']]);
+});
+
+test('a Notion page with thousands of distinct properties keeps only the columns the plan will accept or refuse', () => {
+  const props = Array.from({ length: 50000 }, (_, i) => `k${i}: v`).join('\n');
+  const sheet = notionMarkdownSheet('Notes', [{ file: 'Wide.md', text: `# Wide\n\n${props}\n` }]);
+  assert.equal(sheet.rows[0].length, MAX_IMPORT_COLUMNS + 1);
+  assert.throws(() => planImportTables([sheet]), /at most 500 are imported/);
 });
 
 test('a limited account may not import tables', () => {
