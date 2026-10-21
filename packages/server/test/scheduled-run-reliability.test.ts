@@ -10,6 +10,29 @@ process.env.TZ = 'UTC';
 const time = (s: string) => Date.parse(s);
 const flush = async () => { for (let i = 0; i < 6; i++) await Promise.resolve(); };
 
+test('AR-server-backup-ops-08: a capped timer keeps its original interval deadline through an edit', async (t) => {
+  t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: time('2026-01-01T00:00:00Z') });
+  const dir = mkdtempSync(join(tmpdir(), 'tabularius-schedule-long-'));
+  const host = { dir, onAdd: [], names: () => [], scriptOptions: () => ({}) } as unknown as Host;
+  const schedules = new Schedules(host);
+  let sent = 0;
+  try {
+    schedules.broadcast = () => ++sent;
+    const made = schedules.create({ kind: 'message', name: 'Long', message: 'sent', everyMinutes: 43200 });
+    assert.equal(schedules.all()[0].next, '2026-01-31T00:00:00.000Z');
+    t.mock.timers.setTime(time('2026-01-01T00:00:00Z') + 2 ** 31 - 1);
+    t.mock.timers.tick(60_000);
+    assert.equal(schedules.all()[0].next, '2026-01-31T00:00:00.000Z');
+    assert.equal(sent, 0);
+    schedules.update(made.id, { everyMinutes: 5 });
+    assert.equal(schedules.all()[0].next, new Date(Date.now() + 5 * 60_000).toISOString());
+  } finally {
+    schedules.stop();
+    t.mock.timers.reset();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('a missed timer runs once after a forward clock jump, then resumes at the next time', async (t) => {
   t.mock.timers.enable({ apis: ['Date', 'setTimeout'], now: time('2026-01-01T12:00:00Z') });
   const dir = mkdtempSync(join(tmpdir(), 'openhbam-schedule-jump-'));

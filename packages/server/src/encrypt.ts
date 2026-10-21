@@ -7,9 +7,9 @@
 // Streams, so multi-gigabyte files never sit in memory.
 
 import { createCipheriv, createDecipheriv, randomBytes, scrypt, scryptSync } from 'node:crypto';
-import { closeSync, fstatSync, fsyncSync, openSync, readSync, writeSync } from 'node:fs';
+import { closeSync, fstatSync, fsyncSync, openSync, readSync, rmSync, writeSync } from 'node:fs';
 import type { FileHandle } from 'node:fs/promises';
-import { open } from 'node:fs/promises';
+import { open, rm } from 'node:fs/promises';
 
 const MAGIC = Buffer.from('OPENHBAM-ENC1\n');
 const CHUNK = 1 << 20;
@@ -41,15 +41,83 @@ function sealChunk(key: Buffer, prefix: Buffer, n: number, data: Buffer, last: b
   return Buffer.concat([len, cipher.update(data), cipher.final(), cipher.getAuthTag()]);
 }
 
+function writeAllSync(output: number, buffer: Buffer): void {
+  for (let offset = 0; offset < buffer.length;) {
+    const written = writeSync(output, buffer, offset, buffer.length - offset);
+    if (!Number.isInteger(written) || written <= 0 || written > buffer.length - offset) throw new Error('encrypted file write made no progress');
+    offset += written;
+  }
+}
+
+async function writeAll(output: FileHandle, buffer: Buffer): Promise<void> {
+  for (let offset = 0; offset < buffer.length;) {
+    const { bytesWritten } = await output.write(buffer, offset, buffer.length - offset);
+    if (!Number.isInteger(bytesWritten) || bytesWritten <= 0 || bytesWritten > buffer.length - offset) throw new Error('encrypted file write made no progress');
+    offset += bytesWritten;
+  }
+}
+
+function withFilesSync(src: string, dest: string, work: (input: number, output: number) => void, mode?: number): void {
+  let input: number | undefined;
+  let output: number | undefined;
+  let openedOutput = false;
+  let complete = false;
+  try {
+    input = openSync(src, 'r');
+    output = openSync(dest, 'w', mode);
+    openedOutput = true;
+    work(input, output);
+    fsyncSync(output);
+    closeSync(output); output = undefined;
+    closeSync(input); input = undefined;
+    complete = true;
+  } finally {
+    try {
+      if (output !== undefined) closeSync(output);
+    } finally {
+      try {
+        if (input !== undefined) closeSync(input);
+      } finally {
+        if (openedOutput && !complete) rmSync(dest, { force: true });
+      }
+    }
+  }
+}
+
+async function withFiles(src: string, dest: string, work: (input: FileHandle, output: FileHandle) => Promise<void>): Promise<void> {
+  let input: FileHandle | undefined;
+  let output: FileHandle | undefined;
+  let openedOutput = false;
+  let complete = false;
+  try {
+    input = await open(src, 'r');
+    output = await open(dest, 'w');
+    openedOutput = true;
+    await work(input, output);
+    await output.sync();
+    await output.close(); output = undefined;
+    await input.close(); input = undefined;
+    complete = true;
+  } finally {
+    try {
+      if (output) await output.close();
+    } finally {
+      try {
+        if (input) await input.close();
+      } finally {
+        if (openedOutput && !complete) await rm(dest, { force: true });
+      }
+    }
+  }
+}
+
 /** Writes `src` encrypted to `dest`, without giving way to other work: for small files. */
 export function encryptFileSync(src: string, dest: string, passphrase: string, read: typeof readSync = readSync): void {
   const salt = randomBytes(16);
   const prefix = randomBytes(8);
   const key = scryptSync(passphrase, salt, 32, SCRYPT);
-  const input = openSync(src, 'r');
-  const output = openSync(dest, 'w');
-  try {
-    writeSync(output, Buffer.concat([MAGIC, salt, prefix]));
+  withFilesSync(src, dest, (input, output) => {
+    writeAllSync(output, Buffer.concat([MAGIC, salt, prefix]));
     const size = fstatSync(input).size;
     const buf = Buffer.alloc(CHUNK);
     let pos = 0;
@@ -57,14 +125,10 @@ export function encryptFileSync(src: string, dest: string, passphrase: string, r
       const got = read(input, buf, 0, Math.min(CHUNK, size - pos), pos);
       if (got === 0 && pos < size) throw new Error(`${src} changed while being encrypted`);
       pos += got;
-      writeSync(output, sealChunk(key, prefix, n, buf.subarray(0, got), pos >= size));
+      writeAllSync(output, sealChunk(key, prefix, n, buf.subarray(0, got), pos >= size));
       if (pos >= size) break;
     }
-    fsyncSync(output);
-  } finally {
-    closeSync(input);
-    closeSync(output);
-  }
+  });
 }
 
 /** Writes `src` encrypted to `dest`. */
@@ -75,10 +139,8 @@ export async function encryptFile(src: string, dest: string, passphrase: string,
   const salt = randomBytes(16);
   const prefix = randomBytes(8);
   const key = await deriveKey(passphrase, salt);
-  const input = await open(src, 'r');
-  const output = await open(dest, 'w');
-  try {
-    await output.write(Buffer.concat([MAGIC, salt, prefix]));
+  await withFiles(src, dest, async (input, output) => {
+    await writeAll(output, Buffer.concat([MAGIC, salt, prefix]));
     const size = (await input.stat()).size;
     const buf = Buffer.alloc(CHUNK);
     let pos = 0;
@@ -87,21 +149,15 @@ export async function encryptFile(src: string, dest: string, passphrase: string,
       if (bytesRead === 0 && pos < size) throw new Error(`${src} changed while being encrypted`);
       pos += bytesRead;
       const last = pos >= size;
-      await output.write(sealChunk(key, prefix, n, buf.subarray(0, bytesRead), last));
+      await writeAll(output, sealChunk(key, prefix, n, buf.subarray(0, bytesRead), last));
       if (last) break;
     }
-    await output.sync();
-  } finally {
-    await input.close();
-    await output.close();
-  }
+  });
 }
 
 /** Writes the decrypted `src` to `dest`, without giving way to other work: for small files. */
 export function decryptFileSync(src: string, dest: string, passphrase: string): void {
-  const input = openSync(src, 'r');
-  const output = openSync(dest, 'w', 0o600); // plaintext: private to this account, whatever the umask
-  try {
+  withFilesSync(src, dest, (input, output) => {
     const head = Buffer.alloc(MAGIC.length + 24);
     const got = readSync(input, head, 0, head.length, 0);
     if (got < head.length || !head.subarray(0, MAGIC.length).equals(MAGIC)) throw new Error(`${src} is not a Tabularius encrypted file`);
@@ -127,21 +183,15 @@ export function decryptFileSync(src: string, dest: string, passphrase: string): 
       } catch {
         throw new Error(n === 0 ? `can't decrypt ${src}: wrong key, or the file is damaged` : `${src} is damaged`);
       }
-      writeSync(output, plain);
+      writeAllSync(output, plain);
       if (last) break;
     }
-    fsyncSync(output);
-  } finally {
-    closeSync(input);
-    closeSync(output);
-  }
+  }, 0o600); // plaintext: private to this account, whatever the umask
 }
 
 /** Writes the decrypted `src` to `dest`; throws on a wrong passphrase or a damaged file. */
 export async function decryptFile(src: string, dest: string, passphrase: string): Promise<void> {
-  const input = await open(src, 'r');
-  const output = await open(dest, 'w');
-  try {
+  await withFiles(src, dest, async (input, output) => {
     const head = Buffer.alloc(MAGIC.length + 24);
     const got = (await input.read(head, 0, head.length, 0)).bytesRead;
     if (got < head.length || !head.subarray(0, MAGIC.length).equals(MAGIC)) throw new Error(`${src} is not a Tabularius encrypted backup`);
@@ -167,14 +217,10 @@ export async function decryptFile(src: string, dest: string, passphrase: string)
       } catch {
         throw new Error(n === 0 ? `can't decrypt ${src}: wrong passphrase, or the file is damaged` : `${src} is damaged`);
       }
-      await output.write(plain);
+      await writeAll(output, plain);
       if (last) break;
     }
-    await output.sync();
-  } finally {
-    await input.close();
-    await output.close();
-  }
+  });
 }
 
 // Single records (the logs of point-in-time backups, appended one at a time):
