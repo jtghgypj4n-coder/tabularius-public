@@ -1,6 +1,6 @@
 import { after, before, test, mock } from 'node:test';
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { connect } from 'node:net';
 import { request } from 'node:http';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -136,15 +136,17 @@ test('SCIM Group PUT accepts 1,400 members', async () => {
   const members: { value: string }[] = [];
   store.sql.exec('BEGIN');
   try {
-    const account = store.sql.prepare("INSERT INTO _fm_accounts (name, password_hash, source, privilege_set) VALUES (?, NULL, 'external', 'Limited')");
-    const user = store.sql.prepare("INSERT INTO _fm_scim_users (id, account, attrs, groups, created, modified) VALUES (?, ?, '{}', ?, ?, ?)");
+    // A SCIM user is bound to its account's identity; a row without one is a legacy binding and is dropped, so give each a real identity.
+    const account = store.sql.prepare("INSERT INTO _fm_accounts (name, password_hash, source, privilege_set, identity_id) VALUES (?, NULL, 'external', 'Limited', ?)");
+    const user = store.sql.prepare("INSERT INTO _fm_scim_users (id, account, attrs, groups, created, modified, account_identity) VALUES (?, ?, '{}', ?, ?, ?, ?)");
     const now = new Date().toISOString();
     for (let i = 0; i < 1400; i++) {
       const name = `member${i}@example.test`;
       const id = `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`;
-      account.run(name);
+      const identity = randomUUID();
+      account.run(name, identity);
       // Refresh 1,399 existing memberships and add one; avoid quadratic setup via 1,400 API mutations.
-      user.run(id, name, i === 1399 ? '[]' : '["Limited"]', now, now);
+      user.run(id, name, i === 1399 ? '[]' : '["Limited"]', now, now, identity);
       members.push({ value: id });
     }
     store.sql.exec('COMMIT');
