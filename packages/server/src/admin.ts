@@ -1846,26 +1846,25 @@ export class Admin {
           if (!store) send(400, { error: `No hosted file is named ${JSON.stringify(body.database ?? '')}` });
           else {
             try {
-              // A new AI agent account: no password, never [Full Access], and its writes optionally held for a person to approve.
-              if (body.agent) {
-                const name = said(body.agent.name).trim();
-                if (!name) throw new StoreError(960, 'Give the AI agent a name');
-                store.setAgentAccount(name, said(body.agent.privilegeSet), { createdBy: 'admin console', needsApproval: body.agent.needsApproval === true });
-                this.log(`AI agent ${name} added to ${store.name} (${body.agent.privilegeSet}${body.agent.needsApproval ? ', changes need approval' : ''})`);
-              }
-              const wanted = String(body.agent ? body.agent.name : body.account ?? '').trim().toLowerCase();
-              const account = store.accounts().find((a) => a.name.toLowerCase() === wanted && !a.inactive);
-              if (!account) throw new StoreError(960, `${store.name} has no account named ${JSON.stringify(said(body.account))}`);
               // Left out, the token takes the default lifetime; every token expires.
               const days = body.days === undefined || body.days === null || (body.days as unknown) === '' ? undefined : body.days;
               if (days !== undefined && !(typeof days === 'number' && Number.isInteger(days) && days >= 1 && days <= 3650)) throw new StoreError(960, 'Days should be from 1 to 3650; a token always expires');
               const expires = tokenExpiry(days);
-              const label = said(body.label).trim().slice(0, 200) || `AI app: ${account.name} in ${store.name}`;
-              const token = store.createApiToken(account.name, {
+              const wanted = said(body.agent ? body.agent.name : body.account).trim();
+              if (body.agent && !wanted) throw new StoreError(960, 'Give the AI agent a name');
+              const existing = store.accounts().find((a) => a.name.toLowerCase() === wanted.toLowerCase() && !a.inactive);
+              if (!body.agent && !existing) throw new StoreError(960, `${store.name} has no account named ${JSON.stringify(said(body.account))}`);
+              const label = said(body.label).trim().slice(0, 200) || `AI app: ${existing?.name ?? wanted} in ${store.name}`;
+              const options = {
                 label, surfaces: ['fmmcp'], readOnly: body.readOnly === true, expires,
                 ...(Array.isArray(body.layouts) && body.layouts.length ? { layouts: body.layouts.map(String) } : {}),
-                provenance: 'service',
-              });
+                provenance: 'service' as const,
+              };
+              const token = body.agent
+                ? store.createAgentApiToken(wanted, said(body.agent.privilegeSet), { createdBy: 'admin console', needsApproval: body.agent.needsApproval === true }, options)
+                : store.createApiToken(existing!.name, options);
+              const account = store.accounts().find((a) => a.name.toLowerCase() === wanted.toLowerCase())!;
+              if (body.agent) this.log(`AI agent ${account.name} added to ${store.name} (${body.agent.privilegeSet}${body.agent.needsApproval ? ', changes need approval' : ''})`);
               const made = store.apiTokens().find((x) => token.startsWith(`ohbt_${x.id}.`))!;
               const ai = store.privileges(account.name).has('fmmcp');
               this.log(`AI app token "${label}" made for ${account.name} in ${store.name}`);
