@@ -52,6 +52,9 @@ const UPLOAD_CONVERT_LIMITS = {
 /** The account row a container link is tied to. */
 export interface LinkAccount { name: string; identity: string }
 
+/** The most web hosts the app page's frame policy names, across all files. */
+export const WEB_VIEWER_HOSTS_ALL_MAX = 200;
+
 export class Host {
   readonly dir: string;
   private readonly stores = new Map<string, Store>();
@@ -259,7 +262,8 @@ export class Host {
 
   /** Every web host any hosted file lets its web viewers load, for the web app's frame policy (each file's own list still decides what its viewers load). */
   webViewerHostsAll(): string[] {
-    return [...new Set([...this.stores.values()].flatMap((s) => s.webViewerHosts))].sort();
+    // Bounded, so the policy header stays well under what proxies accept; a host past the bound is simply not framed.
+    return [...new Set([...this.stores.values()].flatMap((s) => s.webViewerHosts))].sort().slice(0, WEB_VIEWER_HOSTS_ALL_MAX);
   }
 
   /** Whether scripts may reach the network in a hosted file: the server's flag allows every file, else the file's own switch. */

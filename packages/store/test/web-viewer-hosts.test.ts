@@ -59,6 +59,9 @@ test('a list stored by anything but the console is trusted only as far as it pas
     (store as unknown as { sql: { prepare(q: string): { run(...a: unknown[]): void } } }).sql
       .prepare(`INSERT INTO _fm_meta VALUES ('webViewerHosts', ?) ON CONFLICT(key) DO UPDATE SET json = excluded.json`).run(JSON.stringify(stored));
     assert.deepEqual(store.webViewerHosts, ['maps.example.com']);
+    (store as unknown as { sql: { prepare(q: string): { run(...a: unknown[]): void } } }).sql
+      .prepare(`INSERT INTO _fm_meta VALUES ('webViewerHosts', ?) ON CONFLICT(key) DO UPDATE SET json = excluded.json`).run(JSON.stringify(Array.from({ length: 60 }, (_, i) => `h${i}.example.com`)));
+    assert.equal(store.webViewerHosts.length, 50);
     store.close();
   } finally {
     rmSync(dir, { recursive: true, force: true });
