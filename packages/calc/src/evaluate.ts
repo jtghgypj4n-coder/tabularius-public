@@ -171,6 +171,8 @@ export interface PluginResponse {
   /** 0 when the request didn't get an answer (see error). */
   status: number;
   body: string;
+  /** The body as it came, where the request asked for it (wantBytes); body is then empty. */
+  bytes?: Uint8Array;
   /** Lowercase names. */
   headers: Record<string, string>;
   error?: string;
@@ -182,6 +184,10 @@ export interface MbsCurlRequest {
   url: string;
   headers: Record<string, string>;
   body?: string;
+  /** The body as bytes (a file to send); body is then absent. */
+  bodyBytes?: Uint8Array;
+  /** Answer with the body's bytes (PluginResponse.bytes), for a file to save. */
+  wantBytes?: boolean;
   follow: boolean;
   maxRedirs: number;
   aws?: { spec: string; user: string };

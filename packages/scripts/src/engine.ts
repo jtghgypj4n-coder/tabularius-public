@@ -5,7 +5,7 @@
 // client actions so a web client can carry them out.
 
 import { cancellationScope, untilCanceled } from './cancellation.ts';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { appendFileSync, closeSync, constants as fsConstants, cpSync, existsSync, fstatSync, lstatSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, readSync, realpathSync, statfsSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync, writeSync } from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
@@ -2752,7 +2752,9 @@ export class ScriptEngine {
     if (refused) throw new CalcError(ERR.calculation, `${request.via ?? 'CURL.Perform'} can't reach the web: ${refused}`);
     const held = this.callStackFiles(f).find((x) => captureOnly(x));
     if (held !== undefined) throw new CalcError(ERR.calculation, `${request.via ?? 'CURL.Perform'} can't reach the web: "${held}" is a capture-only file`);
-    const key = JSON.stringify([request.via ?? 'CURL.Perform', request]);
+    // A file to send is part of the request by its hash, not its bytes.
+    const { bodyBytes, ...plain } = request;
+    const key = JSON.stringify([request.via ?? 'CURL.Perform', plain, bodyBytes ? createHash('sha256').update(bodyBytes).digest('hex') : undefined]);
     const done = this.pluginFetched.get(key);
     if (done) return done;
     // Only an explicitly authorized test fetch may serve local addresses. Real requests use the strict guard and pinned transport.
@@ -2866,15 +2868,15 @@ export class ScriptEngine {
           const request = ask.curl;
           let at = request.url;
           let method = request.method;
-          let body = request.body;
+          let body: string | Uint8Array | undefined = request.bodyBytes ?? request.body;
           let sentHeaders = { ...headers };
           if (request.aws) {
             if (request.follow) throw new Error('CURL.SetupAWS cannot follow redirects without signing each destination');
-            sentHeaders = signSigV4({ method, url: at, headers: sentHeaders, body }, request.aws, new Date());
+            sentHeaders = signSigV4({ method, url: at, headers: sentHeaders, body: request.body }, request.aws, new Date());
           }
-          const curlHop = async (url: string, hopMethod: string, hopHeaders: Record<string, string>, hopBody: string | undefined) => {
+          const curlHop = async (url: string, hopMethod: string, hopHeaders: Record<string, string>, hopBody: string | Uint8Array | undefined) => {
             if (!ask.allows(url)) throw new Error('the address is not allowed');
-            const init = { method: hopMethod, headers: hopHeaders, body: hopBody, redirect: 'manual' as const, signal };
+            const init = { method: hopMethod, headers: hopHeaders, body: hopBody as string | Uint8Array<ArrayBuffer> | undefined, redirect: 'manual' as const, signal };
             return doFetch(url, init);
           };
           let res = await curlHop(at, method, sentHeaders, body);
@@ -2896,7 +2898,7 @@ export class ScriptEngine {
           }
           // A script run keeps up to 16 handles, each holding its response: a smaller cap than Insert from URL's.
           const bytes = await readCapped(res, CURL_RESPONSE_MAX);
-          return { status: res.status, body: new TextDecoder().decode(bytes), headers: Object.fromEntries(res.headers),
+          return { status: res.status, body: request.wantBytes ? '' : new TextDecoder().decode(bytes), ...(request.wantBytes ? { bytes } : {}), headers: Object.fromEntries(res.headers),
             headerText: `HTTP/1.1 ${res.status} ${res.statusText}\r\n${[...res.headers].map(([k, v]) => `${k}: ${v}\r\n`).join('')}\r\n` };
         }
         const body = ask.method === 'GET' || ask.method === 'HEAD' ? undefined : ask.body;

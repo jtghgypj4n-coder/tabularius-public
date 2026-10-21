@@ -1815,7 +1815,9 @@ const recorded = (name: string, env: Env, v: Value[]): Value | undefined => {
   const out = env.ctx.outbound;
   if (!out) return undefined;
   if (HTTP_METHODS[name]) {
-    out.request(name, HTTP_METHODS[name], T(v[0], env), Buffer.byteLength(T(v[1], env)));
+    const at = HTTP_BODY_AT[name];
+    const sent = at?.read !== undefined ? env.ctx.files?.size(T(v[at.read], env)) ?? 0 : at?.save !== undefined || v.length < 2 ? 0 : Buffer.byteLength(T(v[1], env));
+    out.request(name, HTTP_METHODS[name], T(v[0], env), sent);
     return beResult(env, 0, text(''));
   }
   if (SMTP_NAMES[name] === 'server') return beResult(env, 0, text('')); // the server and account are never used
@@ -1839,13 +1841,18 @@ const recorded = (name: string, env: Env, v: Value[]): Value | undefined => {
 };
 // Where scripts may reach the network (the file's Script network switch), BE_HTTP_GET, POST, PUTData, PATCH and DELETE make
 // real requests through the same guarded transport as Insert from URL and answer with the body as text (BaseElements answers
-// with a container); BE_SMTPSend sends through the server's mail account, where mail is set up. The file variants (GETFile,
-// PUTFile and the like) and FTP stay refused. Argument order follows BaseElements' source; the error numbers a failed
-// request sets are inferred (7 for a request that got no answer).
-const HTTP_BODY_AT: Record<string, { body?: number; user: number; password: number }> = {
+// with a container); GET_File saves the answer to a path in the allowed folders (the Documents folder) and PUTFile sends a file
+// from there; BE_SMTPSend sends through the server's mail account, where mail is set up. Only http and https addresses are
+// built in: BaseElements also takes ftp, ftps and sftp ones, which give "?" and error 3 here. Argument order follows
+// BaseElements' source; the error numbers a failed request sets are inferred (7 for a request that got no answer; 2 for a
+// path that is missing or outside the allowed folders).
+const HTTP_BODY_AT: Record<string, { body?: number; /** The argument holding the path of a file to send. */ read?: number; /** The argument holding the path to save the answer to. */ save?: number; user: number; password: number }> = {
   BE_HTTP_GET: { user: 2, password: 3 }, BE_HTTP_POST: { body: 1, user: 2, password: 3 }, BE_HTTP_PUTData: { body: 1, user: 2, password: 3 },
   BE_HTTP_PUT_Data: { body: 1, user: 2, password: 3 }, BE_HTTP_PATCH: { body: 1, user: 2, password: 3 }, BE_HTTP_DELETE: { user: 1, password: 2 },
+  BE_HTTP_GET_File: { save: 1, user: 2, password: 3 }, BE_HTTP_GETFile: { save: 1, user: 2, password: 3 }, BE_SaveURLToFile: { save: 1, user: 2, password: 3 },
+  BE_HTTP_PUTFile: { read: 1, user: 2, password: 3 }, BE_HTTP_PUT_File: { read: 1, user: 2, password: 3 },
 };
+const BE_MAX_UPLOAD = 10 * 1024 * 1024;
 interface BeWebState { headers: Map<string, string>; code: number; responseHeaders: string }
 const beWeb = new WeakMap<object, BeWebState>();
 const beWebState = (env: Env): BeWebState => {
@@ -1863,9 +1870,34 @@ const beRequest = (name: string, v: Value[], env: Env): Value | undefined => {
   const user = at.user < v.length ? T(v[at.user], env) : '';
   if (user) headers.authorization = `Basic ${Buffer.from(`${user}:${at.password < v.length ? T(v[at.password], env) : ''}`).toString('base64')}`;
   const method = HTTP_METHODS[name];
+  const url = T(v[0], env);
+  if (!/^https?:\/\//i.test(url)) {
+    beErrors.set(env.ctx, `${name}: only http and https addresses are built in (FTP, FTPS and SFTP are not)`);
+    return beResult(env, 3, text('?'));
+  }
   const body = at.body !== undefined && at.body < v.length ? T(v[at.body], env) : undefined;
+  const path = at.read ?? at.save;
+  const file = path !== undefined && path < v.length ? T(v[path], env) : '';
+  let bodyBytes: Uint8Array | undefined;
+  if (path !== undefined) {
+    if (!file) {
+      beErrors.set(env.ctx, `${name} needs the path of a file`);
+      return beResult(env, BE_NO_FILE, num(BE_NO_FILE));
+    }
+    if (at.read !== undefined) {
+      bodyBytes = env.ctx.files?.read(file);
+      if (!bodyBytes) {
+        beErrors.set(env.ctx, `${name}: no file at ${file} (paths are inside the Documents folder)`);
+        return beResult(env, BE_NO_FILE, num(BE_NO_FILE));
+      }
+      if (bodyBytes.length > BE_MAX_UPLOAD) {
+        beErrors.set(env.ctx, `${name}: ${file} is over ${BE_MAX_UPLOAD / 1024 / 1024} MB`);
+        return beResult(env, 7, num(7));
+      }
+    }
+  }
   if (method === 'POST' && body !== undefined && !('content-type' in headers)) headers['content-type'] = 'application/x-www-form-urlencoded';
-  const r = curl({ method, url: T(v[0], env), headers, ...(body !== undefined ? { body } : {}), follow: true, maxRedirs: 5, via: name });
+  const r = curl({ method, url, headers, ...(body !== undefined ? { body } : {}), ...(bodyBytes ? { bodyBytes } : {}), ...(at.save !== undefined ? { wantBytes: true } : {}), follow: true, maxRedirs: 5, via: name });
   if (r.error || !r.status) {
     state.code = 0;
     state.responseHeaders = '';
@@ -1874,6 +1906,13 @@ const beRequest = (name: string, v: Value[], env: Env): Value | undefined => {
   }
   state.code = r.status;
   state.responseHeaders = r.headerText ?? Object.entries(r.headers).map(([k, x]) => `${k}: ${x}`).join('\r');
+  if (at.save !== undefined) {
+    if (!env.ctx.files?.write(file, r.bytes ?? new Uint8Array(0), false)) {
+      beErrors.set(env.ctx, `${name}: ${file} can't be written`);
+      return beResult(env, BE_NO_FILE, num(BE_NO_FILE));
+    }
+    return beResult(env, 0, text(''));
+  }
   return beResult(env, 0, text(r.body));
 };
 const beMail = (name: string, v: Value[], env: Env): Value | undefined => {

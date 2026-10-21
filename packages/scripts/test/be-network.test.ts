@@ -2,7 +2,7 @@
 // same guarded transport as Insert from URL, and give ? and error 3 where they may not.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createStore, Store } from '../../store/src/index.ts';
@@ -74,4 +74,53 @@ test('BE_SMTPSend sends through the server\'s mail where sending is set up and s
   assert.equal((await runScript(store, 'Mail', { network: false, mail })).result, '?|3');
   assert.equal((await runScript(store, 'Mail', { [TEST_ONLY_CUSTOM_FETCH]: true, network: fetch })).result, '?|3');
   assert.equal(sent.length, 1);
+});
+
+test('BE_HTTP_GET_File saves the answer, bytes and all, in the documents folder; BE_HTTP_PUTFile sends a file from there', async () => {
+  const docs = join(dir, 'Documents');
+  mkdirSync(docs, { recursive: true });
+  const picture = Uint8Array.from([0, 255, 128, 10, 13, 200, 0x89, 0x50]);
+  writeFileSync(join(docs, 'up.bin'), picture);
+  script('GetFile', [
+    'Set Variable [ $save ; Value: BE_HTTP_GET_File ( "https://files.example.com/p.png" ; Get ( DocumentsPath ) & "p.png" ; "ann" ; "pw" ) ]',
+    'Set Variable [ $code ; Value: BE_HTTP_ResponseCode ]',
+    'Set Variable [ $put ; Value: BE_HTTP_PUTFile ( "https://files.example.com/up" ; Get ( DocumentsPath ) & "up.bin" ) ]',
+    'Set Variable [ $err ; Value: BE_GetLastError ]',
+    'Exit Script [ Text Result: $save & "|" & $code & "|" & $put & "|" & $err ]',
+  ].join('\n'));
+  const seen: { url: string; method?: string; body?: unknown; headers: Record<string, string> }[] = [];
+  const fetch = (async (url: string, init?: RequestInit) => {
+    seen.push({ url: String(url), method: init?.method, body: init?.body, headers: Object.fromEntries(new Headers(init?.headers).entries()) });
+    return new Response(init?.method === 'GET' ? picture : 'stored', { status: 200 });
+  }) as typeof globalThis.fetch;
+  const r = await runScript(store, 'GetFile', { [TEST_ONLY_CUSTOM_FETCH]: true, network: fetch, documents: docs, trace: true });
+  assert.equal(r.result, '|200|stored|0', JSON.stringify(r.trace));
+  assert.deepEqual([...readFileSync(join(docs, 'p.png'))], [...picture], 'the answer is saved byte for byte');
+  assert.equal(seen[0].headers.authorization, `Basic ${Buffer.from('ann:pw').toString('base64')}`);
+  assert.equal(seen[1].method, 'PUT');
+  assert.deepEqual([...(seen[1].body as Uint8Array)], [...picture], 'the file is sent byte for byte');
+  assert.equal(seen.length, 2);
+});
+
+test('the file variants say what is wrong: a missing file, a path outside the documents folder, and an address that is not http', async () => {
+  const docs = join(dir, 'Documents');
+  mkdirSync(docs, { recursive: true });
+  const { seen, fetch } = net();
+  let n = 0;
+  const run = async (formula: string) => {
+    const name = `Variant${++n}`;
+    script(name, `Set Variable [ $r ; Value: ${formula} & "|" & BE_GetLastError ]\nExit Script [ Text Result: $r ]`);
+    return (await runScript(store, name, { [TEST_ONLY_CUSTOM_FETCH]: true, network: fetch, documents: docs })).result;
+  };
+  assert.equal(await run('BE_HTTP_PUTFile ( "https://files.example.com/up" ; Get ( DocumentsPath ) & "nothing.bin" )'), '2|2');
+  assert.equal(await run('BE_HTTP_GET_File ( "https://files.example.com/p" ; Get ( DocumentsPath ) & "../escape.txt" )'), '2|2');
+  assert.equal(existsSync(join(dir, 'escape.txt')), false);
+  assert.equal(await run('BE_HTTP_GET_File ( "https://files.example.com/p" )'), '2|2', 'a path is needed');
+  assert.equal(await run('BE_HTTP_GET_File ( "sftp://files.example.com/p" ; Get ( DocumentsPath ) & "x" )'), '?|3');
+  assert.equal(await run('BE_HTTP_GET ( "ftp://files.example.com/p" )'), '?|3');
+  // A bad path is found after the answer, so that request went out.
+  assert.deepEqual(seen.map((x) => x.url), ['https://files.example.com/p']);
+  // Where scripts may not reach the network they give ? and send nothing.
+  script('FileOff', 'Set Variable [ $r ; Value: BE_HTTP_GET_File ( "https://files.example.com/p" ; Get ( DocumentsPath ) & "y" ) & "|" & BE_GetLastError ]\nExit Script [ Text Result: $r ]');
+  assert.equal((await runScript(store, 'FileOff', { network: false, documents: docs })).result, '?|3');
 });
