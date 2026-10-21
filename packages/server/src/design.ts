@@ -939,9 +939,32 @@ export class DesignApi {
           send(200, previewDesign(store, body.changes as DesignOp[], { readOtherFile: mayDesign }));
           return true;
         }
-        const before = layoutsBefore(store, body.changes as DesignOp[]);
-        const orders = ordersBefore(store, body.changes as DesignOp[]);
-        const { applied } = store.applyDesign(body.changes as DesignOp[], { account: session.account, readOtherFile: mayDesign });
+        const requested = body.changes as DesignOp[];
+        const canonicalLayout = (layout: LayoutDesign): string => {
+          const copy = structuredClone(layout);
+          const walk = (objects: LayoutObject[]) => objects.forEach((o) => {
+            if (o.action) delete o.action.line;
+            if (o.children) walk(o.children);
+          });
+          walk(copy.objects);
+          return JSON.stringify(copy);
+        };
+        for (const change of requested) {
+          if (change.op !== 'updateLayout' || !change.expectedDesign) continue;
+          const current = store.design(change.layout as string | number);
+          if (!current || canonicalLayout(current) !== canonicalLayout(change.expectedDesign)) {
+            throw new ApiError(409, 'This layout changed while you were editing it. Review the latest version before saving.', 409);
+          }
+        }
+        // expectedDesign is a transport precondition, not part of the persisted operation/history.
+        const changes = requested.map((change) => {
+          if (change.op !== 'updateLayout' || !change.expectedDesign) return change;
+          const { expectedDesign: _expectedDesign, ...operation } = change;
+          return operation as DesignOp;
+        });
+        const before = layoutsBefore(store, changes);
+        const orders = ordersBefore(store, changes);
+        const { applied } = store.applyDesign(changes, { account: session.account, readOtherFile: mayDesign });
         const undo = undoChanges(applied, before, orders);
         send(200, { applied, ...(undo ? { undo } : {}), design: designOf(store, this.host.names(), other) });
       } else throw new ApiError(3, 'Command is unavailable', 405);

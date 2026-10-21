@@ -24,6 +24,7 @@ import { mergeText } from './merge.ts';
 import { initials, personColor } from './together.ts';
 import { windowRecord } from './window-record.ts';
 import { confirmRename, impactNote, impactPanel, type ImpactKind } from './impact.ts';
+import { acknowledgeScriptDraft, scriptEditorTabKey } from './async-state.ts';
 
 /** A list on the left, the selected item on the right. */
 function master<T extends { id: number; name: string }>(studio: Studio, key: string, title: string, items: T[], describe: (t: T) => string,
@@ -400,7 +401,8 @@ function stepList(names: string[], insert: (name: string) => void): HTMLElement 
 /** A script as text: one step per line, as FileMaker's script workspace shows it. */
 function scriptEditor(studio: Studio, s: Studio['design']['scripts'][number], tabs: ScriptTabs): HTMLElement {
   const gutter = h('pre', { class: 'se-gutter', 'aria-hidden': 'true' });
-  const text = h('textarea', { class: 'se-text', spellcheck: 'false', wrap: 'off', 'aria-label': `Steps of ${s.name}` });
+  const text = h('textarea', { class: 'se-text', spellcheck: 'false', wrap: 'off', 'aria-label': `Steps of ${s.name}`, 'aria-describedby': 'se-key-help' });
+  const keyHelp = h('p', { id: 'se-key-help', class: 'd-muted' }, 'Tab indents. Press Escape, then Tab to move to the next control; Shift+Tab moves to the previous control.');
   text.value = s.text;
   /** The script as last saved (by anyone): what unsaved edits are measured and merged against. */
   let base = s.text;
@@ -517,28 +519,37 @@ function scriptEditor(studio: Studio, s: Studio['design']['scripts'][number], ta
     text.setSelectionRange(start, Math.max(start, end));
     lines();
   };
+  let escaped = false;
   text.addEventListener('keydown', (e) => {
     if ((e.metaKey || e.ctrlKey) && e.key === '/') {
       // ⌘/ disables or enables the selected steps, as in FileMaker.
       e.preventDefault();
       toggle('// ');
-    } else if (e.key === 'Tab' && !e.metaKey && !e.ctrlKey) {
+    } else if (e.key === 'Escape') {
+      escaped = true;
+    } else if (e.key === 'Tab' && scriptEditorTabKey({ key: e.key, shiftKey: e.shiftKey, escaped }) === 'leave') {
+      escaped = false;
+    } else if (e.key === 'Tab' && !e.metaKey && !e.ctrlKey && scriptEditorTabKey({ key: e.key, shiftKey: e.shiftKey, escaped }) === 'indent') {
       // Tab indents, as in FileMaker's workspace, instead of leaving the editor.
       e.preventDefault();
       text.setRangeText('\t', text.selectionStart, text.selectionEnd, 'end');
+      escaped = false;
       lines();
     } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
       e.preventDefault();
       void save();
-    }
+    } else escaped = false;
   });
   const save = async () => {
     error.textContent = '';
     // Whatever someone else saved meanwhile comes in first, so their save isn't lost.
     if (!(await catchUp())) return;
+    const submittedText = text.value;
     try {
-      const r = await studio.client.change([{ op: 'updateScript', script: s.id, text: text.value }]);
-      tabs.drafts.delete(s.id);
+      const r = await studio.client.change([{ op: 'updateScript', script: s.id, text: submittedText }]);
+      const serverText = r.design.scripts.find((x) => x.id === s.id)?.text ?? submittedText;
+      base = serverText;
+      acknowledgeScriptDraft(tabs.drafts, s.id, submittedText, text.value, serverText);
       studio.design = r.design;
       studio.render();
     } catch (e) {
@@ -719,6 +730,7 @@ function scriptEditor(studio: Studio, s: Studio['design']['scripts'][number], ta
   };
   return h('div', { class: 'd-stack' },
     others,
+    keyHelp,
     h('div', { class: 'se-wrap' }, h('div', { class: 'se' }, gutter, text), stepList(studio.design.scriptSteps ?? [], (name) => {
       // A new line after the cursor's line, indented like it, as FileMaker's steps pane inserts.
       const at = text.selectionEnd;

@@ -94,3 +94,35 @@ test('settling a clash never duplicates an id, and picking the kept side keeps l
   assert.equal(settleClash(grouped, clash, 'theirs'), grouped);
   assert.equal(settleClash(edited, clash, 'theirs').objects.find((x) => x.id === 1)!.bounds.left, 9);
 });
+
+test('merge remaps added-object references and nested collisions across the whole layout', () => {
+  const base = d([]);
+  const mine = d([{ ...o(1), kind: 'button', target: 2, activeSegment: 2 }, { ...o(2), kind: 'popover' } as LayoutObject], { tabOrder: [1, 2] });
+  const theirs = d([o(1), o(2)], { tabOrder: [] });
+  const merged = mergeDesign(base, mine, theirs).design;
+  const ids = merged.objects.map((x) => x.id);
+  const button = merged.objects.find((x) => x.kind === 'button')!;
+  const popover = merged.objects.find((x) => x.kind === 'popover')!;
+  assert.notEqual(button.id, 1);
+  assert.notEqual(popover.id, 2);
+  assert.equal(button.target, popover.id);
+  assert.equal(button.activeSegment, popover.id);
+  assert.deepEqual(merged.tabOrder, [button.id, popover.id]);
+  assert.equal(new Set(ids).size, ids.length);
+
+  const nested = mergeDesign(d([o(1, 0, { kind: 'group', children: [o(2)] })]),
+    d([o(1, 0, { kind: 'group', children: [o(2), o(3)] })]),
+    d([o(1, 0, { kind: 'group', children: [o(2)] }), o(3)])).design;
+  const all = nested.objects.flatMap((x) => [x.id, ...(x.children ?? []).map((c) => c.id)]);
+  assert.equal(new Set(all).size, all.length);
+});
+
+test('merge retains a one-sided local stacking-order change with remote layout settings', () => {
+  const base = d([o(1), o(2)], { width: 400 });
+  const mine = d([o(2), o(1)], { width: 400 });
+  const theirs = d([o(1), o(2)], { width: 900 });
+  const merged = mergeDesign(base, mine, theirs);
+  assert.deepEqual(merged.design.objects.map((x) => x.id), [2, 1]);
+  assert.equal(merged.design.width, 900);
+  assert.equal(merged.conflicts, 0);
+});

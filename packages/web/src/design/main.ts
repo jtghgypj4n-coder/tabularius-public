@@ -18,6 +18,7 @@ import { themesTab } from './styles.ts';
 import { proposalPicture } from './layout-editor.ts';
 import { draftsReplaced, scriptTabs } from './script-tabs.ts';
 import { plainMessage } from '../http-problem.ts';
+import { canLeaveLayout, commitReplacingScriptDrafts } from './async-state.ts';
 import { announce } from '../announcer.ts';
 
 export interface Studio {
@@ -119,10 +120,10 @@ async function start(): Promise<void> {
       if (hit.length) {
         const names = hit.map((id) => `"${studio.design.scripts.find((x) => x.id === id)?.name ?? drafts.get(id)?.name ?? id}"`).join(', ');
         if (!confirm(`This changes ${names}, which ${hit.length === 1 ? 'has' : 'have'} unsaved changes here. They are replaced by this change. Go ahead?`)) return false;
-        for (const id of hit) drafts.delete(id);
       }
       try {
-        const r = await client.change(changes);
+        const r = await commitReplacingScriptDrafts(drafts, hit, () => client.change(changes),
+          (result, id, fallback) => result.design.scripts.find((script) => script.id === id)?.text ?? fallback);
         studio.lastUndo = r.undo;
         studio.design = r.design;
         if (done) toast(done, 'info');
@@ -143,6 +144,8 @@ async function start(): Promise<void> {
       document.title = `${studio.design.database} · Design`;
       nav.replaceChildren(...TABS.map(([id, label]) => {
         const b = button(label, () => {
+          const dirty = !!studio.unsaved?.();
+          if (!canLeaveLayout(dirty, !dirty || confirm('Leave this layout without saving your changes?'))) return;
           tab = id;
           history.replaceState(null, '', `#${id}`);
           studio.render();
@@ -238,7 +241,7 @@ async function start(): Promise<void> {
   together.start();
   // Scripts left with unsaved steps in their tabs (kept only in this page): leaving the page asks first.
   addEventListener('beforeunload', (e) => {
-    if (scriptTabs(s.db).drafts.size) e.preventDefault();
+    if (scriptTabs(s.db).drafts.size || studio.unsaved?.()) e.preventDefault();
   });
   const shell = h('div', { class: 'd-shell' }, header, body);
   app.replaceChildren(shell);
