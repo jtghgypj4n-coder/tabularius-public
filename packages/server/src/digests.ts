@@ -62,6 +62,13 @@ export interface DigestRun {
   ms: number;
 }
 
+/** Historical/model prose has no per-record provenance with which to reapply a view rule. */
+function withoutRecordData(run: DigestRun): DigestRun {
+  return { id: run.id, digest: run.digest, at: run.at, scheduled: run.scheduled,
+    outcome: run.outcome, ms: run.ms, data: [], highlights: [],
+    summaryNote: 'Saved record data is unavailable with restricted read access. Run the dashboard to see current results.' };
+}
+
 /** What writes the summary: the assistant, or nothing when the server has none. */
 export interface DigestWriter {
   summarize(store: Store, account: string, privileges: Privileges, ask: string, signal?: AbortSignal): Promise<{ summary?: string; note?: string }>;
@@ -327,50 +334,68 @@ export class DigestRunner {
     };
     this.running.add(d.id);
     try {
-      const account = store.accounts().find((a) => a.name.toLowerCase() === d.account.toLowerCase());
-      if (account?.inactive) throw new DigestError(`The account "${d.account}" it runs as is inactive`);
-      const privileges = store.privileges(account?.name ?? d.account);
-      if (!privileges.name) throw new DigestError(`The account "${d.account}" it runs as is gone`);
-      const dashboard = new Dashboards(store).get(d.dashboard);
-      if (!dashboard) throw new DigestError('Its dashboard has been deleted');
-      run.data = computeDashboard(store, dashboard.widgets, privileges);
-      run.highlights = highlights(run.data);
-      if (!this.writer) run.summaryNote = 'No AI summary: the assistant is off on this server (start it with --ai)';
-      else if (!privileges.has('fmmcp')) run.summaryNote = `No AI summary: the "${privileges.name}" privilege set doesn't have AI access (fmmcp)`;
-      else {
-        try {
-          store.recordUsage(account?.name ?? d.account, 'mcp');
-          const modelData = computeDashboard(store, dashboard.widgets, privileges, new Date(), undefined, true);
-          const r = await this.writer.summarize(store, account?.name ?? d.account, privileges, digestQuestion(d, dashboard, modelData, new Date()), AbortSignal.timeout(5 * 60_000));
-          if (r.summary) run.summary = r.summary;
-          if (r.note) run.summaryNote = r.note;
-        } catch (e) {
-          run.summaryNote = `No AI summary: ${(e as Error).message}`;
+      // Includes related hosted files: a summary can read through the relationship graph.
+      const stamp = () => JSON.stringify(this.host.names().map((name) => {
+        const file = this.host.get(name);
+        return [name, file?.securityToken(), file?.writeToken()];
+      }));
+      const before = stamp();
+      const recheck = () => {
+        if (stamp() === before) return;
+        const clean = withoutRecordData(run);
+        for (const key of ['summary', 'summaryNote', 'error', 'webhook'] as const) delete run[key];
+        Object.assign(run, clean, { outcome: 'error', error: 'Data or access changed while the digest was running; run it again.' });
+      };
+      try {
+        const account = store.accounts().find((a) => a.name.toLowerCase() === d.account.toLowerCase());
+        if (account?.inactive) throw new DigestError(`The account "${d.account}" it runs as is inactive`);
+        const privileges = store.privileges(account?.name ?? d.account);
+        if (!privileges.name) throw new DigestError(`The account "${d.account}" it runs as is gone`);
+        const dashboard = new Dashboards(store).get(d.dashboard);
+        if (!dashboard) throw new DigestError('Its dashboard has been deleted');
+        run.data = computeDashboard(store, dashboard.widgets, privileges);
+        run.highlights = highlights(run.data);
+        if (!this.writer) run.summaryNote = 'No AI summary: the assistant is off on this server (start it with --ai)';
+        else if (!privileges.has('fmmcp')) run.summaryNote = `No AI summary: the "${privileges.name}" privilege set doesn't have AI access (fmmcp)`;
+        else if (!privileges.readsEverything) run.summaryNote = 'No AI summary: restricted read access needs current dashboard results, without cached prose';
+        else {
+          try {
+            store.recordUsage(account?.name ?? d.account, 'mcp');
+            const modelData = computeDashboard(store, dashboard.widgets, privileges, new Date(), undefined, true);
+            const r = await this.writer.summarize(store, account?.name ?? d.account, privileges, digestQuestion(d, dashboard, modelData, new Date()), AbortSignal.timeout(5 * 60_000));
+            if (r.summary) run.summary = r.summary;
+            if (r.note) run.summaryNote = r.note;
+          } catch (e) {
+            run.summaryNote = `No AI summary: ${(e as Error).message}`;
+          }
+        }
+      } catch (e) {
+        run.outcome = 'error';
+        run.error = e instanceof DigestError || e instanceof StoreError ? e.message : `Couldn't run: ${(e as Error).message}`;
+      }
+      recheck();
+      if (d.webhook) {
+        if (!this.poster?.allowed) run.webhook = { sent: false, error: 'Not sent: webhooks are off on this server (start it with --allow-webhooks)' };
+        else {
+          try {
+            await this.poster.post(d.webhook, store.name, {
+              digest: { id: d.id, name: d.name, dashboard: d.dashboard, schedule: describeSchedule(d) }, database: store.name,
+              run: { at: run.at, scheduled: run.scheduled, outcome: run.outcome, summary: run.summary, highlights: run.highlights, error: run.error },
+            });
+            run.webhook = { sent: true };
+          } catch (e) {
+            run.webhook = { sent: false, error: (e as Error).message };
+          }
         }
       }
-    } catch (e) {
-      run.outcome = 'error';
-      run.error = e instanceof DigestError || e instanceof StoreError ? e.message : `Couldn't run: ${(e as Error).message}`;
+      recheck();
+      run.ms = Date.now() - started;
+      new Digests(store).addRun(run);
+      if (run.outcome === 'error') this.log(`digest "${d.name}" in ${store.name}: ${run.error}`);
+      return run;
+    } finally {
+      this.running.delete(d.id);
     }
-    if (d.webhook) {
-      if (!this.poster?.allowed) run.webhook = { sent: false, error: 'Not sent: webhooks are off on this server (start it with --allow-webhooks)' };
-      else {
-        try {
-          await this.poster.post(d.webhook, store.name, {
-            digest: { id: d.id, name: d.name, dashboard: d.dashboard, schedule: describeSchedule(d) }, database: store.name,
-            run: { at: run.at, scheduled: run.scheduled, outcome: run.outcome, summary: run.summary, highlights: run.highlights, error: run.error },
-          });
-          run.webhook = { sent: true };
-        } catch (e) {
-          run.webhook = { sent: false, error: (e as Error).message };
-        }
-      }
-    }
-    run.ms = Date.now() - started;
-    this.running.delete(d.id);
-    new Digests(store).addRun(run);
-    if (run.outcome === 'error') this.log(`digest "${d.name}" in ${store.name}: ${run.error}`);
-    return run;
   }
 
   /** Every hosted file's digests with their latest run, for the admin console. */
@@ -426,13 +451,14 @@ export class DigestApi {
       // Runs and schedules use the saved account; a scoped token cannot act as that account or read its cached results.
       if (privileges.ceiling) throw new ApiError(9, 'This API token cannot use account-level digests', 403);
       const digests = new Digests(store);
+      const runs = (id: string, limit?: number) => digests.runs(id, limit).map((run) => privileges.readsEverything ? run : withoutRecordData(run));
       const boards = new Dashboards(store);
       const hooks = (this.webhooks?.() ?? []).filter((w) => w.database.toLowerCase() === store.name.toLowerCase());
       const now = new Date();
       const shown = (d: Digest) => {
         const board = boards.get(d.dashboard);
         const readable = mayRead(d, session.account, privileges);
-        const last = readable ? digests.runs(d.id, 1)[0] : undefined;
+        const last = readable ? runs(d.id, 1)[0] : undefined;
         const next = d.enabled ? nextSlot(d, now) : undefined;
         return {
           ...d, ...(privileges.full ? {} : { webhook: undefined }), schedule: describeSchedule(d), dashboardName: board?.name, ...(next ? { next: next.toISOString() } : {}),
@@ -458,9 +484,9 @@ export class DigestApi {
         const d = id ? digests.get(id) : undefined;
         if (!d) throw new ApiError(401, 'No such digest', 404);
         if (!mayRead(d, session.account, privileges)) throw new ApiError(9, 'Only the account that set up this digest, or one with [Full Access], can see or change it', 403);
-        if (sub === 'runs' && req.method === 'GET') send(200, { runs: digests.runs(d.id) });
+        if (sub === 'runs' && req.method === 'GET') send(200, { runs: runs(d.id) });
         else if (sub === 'run' && req.method === 'POST') send(200, { run: await this.runner.run(store, d) });
-        else if (!sub && req.method === 'GET') send(200, { digest: shown(d), runs: digests.runs(d.id) });
+        else if (!sub && req.method === 'GET') send(200, { digest: shown(d), runs: runs(d.id) });
         else if (!sub && req.method === 'PUT') {
           const body = await readJson(req);
           const { dashboard: _d, ...change } = cleanDigest(store, body, true, hooks);

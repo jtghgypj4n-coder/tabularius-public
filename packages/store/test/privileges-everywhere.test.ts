@@ -81,6 +81,9 @@ test('a portal pages and counts only the related records the account may view', 
   assert.deepEqual([page(1), page(2), page(3)], [[1], [2], []], 'no empty pages where hidden records sit');
   assert.deepEqual(store.portalCounts('Customers', id, p), { Orders: 2 });
   assert.deepEqual(store.portalCounts('Customers', id), { Orders: 3 });
+  const read = store.get('Customers', id, 'us', undefined, p);
+  store.update('Orders', 3, { Total: '500' });
+  assert.deepEqual(store.portalCounts('Customers', id, p, read), { Orders: 1 }, 'cached portal counts cannot retain newly hidden related records');
 }));
 
 test('SQL over a calculation that reads another file leaves out what the account can\'t view there', () => {

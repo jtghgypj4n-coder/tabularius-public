@@ -134,14 +134,14 @@ export class Live {
         return true;
       }
       if (m[2] === 'locks' && method === 'GET') {
-        const locks = [...this.files(store)].flatMap((s) => s.locks.all().filter((l) => s.tableVisible(l.table, privileges)).map((l) => ({
+        const locks = [...this.files(store)].flatMap((s) => s.locks.all().filter((l) => s.canViewRecord(l.table, l.recordId, privileges)).map((l) => ({
           file: s.name, table: l.table, recordId: l.recordId, account: l.account, self: l.owner === session.token,
         })));
         send(200, { locks });
         return true;
       }
       if (m[2] === 'viewers' && method === 'GET') {
-        const viewers = [...this.files(store)].flatMap((s) => s.locks.viewers().filter((v) => s.tableVisible(v.table, privileges)).map((v) => ({
+        const viewers = [...this.files(store)].flatMap((s) => s.locks.viewers().filter((v) => isDesignTable(v.table) ? s === store && privileges.full : s.canViewRecord(v.table, v.recordId, privileges)).map((v) => ({
           file: s.name, table: v.table, recordId: v.recordId, account: v.account, self: v.owner === session.token,
         })));
         send(200, { viewers });
@@ -186,7 +186,7 @@ export class Live {
         if (method === 'DELETE') {
           if (owner.locks.leave(info.table, id, session.token)) owner.notify('leave', info.table, id);
         } else {
-          if (!owner.tableVisible(info.table, privileges)) throw new ApiError(200, 'Record access is denied', 403);
+          if (!store.canView(info, id, privileges)) throw new ApiError(200, 'Record access is denied', 403);
           if (owner.locks.view(info.table, id, session.token, session.account)) owner.notify('view', info.table, id);
         }
         send(200, {});
@@ -266,18 +266,26 @@ export class Live {
       if (this.api.accountDisabled(token)) return expire();
       // Privileges are read per event, so a revoke applies at once; changes to tables the account can't see are left out.
       let visible: boolean;
+      let ids = c.ids;
       try {
         const file = [...files].find((f) => f.name === c.file);
         const privileges = sessionPrivileges(store, session);
         // Design changes and who is in design mode: only for accounts that can change this file's design.
         visible = !!file && (isDesignTable(c.table) ? file === store && privileges.full : file.tableVisible(c.table, privileges));
+        if (visible && file && !isDesignTable(c.table)) {
+          if (c.recordId !== undefined) visible = file.canViewRecord(c.table, c.recordId, privileges);
+          if (ids) {
+            ids = ids.filter((id) => file.canViewRecord(c.table, id, privileges));
+            if (!ids.length) visible = false;
+          }
+        }
       } catch {
         visible = false;
       }
       if (!visible) return;
       const event = {
         kind: c.kind, file: c.file, table: c.table, recordId: c.recordId, modId: c.modId,
-        account: c.account, self: c.owner !== undefined && c.owner === token, ...(c.ids ? { ids: c.ids } : {}),
+        account: c.account, self: c.owner !== undefined && c.owner === token, ...(ids ? { ids } : {}),
       };
       // Events from one moment go out in one write: with many people connected, a write per event per stream is most of the work.
       if (!pending) queueMicrotask(flush);
