@@ -41,6 +41,8 @@ export function parseDigestChallenge(header: string | null | undefined): DigestC
     const qops = (p.qop ?? '').split(',').map((q) => q.trim().toLowerCase()).filter(Boolean);
     // Only "auth" is answered: "auth-int" hashes the request body and is not offered here.
     if (qops.length && !qops.includes('auth')) continue;
+    // Session algorithms incorporate cnonce in HA1, so the old no-qop header cannot authenticate them.
+    if (algorithm.endsWith('-SESS') && !qops.length) continue;
     return {
       realm: p.realm, nonce: p.nonce, ...(p.opaque !== undefined ? { opaque: p.opaque } : {}),
       algorithm: { MD5: 'MD5', 'MD5-SESS': 'MD5-sess', 'SHA-256': 'SHA-256', 'SHA-256-SESS': 'SHA-256-sess' }[algorithm] as DigestChallenge['algorithm'],
