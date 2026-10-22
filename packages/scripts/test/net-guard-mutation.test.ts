@@ -5,8 +5,8 @@ import { NAME_LOOKUP, addressRefusal, classifyAddress, guardedLookup, hostRefusa
 // These are the implemented outbound policy, not independently verified compatibility behavior.
 test('address decisions include range endpoints, neighboring ranges and embedded IPv4', () => {
   const cases = {
-    never: ['0.0.0.0', '0.1.2.3', '169.254.0.1', '100.100.100.200', '168.63.129.16', '224.0.0.0', '255.255.255.255', '::', 'fe80::1', 'febf::1', 'ff00::1', 'fd00:ec2::254', 'fd20:ce::254', 'bad'],
-    own: ['127.0.0.1', '10.0.0.1', '172.16.0.1', '172.31.0.1', '192.168.0.1', '100.64.0.1', '100.127.0.1', '100.100.99.200', '100.100.100.201', '192.0.0.1', '198.18.0.1', '198.19.0.1', '::1', '64:ff9b:1::1', '2001::1', 'fc00::1', 'fdff::1', 'fec0::1', 'fd20:cf::1'],
+    never: ['0.0.0.0', '0.1.2.3', '169.254.0.1', '100.100.100.200', '168.63.129.16', '224.0.0.0', '255.255.255.255', '::', 'fe80::1', 'febf::1', 'ff00::1', 'fd00:ec2::254', 'fd20:ce::254', 'fec0::1', 'bad'],
+    own: ['127.0.0.1', '10.0.0.1', '172.16.0.1', '172.31.0.1', '192.168.0.1', '100.64.0.1', '100.127.0.1', '100.100.99.200', '100.100.100.201', '192.0.0.1', '198.18.0.1', '198.19.0.1', '::1', '64:ff9b:1::1', '2001::1', 'fc00::1', 'fdff::1', 'fd20:cf::1'],
     public: ['1.0.0.0', '223.255.255.255', '169.253.0.1', '168.63.129.15', '172.15.0.1', '172.32.0.1', '192.167.0.1', '100.63.0.1', '100.128.0.1', '192.0.1.1', '198.17.0.1', '198.20.0.1', '2001:db8::1', 'fe7f::1', '64:ff9b:2::1'],
   } as const;
   for (const [expected, addresses] of Object.entries(cases)) for (const address of addresses) {
@@ -31,7 +31,7 @@ test('exported address parsers preserve valid groups and reject malformed addres
   assert.deepEqual(ipv6Groups('[2001:DB8::1]'), [0x2001, 0xdb8, 0, 0, 0, 0, 0, 1]);
   assert.deepEqual(ipv6Groups('1:2:3:4:5:6:7:8'), [1, 2, 3, 4, 5, 6, 7, 8]);
   assert.deepEqual(ipv6Groups('::ffff:192.0.2.1'), [0, 0, 0, 0, 0, 0xffff, 0xc000, 0x201]);
-  assert.deepEqual(ipv6Groups('fe80::1%eth0'), [0xfe80, 0, 0, 0, 0, 0, 0, 1]);
+  assert.equal(ipv6Groups('fe80::1%eth0'), undefined, 'a scoped address is never accepted');
 });
 
 test('metadata always refuses, own addresses need policy, public addresses pass', () => {
@@ -91,7 +91,9 @@ test('socket lookup refuses any forbidden answer before filtering families and r
   answers = [];
   assert.equal((await lookup('host.test')).error?.code, 'ENOTFOUND');
   fail = true;
-  assert.equal((await lookup('host.test')).error, failure);
+  const failed = (await lookup('host.test')).error;
+  assert.notEqual(failed, failure, 'the resolver error is replaced by one that names no address');
+  assert.match(failed!.message, /The outbound connection could not be made/);
   await new Promise<void>((resolve) => guardedLookup()('192.0.2.3', (error, address, family) => {
     assert.equal(error, null); assert.equal(address, '192.0.2.3'); assert.equal(family, 4); resolve();
   }));
