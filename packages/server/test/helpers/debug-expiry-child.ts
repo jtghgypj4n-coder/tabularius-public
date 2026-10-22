@@ -6,7 +6,7 @@ import { createStore, Store } from '../../../store/src/index.ts';
 import { ScriptDebugger, RunProfile } from '../../../scripts/src/index.ts';
 import { DebugApi } from '../../src/debug.ts';
 
-const api = new DebugApi({} as never, { alive: () => false } as never);
+const api = new DebugApi({} as never, { alive: () => false, endListeners: new Set() } as never);
 const runs = (api as unknown as { runs: Map<string, unknown> }).runs;
 
 async function running(id: string) {

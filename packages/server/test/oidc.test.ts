@@ -330,7 +330,7 @@ test('OIDC closes SQLite when the initial pending-row prune fails', { skip }, ()
   let closes = 0;
   prototype.close = function () { closes++; return realClose.call(this); };
   try {
-    assert.throws(() => new Oidc({ dir: testDir } as never, new DataApi({} as never), { name: 'x', issuer, clientId: 'x' }), /forced prune failure/);
+    assert.throws(() => new Oidc({ dir: testDir } as never, new DataApi({ onClose: [] } as never), { name: 'x', issuer, clientId: 'x' }), /forced prune failure/);
     assert.equal(closes, 1, 'constructor failure must close its opened SQLite database');
   } finally {
     prototype.close = realClose;
@@ -346,7 +346,7 @@ test('OIDC file identity check rejects replacement and host folder warning is no
     assert.equal(oidcHostDirectoryWarning(testDir), undefined);
     chmodSync(testDir, 0o777);
     assert.match(oidcHostDirectoryWarning(testDir)!, /group\/world-writable/);
-    const oidc = new Oidc({ dir: testDir } as never, new DataApi({} as never), { name: 'x', issuer, clientId: 'x' });
+    const oidc = new Oidc({ dir: testDir } as never, new DataApi({ onClose: [] } as never), { name: 'x', issuer, clientId: 'x' });
     assert.match(oidc.storageWarning!, /group\/world-writable/);
     const timer = (oidc as unknown as { resumePruner: NodeJS.Timeout }).resumePruner as NodeJS.Timeout & { _destroyed?: boolean };
     oidc.close();
@@ -370,7 +370,7 @@ test('OIDC storage refuses symlinks and permissive main files and sidecars', { s
   const testDir = mkdtempSync(join(tmpdir(), 'tabularius-oidc-secure-'));
   const storeDir = join(testDir, '.openhbam-oidc');
   const path = join(storeDir, 'pending.sqlite');
-  const create = () => new Oidc({ dir: testDir } as never, new DataApi({} as never), { name: 'x', issuer, clientId: 'x' });
+  const create = () => new Oidc({ dir: testDir } as never, new DataApi({ onClose: [] } as never), { name: 'x', issuer, clientId: 'x' });
   chmodSync(testDir, 0o755);
   writeFileSync(join(testDir, '.openhbam-oidc.sqlite'), 'old pending state that must never be read');
   create().close();

@@ -6,7 +6,8 @@ import { host } from '../../web/e2e/harness.ts';
 for (const step of ['Pause', 'Sort', 'Index', 'Dialog']) test(`${step} waiting responses retain the script's current window and display state`, () => {
   const client = Object.create(WebClient.prototype);
   client.paused = new Map();
-  const run = { script: 'Select B', sent: 0, answer: () => undefined };
+  client.api = { alive: () => true }; // outcome() now checks that the session is still alive
+  const run = { token: 'token', script: 'Select B', sent: 0, answer: () => undefined };
   const state = { window: { id: 'B', name: 'B', style: 'document' }, layout: 'Notes', recordId: 2,
     foundSet: [1, 2], mode: 'browse', active: null, syncVersion: 1 };
   const asked = { state, actions: [{ step: 'Freeze Window', script: 'Select B', windowId: 'A' }],
