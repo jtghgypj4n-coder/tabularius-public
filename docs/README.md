@@ -30,6 +30,7 @@ To read these pages offline with search, build the site: `npm run docs:build` wr
 - [Local embeddings](local-embeddings.md) — Set up semantic search and retrieval with an embedding model on your computer.
 - [Writing a plug-in](writing-a-plugin.md) — Add calculation functions in JavaScript or WebAssembly.
 - [Native field types](native-field-types.md) — Use boolean, integer, decimal, JSON and UUID fields in native files.
+- [Native foreign keys](native-foreign-keys.md) — Declare a relationship as a named foreign key with an ON DELETE choice in native files.
 - [Checking a solution](check-solution.md) — Find missing references, unavailable steps and empty privilege sets before they fail.
 - [Calendar feeds](calendar-feeds.md) — Subscribe to a layout's dates in a calendar app, and import events from an .ics file.
 

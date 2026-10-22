@@ -35,6 +35,15 @@ export function designReport(schema: Schema, designs: LayoutDesigns, opts: Repor
   const notes: string[] = [];
   const now = opts.now ?? new Date();
   const toName = (id: number | undefined) => s.tableOccurrences.find((t) => t.id === id)?.name ?? '';
+  // A native file's declared foreign key: its child and parent, by occurrence and field, and what deleting a parent does.
+  const foreignKeyXml = (r: Schema['relationships'][number]): string => {
+    const fk = r.foreignKey!;
+    const [childTo, parentTo] = fk.child === 'left' ? [r.leftTableOccurrenceId, r.rightTableOccurrenceId] : [r.rightTableOccurrenceId, r.leftTableOccurrenceId];
+    const field = (tableId: number, id: number) => s.tables.find((t) => t.id === tableId)?.fields.find((f) => f.id === id)?.name ?? '';
+    return el('ForeignKey', { name: fk.name, onDelete: fk.onDelete },
+      el('ChildField', {}, el('Field', { table: toName(childTo), id: fk.childFieldId, name: field(fk.childTableId, fk.childFieldId) })) +
+      el('ParentField', {}, el('Field', { table: toName(parentTo), id: fk.parentFieldId, name: field(fk.parentTableId, fk.parentFieldId) })));
+  };
   const out: string[] = [];
 
   out.push(el('BaseTableCatalog', {}, s.tables.map((t) => el('BaseTable', { id: t.id, records: opts.records?.(t.name), comment: '', name: t.name },
@@ -57,6 +66,8 @@ export function designReport(schema: Schema, designs: LayoutDesigns, opts: Repor
       el('RightTable', { cascadeCreate: tf(r.rightCreate), cascadeDelete: tf(r.rightDelete), name: right }),
       el('JoinPredicateList', {}, r.predicates.map((p) => el('JoinPredicate', { type: JOIN_TYPES[p.operator] ?? 'Equal' },
         el('LeftField', {}, fieldOf(r.leftTableOccurrenceId, p.leftFieldId, p.leftField)) + el('RightField', {}, fieldOf(r.rightTableOccurrenceId, p.rightFieldId, p.rightField)))).join('')),
+      // Native files only: the declared foreign key (Tabularius's own element; a FileMaker report has none).
+      r.foreignKey ? foreignKeyXml(r) : '',
     ].join(''));
   }).join(''))));
 

@@ -97,6 +97,15 @@ function fieldText(f: Field, schema: Schema): string {
   return lines.join('\n');
 }
 
+/** A native file's foreign key, under its relationship: `  Foreign key "Name": Child::Field references Parent::Field, on delete cascade`. */
+function foreignKeyLine(r: Schema['relationships'][number], left: string, right: string): string {
+  const fk = r.foreignKey!;
+  const p = r.predicates[0];
+  const ends = [`${left}::${p?.leftField ?? p?.leftFieldId}`, `${right}::${p?.rightField ?? p?.rightFieldId}`];
+  const [child, parent] = fk.child === 'left' ? ends : [ends[1], ends[0]];
+  return `  Foreign key ${JSON.stringify(fk.name)}: ${child} references ${parent}, on delete ${fk.onDelete}`;
+}
+
 /**
  * The design as files: a map from a relative path (with "/" separators) to
  * its text. Every file ends with a newline.
@@ -123,7 +132,7 @@ export function designText(src: DesignSource): Map<string, string> {
       r.leftCreate && `create in ${l}`, r.rightCreate && `create in ${rt}`,
       r.leftDelete && `delete in ${l}`, r.rightDelete && `delete in ${rt}`, r.sorted && 'sorted',
     ].filter(Boolean);
-    return `${l} ↔ ${rt}\n${preds.map((p) => '  ' + p).join('\n')}${opts.length ? `\n  Options: ${opts.join(', ')}` : ''}`;
+    return `${l} ↔ ${rt}\n${preds.map((p) => '  ' + p).join('\n')}${opts.length ? `\n  Options: ${opts.join(', ')}` : ''}${r.foreignKey ? `\n${foreignKeyLine(r, l, rt)}` : ''}`;
   });
   put('relationships.txt', ['Table occurrences', '', ...tos, '', 'Relationships', '', ...rels.flatMap((r) => [r, ''])].join('\n'));
 
