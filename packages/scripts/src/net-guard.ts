@@ -57,9 +57,10 @@ export function mappedIPv4(h: string): string | undefined {
   return `${a >> 8}.${a & 255}.${b >> 8}.${b & 255}`;
 }
 
-/** The eight 16-bit groups of an IPv6 address, or undefined when it isn't one. A zone ("%eth0") is dropped. */
+/** The eight 16-bit groups of an IPv6 address. Scoped addresses are never accepted. */
 export function ipv6Groups(address: string): number[] | undefined {
-  let h = address.toLowerCase().replace(/^\[|\]$/g, '').replace(/%.*$/, '');
+  if (address.includes('%')) return undefined;
+  let h = address.toLowerCase().replace(/^\[|\]$/g, '');
   if (isIP(h) !== 6) return undefined;
   const dotted = /(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(h);
   if (dotted) h = h.slice(0, dotted.index) + ((+dotted[1] << 8) | +dotted[2]).toString(16) + ':' + ((+dotted[3] << 8) | +dotted[4]).toString(16);
@@ -92,6 +93,7 @@ function embeddedV4(g: number[]): string | undefined {
   const [g0, g1, g2, g3, g4, g5, g6, g7] = g;
   const zeros = (n: number) => g.slice(0, n).every((x) => x === 0);
   if (zeros(5) && g5 === 0xffff) return dottedQuad(g6, g7); // ::ffff:a.b.c.d
+  if (zeros(4) && g4 === 0xffff && g5 === 0) return dottedQuad(g6, g7); // ::ffff:0:a.b.c.d, the SIIT translated form
   if (zeros(6) && (g6 !== 0 || g7 > 1)) return dottedQuad(g6, g7); // ::a.b.c.d, the deprecated IPv4-compatible form (not :: or ::1)
   if (g0 === 0x64 && g1 === 0xff9b && g2 === 0 && g3 === 0 && g4 === 0 && g5 === 0) return dottedQuad(g6, g7); // NAT64
   if (g0 === 0x2002) return dottedQuad(g1, g2); // 6to4 carries an IPv4 address after the prefix
@@ -109,13 +111,16 @@ export function classifyAddress(address: string): AddressClass {
   const [g0, g1, g2, g3, g4, g5, g6, g7] = g;
   if (g.every((x) => x === 0)) return 'never'; // ::
   if (g.slice(0, 7).every((x) => x === 0) && g7 === 1) return 'own'; // ::1
-  if (g0 === 0x64 && g1 === 0xff9b && g2 === 1) return 'own'; // 64:ff9b:1::/48, local-use NAT64
+  if (g0 === 0x64 && g1 === 0xff9b && g2 === 1) { // 64:ff9b:1::/48, local-use NAT64: the IPv4 address sits in bytes 6, 7, 9 and 10 (RFC 6052 skips byte 8)
+    const v4 = [g3 >> 8, g3 & 255, g4 & 255, g5 >> 8];
+    return v4.some(Boolean) && classifyV4(v4.join('.')) === 'never' ? 'never' : 'own'; // nothing embedded: still this host's own translator
+  }
   if (g0 === 0x2001 && g1 === 0) return 'own'; // Teredo
   if ((g0 & 0xffc0) === 0xfe80) return 'never'; // fe80::/10 link-local
   if ((g0 & 0xff00) === 0xff00) return 'never'; // multicast
   if ((g0 === 0xfd00 && g1 === 0x0ec2) || (g0 === 0xfd20 && g1 === 0x00ce)) return 'never'; // AWS's and Google's IPv6 metadata addresses
   if ((g0 & 0xfe00) === 0xfc00) return 'own'; // fc00::/7 unique-local
-  if ((g0 & 0xffc0) === 0xfec0) return 'own'; // site-local, deprecated
+  if ((g0 & 0xffc0) === 0xfec0) return 'never'; // site-local scope, deprecated
   return 'public';
 }
 
@@ -222,17 +227,18 @@ export function addressRefusal(policy: OutboundPolicy, host: string, address: st
   if (kind === 'never') {
     return linkLocalLike(address)
       ? 'That address leads to the link-local range, where cloud instances keep their credentials'
-      : `${address} is not an address a request can be sent to (unspecified, multicast or reserved)`;
+      : 'That address is not an address a request can be sent to (scoped, unspecified, multicast or reserved)';
   }
   const allow = policy.private;
   if (allow === true) return undefined;
   if (Array.isArray(allow) && allowEntries(allow).some((e) => entryMatches(e, name, address))) return undefined;
-  return `${name === address ? address : `${name} (${address})`} is on this server's own network, which a request from here may not reach unless an administrator allows it`;
+  return "That address is on this server's own network, which a request from here may not reach unless an administrator allows it";
 }
 
 /** The refusal for a host that is written as an address (a name is checked once it is resolved), or undefined. */
 export function hostRefusal(policy: OutboundPolicy, hostname: string): string | undefined {
   const h = hostname.replace(/^\[|\]$/g, '');
+  if (h.includes('%')) return 'Scoped addresses are not reached';
   if (METADATA_NAMES.has(h.toLowerCase().replace(/\.$/, ''))) return addressRefusal(policy, h, '169.254.169.254');
   return isIP(h) === 0 ? undefined : addressRefusal(policy, h, h);
 }
@@ -255,13 +261,21 @@ export function guardedLookup(policy: OutboundPolicy = {}): (hostname: string, o
         if (why) return done(Object.assign(new OutboundRefused(why), { code: 'EOUTBOUND' }) as NodeJS.ErrnoException);
       }
       const checked = list.map((a) => ({ address: a.address, family: a.family ?? isIP(a.address) })).filter((a) => !wanted || a.family === wanted);
-      if (!checked.length) return done(Object.assign(new Error(`${hostname} has no IPv${wanted || 4} address`), { code: 'ENOTFOUND' }) as NodeJS.ErrnoException);
+      if (!checked.length) return done(Object.assign(new Error('That host has no usable address'), { code: 'ENOTFOUND' }));
       if (opts.all) return done(null, checked);
       done(null, checked[0].address, checked[0].family);
     };
     if (isIP(hostname) !== 0) return finish([{ address: hostname }]);
-    NAME_LOOKUP.lookup(hostname, { all: true }).then(finish, (e) => done(e as NodeJS.ErrnoException));
+    NAME_LOOKUP.lookup(hostname, { all: true }).then(finish, (e) => done(connectionFailure(e)));
   };
+}
+
+/** Retain machine-readable failure codes without exposing resolver/socket addresses or TLS certificate names. */
+function connectionFailure(error: unknown): NodeJS.ErrnoException {
+  const safe: NodeJS.ErrnoException = new Error('The outbound connection could not be made; the error code says why');
+  const code = (error as NodeJS.ErrnoException | undefined)?.code;
+  if (typeof code === 'string' && /^[A-Z][A-Z0-9_]+$/.test(code)) safe.code = code;
+  return safe;
 }
 
 /** guardedLookup, typed for the `lookup` option of net.connect, tls.connect and http.request. */
@@ -286,7 +300,7 @@ const DEFAULT_MAX_BYTES = 2 * 1024 ** 3;
 const TRANSFER_WINDOW_MS = 15_000;
 const MIN_TRANSFER_BYTES_PER_SECOND = 1024;
 const REDIRECTS = new Set([301, 302, 303, 307, 308]);
-const NO_BODY = new Set([101, 204, 205, 304]);
+const NO_BODY = new Set([204, 205, 304]);
 /** The headers that may follow a redirect to another origin: none of them carries a credential. */
 const SAFE_ACROSS_ORIGINS = new Set(['accept', 'accept-language', 'accept-encoding', 'user-agent', 'range']);
 
@@ -474,15 +488,6 @@ function once(url: URL, method: string, headers: Headers, body: Buffer | undefin
         }
       }
       const declared = Number(res.headers['content-length']);
-      const { stream, encoded } = decoded(res);
-      if (encoded) {
-        out.delete('content-encoding');
-        out.delete('content-length');
-      } else if (!NO_BODY.has(status) && method !== 'HEAD' && Number.isFinite(declared) && declared > opts.maxBytes) {
-        res.destroy();
-        finish();
-        return reject(new OutboundRefused(`The response is larger than the ${opts.maxBytes} bytes a request may take in`));
-      }
       let response: Response;
       // A server can answer with a status no Response can hold (600, say): that is a failed request, never an uncaught error.
       if (status < 200 || status > 599) {
@@ -490,11 +495,21 @@ function once(url: URL, method: string, headers: Headers, body: Buffer | undefin
         return reject(new TypeError('fetch failed', { cause: new Error(`invalid upstream HTTP status ${status}`) }));
       }
       if (NO_BODY.has(status) || method === 'HEAD') {
-        res.once('end', finish);
+        // No body is exposed, so do not drain or decompress an attacker-supplied payload (notably 205).
+        // Every request has its own socket: closing it also avoids spending an admission slot on junk.
         res.once('close', finish);
-        res.resume();
+        res.destroy();
         response = new Response(null, { status, statusText: res.statusMessage, headers: out });
       } else {
+        const { stream, encoded } = decoded(res);
+        if (encoded) {
+          out.delete('content-encoding');
+          out.delete('content-length');
+        } else if (Number.isFinite(declared) && declared > opts.maxBytes) {
+          res.destroy();
+          finish();
+          return reject(new OutboundRefused(`The response is larger than the ${opts.maxBytes} bytes a request may take in`));
+        }
         const capped = new PassThrough();
         // pipeline removes its error handlers after buffering a complete response. An unread body can
         // still be destroyed by a later abort; keep that error handled even before its iterator starts.
@@ -537,25 +552,28 @@ function once(url: URL, method: string, headers: Headers, body: Buffer | undefin
       Object.defineProperty(response, 'url', { value: url.href });
       resolve({ response, settled });
     });
+    // 101 emits upgrade instead of response. Without a handler Node closes the socket without
+    // settling this promise; even the later deadline then cannot release the admission slot.
+    req.once('upgrade', (_res, socket) => {
+      socket.destroy();
+      finish();
+      reject(new OutboundRefused('HTTP protocol upgrades are not supported'));
+    });
     req.on('error', (e) => {
       finish();
       if (opts.signal.aborted) return reject(opts.signal.reason);
       const cause = (e as { cause?: unknown }).cause;
       const refused = e instanceof OutboundRefused ? e : cause instanceof OutboundRefused ? cause : undefined;
       if (refused) return reject(refused);
-      reject(new TypeError('fetch failed', { cause: e }));
+      reject(new TypeError('fetch failed', { cause: connectionFailure(e) }));
     });
     req.end(body);
   });
 }
 
 /**
- * fetch, through the guard. The same arguments and the same Response; refusals are an OutboundRefused, a request that
- * could not be made is a TypeError("fetch failed") with its cause, as fetch gives.
- */
-/**
  * What went wrong with a request, in words: the cause's system code (ECONNREFUSED and the like) says it for the program,
- * so a person is told the same thing as a sentence. Anything not recognised keeps the error's own text.
+ * so a person is told the same thing as a sentence. Unknown fetch failures use generic text; caller errors keep theirs.
  */
 export function networkProblem(e: unknown): string {
   const cause = (e as { cause?: unknown } | undefined)?.cause ?? e;
@@ -572,9 +590,33 @@ export function networkProblem(e: unknown): string {
   if (/^fetch failed$/i.test(own)) return 'the server could not be reached';
   if (own === 'unexpected redirect') return 'the server redirected the request, and this request does not follow redirects';
   if (own === 'too many redirects') return 'the server redirected the request too many times';
+  if (e instanceof TypeError && e.message === 'fetch failed') return 'the server could not be reached';
   return own;
 }
 
+/** Request.arrayBuffer() does not observe the request's signal while an upload producer is stalled. */
+async function requestBody(request: Request, signal: AbortSignal): Promise<Buffer | undefined> {
+  if (!request.body) return undefined;
+  const reader = request.body.getReader();
+  const abort = () => { void reader.cancel(signal.reason).catch(() => {}); };
+  signal.addEventListener('abort', abort, { once: true });
+  try {
+    if (signal.aborted) abort();
+    const chunks: Buffer[] = [];
+    for (;;) {
+      signal.throwIfAborted();
+      const { done, value } = await reader.read();
+      signal.throwIfAborted();
+      if (done) return Buffer.concat(chunks);
+      chunks.push(Buffer.from(value));
+    }
+  } finally {
+    signal.removeEventListener('abort', abort);
+    reader.releaseLock();
+  }
+}
+
+/** Fetch through the guard, with a fresh socket and a sanitized cause/code for connection failures. */
 export async function guardedFetch(input: string | URL | Request, init: RequestInit = {}, options: GuardOptions = {}): Promise<Response> {
   const policy = options.policy ?? {};
   // Before Request is made: its own error for an address with a password in it prints the password.
@@ -583,6 +625,7 @@ export async function guardedFetch(input: string | URL | Request, init: RequestI
     if (written.username || written.password) throw new OutboundRefused('Put no credentials in the address; send them in a header');
   } catch (e) {
     if (e instanceof OutboundRefused) throw e;
+    throw new OutboundRefused('The request address is not a valid URL');
   }
   const source = init.signal !== undefined ? init.signal : input instanceof Request ? input.signal : undefined;
   const identity = outboundContext.getStore();
@@ -598,7 +641,7 @@ export async function guardedFetch(input: string | URL | Request, init: RequestI
     let url = new URL(request.url);
     let method = request.method;
     let headers = new Headers(request.headers);
-    let body: Buffer | undefined = request.body ? Buffer.from(await request.arrayBuffer()) : undefined;
+    let body = request.body ? await requestBody(request, signal) : undefined;
     signal.throwIfAborted();
     release = await reserveOutbound(signal);
     signal.throwIfAborted(); // Cancellation may win just after admission, before this continuation.
@@ -616,7 +659,9 @@ export async function guardedFetch(input: string | URL | Request, init: RequestI
       await settled;
       if (request.redirect === 'error') throw new TypeError('fetch failed', { cause: new Error('unexpected redirect') });
       if (hop >= (options.maxRedirects ?? 5)) throw new TypeError('fetch failed', { cause: new Error('too many redirects') });
-      const next = new URL(location, url);
+      let next: URL;
+      try { next = new URL(location, url); }
+      catch { throw new OutboundRefused('The redirect address is not a valid URL'); }
       if (next.origin !== url.origin) {
         const kept = new Headers();
         headers.forEach((v, k) => SAFE_ACROSS_ORIGINS.has(k) && kept.set(k, v));

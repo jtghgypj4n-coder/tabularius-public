@@ -33,9 +33,9 @@ const PRIVATE = { policy: { private: true } } as const;
 test('addresses are classified: never (link-local, metadata, unspecified, multicast), own network, public; every spelling of the same address agrees', () => {
   const table: [AddressClass, string[]][] = [
     ['never', ['169.254.169.254', '169.254.0.1', '0.0.0.0', '0.1.2.3', '100.100.100.200', '168.63.129.16', '224.0.0.1', '239.255.255.250', '255.255.255.255', '240.0.0.1',
-      '::', 'fe80::1', 'febf::1', '[fe80::1]', 'fe80::1%eth0', 'fd00:ec2::254', 'fd20:ce::254', 'ff02::1', '::ffff:169.254.169.254', '::ffff:a9fe:a9fe', '64:ff9b::a9fe:a9fe', '2002:a9fe:a9fe::1', '::169.254.169.254', 'not an address']],
+      '::', 'fe80::1', 'febf::1', '[fe80::1]', 'fe80::1%eth0', 'fec0::1', 'fd00:ec2::254', 'fd20:ce::254', 'ff02::1', '::ffff:169.254.169.254', '::ffff:a9fe:a9fe', '64:ff9b::a9fe:a9fe', '2002:a9fe:a9fe::1', '::169.254.169.254', 'not an address']],
     ['own', ['127.0.0.1', '127.255.255.254', '10.0.0.5', '172.16.0.1', '172.31.255.255', '192.168.1.10', '100.64.0.1', '100.127.255.255', '192.0.0.8', '198.18.0.1',
-      '::1', 'fc00::1', 'fd12:3456::1', 'fec0::1', '::ffff:127.0.0.1', '::ffff:7f00:1', '::ffff:10.1.2.3', '64:ff9b::7f00:1', '64:ff9b:1::1', '2002:7f00:1::', '::127.0.0.1', '0:0:0:0:0:ffff:7f00:1']],
+      '::1', 'fc00::1', 'fd12:3456::1', '::ffff:127.0.0.1', '::ffff:7f00:1', '::ffff:10.1.2.3', '64:ff9b::7f00:1', '64:ff9b:1::1', '2002:7f00:1::', '::127.0.0.1', '0:0:0:0:0:ffff:7f00:1']],
     ['public', ['8.8.8.8', '93.184.216.34', '172.15.0.1', '172.32.0.1', '100.63.255.255', '100.128.0.1', '192.0.2.1', '2606:4700::1111', '2001:db8::1', '::ffff:8.8.8.8', '64:ff9b::808:808', '2002:808:808::']],
   ];
   for (const [kind, addresses] of table) for (const a of addresses) assert.equal(classifyAddress(a), kind, `${a} is ${kind}`);
@@ -115,7 +115,7 @@ test('a name with any link-local answer, or with an own-network one under a stri
   await assert.rejects(guardedFetch(`http://mixed.test:${port}/`, {}, PRIVATE), (e) => e instanceof OutboundRefused && /link-local/.test(e.message));
   await assert.rejects(guardedFetch(`http://v6.test:${port}/`, {}, PRIVATE), /link-local/);
   await assert.rejects(guardedFetch(`http://alias.test:${port}/`, {}, { policy: { private: ['alias.test', '169.254.0.0/16'] } }), /link-local/);
-  await assert.rejects(guardedFetch(`http://inside.test:${port}/`), (e) => e instanceof OutboundRefused && /inside\.test \(127\.0\.0\.1\) is on this server's own network/.test(e.message));
+  await assert.rejects(guardedFetch(`http://inside.test:${port}/`), (e) => e instanceof OutboundRefused && /own network/.test(e.message) && !/inside\.test|127\.0\.0\.1/.test(e.message));
   await assert.rejects(guardedFetch(`http://metadata.google.internal/computeMetadata/v1/`, {}, PRIVATE), /link-local/);
   await assert.rejects(guardedFetch('http://169.254.169.254/latest/meta-data/', {}, PRIVATE), /link-local/);
   await assert.rejects(guardedFetch('http://[fd00:ec2::254]/latest/meta-data/', {}, PRIVATE), /link-local/);
@@ -129,7 +129,7 @@ test('guardedLookup hands back only checked addresses, in the shape the socket a
   assert.deepEqual(await look('two.test', { family: 6 }), { result: '2606:4700::1111', family: 6 });
   assert.match((await look('bad.test', { all: true })).error?.message ?? '', /own network/);
   assert.equal((await look('bad.test', { all: true }, { private: true })).error, undefined);
-  assert.match((await look('missing.test', {})).error?.message ?? '', /not found/);
+  assert.equal(((await look('missing.test', {})).error as NodeJS.ErrnoException)?.code, 'ENOTFOUND');
   assert.match((await look('10.0.0.1', {})).error?.message ?? '', /own network/);
 });
 
@@ -149,7 +149,7 @@ test('a redirect is followed by hand, each hop checked: to a link-local address 
   assert.equal(hop.headers.get('location'), '/final');
   names(t, { 'first.test': ['127.0.0.1'], 'second.test': ['127.0.0.1'] });
   const listedByName = { policy: { private: ['first.test'] } };
-  await assert.rejects(guardedFetch(`http://first.test:${port}/to-other-name`, {}, listedByName), /second\.test.*own network/, 'a hop to a name the policy does not list is refused');
+  await assert.rejects(guardedFetch(`http://first.test:${port}/to-other-name`, {}, listedByName), /own network/, 'a hop to a name the policy does not list is refused');
   assert.equal(await (await guardedFetch(`http://first.test:${port}/to-final`, {}, listedByName)).text(), 'final', 'the listed name is allowed on every hop');
   await assert.rejects(guardedFetch(`${base}/loop`, {}, PRIVATE), /fetch failed/);
   await assert.rejects(guardedFetch(`${base}/to-final`, { redirect: 'error' }, PRIVATE), /fetch failed/);
