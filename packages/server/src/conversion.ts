@@ -6,7 +6,7 @@
 
 import { maskFormula } from '../../scripts/src/credentials.ts';
 
-import { FILEMAKER_FUNCTIONS, PLUGIN_FUNCTIONS } from '../../fmp12/src/index.ts';
+import { FILEMAKER_FUNCTIONS, PLUGIN_FUNCTIONS, type LayoutObject } from '../../fmp12/src/index.ts';
 import { scriptStepName } from '../../fmp12/src/script-steps.ts';
 import { FUNCTIONS } from '../../calc/src/functions.ts';
 import { CLIENT_ONLY_STEPS, SCREEN_STEPS, SERVER_STEPS } from '../../scripts/src/index.ts';
@@ -45,6 +45,12 @@ export interface ConversionReport {
     screenOnly: ConversionItem[];
     /** Only FileMaker Pro can do them (a person choosing a folder, a camera, AppleScript): error 3, as on FileMaker Server. */
     clientOnly: ConversionItem[];
+  };
+  /** Layout and object triggers whose event codes the file reader cannot name yet. */
+  triggers: {
+    undecoded: ConversionItem[];
+    /** Distinct affected layouts, including those beyond each event's five displayed places. */
+    layouts: number;
   };
   /** Formulas that don't parse. */
   unparsed: { where: string; text: string; error: string }[];
@@ -208,6 +214,26 @@ export function conversionReport(store: Store, hosted: string[] = [], focus?: (w
   const network = new Tally(keep);
   const screenOnly = new Tally(keep);
   const clientOnly = new Tally(keep);
+  const unnamedTriggers = new Tally();
+  const triggerLayouts = new Set<string>();
+  const triggerEvent = (event: string, where: string) => {
+    // The source event's name is unverified; keep its code instead of guessing a supported trigger name.
+    if (/^Event\d+$/.test(event) && (!focus || focus(where))) {
+      unnamedTriggers.add(event, where);
+      triggerLayouts.add(where);
+    }
+  };
+  const objectTriggers = (objects: LayoutObject[], where: string): void => {
+    for (const object of objects) {
+      for (const trigger of object.triggers ?? []) triggerEvent(trigger.event, where);
+      if (object.children?.length) objectTriggers(object.children, where);
+    }
+  };
+  for (const layout of store.designs().layouts) {
+    const where = `Layout "${layout.name}"`;
+    for (const trigger of layout.triggers ?? []) triggerEvent(trigger.event, where);
+    objectTriggers(layout.objects, where);
+  }
   // Scripts that open another file or perform its scripts need it hosted too, even with no table occurrence on it.
   const fileSteps = new Map<number, number>();
   const commentedOut: ConversionReport['commentedOut'] = [];
@@ -280,6 +306,7 @@ export function conversionReport(store: Store, hosted: string[] = [], focus?: (w
     summary: '',
     functions: { notYet: notYet.list(), undecoded: undecoded.list(), plugIns: named(plugIns).map((item) => item.name.startsWith('unknown plug-in (id only)') ? { ...item, where: [] } : item) },
     steps: { notYet: stepsNotYet.list(), blocked: blocked.list(), network: network.list(), screenOnly: screenOnly.list(), clientOnly: clientOnly.list() },
+    triggers: { undecoded: unnamedTriggers.list(), layouts: triggerLayouts.size },
     unparsed: unparsed.slice(0, LIST),
     broken: broken.slice(0, LIST),
     commentedOut: commentedOut.slice(0, LIST),
@@ -351,6 +378,9 @@ function summarize(r: ConversionReport, unparsed: number, broken: number): strin
   if (r.functions.notYet.length) problems.push(`- **FileMaker functions not available yet**: ${names(r.functions.notYet)}.`);
   if (r.functions.plugIns.length) problems.push(`- **Plug-in functions** (no plug-ins run here, so formulas using them give an error): ${names(r.functions.plugIns)}.`);
   if (r.functions.undecoded.length) problems.push(`- **Functions the reader can't name yet**: ${plural(uses(r.functions.undecoded), 'use')} of ${plural(r.functions.undecoded.length, 'function')}.`);
+  if (r.triggers.undecoded.length) {
+    problems.push(`- **Script triggers the reader cannot name yet**: ${plural(uses(r.triggers.undecoded), 'trigger')} on ${plural(r.triggers.layouts, 'layout')} (${names(r.triggers.undecoded)}). These triggers will not run; open the layout in FileMaker to identify them, then set them again in design mode.`);
+  }
   for (const u of r.unknownTokens) problems.push(`- **Unknown ${u.kind} ${u.id}** (${u.name}): ${plural(u.count, 'use')}, ${plural(u.files, 'file')}; shape: ${u.shapes.join(' | ')}. ${u.kind === 'step' ? 'Skipped with a notice and error 3.' : 'Returns ? without dispatching the unknown operation.'}`);
   if (unparsed) problems.push(`- **Formulas that don't parse**: ${unparsed} (some may be parts of the file the reader doesn't decode fully yet).`);
   if (missing.length) problems.push(`- **Other files not hosted here**: ${missing.map((d) => `${d.name} (${[d.occurrences ? plural(d.occurrences, 'table occurrence') : '', d.scriptSteps ? `${plural(d.scriptSteps, 'script step')} opening it or performing its scripts` : ''].filter(Boolean).join(', ')})`).join(', ')}. Host them alongside this file.` +
