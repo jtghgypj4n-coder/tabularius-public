@@ -327,6 +327,7 @@
         "docs/audits/r20-11-overload-capacity.md",
         "docs/signing.md",
         "docs/audits/audit-edge-limits.md",
+        "docs/audits/audit-http-framing.md",
         "docs/audits/audit-plugin-ecosystem.md",
         "docs/audits/mcp-conformance.md",
         "docs/audits/r25-22-date-time-functions.md",
