@@ -461,6 +461,25 @@ a deliberate, separate decision.
 
 ## Known limitations
 
+- Memory ceilings on per-client tables have a cost when someone attacks them on
+  purpose. Past the ceiling, new entries are refused rather than old ones
+  forgotten, so:
+  - Admin password attempts are counted per source address (per /64 for IPv6).
+    When more than 5000 addresses hold a live lock, every address is locked out
+    of admin password sign-in until the latest of those locks ends (up to 15
+    minutes). Someone with 5000 or more source addresses (one IPv6 /48 holds
+    65,536 /64 buckets) can therefore keep the real administrator from signing
+    in with the password. A console sign-in already made (its cookie) is not
+    affected. This was kept rather than shortened: a shorter lock would let a
+    flood reset locks that are protecting the password.
+  - OAuth client registration (the sign-in a claude.ai or Claude Desktop
+    connector starts with) accepts registrations from at most 1000 source
+    addresses an hour. Past that, new registrations get 429 until an address's
+    hour is over; apps that are already connected keep renewing their tokens.
+  - The PostgreSQL-compatible port keeps at most 1024 sockets open, counting
+    ones that have already signed in. Past that, new connections are closed at
+    once, so a flood of idle connections can crowd out new clients (not ones
+    already connected).
 - The live working database is plaintext while a file is served (see above).
 - Setting a non-empty FileMaker password in the file's own format needs a
   constant Tabularius doesn't yet derive; Tabularius manages its own password
