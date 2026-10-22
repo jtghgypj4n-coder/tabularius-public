@@ -548,7 +548,7 @@ test('Perform RAG Action: Send Prompt passes keyword_weight (0 to 1) with the qu
   assert.deepEqual(asked, [{ query: 'Where is PART-0042?', keywordWeight: 0.4 }, { query: 'Where is PART-0042?', keywordWeight: 1 }, { query: undefined, keywordWeight: undefined }, { query: undefined, keywordWeight: undefined }]);
 });
 
-test('Perform RAG Action: Send Prompt keeps result count and similarity threshold within their ranges', async () => {
+test('Perform RAG Action: Send Prompt clamps each numeric bound and defaults invalid values', async () => {
   const { rag } = fakeRag();
   const asked: { top: number; threshold: number }[] = [];
   const search = rag.search;
@@ -560,14 +560,24 @@ test('Perform RAG Action: Send Prompt keeps result count and similarity threshol
   ], { ai: { ...ai, rag } });
 
   for (const parameters of [
-    '"{\\"num_top_ranked_results\\": 101, \\"similarity_threshold\\": 2}"',
-    '"{\\"num_top_ranked_results\\": -1, \\"similarity_threshold\\": -2}"',
-    '"{\\"num_top_ranked_results\\": 0, \\"similarity_threshold\\": 0.5}"',
-    '"{\\"num_top_ranked_results\\": 2, \\"similarity_threshold\\": -2}"',
+    ...[
+      { num_top_ranked_results: 0, similarity_threshold: -1 },
+      { num_top_ranked_results: 100, similarity_threshold: 1 },
+      { num_top_ranked_results: 1, similarity_threshold: -0.999 },
+      { num_top_ranked_results: 99, similarity_threshold: 0.999 },
+      { num_top_ranked_results: -1, similarity_threshold: -2 },
+      { num_top_ranked_results: 101, similarity_threshold: 2 },
+      { num_top_ranked_results: -1e300, similarity_threshold: -1e300 },
+      { num_top_ranked_results: 1e300, similarity_threshold: 1e300 },
+    ].map((p) => `"${JSON.stringify(p).replaceAll('"', '\\"')}"`),
+    `"${JSON.stringify({ num_top_ranked_results: 'nope', similarity_threshold: 'nope' }).replaceAll('"', '\\"')}"`,
+    `"${JSON.stringify({ num_top_ranked_results: null, similarity_threshold: null }).replaceAll('"', '\\"')}"`,
   ]) assert.equal((await send(parameters)).error, 0);
   assert.deepEqual(asked, [
     { top: 100, threshold: 1 },
-    { top: 2, threshold: -1 },
+    { top: 1, threshold: -0.999 }, { top: 99, threshold: 0.999 },
+    { top: 100, threshold: 1 }, { top: 100, threshold: 1 },
+    { top: 5, threshold: 0 }, { top: 5, threshold: 0 },
   ]);
 });
 

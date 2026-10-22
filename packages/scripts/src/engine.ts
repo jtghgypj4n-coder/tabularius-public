@@ -2551,8 +2551,7 @@ export class ScriptEngine {
         const prompt = a.prompt !== undefined ? asText(this.eval(f, a.prompt)) : a.input !== undefined ? asText(this.eval(f, a.input)) : '';
         if (!prompt.trim()) throw new ScriptError(ERROR.noCriteria, `${step}: there is no prompt to send`);
         const params = parameters();
-        // Claris documents these ranges and that zero results means no context, but not how out-of-range
-        // values are handled. Keep this engine's existing clamps for compatibility.
+        // The ranges and out-of-range behavior are unverified against the compatible product; keep existing clamps.
         const threshold = typeof params.similarity_threshold === 'number' ? Math.max(-1, Math.min(1, params.similarity_threshold)) : 0;
         const top = typeof params.num_top_ranked_results === 'number' ? Math.max(0, Math.min(100, Math.trunc(params.num_top_ranked_results))) : 5;
         // Beyond Claris: keyword_weight (0 to 1, default 0) blends how many of the question's words a chunk holds into its score.
