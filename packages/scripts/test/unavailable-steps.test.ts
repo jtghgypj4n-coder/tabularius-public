@@ -14,19 +14,25 @@ const cells = [...section.matchAll(/^\| ([^|]+) \| /gm)].map((m) => m[1].trim())
 
 test('the error 3 step lists match the support table in the docs', () => {
   const always = new Set<string>();
+  const sometimes = new Set<string>();
   for (const cell of cells) {
+    const conditional = cell.includes('(');
     for (const part of cell.replace(/\([^)]*\)/g, '').split(';')) {
       const name = part.trim();
-      if (name) always.add(name);
+      if (name) (conditional ? sometimes : always).add(name);
     }
   }
   assert.deepEqual([...ERROR_3_STEPS].sort(), [...always].sort());
   // A step that works once the server is set up for it (mail, script network access, the embedding model) is not
-  // "not supported", so its row lives in "Partly supported", and the lists here must have it there.
+  // "not supported", so its row lives in "Partly supported". A conditional row here must be one of these lists,
+  // and each name in these lists is either a conditional row here or a row in "Partly supported".
   const partlyStart = docs.indexOf('## Partly supported');
   const partly = docs.slice(partlyStart, docs.indexOf('\n## ', partlyStart + 5));
   const partlyCells = [...partly.matchAll(/^\| ([^|]+) \| /gm)].map((m) => m[1]);
-  for (const name of ERROR_3_UNLESS_CONFIGURED) assert.ok(partlyCells.some((c) => c.includes(name)), `${name} is not in Partly supported`);
+  for (const name of sometimes) assert.ok(ERROR_3_UNLESS_CONFIGURED.has(name), `${name} is conditional in the table but not in ERROR_3_UNLESS_CONFIGURED`);
+  for (const name of ERROR_3_UNLESS_CONFIGURED) {
+    assert.ok(sometimes.has(name) || partlyCells.some((c) => c.includes(name)), `${name} is in neither the conditional rows nor Partly supported`);
+  }
 });
 
 test('every name in the error 3 lists is a script step', () => {
