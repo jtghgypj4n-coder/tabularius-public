@@ -527,7 +527,9 @@ npm run tabularius -- privileges ~/FileMakerFiles Contacts must-change Clerk
 `account` assigns an account to a privilege set. `policy` with no numbers shows
 the current minimum password length and maximum age; give a minimum length,
 optionally followed by a maximum age in days, to set them, and use `0` to turn
-a limit off. `must-change` requires
+a limit off. Until a file sets its own minimum, a new password needs at least 12
+characters (as does the admin console's); `TABULARIUS_MIN_PASSWORD_LENGTH` sets
+another default (`0` for none), and `policy 0` gives one file no minimum. `must-change` requires
 the account to change its password at next sign-in; add `off` to clear that
 requirement.
 

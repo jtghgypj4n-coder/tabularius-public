@@ -10627,6 +10627,7 @@ Response `200`:
   "apiTokens": [],
   "pendingChanges": [],
   "passwordPolicy": {},
+  "minPasswordLength": 12,
   "requireTotpForFullAccess": false,
   "fullAccessWithout2fa": [
     "Admin"
@@ -10773,6 +10774,7 @@ Response `200`:
   "apiTokens": [],
   "pendingChanges": [],
   "passwordPolicy": {},
+  "minPasswordLength": 12,
   "requireTotpForFullAccess": false,
   "fullAccessWithout2fa": [
     "Admin"
@@ -10913,6 +10915,7 @@ Response `200`:
     ],
     "pendingChanges": [],
     "passwordPolicy": {},
+    "minPasswordLength": 12,
     "requireTotpForFullAccess": false,
     "fullAccessWithout2fa": [
       "Admin"
@@ -11037,6 +11040,7 @@ Response `200`:
     "apiTokens": [],
     "pendingChanges": [],
     "passwordPolicy": {},
+    "minPasswordLength": 12,
     "requireTotpForFullAccess": false,
     "fullAccessWithout2fa": [
       "Admin"
@@ -11216,6 +11220,7 @@ Response `200`:
     "apiTokens": [],
     "pendingChanges": [],
     "passwordPolicy": {},
+    "minPasswordLength": 12,
     "requireTotpForFullAccess": false,
     "fullAccessWithout2fa": [
       "Admin"
@@ -11341,6 +11346,7 @@ Response `200`:
     "apiTokens": [],
     "pendingChanges": [],
     "passwordPolicy": {},
+    "minPasswordLength": 12,
     "requireTotpForFullAccess": false,
     "fullAccessWithout2fa": [
       "Admin"
@@ -11460,6 +11466,7 @@ Response `200`:
     "apiTokens": [],
     "pendingChanges": [],
     "passwordPolicy": {},
+    "minPasswordLength": 12,
     "requireTotpForFullAccess": false,
     "fullAccessWithout2fa": [
       "Admin"
@@ -11579,6 +11586,7 @@ Response `200`:
     "apiTokens": [],
     "pendingChanges": [],
     "passwordPolicy": {},
+    "minPasswordLength": 12,
     "requireTotpForFullAccess": false,
     "fullAccessWithout2fa": [
       "Admin"

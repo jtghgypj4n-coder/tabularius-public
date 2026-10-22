@@ -129,7 +129,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { createHash, randomBytes } from 'node:crypto';
 import { copyFileSync, existsSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, extname, join, resolve, sep } from 'node:path';
-import { hashPassword, checkPassword, addressBucket, StoreError, findStaleCalcs, refreshStaleCalcs, undoStaleRefresh, staleRefreshHistory, StaleCalcError, SECURITY_EVENT_CATEGORIES, isFullAccess, type AuditEntry, type FieldLevel, type SecurityEvent, type Store } from '../../store/src/index.ts';
+import { hashPassword, defaultMinPasswordLength, checkPassword, addressBucket, StoreError, findStaleCalcs, refreshStaleCalcs, undoStaleRefresh, staleRefreshHistory, StaleCalcError, SECURITY_EVENT_CATEGORIES, isFullAccess, type AuditEntry, type FieldLevel, type SecurityEvent, type Store } from '../../store/src/index.ts';
 import { loadAsset, sendAsset } from './static-cache.ts';
 import type { DataApi } from './dataapi.ts';
 import type { Live } from './live.ts';
@@ -294,6 +294,12 @@ function queryInteger(p: URLSearchParams, name: string, max: number, min = 1): n
   const value = Number(raw);
   if (!Number.isSafeInteger(value) || value < min || value > max) throw new ApiError(960, `Parameter is invalid: ${name} is ${min} to ${max}`, 400);
   return value;
+}
+
+/** Why a password may not be the admin console's (shorter than the minimum for new passwords), or undefined. */
+export function adminPasswordProblem(password: string): string | undefined {
+  const min = defaultMinPasswordLength();
+  return min && [...password.trim()].length < min ? `the admin console password needs at least ${min} characters, not counting spaces at either end (TABULARIUS_MIN_PASSWORD_LENGTH sets another minimum)` : undefined;
 }
 
 /** Sets the admin console password for a hosted folder. */

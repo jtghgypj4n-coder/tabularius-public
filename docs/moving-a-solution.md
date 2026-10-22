@@ -442,7 +442,8 @@ These have no direct equivalent in a FileMaker file. The
 
 - **Password rules:** `tabularius privileges ~/Databases Invoices policy 12 90`
   sets a minimum length of 12 and a maximum age of 90 days. Use 0 to turn a
-  limit off.
+  limit off. A file with no policy of its own already needs 12 characters for a
+  new password.
 - **Two-factor sign-in:** `tabularius totp ~/Databases Invoices enroll Ann`,
   then `confirm Ann <code>`.
 - **API tokens for integrations**, instead of a stored password:

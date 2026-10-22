@@ -27,7 +27,7 @@ One page: what Tabularius is built to defend, against whom, and what it does not
 
 - The operating system keeps the data folder to the user Tabularius runs as.
 - Either the network is trusted or the server speaks HTTPS (its own certificate, Let's Encrypt, or a proxy that says so with `--public-url`).
-- The administrator chooses sensible passwords. Nothing enforces a minimum length by default.
+- The administrator chooses sensible passwords. A new password needs at least 12 characters by default (a file's own policy and `TABULARIUS_MIN_PASSWORD_LENGTH` can change that); nothing checks strength, and a password already set is not re-checked.
 - A proxy in front of the server is told about with `--trusted-proxies` and nothing else; forwarding headers from anywhere else are not believed.
 
 ## Out of scope

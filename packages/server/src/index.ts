@@ -99,7 +99,7 @@ export { SqlEndpoint } from './sql.ts';
 export { ODataEndpoint, filterSql } from './odata.ts';
 export { ContainerFiles, parseRange } from './containers.ts';
 export { Uploads, hostedName, MAX_PIECE } from './uploads.ts';
-export { Admin, setAdminPassword } from './admin.ts';
+export { Admin, setAdminPassword, adminPasswordProblem } from './admin.ts';
 export { tokenExpiry, defaultTokenDays, DEFAULT_TOKEN_DAYS, DEFAULT_FEED_DAYS } from './token-expiry.ts';
 export { AdminApi, ADMIN_API_VERSION } from './adminapi.ts';
 export { ChangeFeed, Webhooks, type Webhook, type FeedEntry } from './changes.ts';

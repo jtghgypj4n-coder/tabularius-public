@@ -83,7 +83,8 @@ test('every row of the table holds on a server started with no flags', async (t)
 
   // node:http, not fetch: a request here has to be able to name another Host.
   const request: Ctx['request'] = (path, init = {}) => new Promise((resolve, reject) => {
-    const req = httpRequest({ host: '127.0.0.1', port, path, method: init.method ?? 'GET', headers: init.headers }, (res) => {
+    // No shared agent: a row that runs a command line (spawnSync) stops this process for seconds, long enough for the server to close a kept-alive socket.
+    const req = httpRequest({ host: '127.0.0.1', port, path, method: init.method ?? 'GET', headers: init.headers, agent: false }, (res) => {
       const chunks: Buffer[] = [];
       res.on('data', (c: Buffer) => chunks.push(c));
       res.on('end', () => {
@@ -128,6 +129,19 @@ test('every row of the table holds on a server started with no flags', async (t)
     passwordPolicy() {
       const s = new Store(file, 'Shop');
       try { return JSON.stringify(s.passwordPolicy()); } finally { s.close(); }
+    },
+    passwordRules() {
+      const folder = mkdtempSync(join(tmpdir(), 'tabularius-defaults-passwd-'));
+      folders.push(folder);
+      createStore(join(folder, 'Pw.openhbam.sqlite'));
+      const cli = (args: string[], password: string) => spawnSync(process.execPath, ['--no-warnings', mainFile, ...args], { env: { ...cleanEnv(home), TABULARIUS_PASSWORD: password }, encoding: 'utf8' });
+      const short = cli(['passwd', folder, 'Pw', 'Admin'], 'abc');
+      const long = cli(['passwd', folder, 'Pw', 'Admin'], 'abcdefghijkl');
+      const consoleShort = cli(['admin-password', folder], 'abc');
+      const consoleLong = cli(['admin-password', folder], 'abcdefghijkl');
+      const ok = short.status !== 0 && /at least 12 characters/.test(short.stderr) && long.status === 0
+        && consoleShort.status !== 0 && /at least 12 characters/.test(consoleShort.stderr) && consoleLong.status === 0;
+      return ok ? 'refuses 3 characters, takes 12' : JSON.stringify({ short: [short.status, short.stderr.slice(0, 120)], long: [long.status, long.stderr.slice(0, 120)], consoleShort: [consoleShort.status, consoleShort.stderr.slice(0, 120)], consoleLong: [consoleLong.status, consoleLong.stderr.slice(0, 120)] });
     },
     apiTokenShape() {
       // Made the way a person makes one on the command line, with no flags, in a folder of its own.

@@ -18,10 +18,10 @@ import { startDemo } from './demo.ts';
 import { checkPort, defaults, installed, installService, serviceFile, uninstallService, servicePlainRefusal, defaultServiceHost, upgrade, validateServicePublicUrl, type Platform, type ServiceOptions } from './service.ts';
 import { claimFolder } from '../../server/src/backup.ts';
 import { FmpDatabase, fileSource, encryptionInfo, readLayoutDesigns, segmentOf, inspectText, type Schema } from '../../fmp12/src/index.ts';
-import { BUILT_IN_EXTENDED_PRIVILEGES, addCensus, styleCensus, styleCensusText, calcFidelity, censusText, exportSql, exportSqlSummary, planImportTables, importTables, importTablesSummary, notionMarkdownSheet, MAX_IMPORT_ROWS, type SheetInput, type ColumnOverrides, type ColumnKind, findStaleCalcs, layoutCensus, type LayoutCensus, createStore, designReport, importFmp12, PASSWORD_POLICY, reconvert, reconvertCheck, verifySecurityAudit, verifyRecordAudit, anchorHead, checkAnchor, Store, syncPlan, openForPlanning, applySync, readSyncLog, releaseHeldTables, type ConflictPolicy, writeBackKit, designText, writeDesignText, diffDesigns, planDesignApply, readDesignFolder, type DesignOp, type ReconvertPreview, csvField } from '../../store/src/index.ts';
+import { BUILT_IN_EXTENDED_PRIVILEGES, addCensus, styleCensus, styleCensusText, calcFidelity, censusText, exportSql, exportSqlSummary, planImportTables, importTables, importTablesSummary, notionMarkdownSheet, MAX_IMPORT_ROWS, type SheetInput, type ColumnOverrides, type ColumnKind, findStaleCalcs, layoutCensus, type LayoutCensus, createStore, designReport, importFmp12, PASSWORD_POLICY, DEFAULT_MIN_PASSWORD_LENGTH, reconvert, reconvertCheck, verifySecurityAudit, verifyRecordAudit, anchorHead, checkAnchor, Store, syncPlan, openForPlanning, applySync, readSyncLog, releaseHeldTables, type ConflictPolicy, writeBackKit, designText, writeDesignText, diffDesigns, planDesignApply, readDesignFolder, type DesignOp, type ReconvertPreview, csvField } from '../../store/src/index.ts';
 import { xlsxSheetNames } from '../../scripts/src/xlsx.ts';
 import { importFileRowIterator, neverAllowed, parseAllowList, SCREEN_STEPS, SERVER_STEPS, testScripts, type ScriptTestResult } from '../../scripts/src/index.ts';
-import { conversionReport, explainScriptFailure, type ScriptFailure, DEFAULT_MODEL, Host, serve, serveCluster, serveStdio, aiStatus, STORE_EXT, ENCRYPTED_EXT, encryptFileSync, decryptFileSync, setAdminPassword, tokenExpiry, backupFolder, backupSets, defaultBackupDir, parseInterval, parseTime, restoreAt, restoreBackup, AccountChangesError, type AccountDifference, type ChangedSince, verifySet, describeCheck, resolveEmbedEndpoint, resolveImageEmbed, localCertificateFiles, Standby, S3, s3FromEnv, mirrorDown, fetchFmsExport, migrateFms, describeMigration, copySize, readSettings, runningServer, dataApiSource, dataApiClient, checkSyncAllowed, describeApply, describePlan, verifySync, describeSyncVerification, parseSyncConfig, CONTAINER_PULL_MAX_BYTES, type FmsExport } from '../../server/src/index.ts';
+import { conversionReport, explainScriptFailure, type ScriptFailure, DEFAULT_MODEL, Host, serve, serveCluster, serveStdio, aiStatus, STORE_EXT, ENCRYPTED_EXT, encryptFileSync, decryptFileSync, setAdminPassword, adminPasswordProblem, tokenExpiry, backupFolder, backupSets, defaultBackupDir, parseInterval, parseTime, restoreAt, restoreBackup, AccountChangesError, type AccountDifference, type ChangedSince, verifySet, describeCheck, resolveEmbedEndpoint, resolveImageEmbed, localCertificateFiles, Standby, S3, s3FromEnv, mirrorDown, fetchFmsExport, migrateFms, describeMigration, copySize, readSettings, runningServer, dataApiSource, dataApiClient, checkSyncAllowed, describeApply, describePlan, verifySync, describeSyncVerification, parseSyncConfig, CONTAINER_PULL_MAX_BYTES, type FmsExport } from '../../server/src/index.ts';
 // optimize's report (kept apart from the busy import line above).
 import { sheetsFromFile, checkSheetNames, sheetNameOf } from '../../server/src/import-sheets.ts';
 import { optimizationReport, openApiDocument, typesFromOpenApi, checkSolution, checkSolutionText, createFeed, importIcs, listFeeds, revokeFeed } from '../../server/src/index.ts';
@@ -295,12 +295,14 @@ Hosting (point it at a folder of .fmp12 files; each is converted once):
                                              converts afresh when edits can't be carried over
   tabularius passwd <folder> <database> <account> [--privilege-set S] [--must-change]
                                              Set an account's password (read from
-                                             TABULARIUS_PASSWORD or stdin); new accounts
-                                             need a privilege set. --must-change makes
+                                             TABULARIUS_PASSWORD or stdin; at least 12
+                                             characters unless the file's policy says
+                                             otherwise); new accounts need a privilege set. --must-change makes
                                              the person set a new one at next sign-in
   tabularius privileges <folder> <database> policy [minLength [maxAgeDays]]
                                              Show or set the file's password policy
-                                             (0 turns a limit off)
+                                             (0 turns a limit off; a file with no minimum
+                                             of its own takes 12, TABULARIUS_MIN_PASSWORD_LENGTH)
   tabularius privileges <folder> <database> must-change <account> [off]
                                              Require (or clear) a password change at
                                              the account's next sign-in
@@ -835,7 +837,8 @@ function privileges(store: Store, action?: string, a?: string, b?: string): void
     case 'policy': {
       const describe = () => {
         const p = store.passwordPolicy();
-        console.log(`password policy: minimum length ${p.minLength ?? 'none'}, maximum age ${p.maxAgeDays ? p.maxAgeDays + ' days' : 'none'}`);
+        const min = store.minPasswordLength();
+        console.log(`password policy: minimum length ${min || 'none'}${p.minLength === undefined && min ? ' (the server\'s default; set 0 for none)' : ''}, maximum age ${p.maxAgeDays ? p.maxAgeDays + ' days' : 'none'}`);
       };
       if (a === undefined && b === undefined) { describe(); return; }
       const num = (v?: string) => (v === undefined ? undefined : Number(v));
@@ -1386,14 +1389,15 @@ function main(argv: string[]): number {
       if (!(Number.isInteger(workers) && workers >= 1 && workers <= 64)) throw new Error('serve: --workers takes a number of processes (1 to 64) or auto');
       if (workers > 1) {
         serveCluster({ dir: path, port, hostname, mcpToken, scriptNetwork, scriptNetworkAllow, listFilesPublicly, appConnections, webhooks, inboundHooks, testOutbound, ...(sendMail ? { sendMail } : {}), tlsCert, tlsKey, publicUrl, mcpAllowedOrigins, proxyHeader, trustedProxies, edgeLimits, acme, backups, offsite, progressive, statsInterval, logLimit, replicationToken, sqlPort, ai, aiExclude, oidc, ldap, encryptionKey, background: true }, workers, PASSWORD_POLICY.blankFromNetwork).then(({ url, close }) => {
+          // Ready for a stop before anything is printed: whoever sees the first line may signal at once.
+          const stop = () => void close().finally(() => process.exit(0));
+          process.once('SIGINT', stop);
+          process.once('SIGTERM', stop);
           if (exposedPlain) console.warn(`Warning: this server listens on ${hostname} over plain HTTP, so passwords and sign-in tokens cross the network unencrypted. Add --https <your domain> (or --https local for a local network), or put it behind a proxy that does HTTPS and give --public-url https://...`);
           console.log(`hosting ${path} with ${workers} worker processes`);
           console.log(`Web client: ${url}/app/   Admin: ${url}/admin/   Data API: ${url}/fmi/data/vLatest   MCP: ${url}/mcp`);
           if (ai) console.log(`AI assistant on (${ai.model ?? DEFAULT_MODEL}): questions and what it reads go to Anthropic`);
           console.log(backups ? `backups every ${every} to ${dest ?? defaultBackupDir(path)}, keeping ${keep}${process.env.TABULARIUS_BACKUP_KEY ? ', encrypted' : ''}` : 'backups off');
-          const stop = () => void close().finally(() => process.exit(0));
-          process.once('SIGINT', stop);
-          process.once('SIGTERM', stop);
         }, (e) => {
           process.stderr.write(`error: ${plainError(e)}\n`);
           process.exit(1);
@@ -1405,6 +1409,25 @@ function main(argv: string[]): number {
       const drainMs = graceText === undefined || graceText === '' ? undefined : Number(graceText) * 1000;
       if (drainMs !== undefined && !(Number.isFinite(drainMs) && drainMs >= 1000 && drainMs <= 86_400_000)) throw new Error('serve: TABULARIUS_DRAIN_SECONDS is a number of seconds (1 to 86400)');
       serve({ dir: path, drainMs, port, hostname, serviceInstalled: () => installed()?.folder === resolve(path), mcpToken, scriptNetwork, scriptNetworkAllow, listFilesPublicly, appConnections, webhooks, inboundHooks, testOutbound, ...(sendMail ? { sendMail } : {}), tlsCert, tlsKey, publicUrl, mcpAllowedOrigins, proxyHeader, trustedProxies, edgeLimits, acme, backups, offsite, progressive, statsInterval, logLimit, replicationToken, sqlPort, ai, aiExclude, oidc, ldap, encryptionKey, background: true }).then(({ url, host, server, offsite: offsiteSchedule }) => {
+        // Ready for a stop before anything is printed: whoever sees the first line may signal at once. The last changes go
+        // off-site before the process ends. A first signal stops cleanly (running requests finish, the files are saved and
+        // closed); a second one stops at once.
+        let stopping = false;
+        let filesClosed = false;
+        const stop = () => {
+          if (stopping) {
+            console.error(filesClosed ? 'stopping now' : 'stopping now without closing the files; they recover when the server starts again');
+            process.exit(1);
+          }
+          stopping = true;
+          console.log('stopping: finishing running requests and saving the files (press Ctrl-C again to stop at once)');
+          server.close(() => {
+            filesClosed = true;
+            void (offsiteSchedule?.stop() ?? Promise.resolve()).finally(() => process.exit(0));
+          });
+        };
+        process.on('SIGINT', stop);
+        process.on('SIGTERM', stop);
         // Told once it is listening, so a start that fails (a bad address, a port in use) gives only its own error.
         if (exposedPlain) console.warn(`Warning: this server listens on ${hostname} over plain HTTP, so passwords and sign-in tokens cross the network unencrypted. Add --https <your domain> (or --https local for a local network), or put it behind a proxy that does HTTPS and give --public-url https://...`);
         console.log(`hosting ${host.names().join(', ') || '(no databases)'}`);
@@ -1428,24 +1451,6 @@ function main(argv: string[]): number {
         if (replicationToken) console.log(`standby servers can follow this one: tabularius standby <folder> --primary ${url} --token ...`);
         if (progressive) console.log(`changes saved every ${progressiveEvery}: restore to any of those moments with tabularius restore --at`);
         if (encryptionKey) console.log('encryption at rest on: stores are re-encrypted on a clean shutdown (Ctrl-C), not left as plaintext');
-        // The last changes go off-site before the process ends.
-        // A first signal stops cleanly (running requests finish, the files are saved and closed); a second one stops at once.
-        let stopping = false;
-        let filesClosed = false;
-        const stop = () => {
-          if (stopping) {
-            console.error(filesClosed ? 'stopping now' : 'stopping now without closing the files; they recover when the server starts again');
-            process.exit(1);
-          }
-          stopping = true;
-          console.log('stopping: finishing running requests and saving the files (press Ctrl-C again to stop at once)');
-          server.close(() => {
-            filesClosed = true;
-            void (offsiteSchedule?.stop() ?? Promise.resolve()).finally(() => process.exit(0));
-          });
-        };
-        process.on('SIGINT', stop);
-        process.on('SIGTERM', stop);
       }, (e) => {
         process.stderr.write(`error: ${plainError(e)}\n`);
         process.exit(1);
@@ -1709,6 +1714,8 @@ function main(argv: string[]): number {
       later((async () => {
         const password = process.env.TABULARIUS_PASSWORD ?? await readSecret('New admin console password', { confirm: true });
         if (!password) throw new Error('admin-password: empty password');
+        const problem = adminPasswordProblem(password);
+        if (problem) throw new Error(`admin-password: ${problem}`);
         setAdminPassword(path, password);
         console.log(`admin password set for ${path}`);
       })());
@@ -2277,9 +2284,9 @@ function main(argv: string[]): number {
           const password = process.env.TABULARIUS_PASSWORD ?? await readSecret(`New password for ${account}`, { confirm: true });
           if (!password) throw new Error(`passwd: empty password. Type one at the prompt, or pipe it in: echo 'new-password' | tabularius passwd ${path} ${database} ${account}`);
           store.setPassword(account, password, privilegeSet, { mustChange });
-          // Set anyway (a file's own policy, if any, has already refused what it won't take), but said out loud.
+          // Set anyway (the file's policy has already refused what it won't take), but said out loud.
           if (!password.trim()) console.error(`warning: the password for ${account} is only spaces; anyone can guess that`);
-          else if (password.length < 8) console.error(`warning: the password for ${account} is only ${password.length} character${password.length === 1 ? '' : 's'}; 8 or more is safer (change it with: tabularius passwd ${path} ${database} ${account})`);
+          else if (password.length < 12) console.error(`warning: the password for ${account} is only ${password.length} character${password.length === 1 ? '' : 's'}; 12 or more is safer (change it with: tabularius passwd ${path} ${database} ${account})`);
         } finally {
           store.close();
         }
@@ -2966,6 +2973,11 @@ function main(argv: string[]): number {
 let promptedPassphrase: string | undefined;
 
 try {
+  // New passwords need DEFAULT_MIN_PASSWORD_LENGTH characters, in a file whose own policy names no minimum and for the admin
+  // console, unless the operator sets another length (0 for none). Set here so a cluster's workers inherit it.
+  const minimum = process.env.TABULARIUS_MIN_PASSWORD_LENGTH?.trim();
+  if (!minimum) process.env.TABULARIUS_MIN_PASSWORD_LENGTH = String(DEFAULT_MIN_PASSWORD_LENGTH);
+  else if (!/^\d{1,3}$/.test(minimum)) throw new Error(`TABULARIUS_MIN_PASSWORD_LENGTH is the fewest characters a new password may have, a whole number (0 for no minimum), not "${minimum}"`);
   process.exitCode = main(process.argv.slice(2));
 } catch (e) {
   process.stderr.write(`error: ${plainError(e)}\n`);

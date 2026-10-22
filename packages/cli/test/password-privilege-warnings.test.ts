@@ -17,12 +17,17 @@ test('passwd warns about a short or blank-looking password and sets it anyway', 
   try {
     createStore(join(dir, 'Real' + STORE_EXT));
     const set = new Store(join(dir, 'Real' + STORE_EXT), 'Real').privilegeSets()[0]!.name;
-    const short = cli('a', 'passwd', dir, 'Real', 'Ben', '--privilege-set', set);
+    // The command line's default minimum (12) refuses a short or blank-looking password; with none asked for, it warns and sets it.
+    const refused = cli('a', 'passwd', dir, 'Real', 'Ben', '--privilege-set', set);
+    assert.equal(refused.status, 1);
+    assert.match(refused.stderr, /at least 12 characters/);
+    const none = (password: string, ...args: string[]) => spawnSync(process.execPath, ['--no-warnings', main, ...args], { encoding: 'utf8', env: { ...process.env, TABULARIUS_PASSWORD: password, TABULARIUS_MIN_PASSWORD_LENGTH: '0' } });
+    const short = none('a', 'passwd', dir, 'Real', 'Ben', '--privilege-set', set);
     assert.equal(short.status, 0, short.stderr);
-    assert.match(short.stderr, /only 1 character; 8 or more is safer/);
+    assert.match(short.stderr, /only 1 character; 12 or more is safer/);
     assert.match(short.stdout, /password set for Ben/);
 
-    const spaces = cli('   ', 'passwd', dir, 'Real', 'Ben');
+    const spaces = none('   ', 'passwd', dir, 'Real', 'Ben');
     assert.equal(spaces.status, 0, spaces.stderr);
     assert.match(spaces.stderr, /only spaces/);
 

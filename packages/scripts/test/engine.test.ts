@@ -95,9 +95,11 @@ test('a formula too deep for the stack fails its step with 1200, and the script 
 });
 
 test('the time limit stops a script inside one long step', { skip }, async () => {
-  const slow = 'While ( [ i = 0 ; s = "" ] ; i < 49000 ; [ i = i + 1 ; s = Substitute ( s & $y ; "a" ; "b" ) ] ; Length ( s ) )';
+  // The loop runs far longer than the limit on any machine, and the limit is long enough that the steps before it cannot use it up:
+  // a limit reached between steps stops the script with a different reason than one reached inside the step.
+  const slow = 'While ( [ i = 0 ; s = "" ] ; i < 490000 ; [ i = i + 1 ; s = Substitute ( s & $y ; "a" ; "b" ) ] ; Length ( s ) )';
   const started = Date.now();
-  const r = await runScript(store, script(SetVar('$y', '"aaaaaaaaaa"'), SetVar('$x', slow), ExitScript('"finished"')), { timeoutMs: 50 });
+  const r = await runScript(store, script(SetVar('$y', '"aaaaaaaaaa"'), SetVar('$x', slow), ExitScript('"finished"')), { timeoutMs: 500 });
   assert.notEqual(r.result, 'finished');
   assert.ok(r.actions.some((a) => a.step === 'Halt Script' && /during a step/.test(String(a.reason))), JSON.stringify(r.actions));
   assert.ok(Date.now() - started < 5000);

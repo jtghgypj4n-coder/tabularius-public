@@ -114,6 +114,8 @@ export interface Security {
   passwordPolicy: PasswordPolicy;
   /** Days a new API token lives when the form leaves the lifetime blank (0: no expiry). */
   tokenDefaultDays?: number;
+  /** The shortest new password the file takes now: the policy's own minimum, else the server's default. */
+  minPasswordLength?: number;
   /** The file requires a confirmed second factor on every full-access account. */
   requireTotpForFullAccess: boolean;
   /** Full-access accounts with no second factor yet (what the switch would lock out). */
