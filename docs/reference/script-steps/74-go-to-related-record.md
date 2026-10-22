@@ -17,7 +17,7 @@ Go to Related Record is a records and finds script step. This page describes how
 ## What the engine does
 
 The engine handles this step with the limits described in the support notes.
-Replaces the found set with related IDs. The binary decoder does not populate `matchFoundSet`.
+Replaces the found set with related IDs. The binary decoder does not read "Match all records in current found set" or "Show only related records" (their bits are unverified), so a step from a converted file goes from the current record alone; the conversion guide counts those steps and a run adds a warning once per script. Written in script text, "Match all records in the found set" works. "Show only related records" turned off is not supported (the step always replaces the found set).
 
 FileMaker comparisons in this note are inferred unless a Claris help page is linked. See the [full support notes](../../script-steps-support.md) for surrounding conditions.
 
