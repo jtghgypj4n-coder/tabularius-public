@@ -157,3 +157,28 @@ test('a huge stored list is read once and named briefly: the work and the answer
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('a stored list that cannot be read allows nothing, on every read, and says so', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'web-viewer-hosts-'));
+  const path = join(dir, 'Shop.sqlite');
+  try {
+    createStore(path);
+    const store = new Store(path, 'Shop');
+    store.setWebViewerHosts(['a.example.com']);
+    assert.deepEqual(store.webViewerHosts, ['a.example.com']);
+    // Another connection to the file leaves text that is not JSON: the old list must not stay in force.
+    const sql = (store as unknown as { sql: { prepare(q: string): { run(...a: unknown[]): void } } }).sql;
+    sql.prepare(`INSERT INTO _fm_meta VALUES ('webViewerHosts', ?) ON CONFLICT(key) DO UPDATE SET json = excluded.json`).run('["*.co.uk",');
+    for (let i = 0; i < 3; i++) {
+      assert.deepEqual(store.webViewerHosts, [], `read ${i}`);
+      assert.deepEqual(store.webViewerHostsDropped, ['the stored list could not be read']);
+    }
+    // Repaired text is read again at once.
+    sql.prepare(`INSERT INTO _fm_meta VALUES ('webViewerHosts', ?) ON CONFLICT(key) DO UPDATE SET json = excluded.json`).run('["b.example.com"]');
+    assert.deepEqual(store.webViewerHosts, ['b.example.com']);
+    assert.deepEqual(store.webViewerHostsDropped, []);
+    store.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
