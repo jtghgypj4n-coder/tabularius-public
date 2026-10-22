@@ -256,6 +256,11 @@ function secretFields(store: Store, schema: Schema, who?: Privileges): SecretDep
   for (const file of files.values()) {
     for (const table of file.schema.tables) for (const field of table.fields) {
       const target = file.fields.get(table.id)!.get(field.id)!;
+      // Aggregation changes the representation, not its provenance (including count/empty signals).
+      if (field.kind === 'summary') {
+        const source = field.summary && file.fields.get(table.id)?.get(field.summary.fieldId);
+        target.refs.add(source ?? file.unknown);
+      }
       const lookup = field.options?.autoEnter?.lookup;
       if (lookup) {
         const source = occurrence(file, lookup.occurrenceId);
@@ -306,9 +311,10 @@ export function assertAiDesignChanges(store: Store, changes: readonly unknown[],
       if (prior && prior.name !== field.name && previousSecrets.fields.get(table.id)?.has(field.id)) {
         refuse(store, 'AI design change', `secret or secret-derived field "${table.name}::${prior.name}" cannot be renamed by AI; a human must make this change`);
       }
-      if ((!field.calculation && !field.options?.autoEnter?.lookup) || !secrets.fields.get(table.id)?.has(field.id)) continue;
+      if ((!field.calculation && !field.options?.autoEnter?.lookup && field.kind !== 'summary') || !secrets.fields.get(table.id)?.has(field.id)) continue;
       const old = store.schema.tables.find((t) => t.id === table.id)?.fields.find((f) => f.id === field.id);
-      if (!old || old.calculation !== field.calculation || JSON.stringify(old.options?.autoEnter?.lookup) !== JSON.stringify(field.options?.autoEnter?.lookup) || !before.fields.get(table.id)?.has(field.id)) {
+      if (!old || old.calculation !== field.calculation || JSON.stringify(old.options?.autoEnter?.lookup) !== JSON.stringify(field.options?.autoEnter?.lookup)
+        || JSON.stringify(old.summary) !== JSON.stringify(field.summary) || !before.fields.get(table.id)?.has(field.id)) {
         refuse(store, 'AI design change', `field "${table.name}::${field.name}" derives from a secret field; a human must make this change`);
       }
     }

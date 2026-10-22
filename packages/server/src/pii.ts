@@ -11,6 +11,7 @@
 import type { Store } from '../../store/src/index.ts';
 import { dataSourceFile } from '../../store/src/import.ts';
 import type { Field } from '../../fmp12/src/index.ts';
+import { secretName } from './ai-output.ts';
 
 export type PiiKind = 'PERSON' | 'EMAIL' | 'PHONE' | 'ADDRESS' | 'ID' | 'CARD' | 'DATE' | 'TEXT' | 'FILE';
 const KINDS: PiiKind[] = ['PERSON', 'EMAIL', 'PHONE', 'ADDRESS', 'ID', 'CARD', 'DATE', 'TEXT', 'FILE'];
@@ -113,6 +114,8 @@ const SAMPLE = 200;
 /** One field, worked out from its name, type and (for text nothing else decides) a sample of its values. */
 function classifyField(store: Store, table: string, f: Field, valueListFields: Set<number>): FieldClass {
   const byName = nameKind(f.name);
+  // Output redaction alone does not stop a find/count oracle on a PIN or numeric credential.
+  if (secretName(f.name)) return { pii: true, kind: byName ?? 'TEXT', why: 'a secret field: typed guesses must not reach its values' };
   const auto = f.options?.autoEnter?.value;
   if (auto === 'creationName' || auto === 'modificationName' || auto === 'creationAccountName' || auto === 'modificationAccountName') {
     return { pii: true, kind: 'PERSON', why: 'holds who made or changed the record' };
@@ -120,22 +123,30 @@ function classifyField(store: Store, table: string, f: Field, valueListFields: S
   if (f.type === 'container') return { pii: true, kind: 'FILE', why: 'a container: files and pictures can show anyone' };
   const named = (k: PiiKind): FieldClass => ({ pii: true, kind: k, why: `its name says it holds ${KIND_WORDS[k]}` });
   if (byName && byName !== 'PERSON' && byName !== 'ADDRESS' && byName !== 'TEXT') return named(byName);
+  // A key the file generates (the usual Get ( UUID ) primary key) reads nothing and says nothing about anyone; hiding it
+  // would also turn every lookup by that key, in this table or a child's, into an empty answer.
+  if (/^\s*Get\s*\(\s*UUID\s*\)\s*$/i.test(f.calculation ?? '') && f.options?.autoEnter?.calculation && f.kind !== 'summary') {
+    return { pii: false, why: 'a generated unique key (Get ( UUID )) reads no other field' };
+  }
+  // A number/code can encode a personal value or a predicate on it. Do not infer safety from
+  // its result type, sampled values or a textual search of its formula: dynamic reads, custom
+  // functions, summaries and lookup chains can all hide the source. Explicit human marks still win.
+  if (f.kind === 'calculation' || f.hasCalculation || f.calculation !== undefined || f.options?.autoEnter?.calculation) {
+    return { pii: true, kind: byName ?? 'TEXT', why: 'a calculation: its indirect inputs may hold personal data' };
+  }
+  if (f.options?.autoEnter?.lookup) return { pii: true, kind: byName ?? 'TEXT', why: 'a looked-up value: its source may hold personal data' };
+  if (f.kind === 'summary') return { pii: true, kind: byName ?? 'TEXT', why: 'a summary: its inputs may hold personal data' };
   // A record's key (Customer ID, kf_ContactID): a number the file makes up, not anything about the person. A text
   // "key" can be made from a name (Sort Key, Match Key), so text is judged by its values below.
   if (f.type === 'number' && KEY_NAME.test(words(f.name))) return { pii: false, why: 'its name says it is a key or serial number' };
   if (byName) return named(byName);
-  // A looked-up value copies another record's field, which may be personal.
-  if (f.options?.autoEnter?.lookup && f.type === 'text') return { pii: true, kind: 'TEXT', why: 'a looked-up value from another record: counted as personal to be safe' };
-  if (f.kind === 'summary') {
-    return f.summary?.type === 'list' ? { pii: true, kind: 'TEXT', why: 'a List of summary: it repeats other fields\' values' } : { pii: false, why: 'a summary of numbers' };
-  }
   if (f.type === 'number' || f.type === 'date' || f.type === 'time' || f.type === 'timestamp') return { pii: false, why: `a ${f.type} field whose name says nothing personal` };
   if (valueListFields.has(f.id)) return { pii: false, why: 'it must be one of a value list\'s values' };
   const safeName = SAFE_NAME.test(words(f.name)) || KEY_NAME.test(words(f.name));
   // Text nothing above decides: look at what it holds.
   let values: string[] = [];
   try {
-    if (!f.options?.global && !(f.kind === 'calculation' && f.options?.unstored)) {
+    if (!f.options?.global) {
       const q = `"${f.name.replace(/"/g, '""')}"`;
       values = store.query(`SELECT ${q} AS v FROM "${table.replace(/"/g, '""')}" WHERE ${q} IS NOT NULL AND ${q} <> '' LIMIT ${SAMPLE}`, SAMPLE)
         .map((r) => String(r.v ?? '')).filter(Boolean);
@@ -189,26 +200,6 @@ export function fieldClasses(store: Store): Map<string, Map<string, FieldClass>>
         : { pii: mark, ...(mark ? { kind: worked.kind ?? nameKind(f.name) ?? 'TEXT' } : {}), why: mark ? 'marked as personal data by an administrator' : 'marked as not personal data by an administrator', marked: true });
     }
     tables.set(t.name.toLowerCase(), m);
-  }
-  // A calculation (or auto-enter calculation) that reads a personal field is personal itself, whatever its name:
-  // Substitute ( Full Name ; " " ; "_" ) still shows the name. Repeated so a calculation of such a calculation follows.
-  const personalNames = () => [...tables].flatMap(([, m]) => [...m].filter(([, c]) => c.pii).map(([n]) => n));
-  for (let changed = true, round = 0; changed && round < 10; round++) {
-    changed = false;
-    const names = personalNames();
-    for (const t of store.schema.tables) {
-      const m = tables.get(t.name.toLowerCase())!;
-      for (const f of t.fields) {
-        const c = m.get(f.name.toLowerCase())!;
-        if (c.pii || c.marked || !f.calculation) continue;
-        const formula = f.calculation.toLowerCase();
-        const read = names.find((n) => new RegExp(`(?:^|[^\\p{L}\\p{N}_])${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\p{L}\\p{N}_])`, 'u').test(formula));
-        if (read) {
-          m.set(f.name.toLowerCase(), { pii: true, kind: 'TEXT', why: `a calculation that reads a personal field (${read})` });
-          changed = true;
-        }
-      }
-    }
   }
   cache.set(store, { schema: store.schema, marks: marksKey, at: performance.now(), tables });
   return tables;
@@ -567,7 +558,7 @@ export function maskSample(m: PiiMasker, v: string, header = ''): string {
   const k = valueKind(v);
   if (k) return m.token(v, k);
   const t = v.trim();
-  const named = nameKind(header);
+  const named = nameKind(header) ?? (secretName(header) ? 'TEXT' : undefined);
   if (!t || (!named && (/^-?[$€£¥]?\d{1,6}(?:[.,]\d{1,4})?%?$/.test(t) || /^(?:yes|no|y|n|true|false)$/i.test(t)))) return v;
   return m.token(v, named ?? 'TEXT');
 }
