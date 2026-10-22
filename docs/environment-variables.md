@@ -97,6 +97,7 @@ nothing reads, so this list and the code cannot drift apart.
 | `TABULARIUS_TRACE_SQL_MIN_MS` | With `TABULARIUS_TRACE_SQL` set, logs only statements that took this many milliseconds or more. |
 | `TABULARIUS_FIXTURE_CACHE` | Where `npm run fixtures` keeps downloaded fixture files between checkouts (`~/.cache/tabularius-fixtures` by default). |
 | `TABULARIUS_TEST_CHILD_MARKER` | Internal to `scripts/test-cross-file-isolation.ts`: the runner sets a temporary marker path for its forbidden-command stubs. A stub writes the marker if invoked, causing the audit to fail. No manual setting is needed. |
+| `TABULARIUS_TEST_COMMAND_MARKER` | Internal to `scripts/test-auth-review-round2.ts`: the runner sets a temporary marker path for its forbidden-command stubs (`launchctl`, `systemctl`, `sc`, `git`, `npm`, `curl`, `sudo`). A stub writes the marker if invoked, causing the audit to fail. No manual setting is needed. |
 | `TABULARIUS_VISUAL_UPDATE` | Internal to `npm run test:visual -- --update`: tells the visual regression test to write changed screenshot baselines. No manual setting is needed. |
 | `TABULARIUS_FUZZ_SELFTEST` | Internal to the fuzz harness (`scripts/fuzz/worker.ts`): `error`, `hang`, `exit` or `oom` makes every input fail that way, to prove the detector end to end. Set by `packages/server/test/fuzz.test.ts`; no manual setting is needed. |
 
