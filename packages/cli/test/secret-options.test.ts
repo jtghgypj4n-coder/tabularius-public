@@ -17,7 +17,6 @@ function cleanEnv(t: Parameters<typeof commandStubEnv>[0], home: string): NodeJS
 
 test('serve reads an MCP token file and applies it to the endpoint', async (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'tabularius-token-serve-'));
-  t.after(() => rmSync(dir, { recursive: true, force: true }));
   const token = 'correct-horse-battery';
   const file = join(dir, 'mcp-token');
   const replicationFile = join(dir, 'replication-token');
@@ -26,7 +25,9 @@ test('serve reads an MCP token file and applies it to the endpoint', async (t) =
   const child = spawn(process.execPath, ['--no-warnings', main, 'serve', dir, '--port', '0', '--no-backups', '--mcp-token-file', file, '--replication-token-file', replicationFile], { env: cleanEnv(t, join(dir, 'home')), stdio: ['ignore', 'pipe', 'pipe'] });
   let output = '';
   const closed = new Promise<void>((resolve) => child.once('close', () => resolve()));
+  // Hooks run in the order they are added: stop the server before its folder is removed, or it is still writing there.
   t.after(async () => { if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM'); await closed; });
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
   const url = await new Promise<string>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(`serve did not start: ${output}`)), 15_000);
     const take = (chunk: Buffer) => {
