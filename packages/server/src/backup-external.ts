@@ -224,7 +224,8 @@ export async function verifyExternal(setDir: string, passphrase?: string): Promi
     try {
       const plain = validateExternal(setDir, rel);
       const encrypted = safePath(setDir, rel + ENCRYPTED_EXT);
-      const copy = entry.encrypted ? encrypted : plain;
+      // A set made before entries said whether they were sealed has either form; one that says is read as it says.
+      const copy = entry.encrypted === undefined ? [plain, encrypted].find((p) => existsSync(p)) ?? plain : entry.encrypted ? encrypted : plain;
       if (!existsSync(copy)) problems[rel] = 'missing';
       else await checkExternalCopy(copy, entry.sha256, passphrase);
     } catch (e) { problems[rel] = (e as Error).message; }
@@ -269,7 +270,7 @@ export async function stageExternal(setDir: string, folder: string, names: strin
         const to = join(next, ...rel.split('/').slice(2));
         mkdirSync(dirname(to), { recursive: true });
         const plain = join(setDir, native(rel));
-        const encrypted = !!manifest[rel].encrypted;
+        const encrypted = manifest[rel].encrypted ?? !existsSync(plain);
         const source = encrypted ? plain + ENCRYPTED_EXT : plain;
         if (!existsSync(source)) throw new Error(`${rel}: missing backup file; use a complete backup set and try the restore again`);
         const copy = encrypted ? join(next, `.decrypt-${randomUUID()}.tmp`) : to;
