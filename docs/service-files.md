@@ -11,7 +11,7 @@ What is **not** checked: that macOS or Windows accepts the file when it loads it
 | `ExecStart` | Node, the program, and `serve` with your options, each argument quoted. `%` and `$` are doubled, because systemd would otherwise replace `%h` or `$HOME` inside a folder name. |
 | `WorkingDirectory` | The folder it hosts. |
 | `Restart=on-failure`, `RestartSec=5`, `RestartSteps=5`, `RestartMaxDelaySec=60` | Starts again after a crash, waiting longer each time up to a minute. The two `Restart…` steps need systemd 254 or later; older versions ignore them and wait five seconds every time. |
-| `TimeoutStopSec=60` | Saving and backing up on stop: twice the 30 seconds a restart or upgrade waits for the server to stop (`TABULARIUS_STOP_GRACE_MS`), so systemd never ends it first. |
+| `TimeoutStopSec=60` | Saving and backing up on stop: twice the 30 seconds a macOS system-service restart or upgrade waits for the server to stop (`TABULARIUS_STOP_GRACE_MS`), so systemd never ends it first. |
 | `UMask=0077` | Files the server makes (hosted files, backups, logs) can be read only by its account. Remove the line if another account must read them. |
 | `LimitNOFILE=65536` | The default allows 1024 open files and connections; see [the runbook](runbook.md). |
 | `NoNewPrivileges`, `PrivateTmp` | A process it starts cannot gain privileges; it has its own temporary folder. |
@@ -33,7 +33,7 @@ Left out on purpose:
 | `ProgramArguments`, `WorkingDirectory` | As above. |
 | `RunAtLoad`, `KeepAlive` | Starts when loaded and again after any exit. |
 | `ThrottleInterval` 10 | Waits ten seconds between starts, so a server that fails at once does not spin (this is launchd's own default, written down). |
-| `ExitTimeOut` 40 | launchd ends the server this long after asking it to stop: the 30 seconds a restart or upgrade waits for the server to stop, plus ten. |
+| `ExitTimeOut` 40 | launchd ends the server this long after asking it to stop: the 30 seconds a macOS system-service restart or upgrade waits for the server to stop, plus ten. |
 | `Umask` 63 | Decimal for octal 077: files it makes are for its own account. |
 | `SoftResourceLimits` `NumberOfFiles` 4096 | A launchd job starts with 256 open files. Not run on a Mac here. |
 | `UserName` (system only) | A LaunchDaemon runs as you, not root. |
