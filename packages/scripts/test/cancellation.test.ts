@@ -43,7 +43,7 @@ test('cancel reaches blocked URL and AI calls, rolls back and releases locks and
       entered.resolve();
     });
     const operation = kind === 'url' ? 'Insert from URL [ $result ; "http://127.0.0.1/blocked" ]' :
-      'Configure AI Account [ Account Name: "acct" ]\nGenerate Response from Model [ Account Name: "acct" ; Model: "fake" ; Prompt: "hello" ; Target: $result ]';
+      'Configure AI Account [ Account Name: "acct" ]\nGenerate Response from Model [ Account Name: "acct" ; Model: "fake" ; User Prompt: "hello" ; Response: $result ]';
     const run = script('Set Variable [ $tmp ; Value: Get ( TemporaryPath ) & "scratch.txt" ]\nCreate Data File [ “$tmp” ]\nOpen Data File [ “$tmp” ; Target: $file ]\nOpen Transaction\nSet Field [ Items::Name ; "pending" ]\n' + operation + '\nCommit Transaction');
     // Use decoded AI parameters so this test adds no script-text parsing rule.
     if (kind === 'ai') {

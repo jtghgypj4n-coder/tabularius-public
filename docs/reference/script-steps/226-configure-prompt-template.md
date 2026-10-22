@@ -23,7 +23,7 @@ FileMaker comparisons in this note are inferred unless a Claris help page is lin
 
 ## Options
 
-Use the Script Workspace or script text to supply the target and any positional options the step requires. Accepted script-text labels: `Source Field:`, `Query by:`, `Record set:`, `Cosine similarity condition:`, `Action:`, `RAG Data:`, `Template Type:`, `Input File:`.
+Use the Script Workspace or script text to supply the target and any positional options the step requires. Accepted script-text labels: `Prompt:`, `User Prompt:`, `Source Field:`, `Query by:`, `Record set:`, `Cosine similarity condition:`, `Action:`, `RAG Data:`, `Template Type:`, `Input File:`.
 
 ## Privileges
 

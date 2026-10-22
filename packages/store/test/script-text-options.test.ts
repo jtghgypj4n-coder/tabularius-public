@@ -7,6 +7,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createStore, parseScriptText, Store } from '../src/index.ts';
+import { stepLine } from '../../fmp12/src/index.ts';
 
 const dir = mkdtempSync(join(tmpdir(), 'tabularius-script-text-'));
 createStore(join(dir, 'T.sqlite'));
@@ -163,4 +164,52 @@ test('Check Selection refuses parts it does not read; Insert Calculated Result w
   assert.equal(step.params?.selectEntireContents, false);
   const printed = stepLine(scriptStepName(step.stepId!), step.params);
   assert.equal(parse(printed)[0].params?.selectEntireContents, false, printed);
+});
+
+test('Sort Records by Field keeps an explicit Ascending when no field is named', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'tabularius-sort-order-'));
+  const path = join(dir, 'a.sqlite');
+  createStore(path);
+  const store = new Store(path, 'a');
+  try {
+    store.applyDesign([{ op: 'createScript', name: 'Sort', text: 'Sort Records by Field [ Ascending ]' }]);
+    const step = store.schema.scripts.find((s) => s.name === 'Sort')!.steps[0];
+    assert.equal(step.params?.sortOrder, 'ascending');
+    assert.equal(stepLine(step.name, step.params), 'Sort Records by Field [ Ascending ]');
+  } finally { store.close(); rmSync(dir, { recursive: true }); }
+});
+
+test('Write to Data File writes UTF-16 or UTF-8 only, so Write as: Bytes is refused', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'tabularius-write-bytes-'));
+  const path = join(dir, 'a.sqlite');
+  createStore(path);
+  const store = new Store(path, 'a');
+  try {
+    assert.throws(() => store.applyDesign([{ op: 'createScript', name: 'Write', text: 'Write to Data File [ File ID: $file ; Data source: $data ; Write as: Bytes ]' }]), /writes UTF-16 or UTF-8/);
+    store.applyDesign([{ op: 'createScript', name: 'Write 8', text: 'Write to Data File [ File ID: $file ; Data source: $data ; Write as: UTF-8 ]' }]);
+    assert.equal(store.schema.scripts.find((s) => s.name === 'Write 8')!.steps[0].params?.encoding, 'utf-8');
+  } finally { store.close(); rmSync(dir, { recursive: true }); }
+});
+
+test('Generate Response from Model reads Prompt as the user prompt', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'tabularius-model-prompt-'));
+  const path = join(dir, 'a.sqlite');
+  createStore(path);
+  const store = new Store(path, 'a');
+  try {
+    store.applyDesign([{ op: 'createScript', name: 'Ask', text: 'Generate Response from Model [ Account Name: "a" ; Model: "m" ; Prompt: "Hello" ; Response: $answer ]' }]);
+    const step = store.schema.scripts.find((s) => s.name === 'Ask')!.steps[0];
+    assert.equal(step.params?.ai?.input, '"Hello"');
+    assert.match(stepLine(step.name, step.params), /User Prompt: "Hello"/);
+  } finally { store.close(); rmSync(dir, { recursive: true }); }
+});
+
+test('Generate Response from Model refuses a line that gives both Prompt and User Prompt', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'tabularius-model-prompt-both-'));
+  const path = join(dir, 'a.sqlite');
+  createStore(path);
+  const store = new Store(path, 'a');
+  try {
+    assert.throws(() => store.applyDesign([{ op: 'createScript', name: 'Ask', text: 'Generate Response from Model [ Account Name: "a" ; Model: "m" ; Prompt: "one" ; User Prompt: "two" ; Response: $answer ]' }]), /both Prompt and User Prompt/);
+  } finally { store.close(); rmSync(dir, { recursive: true }); }
 });

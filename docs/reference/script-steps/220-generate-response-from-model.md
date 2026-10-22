@@ -17,7 +17,7 @@ Generate Response from Model is a ai and models script step. This page describes
 ## What the engine does
 
 The engine handles this step with the limits described in the support notes.
-Agentic mode, tools, and streaming are not decoded. Message History Count retains that many previous question/answer pairs.
+Agentic mode, tools, and streaming are not decoded. In script text, `Prompt:` is read as another spelling of `User Prompt:` (a line with both is refused). Message History Count retains that many previous question/answer pairs.
 
 FileMaker comparisons in this note are inferred unless a Claris help page is linked. See the [full support notes](../../script-steps-support.md) for surrounding conditions.
 

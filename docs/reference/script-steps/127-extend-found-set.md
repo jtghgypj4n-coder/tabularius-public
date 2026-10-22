@@ -19,7 +19,7 @@ Extend Found Set is a records and finds script step. This page describes how the
 The engine has a handler for this step. Its effect depends on the named target and current script context.
 ## Options
 
-Use the Script Workspace or script text to supply the target and any positional options the step requires.
+Use the Script Workspace or script text to supply the target and any positional options the step requires. Accepted script-text labels: `Pause:`.
 
 ## Privileges
 
