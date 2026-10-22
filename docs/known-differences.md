@@ -7,7 +7,7 @@ missing from it. `npm run docs:known-differences` rewrites it, and a test fails 
 marker (`<!-- known-difference: area ;; what ;; how it shows ;; what would settle it -->`). Internal working notes are not
 part of it.
 
-**79 entries in 17 areas.** Waiting on: 21 on a sample file, 45 on a FileMaker run or Design Report, 10 on a Claris answer, 15 on a decision by the owner (an entry can wait on more than one).
+**80 entries in 17 areas.** Waiting on: 21 on a sample file, 45 on a FileMaker run or Design Report, 10 on a Claris answer, 15 on a decision by the owner (an entry can wait on more than one).
 
 ## Data API
 
@@ -156,6 +156,7 @@ part of it.
 | What differs or is unknown | How it shows | What would settle it | Where it is written |
 | --- | --- | --- | --- |
 | The review used public vendor documentation only; for several plug-ins no complete function list or result contract was found, so the product identity, function names and results of some named calls are unverified and Tabularius guesses none of them | A script calling such a function gets ? where the real plug-in would give a value | The vendor function reference or a run of the real plug-in | [docs/audits/audit-plugin-ecosystem.md](audits/audit-plugin-ecosystem.md) — “(the whole page)” |
+| BaseElements' FTP functions work over ftp and ftps only: sftp is not built, and the error numbers (curl's 7, 35, 67, 25 and 21) and the upload and delete path rules follow BaseElements' documentation without a run of the plug-in | A script that uses an sftp address gets ? and error 3; one that tests for another error number can behave differently | A run of the real plug-in against an FTP and an SFTP server | [docs/moving-a-solution.md › Plug-ins are not loaded](moving-a-solution.md) — “…Soundex, string distances and MIME types. Not yet:” |
 | BaseElements' web calls answer with the body as text (BaseElements answers with a container), and the error number a failed request sets (7) is inferred | A script that reads the container or tests for another error number can behave differently | A run of the real plug-in against a failing address | [docs/moving-a-solution.md › Plug-ins are not loaded](moving-a-solution.md) — “…Soundex, string distances and MIME types. Not yet:” |
 | Tabularius runs its own versions of a few plug-in functions and gives ? for the rest; for several plug-ins the vendor function list is incomplete or could not be found, so the product identity, the function names and the results of some named calls are unverified | A script that calls a plug-in function not listed as running gets ?, and one that relies on a function whose result is unverified may get a different value from the real plug-in | The vendor function reference or a run of the real plug-in for each unverified function | [docs/plugin-compatibility.md](plugin-compatibility.md) — “(the whole page)” |
 
