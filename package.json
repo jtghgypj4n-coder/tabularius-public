@@ -38,6 +38,8 @@
     "release:sbom": "node --no-warnings scripts/sbom.ts",
     "docs:reference": "node --no-warnings scripts/docs-reference.ts",
     "docs:build": "node --no-warnings scripts/docs-site.ts",
+    "docs:glossary": "node --no-warnings scripts/filemaker-glossary.ts",
+    "docs:check": "node --no-warnings scripts/filemaker-glossary.ts --check",
     "docs:known-differences": "node --no-warnings scripts/known-differences.ts",
     "release-notes": "node --no-warnings scripts/release-notes.ts",
     "docs:plugins": "node --no-warnings scripts/plugin-matrix.ts",

@@ -249,12 +249,14 @@ function loadSearch(): { engine: Engine; index: SearchIndex } {
 
 test('search finds known terms on the page that explains them, from the words in the guides, with a section to land on', () => {
   const { engine, index } = loadSearch();
-  const top = (query: string) => engine.search(index, query, 5).map((h) => `${h.page.u}#${h.section.a}`);
+  const top = (query: string, limit = 5) => engine.search(index, query, limit).map((h) => `${h.page.u}#${h.section.a}`);
   assert.ok(index.sections.length > 800, `${index.sections.length} sections indexed`);
   assert.equal(index.pages.length, built.pages.length);
   // A symptom, a setting, a command and a code are each found where the guide that covers them says so.
   assert.ok(top('forgot admin console password').some((u) => u === 'docs/runbook.html#forgot-the-admin-console-password'), top('forgot admin console password').join(', '));
   assert.ok(top('TABULARIUS_HOME').some((u) => u.startsWith('docs/environment-variables.html')), top('TABULARIUS_HOME').join(', '));
+  assert.ok(top('Manage Database', 20).some((u) => u.startsWith('docs/filemaker-glossary.html')), top('Manage Database', 20).join(', '));
+  assert.ok(top('extended privilege', 20).some((u) => u.startsWith('docs/filemaker-glossary.html')), top('extended privilege', 20).join(', '));
   assert.ok(top('verify-backup').some((u) => /^(docs\/runbook|docs\/troubleshooting|ADMIN)\.html/.test(u)), top('verify-backup').join(', '));
   assert.ok(top('952 token').some((u) => u.startsWith('docs/troubleshooting.html')), top('952 token').join(', '));
   // Every result links to a heading that exists on its page, or to the top of it.
@@ -321,4 +323,3 @@ test('the build stops with the broken link named, and builds nothing, when a gui
     assert.ok(!existsSync(join(fake, 'out')));
   } finally { rmSync(fake, { recursive: true, force: true }); }
 });
-
