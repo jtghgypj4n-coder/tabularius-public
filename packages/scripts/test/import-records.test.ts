@@ -51,6 +51,31 @@ test('Import Records Add creates rows and makes only imported records the found 
   } finally { s.close(); }
 });
 
+test('Import Records treats an XML ROW with no columns as one blank source record', async () => {
+  // External-product compatibility is unverified; this pins the current importer's behavior.
+  const s = setup();
+  try {
+    writeFileSync(join(s.dir, 'data.xml'), '<FMPXMLRESULT><RESULTSET><ROW/><ROW><COL><DATA>A</DATA></COL></ROW></RESULTSET></FMPXMLRESULT>');
+    const result = await s.run({ filePaths: ['data.xml'], fieldMapping: s.mapping(['Code']) });
+    assert.equal(result.error, 0);
+    assert.equal(s.store.findIds('People').length, 2);
+    assert.deepEqual(result.foundSet, s.store.findIds('People'));
+    assert.equal(s.data(result.foundSet[0]).Code, '');
+    assert.equal(s.data(result.foundSet[1]).Code, 'A');
+  } finally { s.close(); }
+});
+
+test('Import Records reports an unsupported source before a missing target field', async () => {
+  const s = setup();
+  try {
+    writeFileSync(join(s.dir, 'data.unknown'), 'A\n');
+    const missing = { ...s.field('Code'), field: { id: 0, name: 'Missing' } };
+    const result = await s.run({ filePaths: ['data.unknown'], fieldMapping: [{ field: missing, import: true }] });
+    assert.equal(result.error, 700);
+    assert.equal(s.store.findIds('People').length, 0);
+  } finally { s.close(); }
+});
+
 test('Import Records Replace updates the found set by order, starts at its first record and clears blanks', async () => {
   const s = setup();
   try {
