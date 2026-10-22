@@ -8,7 +8,11 @@ export const LOCKOUT = {
 };
 const LOCAL = new Set(['', 'mcp', '127.0.0.1', '::1', '::ffff:127.0.0.1']);
 export const NO_ADDRESS_BUDGET = new Set([...LOCAL, 'unknown']);
-export const sharedSource = (from: string) => NO_ADDRESS_BUDGET.has(from) && !LOCAL.has(from);
+/** One spelling per address: `::ffff:7f00:1`, `0:0:0:0:0:0:0:1` and a scope suffix name the same place as their short forms. */
+const spelling = (from: string) => canonicalIP(from.split('%')[0]) ?? from;
+/** True for this computer and for visitors who can't be told apart: they have no shared address budget. */
+export const noAddressBudget = (from: string) => NO_ADDRESS_BUDGET.has(spelling(from));
+export const sharedSource = (from: string) => noAddressBudget(from) && !LOCAL.has(spelling(from));
 
 /** Elapsed time only: a wall-clock edit must neither shorten a lockout nor refill an attempt budget. */
 const elapsed = () => performance.now();
@@ -50,6 +54,7 @@ export class SignInFailures extends Map<string, Failure> {
   private nextExpiry = Infinity;
   private windowMs = LOCKOUT.windowMs;
   private readonly onLock?: (key: string, address?: string) => void;
+  private readonly onExpire?: (key: string) => void;
   private readonly sharedKeys = new Set<string>();
   // Real accounts have at most three anonymous counters (password, TOTP, recovery).
   // Only Store can identify these: attacker-chosen names cannot spend this reserve.
@@ -64,9 +69,10 @@ export class SignInFailures extends Map<string, Failure> {
   // order. Their failures remain charged to an address counter until its window expires.
   private readonly evictable = new Set<string>();
 
-  constructor(onLock?: (key: string, address?: string) => void) {
+  constructor(onLock?: (key: string, address?: string) => void, onExpire?: (key: string) => void) {
     super();
     this.onLock = onLock;
+    this.onExpire = onExpire;
   }
 
   override set(key: string, value: Failure): this {
@@ -118,8 +124,11 @@ export class SignInFailures extends Map<string, Failure> {
     this.nextExpiry = Infinity;
     for (const [key, value] of this) {
       const expires = value.until ?? value.first + LOCKOUT.windowMs;
-      if (expires <= now) this.delete(key);
-      else this.nextExpiry = Math.min(this.nextExpiry, expires);
+      if (expires <= now) {
+        this.delete(key);
+        // Only an issued lock that ran out is reported; a counter whose window passed was never a block.
+        if (value.until !== undefined) this.onExpire?.(key);
+      } else this.nextExpiry = Math.min(this.nextExpiry, expires);
     }
   }
 
@@ -189,7 +198,7 @@ export class SignInFailures extends Map<string, Failure> {
     // Check before admitting an attacker-chosen name, including after an async password
     // check: attempts already in flight must not grow a newly locked address's entries.
     if (this.addressLockedOut(from) !== undefined) return false;
-    if (NO_ADDRESS_BUDGET.has(from) && this.lockedOut(key, from, knownAccount) !== undefined) return false;
+    if (noAddressBudget(from) && this.lockedOut(key, from, knownAccount) !== undefined) return false;
     // Success clears only the account counter: it cannot refill a password-spraying budget.
     // Anonymous sources have per-account limits, never an address-wide lock.
     if (!ok) {
@@ -201,7 +210,7 @@ export class SignInFailures extends Map<string, Failure> {
     return this.attempt(key, ok, LOCKOUT.attempts, sharedSource(from)
       ? { shared: true, knownAccount }
       // The key holds the /64 bucket; the audit trail keeps the whole canonical address.
-      : { ...(LOCAL.has(from) ? {} : { network: addressBucket(from) }), address: canonicalIP(from.split('%')[0]) ?? from }) && ok;
+      : { ...(LOCAL.has(spelling(from)) ? {} : { network: addressBucket(from) }), address: canonicalIP(from.split('%')[0]) ?? from }) && ok;
   }
 
   lockedOut(key: string, from: string, knownAccount = false): number | undefined {
@@ -210,12 +219,12 @@ export class SignInFailures extends Map<string, Failure> {
     if (until !== undefined) return until;
     // With a usable address, its counter can account for a failure even when no
     // account slot is free. Anonymous/local sources must have their own slot.
-    if (NO_ADDRESS_BUDGET.has(from) && !this.canRecord(key, sharedSource(from), knownAccount)) return this.capacityUntil();
+    if (noAddressBudget(from) && !this.canRecord(key, sharedSource(from), knownAccount)) return this.capacityUntil();
     return undefined;
   }
 
   addressLockedOut(from: string): number | undefined {
-    if (NO_ADDRESS_BUDGET.has(from)) return undefined;
+    if (noAddressBudget(from)) return undefined;
     const network = addressBucket(from), key = `\0address\0${network}`;
     const blocked = this.blocked(key);
     if (blocked !== undefined) return blocked;
@@ -230,7 +239,7 @@ export class SignInFailures extends Map<string, Failure> {
   }
 
   countAddressFailure(from: string): void {
-    if (NO_ADDRESS_BUDGET.has(from) || this.addressLockedOut(from) !== undefined) return;
+    if (noAddressBudget(from) || this.addressLockedOut(from) !== undefined) return;
     const network = addressBucket(from);
     this.attempt(`\0address\0${network}`, false, LOCKOUT.addressAttempts, { network });
   }
