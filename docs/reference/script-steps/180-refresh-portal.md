@@ -3,7 +3,7 @@ id: script-step-180
 title: "Refresh Portal"
 area: script-steps
 since: unknown
-status: not-yet
+status: works
 verified: f200448e0
 ---
 
@@ -11,16 +11,12 @@ verified: f200448e0
 
 Refresh Portal is a records and finds script step. This page describes how the offline Tabularius engine handles it.
 
-- **Support:** does nothing
+- **Support:** works
 - **Registry ID:** 180
 
 ## What the engine does
 
-The engine accepts this step but does not perform its named action.
-Returns successfully without an action.
-
-FileMaker comparisons in this note are inferred unless a Claris help page is linked. See the [full support notes](../../script-steps-support.md) for surrounding conditions.
-
+The engine has a handler for this step. Its effect depends on the named target and current script context.
 ## Options
 
 Use the Script Workspace or script text to supply the target and any positional options the step requires.
@@ -35,10 +31,10 @@ Known codes from the engine and the [script error-code reference](../../error-co
 
 ## Offline script example
 
-Use a synthetic local solution with an empty `Examples` table and a text field named `Name`. The example uses no mail, network or plug-ins.
+Use a synthetic local solution with an `Examples` table, one text field `Name`, and one record where `Name = Mira`. The example uses no mail, network or plug-ins.
 
 ```script
 Refresh Portal
 ```
 
-**Expected end state:** With no target supplied, the step returns `116` and leaves the synthetic file’s records unchanged.
+**Expected end state:** The step returns error `116`; the original record remains. No external action is attempted.

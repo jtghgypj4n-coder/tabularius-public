@@ -33,10 +33,35 @@ test('support classifications agree with the engine availability list', () => {
     assert.ok(p.codes.includes(3), p.name);
     assert.match(pageText(p), /## Replacement/);
   }
-  for (const name of ['Refresh Portal', 'Print Setup', 'Open Help'])
+  for (const name of ['Print Setup', 'Open Help'])
     assert.equal(pages.find((p) => p.name === name)?.status, 'does nothing');
   for (const name of ['Import Records', 'Save Records as PDF', 'Send Mail'])
     assert.equal(pages.find((p) => p.name === name)?.status, 'partly');
+});
+
+test('Refresh Portal is documented as a handler with a missing-target error', () => {
+  const page = pages.find((p) => p.id === 180)!;
+  assert.equal(page.status, 'works');
+  assert.ok(page.codes.includes(116));
+  assert.doesNotMatch(pageText(page), /does nothing|without an action/);
+});
+
+test('every inert client-flow and dictionary step is documented as doing nothing', () => {
+  for (const id of [32, 105, 109, 113, 114, 118, 129, 172, 183, 209]) {
+    const page = pages.find((p) => p.id === id)!;
+    assert.equal(page.status, 'does nothing', page.name);
+    assert.match(pageText(page), /The engine accepts this step but does not perform its named action\./);
+    assert.doesNotMatch(pageText(page), /The engine has a handler/);
+  }
+});
+
+test('Close File documents the unnamed-file no-op without classifying every Close File as inert', () => {
+  for (const path of ['scripts/script-steps-support-source.md', 'docs/script-steps-support.md']) {
+    const text = readFileSync(join(import.meta.dirname, '../../..', path), 'utf8');
+    const section = text.split('## Does nothing\n')[1].split('\n## ')[0];
+    assert.match(section, /Close File with no file named leaves the current file open while its script runs\./);
+  }
+  assert.equal(pages.find((p) => p.id === 34)?.status, 'works');
 });
 
 test('selected examples run on a synthetic offline solution and reach their stated end state', async (t) => {
@@ -79,7 +104,7 @@ test('all examples parse and no-op examples succeed offline without record chang
     assert.ok(steps.length, `${p.name} parses`);
     if (p.status !== 'does nothing' || p.name === '# (comment)') continue;
     const run = await runScript(store, { id: p.id, name: 'reference-example', steps } as never, { layout: 'Examples' });
-    assert.equal(run.error, p.name === 'Refresh Portal' ? 116 : 0, `${p.name} outcome`);
+    assert.equal(run.error, 0, `${p.name} outcome`);
     assert.equal(store.findIds('Examples').length, 0, `${p.name} leaves records unchanged`);
   }
 });

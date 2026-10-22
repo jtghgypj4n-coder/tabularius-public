@@ -20,10 +20,14 @@ when you press Ctrl-C. To host your own FileMaker file, see [QUICKSTART.md](QUIC
 
 - **Reader**: decodes tables, fields, table occurrences, layouts, scripts,
   value lists, custom functions, accounts, privilege sets, relationships,
-  records and embedded container files (images, PDFs) from unencrypted
-  `.fmp12` files.
+  records and embedded container files (images, PDFs) from `.fmp12` files,
+  including files using Encryption at Rest when supplied with their passphrase.
+  CLI commands that read a source file accept its passphrase through a hidden
+  terminal prompt or `TABULARIUS_SOURCE_PASSPHRASE`.
 - **Hosting**: point the server at a folder of `.fmp12` files. Each is
   converted once into its own SQLite database and hosted under its file name.
+  A file using Encryption at Rest waits for its passphrase in the admin
+  console's **Hosted files** before conversion.
 - **FileMaker Data API–compatible REST**: sessions, layouts, records, finds
   with FileMaker find syntax, create/edit/duplicate/delete, modId conflict
   checks, portals with portalDataInfo, global fields, script and layout
