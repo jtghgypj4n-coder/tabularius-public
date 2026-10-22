@@ -136,7 +136,7 @@ test('$$variables a script sets through MCP stay with that account', { skip }, a
 });
 
 test('an account signed in through a directory, or with a scoped token, has a session of its own', () => {
-  const fake = {} as Host;
+  const fake = { onClose: [] } as unknown as Host;
   const admin = sessionFor(fake, 'Charts', { account: 'Admin', password: 'pw' });
   assert.equal(sessionFor(fake, 'Charts', { account: 'admin', password: 'other' }), admin);
   assert.notEqual(sessionFor(fake, 'Charts', { account: 'admin', database: 'Charts', via: 'Staff' }), admin);

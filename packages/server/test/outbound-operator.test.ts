@@ -25,7 +25,7 @@ function fixture(t: TestContext) {
     store.create('Records', { Note: 'before' });
   }
   const host = {
-    dir: dirname(stores[0].path), openStores: () => stores, onAdd: [],
+    dir: dirname(stores[0].path), openStores: () => stores, onAdd: [], onClose: [],
     get: (name: string) => stores.find((store) => store.name === name),
   } as unknown as Host;
   const feed = new ChangeFeed(host, {} as never);
