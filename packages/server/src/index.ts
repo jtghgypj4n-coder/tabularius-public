@@ -72,6 +72,15 @@ import { AutoTls, type AcmeOptions } from './acme.ts';
 import { LogShipper } from './logs.ts';
 import { Replication } from './replication.ts';
 import { STANDBY_STATE, standbyState, unfinishedStandbyFiles } from './standby.ts';
+
+/** A server address without any user, password or path, for a log that cannot be edited afterwards. */
+function addressOnly(address: string): string {
+  try {
+    return new URL(address).origin;
+  } catch {
+    return address.replace(/^[^@/]*@/, '').slice(0, 200);
+  }
+}
 import { Schedules } from './schedules.ts';
 import { SyncConsole } from './sync-console.ts';
 import { watchEventLoop, writer, type Store } from '../../store/src/index.ts';
@@ -394,7 +403,7 @@ export async function serve(opts: ServeOptions): Promise<{ server: Server; host:
         const at = was.files?.[store.name]?.at;
         const lastChange = typeof at === 'number' && Number.isFinite(at) && at > 0 && at < 8.64e15 ? new Date(at).toISOString() : undefined;
         try {
-          store.recordStandbyTakeover({ standbyOf: String(was.primary), ...(lastChange ? { lastChange } : {}), tokensEnded: fileEnded, keptTokens: !!opts.keepApiTokensOnTakeover });
+          store.recordStandbyTakeover({ standbyOf: addressOnly(was.primary), ...(lastChange ? { lastChange } : {}), tokensEnded: fileEnded, keptTokens: !!opts.keepApiTokensOnTakeover });
         } catch (e) {
           log(`taking over ${store.name}: could not record it in the security log: ${(e as Error).message}`);
         }
