@@ -25,12 +25,13 @@ export interface RelatedGroup {
   match: string;
   /** Related records the account can view, in all. */
   count: number;
-  records: { recordId: number; fields: Record<string, unknown> }[];
+  records: { id?: string; recordId: number; fields: Record<string, unknown> }[];
   /** Records not listed (pass limit, or follow, to read more). */
   more?: number;
 }
 
 export interface RecordContext {
+  id?: string;
   layout: string;
   occurrence: string;
   table: string;
@@ -185,13 +186,14 @@ export function describeRecord(
           const v = shown(f, maskValue(firstRepetition(far.store, far.table.name, f.name, x[f.name]), far.store.maskFor(f, pv!.mask(far.table.name, f.name)!)), RELATED_CHARS);
           if (v !== undefined) out[f.name] = v;
         }
-        return { recordId: Number(x._fm_record_id), fields: out };
+        return { ...(far.store.fileMode === 'native' ? { id: String(x._fm_uuid) } : {}), recordId: Number(x._fm_record_id), fields: out };
       }),
       ...(count > rows.length ? { more: count - rows.length } : {}),
     });
   }
 
   return {
+    ...(from.store.fileMode === 'native' ? { id: String(row._fm_uuid) } : {}),
     layout: info.name, occurrence: from.to.name, table: from.table.name, recordId, fields, empty, ...(masked.length ? { masked: masked.map((f) => f.name) } : {}), related,
     note: 'Cite each fact as [Occurrence::Field] for this record, or [Occurrence::Field #recordId] for a related record. ' +
       'Only records and fields this account can see are here; secret-looking values are hidden. ' +

@@ -269,9 +269,10 @@ export interface MenuItem { id: number; name: string; kind: 'item' | 'folder' | 
 
 export type Value = string | number;
 
-export type PortalRow = { recordId: string; modId: string } & Record<string, Value>;
+export type PortalRow = { id?: string; recordId: string; modId: string } & Record<string, Value>;
 
 export interface DataRecord {
+  id?: string;
   recordId: string;
   modId: string;
   fieldData: Record<string, Value>;

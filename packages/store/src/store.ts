@@ -52,6 +52,7 @@ import { ResultCache } from './results.ts';
 import { cleanScriptTest, SCRIPT_TEST_LIMIT, type ScriptTest } from './script-tests.ts';
 import { ensureTextStyles, repetitionText, TextStyles } from './text-styles.ts';
 import { checkFormat, storedFormat } from './store-format.ts';
+import { UuidV7 } from './uuid-v7.ts';
 export { StoreError, PendingApprovalError };
 
 /** Name equality used by the existing case-insensitive account and privilege-set rules. */
@@ -65,6 +66,8 @@ export type DateFormat = 'us' | 'iso';
 export type FieldData = Record<string, string | number>;
 
 export interface StoredRecord {
+  /** Stable native-file identity; absent in compat files. */
+  id?: string;
   recordId: number;
   modId: number;
   fieldData: FieldData;
@@ -609,7 +612,7 @@ const SORTED_KEEP = 4;
  * `_fm_` name — accounts, API tokens, second-factor secrets, the audit log,
  * meta, privileges, and the find/word/tombstone machinery — is off-limits.
  */
-const SQL_ALLOWED_INTERNAL = new Set(['_fm_record_id', '_fm_mod_id', '_fm_containers', '_fm_container_chunks']);
+const SQL_ALLOWED_INTERNAL = new Set(['_fm_record_id', '_fm_mod_id', '_fm_uuid', '_fm_containers', '_fm_container_chunks']);
 
 /**
  * The first reference to a forbidden internal table in a SQL string, if any.
@@ -988,7 +991,10 @@ export class Store {
   /** Called after design mode changes this file (the host refreshes the other files that may use it). */
   onDesignChange: () => void = () => {};
 
-  constructor(path: string, name = basename(path, extname(path))) {
+  private readonly uuid: UuidV7;
+
+  constructor(path: string, name = basename(path, extname(path)), uuidSource: { clock?: () => number; random?: (size: number) => Uint8Array } = {}) {
+    this.uuid = new UuidV7(uuidSource.clock, uuidSource.random);
     Object.defineProperty(this, 'schema', {
       configurable: true, enumerable: true,
       get: () => { this.refreshDesign(); return this.currentSchema; },
@@ -1060,6 +1066,7 @@ export class Store {
     const initialDesignVersion = this.metadataVersions().design;
     this.currentSchema = this.meta('schema');
     this.fileMode = this.meta('fileMode') === 'native' ? 'native' : 'compat';
+    if (this.fileMode === 'native') this.ensureNativeIds(path);
     if (this.fileMode === 'native') this.sql.function('fm_decimal_key', { deterministic: true }, (v) => decimalKey(v as string | number | null));
     this.dateOrder = this.meta('dateOrder') ?? 'MDY';
     this.repeating = this.meta('repeating') ?? {};
@@ -1158,6 +1165,40 @@ export class Store {
     ensureCacheVersions(this.sql);
     ensureContainerVersions(this.sql);
     this.designVersion = initialDesignVersion;
+  }
+
+  /** Backfill pre-N3 native tables once. VACUUM INTO copies the committed SQLite snapshot, including WAL content. */
+  private ensureNativeIds(path: string): void {
+    const tables = this.currentSchema?.tables ?? [];
+    const missing = tables.filter((table) => !(this.sql.prepare(`PRAGMA table_info(${q(table.name)})`).all() as { name: string }[]).some((col) => col.name === '_fm_uuid'));
+    if (missing.length) {
+      const copy = `${path}.before-native-uuid-${Date.now()}-${randomBytes(4).toString('hex')}`;
+      this.sql.prepare('VACUUM INTO ?').run(copy);
+    }
+    this.sql.exec('SAVEPOINT native_uuid_ids');
+    try {
+      for (const table of tables) {
+        const name = q(table.name);
+        if (missing.includes(table)) this.sql.exec(`ALTER TABLE ${name} ADD COLUMN _fm_uuid TEXT NOT NULL DEFAULT ''`);
+        const update = this.sql.prepare(`UPDATE ${name} SET _fm_uuid = ? WHERE _fm_record_id = ?`);
+        for (const row of this.sql.prepare(`SELECT _fm_record_id AS id FROM ${name} WHERE _fm_uuid = ''`).all() as { id: number }[]) update.run(this.uuid.next(), row.id);
+        this.nativeIdGuards(table);
+      }
+      this.sql.exec('RELEASE native_uuid_ids');
+    } catch (e) {
+      this.sql.exec('ROLLBACK TO native_uuid_ids; RELEASE native_uuid_ids');
+      throw e;
+    }
+  }
+
+  private nativeIdGuards(table: Table): void {
+    const name = q(table.name);
+    const suffix = String(table.id);
+    this.sql.exec(`CREATE UNIQUE INDEX IF NOT EXISTS ${q(`_fm_uuid_${suffix}`)} ON ${name} (_fm_uuid)`);
+    this.sql.exec(`CREATE TRIGGER IF NOT EXISTS ${q(`_fm_uuid_insert_${suffix}`)} BEFORE INSERT ON ${name}
+      WHEN NEW._fm_uuid IS NULL OR NEW._fm_uuid = '' BEGIN SELECT RAISE(ABORT, 'native record needs a UUID'); END`);
+    this.sql.exec(`CREATE TRIGGER IF NOT EXISTS ${q(`_fm_uuid_update_${suffix}`)} BEFORE UPDATE OF _fm_uuid ON ${name}
+      WHEN NEW._fm_uuid IS NULL OR NEW._fm_uuid = '' BEGIN SELECT RAISE(ABORT, 'native record needs a UUID'); END`);
   }
 
   /**
@@ -1986,7 +2027,8 @@ export class Store {
     }
     const cols = Object.keys(then);
     if (!now) {
-      this.sql.prepare(`INSERT INTO ${T} (_fm_record_id, ${cols.map(q).join(', ')}) VALUES (?${', ?'.repeat(cols.length)})`).run(recordId, ...cols.map((c) => then[c]));
+      this.sql.prepare(`INSERT INTO ${T} (_fm_record_id${this.fileMode === 'native' ? ', _fm_uuid' : ''}${cols.length ? `, ${cols.map(q).join(', ')}` : ''}) VALUES (?${this.fileMode === 'native' ? ', ?' : ''}${', ?'.repeat(cols.length)})`)
+        .run(recordId, ...(this.fileMode === 'native' ? [this.uuid.next()] : []), ...cols.map((c) => then[c]));
       this.audit('create', t.name, recordId, Object.fromEntries(cols.filter((c) => then[c] !== null).map((c) => [c, then[c]])), opts);
       this.notify('create', t.name, recordId, 0);
       return { action: 'created', fields: cols.filter((c) => then[c] !== null) };
@@ -2476,7 +2518,8 @@ export class Store {
     switch (e.k) {
       case 'createTable': {
         const cols = e.table.fields.filter((f) => f.kind !== 'summary').map((f) => `, ${q(f.name)} ${SQL_TYPES[f.type]}`).join('');
-        this.sql.exec(`CREATE TABLE ${q(e.table.name)} (_fm_record_id INTEGER PRIMARY KEY, _fm_mod_id INTEGER NOT NULL DEFAULT 0${cols})`);
+        this.sql.exec(`CREATE TABLE ${q(e.table.name)} (_fm_record_id INTEGER PRIMARY KEY, _fm_mod_id INTEGER NOT NULL DEFAULT 0${this.fileMode === 'native' ? ", _fm_uuid TEXT NOT NULL DEFAULT ''" : ''}${cols})`);
+        if (this.fileMode === 'native') this.nativeIdGuards(e.table);
         break;
       }
       case 'renameTable':
@@ -6041,7 +6084,7 @@ export class Store {
         fieldData[f.name] = this.present(raw, def?.kind === 'summary' ? summaryType(table, def) : f.type, fmt, p?.linkPrincipal);
       }
     }
-    const rec: StoredRecord = { recordId: Number(row._fm_record_id), modId: Number(row._fm_mod_id), fieldData };
+    const rec: StoredRecord = { ...(this.fileMode === 'native' ? { id: String(row._fm_uuid) } : {}), recordId: Number(row._fm_record_id), modId: Number(row._fm_mod_id), fieldData };
     const t1 = traced ? performance.now() : 0;
     const ran1 = statements;
     if (info.plan && info.home && !only) info.home.addRelated(info.plan, row, rec, fmt, portals, p);
@@ -6196,6 +6239,7 @@ export class Store {
       const out = rows.map((r) => {
         const fields = shown(res!.occurrence, portal.fields.length ? portal.fields : res!.occurrence.table.fields.map((f) => f.name));
         const o = {
+          ...(res!.occurrence.store.fileMode === 'native' ? { id: String(r._fm_uuid) } : {}),
           recordId: String(r._fm_record_id), modId: String(r._fm_mod_id),
           ...this.relatedValues(res!.occurrence, r, fields, fmt, p, stamps),
         } as PortalRow;
@@ -7928,7 +7972,7 @@ export class Store {
     }
   }
 
-  create(layout: string | LayoutInfo, data: FieldData = {}, opts: WriteOptions = {}): { recordId: number; modId: number } {
+  create(layout: string | LayoutInfo, data: FieldData = {}, opts: WriteOptions = {}): { id?: string; recordId: number; modId: number } {
     const info = this.layoutInfo(layout);
     this.checkLayout(info, opts.privileges);
     this.checkWriteFields(info, opts.privileges, fieldNames(data));
@@ -7959,14 +8003,15 @@ export class Store {
     // A record made uncommitted (or with its required fields checked at its first commit) gets its on-commit serial then.
     this.write(() => this.calc.beforeWrite(table, row, new Set(cols.keys()), { isNew: true, account: opts.account, lastVisited, noValidation: opts.uncommitted, uncommitted: opts.uncommitted || opts.requiredAtCommit, requiredAtCommit: opts.requiredAtCommit, skipEntryValidation: opts.skipEntryValidation, performAutoEnter: opts.performAutoEnter, calcRuns, entered: data, overrideValidation: opts.dataEntry ? opts.overrideValidation : undefined }));
     const names = info.fields.map((f) => f.name).filter((n) => row[n] !== null && row[n] !== undefined);
+    const uuid = this.fileMode === 'native' ? this.uuid.next() : undefined;
     this.changeOne(table, next, undefined, () => this.sql
-      .prepare(`INSERT INTO ${q(info.table)} (${['_fm_record_id', '_fm_mod_id', ...names.map(q)].join(', ')}) VALUES (?, 0${', ?'.repeat(names.length)})`)
-      .run(next, ...names.map((n) => row[n] as SqlValue)));
+      .prepare(`INSERT INTO ${q(info.table)} (${['_fm_record_id', '_fm_mod_id', ...(this.fileMode === 'native' ? ['_fm_uuid'] : []), ...names.map(q)].join(', ')}) VALUES (?, 0${this.fileMode === 'native' ? ', ?' : ''}${', ?'.repeat(names.length)})`)
+      .run(next, ...(uuid ? [uuid] : []), ...names.map((n) => row[n] as SqlValue)));
     this.keepCalcRuns(table, next, row, calcRuns);
     this.audit('create', info.table, next, Object.fromEntries(names.map((n) => [n, row[n]])), opts);
     this.notify('create', info.table, next, 0);
     if (this.heldBy && this.heldBy === writer.getStore()?.transaction?.open) this.heldNewIds.set(info.table, next);
-    return { recordId: next, modId: 0 };
+    return { ...(uuid ? { id: uuid } : {}), recordId: next, modId: 0 };
     });
   }
 
@@ -7976,7 +8021,7 @@ export class Store {
    * creation and modification values are entered anew and calculations
    * computed for the copy.
    */
-  duplicate(layout: string | LayoutInfo, recordId: number, opts: WriteOptions = {}): { recordId: number; modId: number } {
+  duplicate(layout: string | LayoutInfo, recordId: number, opts: WriteOptions = {}): { id?: string; recordId: number; modId: number } {
     const info = this.layoutInfo(layout);
     this.checkLayout(info, opts.privileges, true);
     if (info.owner !== this) return info.owner.duplicate(info, recordId, opts);
@@ -8000,14 +8045,15 @@ export class Store {
     const calcRuns = new Map<string, StyleRun[] | undefined>();
     this.write(() => this.calc.beforeWrite(table, row, copied, { isNew: true, account: opts.account, calcRuns }));
     const names = info.fields.map((f) => f.name).filter((n) => row[n] !== null && row[n] !== undefined);
+    const uuid = this.fileMode === 'native' ? this.uuid.next() : undefined;
     this.changeOne(table, next, undefined, () => this.sql
-      .prepare(`INSERT INTO ${q(info.table)} (${['_fm_record_id', '_fm_mod_id', ...names.map(q)].join(', ')}) VALUES (?, 0${', ?'.repeat(names.length)})`)
-      .run(next, ...names.map((n) => row[n] as SqlValue)));
+      .prepare(`INSERT INTO ${q(info.table)} (${['_fm_record_id', '_fm_mod_id', ...(this.fileMode === 'native' ? ['_fm_uuid'] : []), ...names.map(q)].join(', ')}) VALUES (?, 0${this.fileMode === 'native' ? ', ?' : ''}${', ?'.repeat(names.length)})`)
+      .run(next, ...(uuid ? [uuid] : []), ...names.map((n) => row[n] as SqlValue)));
     this.keepCalcRuns(table, next, row, calcRuns);
     this.audit('create', info.table, next, Object.fromEntries(names.map((n) => [n, row[n]])), opts, recordId);
     this.notify('create', info.table, next, 0);
     if (this.heldBy && this.heldBy === writer.getStore()?.transaction?.open) this.heldNewIds.set(info.table, next);
-    return { recordId: next, modId: 0 };
+    return { ...(uuid ? { id: uuid } : {}), recordId: next, modId: 0 };
     });
   }
 
@@ -8482,8 +8528,8 @@ export class Store {
    * match fields are filled in from the parent record. Returns the related records it created.
    */
   updatePortals(layout: string | LayoutInfo, recordId: number, portalData: Record<string, Record<string, string | number>[]>, deleteRelated: string[] = [], opts: WriteOptions = {},
-    portalStyles?: Record<string, Record<string, Record<string, StyleRun[]>>>): { portal: string; recordId: number; modId: number }[] {
-    const created: { portal: string; recordId: number; modId: number }[] = [];
+    portalStyles?: Record<string, Record<string, Record<string, StyleRun[]>>>): { portal: string; id?: string; recordId: number; modId: number }[] {
+    const created: { portal: string; id?: string; recordId: number; modId: number }[] = [];
     const info = this.layoutInfo(layout);
     this.checkLayout(info, opts.privileges, true);
     this.refuseIfGated(opts, 'portal edits');
@@ -8540,7 +8586,7 @@ export class Store {
           if (!keys) throw new StoreError(102, `Cannot create records through portal "${name}"`);
           // The match fields are filled in, not typed: "prohibit modification" doesn't stop them.
           const made = occ.store.create(rinfo, { ...values, ...Object.fromEntries(Object.entries(keys).map(([k, v]) => [k, v ?? ''])) }, { ...opts, dataEntry: false });
-          created.push({ portal: p.name, recordId: made.recordId, modId: made.modId });
+          created.push({ portal: p.name, ...(made.id ? { id: made.id } : {}), recordId: made.recordId, modId: made.modId });
         }
       }
     }
@@ -8689,8 +8735,9 @@ export class Store {
     if (!Number.isInteger(id)) throw new StoreError(101, 'Record is missing');
     if (this.sql.prepare(`SELECT 1 FROM ${q(table)} WHERE _fm_record_id = ?`).get(id)) throw new StoreError(504, `Record ${id} of ${table} can't be put back: a record has that id again`);
     const columns = new Set((this.sql.prepare(`PRAGMA table_info(${q(table)})`).all() as { name: string }[]).map((c) => c.name));
-    const names = Object.keys(row).filter((k) => columns.has(k));
-    this.sql.prepare(`INSERT INTO ${q(table)} (${names.map(q).join(', ')}) VALUES (${names.map(() => '?').join(', ')})`).run(...names.map((n) => row[n]));
+    const kept = this.fileMode === 'native' && (!row._fm_uuid || row._fm_uuid === '') ? { ...row, _fm_uuid: this.uuid.next() } : row;
+    const names = Object.keys(kept).filter((k) => columns.has(k));
+    this.sql.prepare(`INSERT INTO ${q(table)} (${names.map(q).join(', ')}) VALUES (${names.map(() => '?').join(', ')})`).run(...names.map((n) => kept[n]));
     this.audit('create', table, id, Object.fromEntries(names.filter((n) => !n.startsWith('_fm_') && row[n] !== null).map((n) => [n, row[n]])), opts);
     this.notify('create', table, id, Number(row._fm_mod_id ?? 0));
   }

@@ -1269,6 +1269,7 @@ function buildSteps(specs: StepSpec[] | undefined, current: ScriptStep[] = []): 
 
 function buildField(st: DesignState, table: Table, spec: FieldSpec, id: number): Field {
   const name = checkName(spec.name, 'A field');
+  if (st.fileMode === 'native' && name.toLowerCase() === '_fm_uuid') throw invalid('Native record identity reserves _fm_uuid');
   unique(table.fields.map((f) => f.name), name, `Field ${table.name}::`);
   const kind = spec.kind ?? (spec.summary ? 'summary' : 'normal');
   if (!FIELD_KINDS.includes(kind)) throw invalid(`Field kind must be one of ${FIELD_KINDS.join(', ')}`);
@@ -1498,6 +1499,7 @@ function applyOneOp(st: DesignState, op: DesignOp, deleted?: DeletedLookup): { o
       const before = { ...field, options: field.options && structuredClone(field.options) };
       if (op.name !== undefined) {
         const name = checkName(op.name, 'A field');
+        if (st.fileMode === 'native' && name.toLowerCase() === '_fm_uuid') throw invalid('Native record identity reserves _fm_uuid');
         unique(table.fields.map((f) => f.name), name, `Field ${table.name}::`, field.name);
         if (name !== field.name) {
           propagate(st, { kind: 'field', tableId: table.id, from: field.name, to: name });

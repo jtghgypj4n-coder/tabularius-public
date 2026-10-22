@@ -231,8 +231,8 @@ export function recordForModel<R extends RecordLike>(r: R, fields?: string[]): R
   const secrets = [...new Set([...secretValues(r.fieldData),
     ...Object.values(r.portalData ?? {}).flatMap((rows) => rows.flatMap(secretValues))])];
   const portalData = r.portalData && Object.fromEntries(Object.entries(r.portalData)
-    .map(([name, rows]) => [name, rows.map((row) => values(row, only && new Set([...only, 'recordid', 'modid']), only ? ASKED_CHARS : VALUE_CHARS, secrets))] as const)
-    .filter(([, rows]) => !only || rows.some((row) => Object.keys(row).some((k) => k !== 'recordId' && k !== 'modId'))));
+    .map(([name, rows]) => [name, rows.map((row) => values(row, only && new Set([...only, 'id', 'recordid', 'modid']), only ? ASKED_CHARS : VALUE_CHARS, secrets))] as const)
+    .filter(([, rows]) => !only || rows.some((row) => Object.keys(row).some((k) => k !== 'id' && k !== 'recordId' && k !== 'modId'))));
   return {
     ...r,
     fieldData: values(r.fieldData, only, only ? ASKED_CHARS : VALUE_CHARS, secrets),

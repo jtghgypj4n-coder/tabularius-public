@@ -34,7 +34,7 @@ import type { Store } from './store.ts';
  * What the planner reads of a local file: its schema and its database. A Store
  * is one; `openForPlanning` gives one that can't write.
  */
-export type SyncLocal = Pick<Store, 'schema' | 'sql'>;
+export type SyncLocal = Pick<Store, 'schema' | 'sql'> & { fileMode?: 'native' | 'compat' };
 
 /**
  * A hosted file opened read-only, for a dry run. Opening a Store would bring an
@@ -43,7 +43,9 @@ export type SyncLocal = Pick<Store, 'schema' | 'sql'>;
 export function openForPlanning(path: string): SyncLocal & { close(): void } {
   const sql = new DatabaseSync(path, { readOnly: true });
   const row = sql.prepare("SELECT json FROM _fm_meta WHERE key = 'schema'").get() as { json: string } | undefined;
-  return { sql, schema: (row ? JSON.parse(row.json) : undefined) as Schema, close: () => sql.close() };
+  const mode = sql.prepare("SELECT json FROM _fm_meta WHERE key = 'fileMode'").get() as { json: string } | undefined;
+  return { sql, schema: (row ? JSON.parse(row.json) : undefined) as Schema,
+    fileMode: mode?.json === '"native"' ? 'native' : 'compat', close: () => sql.close() };
 }
 
 /**
@@ -272,9 +274,9 @@ export function lastPullTimestamp(store: SyncLocal, key: string): string | null 
  */
 export function missingPrereqs(store: SyncLocal, config: TableSyncConfig): string[] {
   const table = store.schema?.tables.find((t) => t.name === config.localTable);
-  if (!table) return [config.uuidField, config.modTimestampField];
+  if (!table) return store.fileMode === 'native' ? [config.modTimestampField] : [config.uuidField, config.modTimestampField];
   const have = new Set(table.fields.map((f) => f.name));
-  return [config.uuidField, config.modTimestampField].filter((f) => !have.has(f));
+  return [config.modTimestampField, ...(store.fileMode === 'native' ? [] : [config.uuidField])].filter((f) => !have.has(f));
 }
 
 /** Read every local record of a table with its UUID (empty when it has none), ids and field values. */
@@ -283,9 +285,9 @@ export function readLocalRecords(store: SyncLocal, config: TableSyncConfig): Loc
   const out: LocalRecord[] = [];
   for (const row of rows) {
     // A record with no UUID is kept with an empty key: the planner can't match it, but counts it.
-    const uuid = row[config.uuidField] ?? '';
+    const uuid = (store.fileMode === 'native' ? row._fm_uuid : row[config.uuidField]) ?? '';
     const fields: Record<string, SqlValue> = {};
-    for (const [k, v] of Object.entries(row)) if (k !== '_fm_record_id' && k !== '_fm_mod_id') fields[k] = v;
+    for (const [k, v] of Object.entries(row)) if (k !== '_fm_record_id' && k !== '_fm_mod_id' && k !== '_fm_uuid') fields[k] = v;
     out.push({ uuid: String(uuid), recordId: Number(row._fm_record_id ?? 0), modId: Number(row._fm_mod_id ?? 0), fields });
   }
   return out;

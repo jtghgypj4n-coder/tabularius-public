@@ -358,6 +358,7 @@ function catalogTree(order: OrderedItem[], names: string[], allowed: (name: stri
 }
 
 export const recordJson = (r: StoredRecord) => ({
+  ...(r.id ? { id: r.id } : {}),
   fieldData: r.fieldData,
   portalData: r.portalData ?? {},
   recordId: String(r.recordId),
@@ -2118,10 +2119,10 @@ export class DataApi {
               store.updatePortals(layout, made.recordId, portalData, [], { account, privileges, ...entry, dateOrder: writeDateOrder(store, body.dateformats) });
               return made;
             });
-            return { recordId: String(r.recordId), modId: String(r.modId) };
+            return { ...(r.id ? { id: r.id } : {}), recordId: String(r.recordId), modId: String(r.modId) };
           }
           const r = create();
-          return { recordId: String(r.recordId), modId: String(r.modId) };
+          return { ...(r.id ? { id: r.id } : {}), recordId: String(r.recordId), modId: String(r.modId) };
         }, (r) => [Number(r.recordId)]);
       }
       const id = Number(p[5]);
@@ -2158,7 +2159,7 @@ export class DataApi {
             }
             const made = Object.keys(portalData).length || deleteRelated.length ? store.updatePortals(layout, id, portalData, deleteRelated, { account, privileges, ...entry, dateOrder: writeDateOrder(store, body.dateformats) }, portalStyles) : [];
             // The related records portal rows created, as FileMaker's Data API reports them.
-            const created = made.length ? { newPortalRecordInfo: made.map((m) => ({ tableName: m.portal, recordId: String(m.recordId), modId: String(m.modId) })) } : {};
+            const created = made.length ? { newPortalRecordInfo: made.map((m) => ({ tableName: m.portal, ...(m.id ? { id: m.id } : {}), recordId: String(m.recordId), modId: String(m.modId) })) } : {};
             // Tabularius's web client committing a record made with options.uncommitted: its validation, required fields included.
             const firstCommit = (body.options as { firstCommit?: unknown } | undefined)?.firstCommit === true;
             if (!Object.keys(fieldData).length && !firstCommit) return { modId: String(store.get(layout, id, 'us', undefined, privileges, { fields: [] }).modId), ...created };
@@ -2171,7 +2172,7 @@ export class DataApi {
           checkCurrent();
           return withScripts(scriptArgs(body), () => {
             const r = store.duplicate(layout, id, { account, privileges });
-            return { recordId: String(r.recordId), modId: String(r.modId) };
+            return { ...(r.id ? { id: r.id } : {}), recordId: String(r.recordId), modId: String(r.modId) };
           }, (r) => [Number(r.recordId)]);
         }
         if (method === 'DELETE') {

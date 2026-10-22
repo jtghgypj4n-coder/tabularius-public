@@ -155,7 +155,7 @@ function model(store: Store, p: Privileges): EntitySet[] {
     const local = owner === store ? p : p.in(owner);
     if (!owner.tableVisible(info.table, local)) continue;
     const table = owner.schema.tables.find((t) => t.name === info.table);
-    const names = new Set(['rowid', 'rowmodid']);
+    const names = new Set(['rowid', 'rowmodid', ...(owner.fileMode === 'native' ? ['id'] : [])]);
     const props: Prop[] = [];
     for (const f of info.fields) {
       if (local.field(info.table, f.name) === 'none') continue;
@@ -180,7 +180,7 @@ function model(store: Store, p: Privileges): EntitySet[] {
     return !!name && (owner === store ? p : p.in(owner)).field(s.info.table, name) !== 'none';
   };
   for (const s of sets) {
-    const taken = new Set(['rowid', 'rowmodid', ...s.props.map((x) => x.name.toLowerCase())]);
+    const taken = new Set(['rowid', 'rowmodid', ...(s.info.owner.fileMode === 'native' ? ['id'] : []), ...s.props.map((x) => x.name.toLowerCase())]);
     const seen = new Set<number>();
     for (const rel of store.schema.relationships) {
       const other = rel.leftTableOccurrenceId === s.toId ? rel.rightTableOccurrenceId : rel.rightTableOccurrenceId === s.toId ? rel.leftTableOccurrenceId : undefined;
@@ -205,6 +205,7 @@ function metadata(namespace: string, sets: EntitySet[]): string {
   for (const s of sets) {
     out.push(`<EntityType Name="${xml(s.name)}">`, '<Key><PropertyRef Name="ROWID"/></Key>',
       '<Property Name="ROWID" Type="Edm.Int64" Nullable="false"/>', '<Property Name="ROWMODID" Type="Edm.Int64" Nullable="false"/>');
+    if (s.info.owner.fileMode === 'native') out.push('<Property Name="id" Type="Edm.Guid" Nullable="false"/>');
     for (const p of s.props) {
       out.push(`<Property Name="${xml(p.name)}" Type="${p.edm}"${p.edm === 'Edm.Decimal' ? ' Scale="variable"' : ''}/>`);
     }
@@ -716,7 +717,7 @@ function orderBy(text: string, props: Prop[]): SortSpec[] {
 /** $select as the properties to show (all for none or *). */
 function selected(text: string | null, set: EntitySet, option = '$select'): Prop[] {
   if (!text || text.trim() === '*') return set.props;
-  return text.split(',').map((x) => x.trim()).filter((x) => !/^ROW(MOD)?ID$/i.test(x)).map((name) => {
+  return text.split(',').map((x) => x.trim()).filter((x) => !/^ROW(MOD)?ID$/i.test(x) && !(set.info.owner.fileMode === 'native' && /^id$/i.test(x))).map((name) => {
     const prop = set.props.find((x) => x.name === name) ?? set.props.find((x) => x.name.toLowerCase() === name.toLowerCase());
     if (!prop) throw bad(`${option}: there is no property "${name}"`, '102');
     return prop;
@@ -999,7 +1000,7 @@ export class ODataEndpoint {
           const expand = expansions(url.searchParams.get('$expand'), nav.target);
           const entity = this.entity(nav.target, Number(child), p, expand);
           const select = url.searchParams.get('$select');
-          const keep = select && select.trim() !== '*' ? new Set(['@odata.etag', 'ROWID', 'ROWMODID', ...selected(select, nav.target).map((x) => x.name), ...expand.map((x) => x.name)]) : undefined;
+          const keep = select && select.trim() !== '*' ? new Set(['@odata.etag', 'ROWID', 'ROWMODID', 'id', ...selected(select, nav.target).map((x) => x.name), ...expand.map((x) => x.name)]) : undefined;
           res.setHeader('etag', entity['@odata.etag'] as string);
           this.logEntities(nav.target, [entity], expand, p);
           return send(res, 200, { '@odata.context': `${base}/$metadata#${nav.target.name}/$entity`, ...(keep ? Object.fromEntries(Object.entries(entity).filter(([k]) => keep.has(k))) : entity) });
@@ -1053,8 +1054,8 @@ export class ODataEndpoint {
       // $select as on a list and on a related record: the key and etag, the properties named, and what was expanded.
       const select = url.searchParams.get('$select');
       const props = select && select.trim() !== '*' ? selected(select, set) : undefined;
-      const keep = props ? new Set(['@odata.etag', 'ROWID', 'ROWMODID', ...props.map((x) => x.name), ...expand.map((x) => x.name)]) : undefined;
-      const context = `${base}/$metadata#${set.name}${props ? `(${['ROWID', 'ROWMODID', ...props.map((x) => x.name), ...expand.map((e) => e.name)].join(',')})` : ''}/$entity`;
+      const keep = props ? new Set(['@odata.etag', 'ROWID', 'ROWMODID', 'id', ...props.map((x) => x.name), ...expand.map((x) => x.name)]) : undefined;
+      const context = `${base}/$metadata#${set.name}${props ? `(${['ROWID', 'ROWMODID', ...(set.info.owner.fileMode === 'native' ? ['id'] : []), ...props.map((x) => x.name), ...expand.map((e) => e.name)].join(',')})` : ''}/$entity`;
       this.logEntities(set, [entity], expand, p);
       return send(res, 200, { '@odata.context': context, ...(keep ? Object.fromEntries(Object.entries(entity).filter(([k]) => keep.has(k))) : entity) });
     }
@@ -1281,7 +1282,7 @@ export class ODataEndpoint {
     const values = shown.length ? set.info.owner.computeValues(set.info, ids, shown, p) : undefined;
     const budget: Budget = { left: EXPAND_LIMIT.records };
     const body: Record<string, unknown> = {
-      '@odata.context': `${base}/$metadata#${set.name}${select && select.trim() !== '*' ? `(${['ROWID', 'ROWMODID', ...props.map((x) => x.name), ...shown.map((c) => c.name), ...expand.map((e) => e.name)].join(',')})` : ''}`,
+      '@odata.context': `${base}/$metadata#${set.name}${select && select.trim() !== '*' ? `(${['ROWID', 'ROWMODID', ...(set.info.owner.fileMode === 'native' ? ['id'] : []), ...props.map((x) => x.name), ...shown.map((c) => c.name), ...expand.map((e) => e.name)].join(',')})` : ''}`,
     };
     if (/^true$/i.test(url.searchParams.get('$count') ?? '')) body['@odata.count'] = filtered(!!query.where, () => set.info.owner.countIds(set.info, query));
     // A page whose related records ($expand) pass EXPAND_LIMIT ends early, and the next link carries on from there.
@@ -1299,7 +1300,7 @@ export class ODataEndpoint {
       }
       value.push({
         '@odata.etag': etag(r.modId),
-        ROWID: r.recordId, ROWMODID: r.modId,
+        ...(r.id ? { id: r.id } : {}), ROWID: r.recordId, ROWMODID: r.modId,
         ...Object.fromEntries(props.map((x) => [x.name, toJson(r.fieldData[x.field], x.type)])),
         ...(values ? Object.fromEntries(shown.map((c, n) => [c.name, computedJson(values.get(r.recordId)?.[n], c.kind)])) : {}),
         ...related,
@@ -1514,7 +1515,7 @@ export class ODataEndpoint {
         const want = [...new Set(shown.map((r) => r[`i${i}`]))];
         const pick = selected(expand.get(s.name) ?? null, s);
         return new Map(s.info.owner.getMany(s.info, want, want, { dateFormat: 'iso', privileges: p }).map((r) => [r.recordId, {
-          '@odata.etag': etag(r.modId), ROWID: r.recordId, ROWMODID: r.modId,
+          '@odata.etag': etag(r.modId), ...(r.id ? { id: r.id } : {}), ROWID: r.recordId, ROWMODID: r.modId,
           ...Object.fromEntries(pick.map((x) => [x.name, toJson(r.fieldData[x.field], x.type)])),
         }]));
       });
@@ -1552,7 +1553,7 @@ export class ODataEndpoint {
     const [r] = set.info.owner.getMany(set.info, [id], [id], { dateFormat: 'iso', privileges: p });
     if (!r) throw new ODataError(404, '101', 'Record is missing');
     return {
-      '@odata.etag': etag(r.modId), ROWID: r.recordId, ROWMODID: r.modId,
+      '@odata.etag': etag(r.modId), ...(r.id ? { id: r.id } : {}), ROWID: r.recordId, ROWMODID: r.modId,
       ...Object.fromEntries(set.props.map((x) => [x.name, toJson(r.fieldData[x.field], x.type)])),
       ...this.withinLimit(() => this.expanded(set, id, expand, p, budget)),
     };
@@ -1609,7 +1610,7 @@ export class ODataEndpoint {
   private relatedRecords(e: Expansion, ids: number[], p: Privileges): Record<string, unknown>[] {
     const records = e.target.info.owner.getMany(e.target.info, ids, ids, { dateFormat: 'iso', privileges: p });
     return records.map((r) => ({
-      '@odata.etag': etag(r.modId), ROWID: r.recordId, ROWMODID: r.modId,
+      '@odata.etag': etag(r.modId), ...(r.id ? { id: r.id } : {}), ROWID: r.recordId, ROWMODID: r.modId,
       ...Object.fromEntries(e.props.map((x) => [x.name, toJson(r.fieldData[x.field], x.type)])),
     }));
   }
