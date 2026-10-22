@@ -45,6 +45,7 @@ import { lintScript } from '../../store/src/index.ts';
 import { applyStarter, STARTER_NAMES } from '../../store/src/index.ts';
 import { NATIVE_REFUSAL } from '../../store/src/index.ts';
 import { resolveAiKey } from './ai-key.ts';
+import { readSecretFile } from './secret-file.ts';
 import { corpusScan, scanFile } from './corpus-scan.ts';
 import { pairTokenFile } from './pair-tokens.ts';
 import { databaseNameProblem } from '../../server/src/solution-builder.ts';
@@ -72,12 +73,12 @@ Usage:
                                              fmxmlsnippet XML; no Save a Copy as XML yet.
 
 Hosting (point it at a folder of .fmp12 files; each is converted once):
-  tabularius serve <folder> [--port 8080] [--host 127.0.0.1] [--mcp-token T] [--allow-script-network] [--allow-script-network-to hosts] [--allow-app-connections] [--allow-webhooks] [--allow-inbound-hooks]
+  tabularius serve <folder> [--port 8080] [--host 127.0.0.1] [--mcp-token T|--mcp-token-file F] [--allow-script-network] [--allow-script-network-to hosts] [--allow-app-connections] [--allow-webhooks] [--allow-inbound-hooks]
                 [--list-files-publicly]
                 [--tls-cert cert.pem --tls-key key.pem] [--allow-plain-http] [--public-url URL] [--mcp-origin URL]... [--proxy-header x-forwarded-for|forwarded|x-real-ip] [--trusted-proxies IP/CIDR,...] [--connections-per-address N]
                 [--https name[,name]|local [--https-email E] [--http-port 80]] [--sql-port 5432]
                 [--backup-every 1d] [--keep 7] [--backup-dir DIR] [--no-backups]
-                [--progressive 5m] [--stats-interval 1m|off] [--log-limit 100MB] [--backup-s3 s3://bucket/prefix [--s3-endpoint URL]] [--replication-token T] [--ai] [--allow-blank-passwords]
+                [--progressive 5m] [--stats-interval 1m|off] [--log-limit 100MB] [--backup-s3 s3://bucket/prefix [--s3-endpoint URL]] [--replication-token T|--replication-token-file F] [--ai] [--allow-blank-passwords]
                 [--oidc-issuer URL --oidc-client-id ID [--oidc-name N] [--oidc-groups-claim C] [--oidc-trust-email]] [--oidc-config providers.json]
                 [--ldap-url ldaps://host [--ldap-user-attribute A] [--ldap-base-dn DN] [--ldap-bind-dn-template T] [--ldap-search-dn DN] [--ldap-name N] [--ldap-email-attribute A] [--ldap-group-attribute A]]
                 [--workers N|auto] [--test-outbound [--mail-redirect ADDRESS] [--mail-copies 20] [--allow-host h[,h]] [--capture-only F[,F]] [--capture-only-copies-to-redirect]]
@@ -160,10 +161,11 @@ Hosting (point it at a folder of .fmp12 files; each is converted once):
                                              sent while a capture-only file (--capture-only or
                                              TABULARIUS_CAPTURE_ONLY) is in the folder. Not with
                                              --test-outbound.
-  tabularius standby <folder> --primary URL [--token T] [--overwrite]
+  tabularius standby <folder> --primary URL [--token T|--token-file F] [--overwrite]
                                              Keep copies of another server's files a second
                                              or so behind it (it runs serve --replication-token
-                                             T; token also in TABULARIUS_REPLICATION_TOKEN). To
+                                             T; token also in TABULARIUS_REPLICATION_TOKEN or
+                                             TABULARIUS_REPLICATION_TOKEN_FILE). To
                                              take over, stop this and serve the folder.
   tabularius migrate-fms <folder> [--fms-dir DIR] [--from URL|export.json] [--user admin] [--insecure]
                 [--save export.json] [--dry-run]
@@ -569,6 +571,18 @@ function strictFlag(args: string[], name: string, allowLeadingDash = false): str
   args.splice(i, 2);
   if (args.includes(name)) throw new Error(`${name} was given more than once`);
   return v;
+}
+
+/** Explicit flags take priority over environment values; two sources at the same level are ambiguous. */
+function tokenOption(args: string[], inlineName: string, fileName: string, inlineEnv: string | undefined, fileEnv: string | undefined, command: string): { value: string | undefined; file: string | undefined } {
+  const inline = strictFlag(args, inlineName, true);
+  const file = strictFlag(args, fileName, true);
+  if (inline !== undefined && file !== undefined) throw new Error(`${command}: give either ${inlineName} or ${fileName}, not both`);
+  if (inline !== undefined) return { value: inline, file: undefined };
+  if (file !== undefined) return { value: readSecretFile(file, fileName), file };
+  if (inlineEnv !== undefined && fileEnv !== undefined) throw new Error(`${command}: give either ${inlineName} or ${fileName}, not both`);
+  if (inlineEnv !== undefined) return { value: inlineEnv, file: undefined };
+  return fileEnv === undefined ? { value: undefined, file: undefined } : { value: readSecretFile(fileEnv, fileName), file: fileEnv };
 }
 
 /** A script failure for the terminal: the step, what the error means, the steps before, the values there, and hints. */
@@ -1230,7 +1244,7 @@ function main(argv: string[]): number {
       const port = Number(portText);
       if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error(`serve: ${portFlag !== undefined ? '--port' : 'the PORT variable'} takes a port number from 1 to 65535, not "${portText}"`);
       const hostname = flag(args, '--host') ?? process.env.TABULARIUS_HOST ?? (acme ? '0.0.0.0' : '127.0.0.1');
-      const mcpToken = strictFlag(args, '--mcp-token', true) ?? process.env.TABULARIUS_MCP_TOKEN;
+      const mcpToken = tokenOption(args, '--mcp-token', '--mcp-token-file', process.env.TABULARIUS_MCP_TOKEN, process.env.TABULARIUS_MCP_TOKEN_FILE, 'serve').value;
       // Scripts stay offline unless asked: Insert from URL could reach mail, SMS or payment services.
       const scriptNetwork = bool(args, '--allow-script-network');
       // Scripts' requests never reach this machine's own network (loopback, 10/8, 192.168/16 and so on) unless listed here.
@@ -1311,7 +1325,7 @@ function main(argv: string[]): number {
       const sqlPort = sqlPortText ? Number(sqlPortText) : undefined;
       if (sqlPort !== undefined && !(Number.isInteger(sqlPort) && sqlPort >= 0 && sqlPort < 65536)) throw new Error('serve: --sql-port must be a port number');
       // Standby servers follow this one's changes, signing in with this token.
-      const replicationToken = strictFlag(args, '--replication-token', true) ?? process.env.TABULARIUS_REPLICATION_TOKEN;
+      const { value: replicationToken, file: replicationTokenFile } = tokenOption(args, '--replication-token', '--replication-token-file', process.env.TABULARIUS_REPLICATION_TOKEN, process.env.TABULARIUS_REPLICATION_TOKEN_FILE, 'serve');
       if (replicationToken !== undefined && replicationToken.length < 16) throw new Error('serve: --replication-token must be at least 16 characters');
       // Sign-in through an identity provider (OpenID Connect) for external accounts.
       const issuer = flag(args, '--oidc-issuer') ?? process.env.TABULARIUS_OIDC_ISSUER;
@@ -1455,7 +1469,7 @@ function main(argv: string[]): number {
         console.log(backups ? `backups every ${every} to ${dest ?? defaultBackupDir(path)}, keeping ${keep}${process.env.TABULARIUS_BACKUP_KEY ? ', encrypted' : ''}` : 'backups off');
         if (openPage) openBrowser(`${url}/admin/#welcome`);
         if (offsite) console.log(`backups copied off-site to ${offsite.url}${process.env.TABULARIUS_BACKUP_KEY ? ' (encrypted)' : ''}`);
-        if (replicationToken) console.log(`standby servers can follow this one: tabularius standby <folder> --primary ${url} --token ...`);
+        if (replicationToken) console.log(`standby servers can follow this one: tabularius standby <folder> --primary ${url} ${replicationTokenFile ? `--token-file ${replicationTokenFile}` : '--token ...'}`);
         if (progressive) console.log(`changes saved every ${progressiveEvery}: restore to any of those moments with tabularius restore --at`);
         if (encryptionKey) console.log('encryption at rest on: stores are re-encrypted on a clean shutdown (Ctrl-C), not left as plaintext');
       }, (e) => {
@@ -1644,8 +1658,8 @@ function main(argv: string[]): number {
     }
     case 'standby': {
       const primary = flag(args, '--primary') ?? process.env.TABULARIUS_PRIMARY;
-      const token = strictFlag(args, '--token', true) ?? process.env.TABULARIUS_REPLICATION_TOKEN;
-      if (!primary || !token) throw new Error('standby: give --primary URL and --token (the main server\'s --replication-token)');
+      const token = tokenOption(args, '--token', '--token-file', process.env.TABULARIUS_REPLICATION_TOKEN, process.env.TABULARIUS_REPLICATION_TOKEN_FILE, 'standby').value;
+      if (!primary || !token) throw new Error('standby: give --primary URL and --token or --token-file (the main server\'s replication token)');
       const standby = new Standby({ folder: path, primary, token, overwrite: bool(args, '--overwrite'), log: (m) => console.log(m) });
       standby.start();
       console.log(`standby of ${primary} in ${path}: to take over, stop this (Ctrl-C) and run tabularius serve ${path}`);
