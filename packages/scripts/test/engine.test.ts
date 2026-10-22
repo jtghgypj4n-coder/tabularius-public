@@ -142,7 +142,7 @@ test('dialogs are returned as client actions; unknown scripts fail with 104', { 
   const r = await runScript(store, script(
     step(87, 'Show Custom Dialog', { title: '"Hello"', message: '"World"', buttons: ['"OK"', '"Cancel"'] }),
     ExitScript('Get ( LastMessageChoice )'),
-  ));
+  ), { previewDialogs: true }); // a trial of what the script would show; a real run with nobody to answer is error 3
   assert.deepEqual(r.actions, [{ step: 'Show Custom Dialog', script: 'test', title: 'Hello', message: 'World', buttons: ['OK', 'Cancel'] }]);
   assert.equal(r.result, '1');
   await assert.rejects(runScript(store, 'Nope'), (e: ScriptError) => e.code === ERROR.scriptMissing);
