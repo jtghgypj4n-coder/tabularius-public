@@ -606,6 +606,8 @@ const FOUND_SET_ROWS = 10;
 const FOUND_SET_SPARE = 5;
 /** How many sorted orders are kept at once. */
 const SORTED_KEEP = 4;
+/** Records read at a time while a find computes unstored calculations and globals (findSource). */
+const FIND_SOURCE_PAGE = 1000;
 
 /**
  * The internal `_fm_` names a read-only query may touch: the row-id and
@@ -7969,8 +7971,11 @@ export class Store {
 
   /**
    * The table a find reads. When the find or sort uses unstored calculations
-   * or globals, which have no stored values, it reads a temporary copy with
-   * those values computed for every record.
+   * or globals, which have no stored values, it reads a temporary view of the
+   * table with those values computed. They are computed only for the records
+   * the find's stored criteria can match (see `findCandidates`), and only the
+   * computed values are written, next to the record id; the view joins them
+   * to the table's stored columns.
    */
   private findSource(info: LayoutInfo, opts: FindOptions): string {
     const used = new Set<string>();
@@ -7981,23 +7986,37 @@ export class Store {
       ((f.kind === 'calculation' && f.options?.unstored) || f.options?.global));
     if (!computed.length) return q(info.table);
     const tmp = 'temp._fm_find';
-    this.sql.exec(`DROP TABLE IF EXISTS ${tmp}; CREATE TEMP TABLE _fm_find AS SELECT * FROM ${q(info.table)}; CREATE UNIQUE INDEX temp._fm_find_id ON _fm_find (_fm_record_id)`);
-    const set = this.sql.prepare(`UPDATE ${tmp} SET ${computed.map((f) => `${q(f.name)} = ?`).join(', ')} WHERE _fm_record_id = ?`);
+    const values = 'temp._fm_find_values';
+    // The computed columns keep the table's declared types, so their values are stored and compared as before.
+    const columns = this.sql.prepare('SELECT name, type FROM pragma_table_info(?)').all(info.table) as { name: string; type: string }[];
+    const declared = new Map(columns.map((c) => [c.name, c.type]));
+    const names = new Set(computed.map((f) => f.name));
+    const select = [...columns.map((c) => names.has(c.name) ? `v.${q(c.name)}` : `b.${q(c.name)}`),
+      ...computed.filter((f) => !declared.has(f.name)).map((f) => `v.${q(f.name)}`)];
+    this.sql.exec(`DROP VIEW IF EXISTS ${tmp}; DROP TABLE IF EXISTS ${values}; ` +
+      `CREATE TEMP TABLE _fm_find_values (_fm_record_id INTEGER PRIMARY KEY, ${computed.map((f) => `${q(f.name)} ${declared.get(f.name) ?? ''}`).join(', ')}); ` +
+      `CREATE TEMP VIEW _fm_find AS SELECT ${select.join(', ')} FROM ${q(info.table)} AS b JOIN ${values} AS v ON v._fm_record_id = b._fm_record_id`);
+    const add = this.sql.prepare(`INSERT INTO ${values} VALUES (?, ${computed.map(() => '?').join(', ')})`);
+    const candidates = this.findCandidates(info, table, opts, names);
     // As the account sees them: a find or sort on a related total never reveals records it can't view.
     const pass = this.calc.newPass(opts.privileges?.account, opts.privileges);
     // A savepoint, not BEGIN: it also works inside a trial (see trial()).
     this.sql.exec('SAVEPOINT find_source');
     try {
-      for (const row of this.sql.prepare(`SELECT * FROM ${q(info.table)}`).iterate() as Iterable<Row>) {
-        checkMemory();
-        const rec = { store: this, table, row };
-        const values = computed.map((f) => (f.options?.global
-          ? this.calc.globalValue(table, f)
-          : this.calc.unstoredValue(rec, f, pass)) as SqlValue);
-        set.run(...values, row._fm_record_id as number);
-        // Values are reused within a record, not across records.
-        pass.values.clear();
-        pass.related.clear();
+      // Read in pages by record id: all() is about twice as fast per row as iterate(), and a page keeps memory bounded.
+      const page = this.sql.prepare(`SELECT * FROM ${q(info.table)} WHERE (${candidates.where}) AND _fm_record_id > ? ORDER BY _fm_record_id LIMIT ${FIND_SOURCE_PAGE}`);
+      for (let after = -Infinity, rows: Row[]; (rows = page.all(...candidates.params, after) as Row[]).length; after = rows[rows.length - 1]._fm_record_id as number) {
+        for (const row of rows) {
+          checkMemory();
+          const rec = { store: this, table, row };
+          const computedValues = computed.map((f) => (f.options?.global
+            ? this.calc.globalValue(table, f)
+            : this.calc.unstoredValue(rec, f, pass)) as SqlValue);
+          add.run(row._fm_record_id as number, ...computedValues);
+          // Values are reused within a record, not across records.
+          pass.values.clear();
+          pass.related.clear();
+        }
       }
       this.sql.exec('RELEASE find_source');
     } catch (e) {
@@ -8005,6 +8024,37 @@ export class Store {
       throw e;
     }
     return tmp;
+  }
+
+  /**
+   * The records a find can return, worked out from its stored criteria alone, so unstored calculations are computed
+   * for those records and not for the whole table. Every request that adds records must name at least one stored
+   * field of the table: the found set is then inside the records those criteria match, and the full criteria are
+   * applied afterwards as before. Anything else (a sort with no find, a request only on computed or related fields,
+   * an omit request first, a duplicates search, criteria that do not parse) computes every record, as before.
+   */
+  private findCandidates(info: LayoutInfo, table: Table, opts: FindOptions, computed: Set<string>): { where: string; params: SqlValue[] } {
+    const all = { where: '1', params: [] };
+    const query = opts.query ?? [];
+    const omits = (r: FindRequest) => r.omit === true || r.omit === 'true';
+    if (!query.length || omits(query[0])) return all;
+    const fields = new Map(info.fields.map((f) => [f.name, f]));
+    const stored = (name: string) => !computed.has(name) && fields.has(name) &&
+      table.fields.some((f) => f.name === name && f.kind !== 'summary');
+    const requests: FindRequest[] = [];
+    for (const r of query) {
+      if (Object.entries(r).some(([k, v]) => k !== 'omit' && String(v ?? '').trim().startsWith('!'))) return all;
+      if (omits(r)) continue;
+      const own = Object.fromEntries(Object.entries(r).filter(([k, v]) => k !== 'omit' && v !== '' && v !== null && v !== undefined && stored(k)));
+      if (!Object.keys(own).length) return all;
+      requests.push(own as FindRequest);
+    }
+    try {
+      return findWhere(requests, fields, (v, t) => this.normalize(v, t, opts.dateOrder), undefined, this.wordIndex(info));
+    } catch (e) {
+      rethrowExecutionRefusal(e);
+      return all; // the find itself reports what is wrong with its criteria
+    }
   }
 
   /** Flush relationships in this graph and every hosted store its occurrences reach, including multi-hop graphs. */

@@ -72,7 +72,7 @@ process against the store, with no HTTP in between.
 | Area | What is timed |
 | --- | --- |
 | Open | A fresh `Store` on the file, through to its first page of records, as a server does when it hosts a file. |
-| Find | Word, name, number range, date range, two fields, two requests with an omit, and a range on an unstored calculation (worked out for every record, as it has no stored value). The first text find builds the word index (see [ARCHITECTURE.md](ARCHITECTURE.md#several-users)). |
+| Find | Word, name, number range, date range, two fields, two requests with an omit, and a range on an unstored calculation (worked out for every record here, as it has no stored value and the find names no stored field; a find that also names a stored field works it out only for the records that field matches). The first text find builds the word index (see [ARCHITECTURE.md](ARCHITECTURE.md#several-users)). |
 | Sort | All records by a text field, a number field, two fields and an unstored calculation, and a found set by a text field. |
 | Summary fields | Total, average and count over all records and over a found set. |
 | ExecuteSQL | SUM with WHERE, COUNT with GROUP BY, a JOIN to Customers, and ORDER BY with FETCH FIRST. |
