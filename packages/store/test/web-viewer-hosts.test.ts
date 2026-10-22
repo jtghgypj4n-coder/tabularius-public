@@ -188,7 +188,9 @@ test('cloud storage, static hosting and platform names are public suffixes too',
     '*.blob.core.windows.net', '*.web.core.windows.net', '*.file.core.windows.net', '*.dfs.core.windows.net', '*.storage.googleapis.com', '*.firebaseio.com', '*.amplifyapp.com',
     '*.azureedge.net', '*.sharepoint.com', '*.up.railway.app', '*.ondigitalocean.app', '*.s3.dualstack.us-east-1.amazonaws.com', '*.s3-fips.us-gov-west-1.amazonaws.com',
     '*.s3.cn-north-1.amazonaws.com.cn', '*.compute.amazonaws.com.cn', '*.Blob.Core.Windows.NET',
+    // The bare cloud names, and every name above one the list refuses: a wildcard over it allows what the refused ones would.
+    '*.amazonaws.com', '*.amazonaws.com.cn', '*.windows.net', '*.core.windows.net', '*.googleapis.com', '*.azure.com', '*.railway.app', '*.Windows.Net',
   ]) assert.throws(() => normalizeWebViewerHost(bad), /public suffix/, bad);
   // One storage account, one bucket or one project is one party's.
-  for (const ok of ['*.myaccount.blob.core.windows.net', '*.mybucket.s3.us-east-1.amazonaws.com', '*.mybucket.s3.dualstack.us-east-1.amazonaws.com', '*.myproject.firebaseio.com', '*.myorg.sharepoint.com', 'storage.googleapis.com']) assert.equal(normalizeWebViewerHost(ok), ok, ok);
+  for (const ok of ['*.myaccount.blob.core.windows.net', '*.mybucket.s3.us-east-1.amazonaws.com', '*.mybucket.s3.dualstack.us-east-1.amazonaws.com', '*.myproject.firebaseio.com', '*.myorg.sharepoint.com', 'storage.googleapis.com', 'windows.net', '*.example.windows.net.example.com', '*.maps.googleapis.com.example.org']) assert.equal(normalizeWebViewerHost(ok), ok, ok);
 });
