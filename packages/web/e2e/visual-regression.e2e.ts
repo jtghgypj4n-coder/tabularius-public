@@ -145,6 +145,13 @@ async function stabilizeAdminText(page: Page): Promise<void> {
 async function openContext(theme: 'light' | 'dark', viewport: { width: number; height: number }): Promise<{ context: BrowserContext; page: Page & { errors: string[] } }> {
   const context = await browser.newContext({ viewport, colorScheme: theme, deviceScaleFactor: 1 });
   await context.route('**/__visual-fonts/*', (route) => route.fulfill({ path: join(FONTS, basename(new URL(route.request().url()).pathname)), contentType: 'font/ttf' }));
+  // The console redraws itself every few seconds, and a redraw between the text rewrite and the shot puts the machine's own folder
+  // path back: at 390 px it wraps to one more line and moves everything below it. Its first draw is all a shot needs.
+  await context.addInitScript(() => {
+    if (!location.pathname.startsWith('/admin')) return;
+    const every = globalThis.setInterval;
+    globalThis.setInterval = ((handler: TimerHandler, ms?: number, ...args: unknown[]) => (ms !== undefined && ms >= 5000 ? 0 : every(handler, ms, ...args))) as typeof setInterval;
+  });
   await context.addInitScript((time) => {
     const OriginalDate = Date;
     class FixedDate extends OriginalDate {
@@ -159,6 +166,27 @@ async function openContext(theme: 'light' | 'dark', viewport: { width: number; h
   await page.route('**/tabularius/live/v1/databases/Visual/layouts/*/records/*/view', (route) => route.fulfill({ json: {} }));
   return { context, page };
 }
+
+test('a console section captured again and again looks the same each time', { skip }, async () => {
+  const { context, page } = await openContext('light', { width: 390, height: 844 });
+  try {
+    await page.goto(hosted.url + '/admin/#audit-section');
+    await page.locator('#audit-db option').first().waitFor({ state: 'attached' });
+    await page.locator('#audit-refresh').click();
+    await page.locator('#audit thead').waitFor({ state: 'attached' });
+    await page.addStyleTag({ content: '#audit tbody{display:none!important}' });
+    // Long enough for the console's own redraw (every 5 s) to have come round at least once between two shots.
+    const first = await captureSection(page, '#audit-section', 'audit-log-first.png', true);
+    const end = Date.now() + 7_000;
+    let shots = 1;
+    do {
+      const again = await captureSection(page, '#audit-section', 'audit-log-again.png', true);
+      assert.ok(first.equals(again), `shot ${++shots} of the audit log section differs from the first`);
+    } while (Date.now() < end);
+  } finally {
+    await context.close();
+  }
+});
 
 test('client and console core screens match reviewed visual baselines', { skip }, async () => {
   const update = process.env.TABULARIUS_VISUAL_UPDATE === '1';
