@@ -69,32 +69,46 @@ function splitTop(text: string, sep: string): string[] {
   return out;
 }
 
-/** Bracket depth and open quote at the end of a text, to know whether a step continues on the next line. */
-function balanced(text: string): boolean {
+/**
+ * Bracket depth and open quote at the end of a text, to know whether a step continues on the next line. The text is
+ * fed in pieces (the first line, then each further line with its leading line break) and each piece is scanned once,
+ * so a step of many lines costs the length of its text, not that times its lines.
+ */
+export function bracketScanner(): (piece: string) => boolean {
   let depth = 0;
   let quote: string | undefined;
-  for (let i = 0; i < text.length; i++) {
-    const c = text[i];
-    if (quote) {
-      if (c === '\\' && quote === '"') i++;
-      else if (c === quote || (quote === '“' && c === '”')) quote = undefined;
-      continue;
-    }
-    if (c === '"' || c === '“') quote = c;
-    else if (c === '/' && text[i + 1] === '/') {
-      const nl = text.indexOf('\n', i);
-      if (nl >= 0) {
-        i = nl;
+  let skip = 0; // a backslash at the end of a piece skips the first character of the next
+  return (piece) => {
+    let closes = false;
+    let i = skip;
+    skip = 0;
+    for (; i < piece.length; i++) {
+      const c = piece[i];
+      if (quote) {
+        if (c === '\\' && quote === '"') i++;
+        else if (c === quote || (quote === '“' && c === '”')) quote = undefined;
         continue;
       }
-      // "Exit Loop If [ True // done ]": the step's closing bracket ends the comment.
-      const close = text.lastIndexOf(']');
-      if (close > i && !text.slice(close + 1).trim()) depth--;
-      break;
-    } else if (c === '(' || c === '[') depth++;
-    else if (c === ')' || c === ']') depth--;
-  }
-  return depth <= 0 && !quote;
+      if (c === '"' || c === '“') quote = c;
+      else if (c === '/' && piece[i + 1] === '/') {
+        const nl = piece.indexOf('\n', i);
+        if (nl >= 0) {
+          i = nl;
+          continue;
+        }
+        // "Exit Loop If [ True // done ]": the step's closing bracket ends the comment. (This holds only while the
+        // piece is the last one; a later piece starts with a line break, which ends the comment anyway.)
+        let close = piece.length - 1;
+        while (close > i && piece[close] !== ']') close--;
+        if (close > i && !piece.slice(close + 1).trim()) closes = true;
+        i = piece.length;
+        break;
+      } else if (c === '(' || c === '[') depth++;
+      else if (c === ')' || c === ']') depth--;
+    }
+    skip = i - piece.length;
+    return depth - (closes ? 1 : 0) <= 0 && !quote;
+  };
 }
 
 /** Script text -> steps. Lines that continue a formula are joined to their step. */
@@ -120,7 +134,13 @@ export function parseScriptText(text: string): Step[] {
       raw = raw.slice(2).trim();
       if (!raw || raw.startsWith('#')) continue;
     }
-    while (!balanced(raw) && i + 1 < lines.length) raw += '\n' + lines[++i].trimStart();
+    const scan = bracketScanner();
+    let done = scan(raw);
+    while (!done && i + 1 < lines.length) {
+      const more = '\n' + lines[++i].trimStart();
+      raw += more;
+      done = scan(more);
+    }
     // `Name [ parameters ]`, split at the first bracket (a pattern for this backtracks cubically on a long run of spaces).
     const open = raw.indexOf('[');
     const closed = open > 0 && raw.trimEnd().endsWith(']');

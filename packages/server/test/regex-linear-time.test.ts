@@ -4,7 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sqlFieldRefs } from '../src/ai-policy-sql.ts';
-import { parseScriptText } from '../src/script-check.ts';
+import { bracketScanner, parseScriptText } from '../src/script-check.ts';
 
 const LIMIT_MS = 5000;
 function quick<T>(f: () => T): T {
@@ -46,4 +46,54 @@ test('script step lines split into a name and parameters as before', () => {
   assert.equal(one('Perform Script [ a [b] ]').params[0], 'a [b]');
   assert.equal(one('Beep [').name, 'Beep [');
   assert.equal(one('[ odd ]').name, '[ odd ]');
+});
+
+test('a step that never closes its bracket, over many lines, is parsed in time linear in its text', () => {
+  const lines = (n: number, line: string) => 'Set Variable [ $x ; Value: foo (' + ('\n' + line).repeat(n);
+  const steps = quick(() => parseScriptText(lines(100_000, 'a')));
+  assert.equal(steps.length, 1);
+  quick(() => parseScriptText(lines(100_000, '// c')));
+  quick(() => parseScriptText(lines(100_000, '"a\\')));
+});
+
+// The scanner, fed a line at a time, answers what a scan of the whole text so far answers (the function it replaced).
+function wholeText(text: string): boolean {
+  let depth = 0;
+  let quote: string | undefined;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (quote) {
+      if (c === '\\' && quote === '"') i++;
+      else if (c === quote || (quote === '“' && c === '”')) quote = undefined;
+      continue;
+    }
+    if (c === '"' || c === '“') quote = c;
+    else if (c === '/' && text[i + 1] === '/') {
+      const nl = text.indexOf('\n', i);
+      if (nl >= 0) {
+        i = nl;
+        continue;
+      }
+      const close = text.lastIndexOf(']');
+      if (close > i && !text.slice(close + 1).trim()) depth--;
+      break;
+    } else if (c === '(' || c === '[') depth++;
+    else if (c === ')' || c === ']') depth--;
+  }
+  return depth <= 0 && !quote;
+}
+
+test('the bracket scanner agrees with a scan of the whole text so far', () => {
+  const pieces = ['(', ')', '[', ']', '"', '“', '”', '\\', '/', '//', ' // ', 'a', ' ', ';', '"x"'];
+  let seed = 11;
+  const next = () => (seed = (seed * 1103515245 + 12345) % 2147483648);
+  for (let n = 0; n < 4000; n++) {
+    const scan = bracketScanner();
+    let text = '';
+    for (let line = 0; line < 1 + (next() % 5); line++) {
+      const part = (line ? '\n' : '') + Array.from({ length: next() % 7 }, () => pieces[next() % pieces.length]).join('');
+      text += part;
+      assert.equal(scan(part), wholeText(text), JSON.stringify(text));
+    }
+  }
 });
