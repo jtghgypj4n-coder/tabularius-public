@@ -7947,7 +7947,7 @@ export class ScriptEngine {
     const hosted = !p.importFolder && p.importFormat === 'FMPR' ? this.fileMakerSource(f, p) : undefined;
     const file = !p.importFolder && p.importFormat !== 'FMPR' ? this.documentFile(f, p, 'Import Records') : undefined;
     pv?.checkImport(info.table, action, p.addRemaining);
-    const source: { rows: (string | number)[][]; excel: boolean; files?: Map<string, { filename: string; data: Uint8Array }> } = p.importFolder ? this.folderRows(f, p, folder)
+    const source: { rows: Iterable<(string | number)[]>; excel: boolean; files?: Map<string, { filename: string; data: Uint8Array }> } = p.importFolder ? this.folderRows(f, p, folder)
       : p.importFormat === 'FMPR' ? { rows: this.fileMakerRows(f, p, hosted), excel: false } : this.textRows(f, p, file);
     const rows = source.rows;
     this.commit(win);
@@ -8001,11 +8001,13 @@ export class ScriptEngine {
     let failure: StoreError | PrivilegeError | undefined;
     // Skip auto-enter options on the open transaction overrides the import's own Perform auto-enter options.
     const write = { ...this.write, performAutoEnter: this.tx?.skipAutoEnter ? false : p.performAutoEnter };
-    for (const [position, row] of rows.entries()) {
+    let position = 0;
+    for (const row of rows) {
+      const rowPosition = position++;
       await this.checkpoint(f);
       const values = matches.map((i) => value(row, i));
       if (action === 'update' && values.every((v) => v === '')) continue;
-      const existing = action === 'update' ? byKey.get(key(values)) ?? [] : action === 'replace' ? targets.slice(position, position + 1) : [];
+      const existing = action === 'update' ? byKey.get(key(values)) ?? [] : action === 'replace' ? targets.slice(rowPosition, rowPosition + 1) : [];
       const adding = !existing.length && (action === 'add' || p.addRemaining);
       if (!existing.length && !adding) continue;
       const data: FieldData = {};
@@ -8085,17 +8087,23 @@ export class ScriptEngine {
   }
 
   /** Rows of a comma- or tab-separated file, an Excel workbook or FileMaker XML in the documents folder. */
-  private textRows(f: Frame, p: StepParams, file = this.documentFile(f, p, 'Import Records')): { rows: (string | number)[][]; excel: boolean } {
+  private textRows(f: Frame, p: StepParams, file = this.documentFile(f, p, 'Import Records')): { rows: Iterable<(string | number)[]>; excel: boolean } {
     const { dir, name } = file;
     const stylesheet = p.xslt === undefined ? undefined : this.documentFile(f, { ...p, filePaths: [p.xslt] }, 'Import Records');
     const data = readFileSync(join(dir, name));
     // Claris: error 731, "The import file has no data". Only a file with nothing in it; a header alone still imports as before.
-    if (!decodeText(data).trim()) throw new ScriptError(ERROR.noImportData, 'The import file has no data');
-    const rows = importFileRows(name, data, p.importFormat, stylesheet && readFileSync(join(stylesheet.dir, stylesheet.name), 'utf8'), { worksheet: p.worksheet });
+    if (!/\S/.test(decodeText(data))) throw new ScriptError(ERROR.noImportData, 'The import file has no data');
+    const style = stylesheet && readFileSync(join(stylesheet.dir, stylesheet.name), 'utf8');
+    // Workbook and XML readers can fail after yielding rows. Finish those before writing
+    // so a later parse error cannot leave part of an import behind. Delimited text is lenient.
+    const delimited = /\.(csv|tab|tsv|mer|txt)$/i.test(name) || ['COMS', 'TABS', 'MRGE'].includes(p.importFormat ?? '');
+    const complex = !!stylesheet || /\.(xlsx|xml)$/i.test(name) || !!p.importFormat?.startsWith('XLX') || !delimited;
+    const rows = complex ? importFileRows(name, data, p.importFormat, style, { worksheet: p.worksheet })
+      : importFileRowIterator(name, data, p.importFormat, style, { worksheet: p.worksheet });
     // A merge file's first record names the fields (Claris: "The first record is a header that lists the field names").
-    if (isMerge(name, p.importFormat)) rows.shift();
+    const imported = isMerge(name, p.importFormat) ? (function* () { let first = true; for (const row of rows) { if (first) { first = false; continue; } yield row; } })() : rows;
     return {
-      rows,
+      rows: imported,
       excel: /\.xlsx$/i.test(name) || !!p.importFormat?.startsWith('XLX'),
     };
   }

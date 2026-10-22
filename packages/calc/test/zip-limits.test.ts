@@ -43,7 +43,7 @@ test('unzip checks the combined declared size before inflating even the first en
   // Corrupt the first deflate stream: a reader that inflates before scanning all sizes fails here instead.
   bytes.fill(0xff, 31, 35);
   assert.throws(() => unzip(bytes, { maxTotalBytes: 2999 }), /over 2999 bytes unpacked/);
-  assert.throws(() => unzip(bytes), /invalid|block|distance|code/i);
+  assert.throws(() => unzip(bytes), /a has a damaged zip entry/);
 });
 
 test('unzip accepts the exact budget, empty files and directory entries', () => {
@@ -108,4 +108,25 @@ test('a deflated entry that inflates past its declared size is refused by name, 
   view.setUint32(entries[0] + 24, 1, true); // central directory uncompressed size
   view.setUint32(view.getUint32(entries[0] + 42, true) + 22, 1, true); // and the local header's, so only the inflated length disagrees
   assert.throws(() => unzip(bytes), (e: Error) => e.constructor === Error && /^big\.txt has an incorrect uncompressed size$/.test(e.message));
+});
+
+test('unzip limits total expansion by default even when no budget is passed', () => {
+  const bytes = zip(['a', 'b'].map((name) => ({ name, data: Buffer.alloc(1024) })));
+  const { view, entries } = directory(bytes);
+  for (const at of entries) {
+    view.setUint32(at + 24, 128 * 1024 * 1024 + 1, true);
+    view.setUint32(view.getUint32(at + 42, true) + 22, 128 * 1024 * 1024 + 1, true);
+  }
+  assert.throws(() => unzip(bytes), /zip is over 268435456 bytes unpacked/);
+});
+
+test('unzip gives a domain error for a damaged deflate stream and checksum', () => {
+  const bytes = zip([{ name: 'a', data: Buffer.alloc(1024) }]);
+  bytes.fill(0xff, 31, 35);
+  assert.throws(() => unzip(bytes), (e: Error) => e.constructor === Error && /a has a damaged zip entry/.test(e.message));
+  const checksum = zip([{ name: 'a', data: Buffer.alloc(1024) }]);
+  const { view, entries } = directory(checksum);
+  view.setUint32(entries[0] + 16, 0, true);
+  view.setUint32(14, 0, true);
+  assert.throws(() => unzip(checksum), /a has a damaged zip entry checksum/);
 });

@@ -9,8 +9,9 @@ export interface ZipEntry {
   data: Uint8Array;
 }
 
-/** The largest file the reader will inflate. */
+/** Hard caps for one entry and for the sum of entries. */
 const MAX_ENTRY = 256 * 1024 * 1024;
+const MAX_TOTAL = 256 * 1024 * 1024;
 
 /** DOS time and date fields for a moment, in local time as zip tools expect. */
 function dosTime(d: Date): [number, number] {
@@ -73,14 +74,14 @@ export function zip(entries: ZipEntry[], when = new Date()): Uint8Array {
 }
 
 export interface UnzipOptions {
-  /** Maximum sum of uncompressed entry sizes, checked before any entry is inflated. */
+  /** Maximum sum of uncompressed entry sizes, checked before inflation; may further lower the 256 MiB hard cap. */
   maxTotalBytes?: number;
 }
 
 /** The entries of an archive, in directory order. Throws for damaged or oversized archives. */
 export function unzip(bytes: Uint8Array, options: UnzipOptions = {}): ZipEntry[] {
-  const maxTotal = options.maxTotalBytes ?? Infinity;
-  if (maxTotal !== Infinity && (!Number.isSafeInteger(maxTotal) || maxTotal < 0)) throw new Error('invalid zip total byte limit');
+  const maxTotal = Math.min(options.maxTotalBytes ?? MAX_TOTAL, MAX_TOTAL);
+  if (!Number.isSafeInteger(maxTotal) || maxTotal < 0) throw new Error('invalid zip total byte limit');
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   let end = -1;
   for (let i = bytes.length - 22; i >= Math.max(0, bytes.length - 22 - 65535); i--) {
@@ -159,7 +160,7 @@ export function unzip(bytes: Uint8Array, options: UnzipOptions = {}): ZipEntry[]
       data = method === 0 ? raw : inflateRawSync(raw, { maxOutputLength: Math.max(1, size) });
     } catch (e) {
       if ((e as { code?: string }).code === 'ERR_BUFFER_TOO_LARGE') throw new Error(`${name} has an incorrect uncompressed size`);
-      throw e;
+      throw new Error(`${name} has a damaged zip entry`, { cause: e });
     }
     if (data.length !== size) throw new Error(`${name} has an incorrect uncompressed size`);
     if (crc32(data) !== crc) throw new Error(`${name} has a damaged zip entry checksum`);

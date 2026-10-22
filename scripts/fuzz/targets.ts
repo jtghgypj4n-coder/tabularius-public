@@ -44,7 +44,7 @@ export function expected(target: Target, e: unknown): boolean {
   if (e.constructor !== Error) return false;
   if (['csv', 'tsv', 'merge'].includes(target)) return /^(Malformed CSV quoting|Unclosed CSV quote)$/.test(e.message);
   if (target === 'xlsx') return /^(not a zip file|bad zip (directory|entry)|the zip file expands to more than|the workbook has no sheet)/.test(e.message);
-  if (target === 'zip') return /^(not a zip archive|multi-disk zip is unsupported|Zip64 is unsupported|damaged zip (directory|entry)|zip is over )| (is encrypted|is over the zip entry byte limit|uses an unsupported compression method|has an incorrect uncompressed size( \(damaged zip entry\))?)$/.test(e.message) || ['Z_DATA_ERROR', 'Z_BUF_ERROR'].includes((e as NodeJS.ErrnoException).code ?? '');
+  if (target === 'zip') return /^(not a zip archive|multi-disk zip is unsupported|Zip64 is unsupported|damaged zip (directory|entry)|zip is over )| (is encrypted|is over the zip entry byte limit|uses an unsupported compression method|has an incorrect uncompressed size( \(damaged zip entry\))?|has a damaged zip entry( checksum)?)$/.test(e.message);
   if (target === 'ohplugin') return /^(not a plug-in package:|the package (holds|is over|has no)|plugin.json(:| in the package is not JSON)|signature.json (is not JSON|needs publisherKey and sig)|the package's signature does not match)/.test(e.message);
   return false;
 }
