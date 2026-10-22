@@ -50,13 +50,18 @@ export function validHttpRequest(req: IncomingMessage): boolean {
   if (!target.startsWith('/') || target.startsWith('//')) return false;
   const question = target.indexOf('?');
   const path = question < 0 ? target : target.slice(0, question);
+  // A dot segment, written literally or percent-encoded (%2e%2e), is normalized away by URL parsing: a proxy that matches the
+  // raw path and this server would then disagree about which route was asked for. An encoded slash is not a segment break,
+  // so it stays data for the route.
+  const decodes = (segment: string): string | undefined => { try { return decodeURIComponent(segment); } catch { return undefined; } };
+  if (path.split('/').some(x => { const d = decodes(x); return d === '.' || d === '..' || x === '.' || x === '..'; })) return false;
+  // A malformed % escape is left for the route that decodes it: each answers in its own envelope (a Data API error body, a 404
+  // for an unknown guide) and was never a server fault. Only a decodable path is checked here, for controls and backslashes
+  // that no route should ever see.
   try {
-    // Decode once to validate, but leave routing's encoded segments intact. In particular,
-    // double-encoded text remains literal data, never a second chance to traverse a directory.
-    const decoded = decodeURIComponent(path);
-    if (/[\x00-\x1f\x7f\\]/.test(decoded) || decoded.split('/').some(x => x === '.' || x === '..')) return false;
+    if (/[\x00-\x1f\x7f\\]/.test(decodeURIComponent(path))) return false;
     if (question >= 0 && decodeURIComponent(target.slice(question + 1)).includes('\0')) return false;
-  } catch { return false; }
+  } catch { /* undecodable: the route answers */ }
   if (host !== undefined) {
     // RFC 9112 3.2.2: absolute-form authority takes precedence over the received Host.
     req.headers.host = host;
