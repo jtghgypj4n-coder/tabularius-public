@@ -436,8 +436,8 @@ test('a page behind a proxy: /app needs its slash, the client\'s files are relat
   const bare = await fetch(`${s.url}/app`, { redirect: 'manual' });
   assert.deepEqual([bare.status, bare.headers.get('location')], [301, '/app/']);
   const html = await (await fetch(`${s.url}/app/`)).text();
-  assert.match(html, /href="app\.css"/);
-  assert.match(html, /src="src\/main\.ts"/);
+  assert.match(html, /href="app\.css(\?v=[0-9a-f]+)?"/);
+  assert.match(html, /src="src\/main\.ts(\?v=[0-9a-f]+)?"/);
   assert.match(html, /This page did not start\. /);
   assert.equal((await fetch(`${s.url}/fmi/data/vLatest/databases/Shop/sessions`, { method: 'POST', headers: { authorization: 'Basic ' + btoa(`boss:${PASSWORD}`) }, body: '{}' })).status, 200, 'the client calls the Data API at the root of the same address');
   const section = sectionOf('A page behind a proxy stays blank or says it did not start');
