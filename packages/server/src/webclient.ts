@@ -805,7 +805,7 @@ export class WebClient {
       fileMode: store.fileMode,
       scriptNetwork: this.host.scriptNetworkOn(store.name),
       // The https hosts this file's web viewers may load (the page's frame policy has them too).
-      webViewerHosts: store.webViewerHosts,
+      webViewerHosts: this.host.webViewerHostsOf(store).hosts,
       design: this.resolveDesign(store, design),
       // The width below which a layout with no breakpoint of its own stacks in one column (0: never).
       stackBelowDefault: this.host.config.responsiveStackBelow(),

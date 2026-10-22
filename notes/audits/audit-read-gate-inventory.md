@@ -213,9 +213,9 @@ The following reasons apply to the exact enumerated expressions in each named fu
 | [packages/scripts/src/testrun.ts:306](../../packages/scripts/src/testrun.ts#L306) `recordWith` | `Store.evaluateEach` (306) | DESIGN |
 | [packages/scripts/src/testrun.ts:338](../../packages/scripts/src/testrun.ts#L338) `testRun` | `Store.evaluateEach` (338) | DESIGN |
 | [packages/server/src/admin.ts:968](../../packages/server/src/admin.ts#L968) `Admin/handle` | `Store.externalContainerReport` (968); `Store.orphanContainerReport` (973, 977) | ADMIN |
-| [packages/server/src/admin.ts:2135](../../packages/server/src/admin.ts#L2135) `Admin/audit` | `Store.auditLog` (2135) | ADMIN |
-| [packages/server/src/admin.ts:2218](../../packages/server/src/admin.ts#L2218) `Admin/viewAs` | `Store.find` (2218) | ADMIN |
-| [packages/server/src/admin.ts:2566](../../packages/server/src/admin.ts#L2566) `Admin/status` | `Store.externalContainerCount` (2566) | ADMIN |
+| [packages/server/src/admin.ts:2133](../../packages/server/src/admin.ts#L2133) `Admin/audit` | `Store.auditLog` (2133) | ADMIN |
+| [packages/server/src/admin.ts:2216](../../packages/server/src/admin.ts#L2216) `Admin/viewAs` | `Store.find` (2216) | ADMIN |
+| [packages/server/src/admin.ts:2564](../../packages/server/src/admin.ts#L2564) `Admin/status` | `Store.externalContainerCount` (2564) | ADMIN |
 | [packages/server/src/agent.ts:154](../../packages/server/src/agent.ts#L154) `runStep/visible` | `Store.findIds` (154) | DESIGN |
 | [packages/server/src/agent.ts:162](../../packages/server/src/agent.ts#L162) `runStep` | `Store.findIds` (162); `Store.auditLog` (221) | DESIGN |
 | [packages/server/src/agent.ts:303](../../packages/server/src/agent.ts#L303) `dryRunPlan` | `Store.findIds` (303) | DESIGN |

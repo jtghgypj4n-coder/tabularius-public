@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createStore, Store, StoreError, normalizeWebViewerHost, normalizeWebViewerHosts, describeSecurityEvent, securityEventCategory, securityEventSeverity } from '../src/index.ts';
+import { createStore, Store, StoreError, normalizeWebViewerHost, normalizeWebViewerHosts, webViewerEntryCovers, describeSecurityEvent, securityEventCategory, securityEventSeverity } from '../src/index.ts';
 
 test('a file allows no web hosts to begin with; the list is kept in the file and in its security log', () => {
   const dir = mkdtempSync(join(tmpdir(), 'web-viewer-hosts-'));
@@ -66,4 +66,15 @@ test('a list stored by anything but the console is trusted only as far as it pas
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('an entry covers a host name when it is that name or a wildcard over it', () => {
+  assert.equal(webViewerEntryCovers('files.example.com', 'Files.Example.com.'), true);
+  assert.equal(webViewerEntryCovers('*.example.com', 'files.example.com'), true);
+  assert.equal(webViewerEntryCovers('*.example.com', 'a.b.example.com'), true);
+  assert.equal(webViewerEntryCovers('*.example.com', 'example.com'), false, 'the bare domain is not a subdomain');
+  assert.equal(webViewerEntryCovers('*.example.com', 'badexample.com'), false);
+  assert.equal(webViewerEntryCovers('maps.example.com', 'files.example.com'), false);
+  assert.equal(webViewerEntryCovers('maps.example.com', ''), false);
+  assert.equal(webViewerEntryCovers('maps.example.com', '[::1]'), false);
 });

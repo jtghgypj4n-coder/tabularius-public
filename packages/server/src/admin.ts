@@ -131,7 +131,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { createHash, randomBytes } from 'node:crypto';
 import { copyFileSync, existsSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, extname, join, resolve, sep } from 'node:path';
-import { hashPassword, defaultMinPasswordLength, checkPassword, addressBucket, StoreError, findStaleCalcs, refreshStaleCalcs, undoStaleRefresh, staleRefreshHistory, StaleCalcError, SECURITY_EVENT_CATEGORIES, isFullAccess, type AuditEntry, type FieldLevel, type SecurityEvent, type Store } from '../../store/src/index.ts';
+import { webViewerEntryCovers, hashPassword, defaultMinPasswordLength, checkPassword, addressBucket, StoreError, findStaleCalcs, refreshStaleCalcs, undoStaleRefresh, staleRefreshHistory, StaleCalcError, SECURITY_EVENT_CATEGORIES, isFullAccess, type AuditEntry, type FieldLevel, type SecurityEvent, type Store } from '../../store/src/index.ts';
 import { loadAsset, sendAsset } from './static-cache.ts';
 import type { DataApi } from './dataapi.ts';
 import type { Live } from './live.ts';
@@ -1167,7 +1167,8 @@ export class Admin {
         // GET: the https web hosts this file's web viewers may load (none until listed); POST {"hosts": ["maps.example.com", "*.example.com"]}: replace the list.
         const name = decodeURIComponent(path.slice('/tabularius/admin/v1/web-viewer-hosts/'.length));
         const store = this.host.get(name);
-        const status = (s: Store) => ({ hosts: s.webViewerHosts });
+        // Entries that would allow one of this server's own names are not honoured (a restored list can still hold them); `ignored` (present only then) names them.
+        const status = (s: Store) => { const { hosts, ignored } = this.host.webViewerHostsOf(s); return ignored.length ? { hosts, ignored } : { hosts }; };
         if (!store) send(404, { error: 'No such hosted file' });
         else if (req.method === 'GET') send(200, status(store));
         else if (req.method === 'POST') {
@@ -1176,11 +1177,8 @@ export class Admin {
           else {
             const before = store.webViewerHosts;
             // A page of this server's own host would run beside the app with scripts and same-origin together.
-            const ownNames = [String(req.headers.host ?? '').replace(/:\d+$/, ''), this.host.publicUrl ? new URL(this.host.publicUrl).hostname : ''].map((n) => n.replace(/^\[|\]$/g, '').replace(/\.$/, '').toLowerCase()).filter(Boolean);
-            const ownHost = (body.hosts as unknown[]).find((h) => {
-              const t = typeof h === 'string' ? h.trim().toLowerCase() : '';
-              return ownNames.some((n) => t === n || (t.startsWith('*.') && n.endsWith(t.slice(1))));
-            });
+            const ownNames = this.host.ownHostNames([String(req.headers.host ?? '').replace(/:\d+$/, '')]);
+            const ownHost = (body.hosts as unknown[]).find((h) => typeof h === 'string' && ownNames.some((n) => webViewerEntryCovers(h, n)));
             try {
               if (ownHost) throw new StoreError(960, `"${String(ownHost).trim()}" is the address of this server itself, which a web viewer can't be given: allow other sites' hosts`);
               store.setWebViewerHosts(body.hosts, { account: 'admin console' });

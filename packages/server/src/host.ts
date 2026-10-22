@@ -22,7 +22,8 @@ import { pageCheck, type PageCheck } from './backup-verify.ts';
 import { encryptionInfo, fileSource, FmpFile } from '../../fmp12/src/index.ts';
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { join, basename, extname } from 'node:path';
-import { FileDamaged, STORE_FORMAT, createStore, importFmp12, needsDesigns, NATIVE_REFUSAL, reconvert, reconvertCheck, upgradeDesigns, Store, type ReconvertCheck, type ReconvertPreview, type ReconvertResult, type ImportProgress, type RecordLocks } from '../../store/src/index.ts';
+import { hostname } from 'node:os';
+import { FileDamaged, STORE_FORMAT, createStore, importFmp12, needsDesigns, NATIVE_REFUSAL, reconvert, reconvertCheck, upgradeDesigns, Store, type ReconvertCheck, type ReconvertPreview, type ReconvertResult, type ImportProgress, type RecordLocks, webViewerEntryCovers } from '../../store/src/index.ts';
 import { decryptFileSync, encryptFileSync, ENCRYPTED_EXT } from './encrypt.ts';
 import type { ScriptProfile } from '../../scripts/src/index.ts';
 import { ScriptQueue } from './server-queue.ts';
@@ -73,6 +74,12 @@ export class Host {
   publicUrl?: string;
   /** Operator-configured HTTPS origins for browser requests when no public URL is set. */
   browserOrigins: readonly string[] = [];
+  /** The domains `--https` gets a certificate for, once the server has them: names this server answers to. */
+  acmeDomains: string[] = [];
+  /** The origins that may call /mcp from a browser (--mcp-origin), plus the `--https` ones: names this server answers to. */
+  mcpAllowedOrigins: string[] = [];
+  /** Other names this computer is known by (its own host name). A request's Host header is counted only where the request is in hand. */
+  ownAliases: string[] = [hostname()];
   /** Whether the file lists (the Data API's, OData's and the root's) show every hosted file to callers who haven't signed in (file-list.ts). */
   listFilesPublicly = false;
   /** Whether scripts may reach the network (Insert from URL) in every hosted file (--allow-script-network). Otherwise each file has its own switch (Store.scriptNetwork), off until an administrator turns it on. */
@@ -264,12 +271,32 @@ export class Host {
   /** Tabularius's AI for FileMaker's AI script steps, set when the server runs with --ai (scripts/src/ai.ts). */
   scriptAi?: ScriptAi;
 
+  /**
+   * The host names this server answers to: the public address, the `--https` domains, the /mcp and browser origins and the
+   * computer's own name, plus any the caller has in hand (the Host header of the request being answered). A web viewer on one of them
+   * would run beside the app with scripts and same-origin together, so no file's list may allow them.
+   */
+  ownHostNames(extra: readonly string[] = []): string[] {
+    const hostOf = (url: string) => { try { return new URL(url).hostname; } catch { return ''; } };
+    const raw = [this.publicUrl ? hostOf(this.publicUrl) : '', ...this.acmeDomains, ...this.mcpAllowedOrigins.map(hostOf), ...this.browserOrigins.map(hostOf), ...this.ownAliases, ...extra];
+    return [...new Set(raw.map((n) => n.replace(/^\[|\]$/g, '').replace(/\.$/, '').toLowerCase()).filter(Boolean))];
+  }
+
+  /** A file's web viewer hosts as they can be trusted now: the stored list (which a restored backup brings back unchecked against this server's names) less any entry that would allow one of this server's own names. */
+  webViewerHostsOf(store: Store, extra: readonly string[] = []): { hosts: string[]; ignored: string[] } {
+    const own = this.ownHostNames(extra);
+    const hosts: string[] = [];
+    const ignored: string[] = [];
+    for (const h of store.webViewerHosts) (own.some((n) => webViewerEntryCovers(h, n)) ? ignored : hosts).push(h);
+    return { hosts, ignored };
+  }
+
   /** Every web host any hosted file lets its web viewers load, for the web app's frame policy (each file's own list still decides what its viewers load). */
   webViewerHostsAll(): string[] {
     // Bounded by count and by size, so the policy header stays well under what proxies accept; a host past the bound is simply not framed.
     const out: string[] = [];
     let bytes = 0;
-    for (const h of [...new Set([...this.stores.values()].flatMap((s) => s.webViewerHosts))].sort()) {
+    for (const h of [...new Set([...this.stores.values()].flatMap((s) => this.webViewerHostsOf(s).hosts))].sort()) {
       bytes += h.length + 10;
       if (out.length >= WEB_VIEWER_HOSTS_ALL_MAX || bytes > WEB_VIEWER_HOSTS_ALL_BYTES) break;
       out.push(h);

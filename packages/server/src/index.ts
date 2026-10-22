@@ -332,6 +332,8 @@ export async function serve(opts: ServeOptions): Promise<{ server: Server; host:
     host.browserOrigins = [...(opts.browserOrigins ?? []), ...(opts.acme ? acmeOrigins(opts.acme.domains, opts.port ?? 443) : [])];
     const refusedHostNames = new Set<string>();
     host.listFilesPublicly = !!opts.listFilesPublicly;
+    host.acmeDomains = opts.acme ? [...opts.acme.domains] : [];
+    host.mcpAllowedOrigins = mcpOrigins;
     const api = new DataApi(host);
     const web = new WebClient(host, api);
     disposers.push(() => web.stop());
