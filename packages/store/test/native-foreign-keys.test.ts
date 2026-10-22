@@ -418,3 +418,43 @@ test('a parent\'s delete, edit and truncate check their children under the write
   assert.deepEqual([...new Set(tried)], ['locked']);
   assert.deepEqual(ids(store, 'Invoices').filter((v) => v === 'sneaked'), []);
 });
+
+test('putting a merged-away record back checks its parent under the write lock, so the parent cannot go in between', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'tabularius-native-fk-undo-'));
+  const path = join(dir, 'Sales.sqlite');
+  createStore(path, { mode: 'native' });
+  const store = new Store(path, 'Sales');
+  // Another process's connection, which doesn't wait for a lock.
+  const other = new DatabaseSync(path);
+  other.exec('PRAGMA busy_timeout = 0');
+  t.after(() => { other.close(); store.close(); rmSync(dir, { recursive: true, force: true }); });
+  sales(store, 'restrict');
+  const i3 = idOf(store, 'Invoices', 'ID', 'i3');
+  const row = store.query(`SELECT * FROM "Invoices" WHERE _fm_record_id = ${i3}`, 1)[0] as Record<string, string | number | null>;
+  store.sql.prepare('DELETE FROM "Invoices" WHERE _fm_record_id = ?').run(i3);
+  // Statements the store prepared before are cached; drop them so the seam below sees the parent lookup.
+  (store as unknown as { statements: Map<string, unknown> }).statements.clear();
+  // Whenever the store looks for the parent, the other connection tries to delete it first.
+  const tried: string[] = [];
+  const sql = store.sql;
+  const prepare = sql.prepare.bind(sql);
+  sql.prepare = ((text: string) => {
+    const statement = prepare(text);
+    if (!/^SELECT 1 FROM "Customers" WHERE/.test(text)) return statement;
+    const get = statement.get.bind(statement);
+    statement.get = ((...params: never[]) => {
+      try {
+        other.prepare('DELETE FROM "Customers" WHERE "ID" = \'c2\'').run();
+        tried.push('deleted');
+      } catch (e) {
+        tried.push(/locked|busy/i.test(String(e)) ? 'locked' : String(e));
+      }
+      return get(...params);
+    }) as typeof statement.get;
+    return statement;
+  }) as typeof sql.prepare;
+  store.restoreDeletedRow('Invoices', row);
+  assert.deepEqual([...new Set(tried)], ['locked']);
+  assert.deepEqual(ids(store, 'Customers'), ['c1', 'c2']);
+  assert.ok(ids(store, 'Invoices').includes('i3'));
+});

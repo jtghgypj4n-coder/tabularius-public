@@ -8916,6 +8916,11 @@ export class Store {
    */
   restoreDeletedRow(table: string, row: Record<string, SqlValue>, opts: WriteOptions = {}): void {
     this.joinTransaction();
+    // The parent check and the insert share one file lock, as in create.
+    this.withWriteTransaction(() => this.restoreDeletedRowLocked(table, row, opts));
+  }
+
+  private restoreDeletedRowLocked(table: string, row: Record<string, SqlValue>, opts: WriteOptions): void {
     if (!this.schema.tables.some((t) => t.name === table)) throw new StoreError(106, `Table "${table}" is missing`);
     const pv = this.local(opts.privileges);
     if (pv && pv.table(table).create !== true) throw new StoreError(200, 'Record access is denied', pv.recordDenial(table, 'create', 'create'));
