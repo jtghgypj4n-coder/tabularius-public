@@ -53,7 +53,6 @@ test('past the cap the session used longest ago ends, and other accounts are not
   }
   assert.deepEqual(await Promise.all(ann.map(works)), [true, true, true]);
   // Using the first one makes the second the least recently used.
-  await new Promise((r) => setTimeout(r, 20));
   assert.equal((await fetch(`${base}/fmi/data/vLatest/databases/Charts/layouts`, { headers: { authorization: `Bearer ${ann[0]}` } })).status, 200);
   await new Promise((r) => setTimeout(r, 20));
   const fourth = await signIn('Ann');
