@@ -2,7 +2,7 @@
 
 Generated with `node scripts/audit-cross-origin.ts` from the six modules in `scripts/reference/rest/`. Check with `--check`.
 
-Route-table entries after splitting methods: **444** (259 non-GET/HEAD; 185 GET/HEAD). All reads are included so data-bearing and stateful GETs cannot disappear behind a method-only filter.
+Route-table entries after splitting methods: **446** (260 non-GET/HEAD; 186 GET/HEAD). All reads are included so data-bearing and stateful GETs cannot disappear behind a method-only filter.
 
 Categories and exemption reasons: [audit](r25-08-csrf-cors-matrix.md). A is an ambient-credential origin guard; B is a bearer/header-token exemption from CSRF checks, never from authorization; U is an explicit URL capability; M is MCP; O is OAuth/OIDC; P is public; H is a webhook secret.
 
@@ -426,6 +426,8 @@ Handler: `packages/server/src/admin.ts`.
 | --- | --- | --- |
 | GET | `/tabularius/admin/v1/script-network/{database}` | A: console origin + auth; mutation header |
 | POST | `/tabularius/admin/v1/script-network/{database}` | A: console origin + auth; mutation header |
+| GET | `/tabularius/admin/v1/web-viewer-hosts/{database}` | A: console origin + auth; mutation header |
+| POST | `/tabularius/admin/v1/web-viewer-hosts/{database}` | A: console origin + auth; mutation header |
 | GET | `/tabularius/admin/v1/files/{name}/external-containers` | A: console origin + auth; mutation header |
 | GET | `/tabularius/admin/v1/files/{name}/orphan-containers` | A: console origin + auth; mutation header |
 | POST | `/tabularius/admin/v1/files/{name}/orphan-containers` | A: console origin + auth; mutation header |
