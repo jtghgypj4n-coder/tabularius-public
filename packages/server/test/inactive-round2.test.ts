@@ -1,3 +1,4 @@
+import { signInForm } from './oauth-form.ts';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
@@ -255,7 +256,7 @@ for (const grant of ['authorization_code', 'refresh_token']) test(`OAuth ${grant
     for (const change of ['inactive', 'missing']) {
       f.store.setAccountActive('Worker', true);
       const verifier = 'v'.repeat(43);
-      const signIn = await request('/oauth/authorize', { client_id, redirect_uri: redirect, response_type: 'code', code_challenge: createHash('sha256').update(verifier).digest('base64url'), code_challenge_method: 'S256', database: 'Local', account: 'Worker', password: 'worker-secret' });
+      const signIn = await signInForm(f.url, { client_id, redirect_uri: redirect, response_type: 'code', code_challenge: createHash('sha256').update(verifier).digest('base64url'), code_challenge_method: 'S256', database: 'Local', account: 'Worker', password: 'worker-secret' });
       assert.equal(signIn.status, 302, await signIn.clone().text());
       const code = new URL(signIn.headers.get('location')!).searchParams.get('code')!;
       let fields = { grant_type: grant, client_id, code, code_verifier: verifier, redirect_uri: redirect } as Record<string, string>;

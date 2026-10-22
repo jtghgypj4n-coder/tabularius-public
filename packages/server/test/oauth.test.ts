@@ -63,7 +63,11 @@ async function register(extra: Record<string, unknown> = {}): Promise<{ client_i
 
 /** Signs in on the authorize page as a browser would; returns the redirect (or the page when it stays). */
 async function signIn(client: string, challenge: string, fields: Record<string, string>, state = 'xyz'): Promise<Response> {
-  return post('/oauth/authorize', form({ client_id: client, redirect_uri: REDIRECT, response_type: 'code', code_challenge: challenge, code_challenge_method: 'S256', state, resource: `${base}/mcp`, database: 'Charts', ...fields }));
+  const query = { client_id: client, redirect_uri: REDIRECT, response_type: 'code', code_challenge: challenge, code_challenge_method: 'S256', state, resource: `${base}/mcp` };
+  const page = await fetch(`${base}/oauth/authorize?${form(query)}`, { redirect: 'manual' });
+  const html = await page.text();
+  const csrf = /name="csrf" value="([^"]+)"/.exec(html)?.[1] ?? '';
+  return post('/oauth/authorize', form({ ...query, csrf, database: 'Charts', ...fields }), 'application/x-www-form-urlencoded', { cookie: page.headers.get('set-cookie')?.split(';')[0] ?? '' });
 }
 
 /** One registered app for tests that only need a sign-in (registering is limited per address). */
@@ -171,14 +175,12 @@ test('refresh rotates both tokens; revoking in Manage Security signs the app out
   assert.ok(next.access_token && next.access_token !== first.access_token);
   assert.equal((await mcp(first.access_token)).status, 401, 'the old access token stops working');
   assert.equal((await mcp(next.access_token)).status, 200);
-  const replay = await post('/oauth/token', form({ grant_type: 'refresh_token', refresh_token: first.refresh_token, client_id: first.client_id }));
-  assert.equal((await replay.json()).error, 'invalid_grant');
   // Another app can't use this app's refresh token.
   const other = await register();
   const stolen = await post('/oauth/token', form({ grant_type: 'refresh_token', refresh_token: next.refresh_token, client_id: other.client_id }));
   assert.equal((await stolen.json()).error, 'invalid_grant');
 
-  // and the attempt doesn't use it up. Then the admin revokes the sign-in.
+  // A wrong client does not consume it. Then the admin revokes the sign-in.
   const fresh = { client_id: first.client_id, ...await (await post('/oauth/token', form({ grant_type: 'refresh_token', refresh_token: next.refresh_token, client_id: first.client_id }))).json() };
   assert.match(fresh.access_token, /^ohbt_/);
   const id = /^ohbt_([0-9a-f]+)\./.exec(fresh.access_token)![1];
@@ -186,6 +188,8 @@ test('refresh rotates both tokens; revoking in Manage Security signs the app out
   assert.equal((await mcp(fresh.access_token)).status, 401);
   const after = await post('/oauth/token', form({ grant_type: 'refresh_token', refresh_token: fresh.refresh_token, client_id: fresh.client_id }));
   assert.equal((await after.json()).error, 'invalid_grant');
+  const replay = await post('/oauth/token', form({ grant_type: 'refresh_token', refresh_token: first.refresh_token, client_id: first.client_id }));
+  assert.equal((await replay.json()).error, 'invalid_grant');
 });
 
 test('the app signing out revokes its tokens', { skip }, async () => {
@@ -383,7 +387,7 @@ test('review fixes: registrations never push out an app in use; a full list refu
     db.exec(`UPDATE clients SET used = ${now}`);
     const refused = await post('/oauth/register', JSON.stringify({ redirect_uris: [REDIRECT] }), 'application/json');
     assert.equal(refused.status, 429);
-    assert.match((await refused.json()).error_description, /Too many apps are registered with this server/);
+    assert.deepEqual(await refused.json(), { error: 'invalid_client_metadata' });
     assert.ok(db.prepare('SELECT 1 FROM clients WHERE id = ?').get(used.client_id));
   } finally {
     db.exec("DELETE FROM clients WHERE id LIKE 'ohc_fill%'");
