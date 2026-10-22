@@ -65,9 +65,9 @@ The route inventory labels every exemption. Authorization still applies; being e
 
 For DNS-hosted ambient access, configure `--public-url` or use operator-configured `--https` domains. Unconfigured arbitrary DNS names are refused. Native console cookie/Basic requests lacking all browser provenance must send one of the console/admin headers; direct bookmarks to protected HTTP API/download URLs can consequently be denied. Opening `/admin/` and using its links retains provenance. Native file Basic clients and bearer clients remain supported.
 
-An independent GPT-6-astra read-only review found the missing-provenance case and the cluster HTTPS-origin propagation regression. Both received fixes and regressions. Its remaining native Basic read boundary is disclosed above. No review ran git, contacted another person, opened hosted data or changed files.
+An independent read-only review by a different model found the missing-provenance case and the cluster HTTPS-origin propagation regression. Both received fixes and regressions. Its remaining native Basic read boundary is disclosed above. No review ran git, contacted another person, opened hosted data or changed files.
 
-Claris behavior corresponding to these Tabularius-specific origin/cookie policies is **unverified**. This report makes no claim that Claris documents or implements these policies.
+Whether the original product has behavior corresponding to these Tabularius-specific origin/cookie policies is **unverified**. This report makes no claim that it documents or implements these policies. <!-- known-difference: Privileges and security ;; Whether the original product applies the same origin and cookie rules to its browser-facing routes is unknown ;; Tabularius refuses cross-site requests that carry saved credentials, whatever the original does ;; A run of the same cross-site requests against the original server -->
 
 Public references used for browser semantics:
 
@@ -87,4 +87,8 @@ node scripts/audit-cross-origin.ts --check
 
 Final results: **53 passed, 0 failed, 0 skipped**, including **10 browser subtests**, in **3.77 seconds** for the combined test command. TypeScript completed with **0 diagnostics**. The inventory check passed. Earlier development failures were harness defects (Node mock-env availability, Host normalization, browser navigation/auth-dialog handling and request interception), a sandbox loopback-listen restriction, and the reviewer-discovered cases; they were corrected rather than skipped. The final browser file runs well below its 60-second budget, and its waits have more than threefold headroom over observed completion.
 
-Not performed: a live r20-07 exposure review, external DNS rebinding, TLS certificate issuance, a live identity provider, other browser engines, fixture/corpus-dependent suites, deployment, commit, push or any git command. The native Basic read exception above prevents claiming universal server-side rejection for all data GETs.
+Not performed: a live exposure review, external DNS rebinding, TLS certificate issuance, a live identity provider, other browser engines, fixture/corpus-dependent suites, deployment. The native Basic read exception above prevents claiming universal server-side rejection for all data GETs.
+
+## Real-browser check
+
+`packages/web/e2e/cross-site.e2e.ts` does the central case in a real browser: a page on another site cannot use the browser's saved login to change data. A control request from the server's own page, with the same saved login, shows the login works, so a refusal is the guard and not a failed login. A page on another port of the same host is refused too.

@@ -64,7 +64,7 @@ export function inventoryMarkdown(): string {
   for (const group of routeGroups) {
     out.push(`## ${group.id}`, '', `Handler: ${group.sources.map((s) => '`packages/server/src/' + s + '`').join(', ')}.`, '',
       '| Method | Route | Credential / invariant |', '| --- | --- | --- |');
-    for (const r of routes.filter((r) => r.group === group.id)) out.push(`| ${r.method} | \`${r.path}\` | ${policy(r.group, r.path, r.method)} |`);
+    for (const r of routes.filter((r) => r.group === group.id)) out.push(`| ${r.method} | \`${r.path}\` | ${policy(r.group, r.path, r.method)} |${/unverified/i.test(r.path) ? ' <!-- known-difference-ok: the route name contains the word -->' : ''}`);
     out.push('');
   }
   out.push('## Source supplements', '',
