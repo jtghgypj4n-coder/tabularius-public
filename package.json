@@ -29,7 +29,7 @@
     "bench:check": "node --no-warnings scripts/bench-check.ts",
     "fuzz": "node --no-warnings scripts/fuzz/run.ts",
     "smoke:web": "node --no-warnings scripts/smoke-web.ts",
-    "test:e2e": "node --no-warnings --test --test-reporter=spec 'packages/web/e2e/*.e2e.ts'",
+    "test:e2e": "node --no-warnings scripts/test-e2e.ts",
     "test:visual": "node --no-warnings scripts/test-visual.ts",
     "smoke:sync": "node --no-warnings scripts/smoke-sync.ts",
     "a11y:web": "node --no-warnings scripts/a11y-web.ts",

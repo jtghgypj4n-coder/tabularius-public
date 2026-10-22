@@ -215,7 +215,7 @@ the found set's order, as in the other formats.
 
 ## Drawing big layouts in the web client
 
-`packages/web/e2e/render-budgets.e2e.ts` (browser tests, `npm run test:e2e`) builds one synthetic file (10,000 Items with 42 fields, an Owner with 500 related Lines) and times the web client drawing six layouts that stress it. Each is timed inside the page, from the layout menu changing to the content on screen and a frame drawn (**paint**) and the main thread free again (**free**), with how long the page was blocked in long tasks (over 50 ms) and how many elements the page holds afterwards.
+`packages/web/e2e/render-budgets.e2e.ts` (browser tests, `npm run test:e2e`) builds one synthetic file (10,000 Items with 42 fields, an Owner with 500 related Lines) and times the web client drawing six layouts that stress it. Each is timed inside the page, from the layout menu changing to the content on screen and a frame drawn (**paint**) and the main thread free again (**free**), with how long the page was blocked in long tasks (over 50 ms) and how many elements the page holds afterwards. `npm run test:e2e` runs this file by itself, after the other browser tests, because a time measured beside another browser drawing is not the time of the page.
 
 | Layout | Paint (ms) | Free (ms) | Blocked (ms) | Elements | Budget: paint / elements |
 | --- | ---: | ---: | ---: | ---: | --- |
