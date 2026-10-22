@@ -44,10 +44,13 @@ export const PluginFunctionSpec = z.object({
 }).refine((f) => (f.owner === undefined) === (f.index === undefined), { message: 'owner and index go together' })
   .refine((f) => f.max === undefined || f.max >= f.min, { message: 'max is below min' });
 
+/** An id with a "json" part between dots (or alone at either end) could be a state file of the plug-ins folder, or its lock file. */
+export const JSON_SEGMENT = /(^|\.)json(\.|$)/i;
+
 export const PluginManifest = z.object({
   /** Reverse-DNS, unique: org.example.troi-file. */
   id: z.string().regex(/^[a-z0-9]+(?:[.-][a-z0-9]+)+$/).max(100).refine(portableName, 'not a portable file name')
-    .refine((id) => !id.endsWith('.json'), 'a plug-in id can\'t end in .json: the plug-ins folder keeps its own state in files of that kind'),
+    .refine((id) => !JSON_SEGMENT.test(id), 'a plug-in id can\'t have a "json" part (enabled.json, enabled.json.lock.db): the plug-ins folder keeps its own state in files named like that'),
   name: z.string().min(1),
   version: z.string().regex(SEMVER),
   /** Host API range it was written for, e.g. "^1.0". */
