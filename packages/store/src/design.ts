@@ -23,6 +23,7 @@ import { checkJavaScript } from './javascript.ts';
 import { atPath, diffDesign, undoPatch, type DesignPatch } from './patch.ts';
 import { phoneDesign, phoneFingerprint, PHONE_WIDTH } from './phone.ts';
 import { componentFrom, places, placed, objectIds, syncPlaced } from './components.ts';
+import { buildForeignKey, foreignKeyPrints, foreignKeySpec, resolveForeignKey, type ForeignKeySpec } from './foreign-keys.ts';
 import {
   scriptStepId, scriptStepName, displayedStepLine,
   type Field, type FieldKind, type FieldLookup, type FieldOptions, type FieldType, type JoinOperator, type LayoutDesign, type LayoutDesigns,
@@ -81,8 +82,9 @@ export type DesignOp =
   | { op: 'createOccurrence'; id?: number; name: string; table?: Ref; /** A table in another hosted file instead: the data source, and the table's id in that file. */ file?: Ref; externalTable?: number; color?: string; graph?: TableOccurrence['graph'] }
   | { op: 'updateOccurrence'; occurrence: Ref; name?: string; table?: Ref; color?: string; graph?: TableOccurrence['graph'] }
   | { op: 'deleteOccurrence'; occurrence: Ref }
-  | ({ op: 'createRelationship'; id?: number; left: Ref; right: Ref; predicates: PredicateSpec[] } & RelationshipOptions)
-  | ({ op: 'updateRelationship'; relationship: number; left?: Ref; right?: Ref; predicates?: PredicateSpec[] } & RelationshipOptions)
+  /** foreignKey (native files only): a named foreign key on the relationship's one child = parent match; null on an update drops it. */
+  | ({ op: 'createRelationship'; id?: number; left: Ref; right: Ref; predicates: PredicateSpec[]; foreignKey?: ForeignKeySpec } & RelationshipOptions)
+  | ({ op: 'updateRelationship'; relationship: number; left?: Ref; right?: Ref; predicates?: PredicateSpec[]; foreignKey?: ForeignKeySpec | null } & RelationshipOptions)
   | { op: 'deleteRelationship'; relationship: number }
   | { op: 'createValueList'; id?: number; name: string; values?: string[]; field?: ValueListFieldSpec; /** The list of that id in another hosted file instead: the data source naming it, and the list's id there. */ external?: { file: Ref; valueList: number } }
   | { op: 'updateValueList'; valueList: Ref; name?: string; values?: string[]; field?: ValueListFieldSpec }
@@ -196,7 +198,9 @@ export type Effect =
   | { k: 'restoreField'; deleted: number; table: string; field: Field }
   | { k: 'restoreRetype'; deleted: number; table: string; field: string; type: FieldType }
   | { k: 'retype'; table: string; field: string; from: FieldType; to: FieldType }
-  | { k: 'recompute'; table: string; field: string };
+  | { k: 'recompute'; table: string; field: string }
+  /** A foreign key that is new or checks other fields now: the store checks the records already there against it. */
+  | { k: 'checkForeignKey'; relationship: number };
 
 export interface DesignState {
   schema: Schema;
@@ -1403,7 +1407,9 @@ export function applyOp(st: DesignState, op: DesignOp, deleted?: DeletedLookup):
   // an edit by hand. Worked out the same way when the log is replayed, so nothing about it is logged.
   const following = st.designs.layouts.filter((d) => d.phone && phoneFingerprint(d) === d.phone.synced).map((d) => d.id);
   const before = st.fileMode === 'native' ? nativeOffences(st.schema) : undefined;
+  const keysBefore = foreignKeyPrints(st.schema);
   const result = applyOneOp(st, op, deleted);
+  checkForeignKeys(st, keysBefore, result.effects);
   if (before) {
     // Only what this change made repeating or global is refused, so a field that already is one doesn't block other changes.
     for (const [key, { table, field, repeats, global }] of nativeOffences(st.schema)) {
@@ -1418,6 +1424,38 @@ export function applyOp(st: DesignState, op: DesignOp, deleted?: DeletedLookup):
     if (d?.phone) d.phone.synced = phoneFingerprint(d);
   }
   return result;
+}
+
+/**
+ * Foreign keys after a change: each must still fit its relationship (a change that breaks one is refused, and says
+ * how to drop it), and one that is new or checks other fields now has the existing records checked by the store.
+ */
+function checkForeignKeys(st: DesignState, before: Map<number, string>, effects: Effect[]): void {
+  for (const [id, print] of foreignKeyPrints(st.schema)) {
+    if (print.startsWith('!')) {
+      const rel = st.schema.relationships.find((r) => r.id === id)!;
+      throw invalid(`Foreign key "${rel.foreignKey!.name}": ${print.slice(1)}`);
+    }
+    if (st.fileMode !== 'native') throw invalid('Foreign keys are for native files (made with tabularius new --native); this is a compat file');
+    if (before.get(id) !== print) effects.push({ k: 'checkForeignKey', relationship: id });
+  }
+}
+
+/** Declares (or with null, drops) a relationship's foreign key; returns it as logged, by ids. */
+function setForeignKey(st: DesignState, rel: Relationship, spec: ForeignKeySpec | null): ForeignKeySpec | null {
+  if (spec === null) {
+    delete rel.foreignKey;
+    return null;
+  }
+  if (st.fileMode !== 'native') throw invalid('Foreign keys are for native files (made with tabularius new --native); this is a compat file, so its relationships stay as they are');
+  const fk = buildForeignKey(st.schema, rel, spec);
+  if (typeof fk === 'string') throw invalid(`Foreign key: ${fk}`);
+  const clash = st.schema.relationships.find((r) => r !== rel && r.foreignKey && lower(r.foreignKey.name) === lower(fk.name));
+  if (clash) throw invalid(`Foreign key "${fk.name}" already exists (on relationship ${clash.id})`);
+  const problem = resolveForeignKey(st.schema, rel, fk);
+  if (typeof problem === 'string') throw invalid(`Foreign key "${fk.name}": ${problem}`);
+  rel.foreignKey = fk;
+  return foreignKeySpec(fk);
 }
 
 /** The repeating and global fields of a schema, by table and field id. */
@@ -1572,9 +1610,12 @@ function applyOneOp(st: DesignState, op: DesignOp, deleted?: DeletedLookup): { o
       rekeyField(st, table.name, field.name, null);
       table.fields.splice(table.fields.indexOf(field), 1);
       for (const rel of s.relationships) {
+        const had = rel.predicates.length;
         rel.predicates = rel.predicates.filter((p) =>
           !((p.leftFieldId === field.id && occurrenceOnTable(s, rel.leftTableOccurrenceId, table.id)) ||
             (p.rightFieldId === field.id && occurrenceOnTable(s, rel.rightTableOccurrenceId, table.id))));
+        // A foreign key on the deleted match goes with it (and comes back if the field is restored).
+        if (rel.foreignKey && rel.predicates.length !== had) delete rel.foreignKey;
       }
       effects.push({ k: 'trashField', table: table.name, field: structuredClone(field), data: hasColumn(field), patch: deletePatch(st, before) });
       return { op: { op: 'deleteField', table: table.id, field: field.id }, effects };
@@ -1722,7 +1763,8 @@ function applyOneOp(st: DesignState, op: DesignOp, deleted?: DeletedLookup): { o
         existing.rightTableOccurrenceId = right.id;
         existing.rightTableOccurrence = right.name;
         if (predicates) existing.predicates = predicates;
-        return { op: { op: 'updateRelationship', relationship: existing.id, left: left.id, right: right.id, ...(predicates ? { predicates: predicates.map((p) => ({ left: p.leftFieldId, operator: p.operator, right: p.rightFieldId })) } : {}), ...options }, effects };
+        const fk = op.foreignKey !== undefined ? { foreignKey: setForeignKey(st, existing, op.foreignKey) } : {};
+        return { op: { op: 'updateRelationship', relationship: existing.id, left: left.id, right: right.id, ...(predicates ? { predicates: predicates.map((p) => ({ left: p.leftFieldId, operator: p.operator, right: p.rightFieldId })) } : {}), ...options, ...fk }, effects };
       }
       const id = (op as { id?: number }).id ?? nextId([...s.relationships.map((r) => r.id), ...retired(s, 'relationships')]);
       // Relationships made here allow creating records on both sides unless told otherwise (FileMaker starts with it off).
@@ -1730,8 +1772,9 @@ function applyOneOp(st: DesignState, op: DesignOp, deleted?: DeletedLookup): { o
       if (options.rightCreate === undefined) options.rightCreate = true;
       const rel: Relationship = { id, leftTableOccurrenceId: left.id, rightTableOccurrenceId: right.id, leftTableOccurrence: left.name, rightTableOccurrence: right.name, predicates: predicates!, sorted: false };
       setOptions(rel);
+      const fk = op.op === 'createRelationship' && op.foreignKey !== undefined && op.foreignKey !== null ? { foreignKey: setForeignKey(st, rel, op.foreignKey)! } : {};
       s.relationships.push(rel);
-      return { op: { op: 'createRelationship', id, left: left.id, right: right.id, predicates: predicates!.map((p) => ({ left: p.leftFieldId, operator: p.operator, right: p.rightFieldId })), ...options }, effects };
+      return { op: { op: 'createRelationship', id, left: left.id, right: right.id, predicates: predicates!.map((p) => ({ left: p.leftFieldId, operator: p.operator, right: p.rightFieldId })), ...options, ...fk }, effects };
     }
     case 'deleteRelationship': {
       const i = s.relationships.findIndex((r) => r.id === op.relationship);

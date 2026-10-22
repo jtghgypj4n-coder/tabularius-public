@@ -64,6 +64,8 @@ export const CHANGES = `Design changes, applied in order as one unit (all or non
 - {op:"createRelationship", left, right, predicates: [{left: field, operator?: = ≠ < ≤ > ≥ ×, right: field}]} (left/right are occurrences)
   plus per-side options leftCreate/rightCreate (allow creating records on that side through the relationship; new ones default to true)
   and leftDelete/rightDelete (delete that side's related records when a record on the other side is deleted)
+  and, in native files only, foreignKey: {name, child: {table, field}, parent: {table, field}, onDelete?: restrict|cascade|set-null|no-action}
+  (base tables; the relationship's one = match must join them; existing records are checked first; null on an update drops it)
   / {op:"updateRelationship", relationship: id, ...} / {op:"deleteRelationship", relationship: id}
 - {op:"createValueList", name, values} or {op:"createValueList", name, field: {occurrence, field, second?: field to show too,
   showSecondOnly?, sortBySecond?, related?: occurrence (only values related to the current record, starting from it)}}

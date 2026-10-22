@@ -34,6 +34,7 @@ import { authorityOf, countObjectUse, ensurePrivilegeTables, isFullAccess, privi
 import { accessReport, explainAccess, diffPrivilegeSet, testAccount, type AccessReport, type AccessExplanation, type SetChange, type AccountTest } from './access-report.ts';
 import { accessDenialContext, denialAuditDetail, denialAuditSuppressed, type AccessDenial, type DenialAudit, type AccessOperation, type RuleOutcome } from './access-denial.ts';
 import { applyOps, DesignError, type DeletedDesign, type DesignOp, type Effect } from './design.ts';
+import { childIds, childrenWithKeys, emptyKey, foreignKeysOf, orphans, parentHas, sameKey, type ResolvedForeignKey } from './foreign-keys.ts';
 import { occurrence, occurrenceByName, firstRelatedEach, relatedIdList, relatedKeys, relatedRows, type Occurrence, type RelatedResult } from './related.ts';
 import { DESIGN_TABLE, DESIGN_SCRIPTS, DESIGN_TABLES, RecordLocks, writer, type Change, type ChangeKind, type Transaction } from './activity.ts';
 import { accountCollisionKey, accountKey, AccountImportError, ensureAccountImportTables, importDigest, isRecoveryAdministrator, parseAccountCsv, planAccountImport, type ImportAccount, type AccountImportPreview, type AccountImportResult } from './account-provisioning.ts';
@@ -1794,6 +1795,10 @@ export class Store {
       this.writePublications.push(() => this.notify(kind, table, recordId, modId, by, fields, ids));
       return;
     }
+    if (this.keyPublications) {
+      this.keyPublications.push(() => this.notify(kind, table, recordId, modId, by, fields, ids));
+      return;
+    }
     if (kind === 'create' || kind === 'delete' || kind === 'truncate') this.counts.value.delete(table);
     const w = by ?? writer.getStore();
     // A dry run's writes are rolled back, so nothing is told about them.
@@ -1893,8 +1898,10 @@ export class Store {
       this.words.dropAll();
       this.designAccount = opts.account ?? null;
       const recompute: Extract<Effect, { k: 'recompute' }>[] = [];
+      const keyChecks: number[] = [];
       for (const e of result.effects) {
         if (e.k === 'recompute') recompute.push(e);
+        else if (e.k === 'checkForeignKey') keyChecks.push(e.relationship);
         else this.designEffect(e);
         crashPoint('design-apply:after-effect');
       }
@@ -1917,6 +1924,8 @@ export class Store {
       }
       this.resetCaches();
       for (const e of recompute) this.recompute(e.table, e.field);
+      // Last, on the new design and its data: a foreign key the records already there break is refused, with all of it.
+      for (const id of new Set(keyChecks)) this.checkForeignKeyData(id);
       crashPoint('design-apply:before-commit');
       this.sql.exec(nested ? 'RELEASE security_design' : 'COMMIT');
       crashPoint('design-apply:after-commit');
@@ -8156,6 +8165,7 @@ export class Store {
     const calcRuns = new Map<string, StyleRun[] | undefined>();
     // A record made uncommitted (or with its required fields checked at its first commit) gets its on-commit serial then.
     this.write(() => this.calc.beforeWrite(table, row, new Set(cols.keys()), { isNew: true, account: opts.account, lastVisited, noValidation: opts.uncommitted, uncommitted: opts.uncommitted || opts.requiredAtCommit, requiredAtCommit: opts.requiredAtCommit, skipEntryValidation: opts.skipEntryValidation, performAutoEnter: opts.performAutoEnter, calcRuns, entered: data, overrideValidation: opts.dataEntry ? opts.overrideValidation : undefined }));
+    this.checkChildKeys(table, row);
     const names = info.fields.map((f) => f.name).filter((n) => row[n] !== null && row[n] !== undefined);
     const uuid = this.fileMode === 'native' ? this.uuid.next() : undefined;
     this.changeOne(table, next, undefined, () => this.sql
@@ -8198,6 +8208,7 @@ export class Store {
     }
     const calcRuns = new Map<string, StyleRun[] | undefined>();
     this.write(() => this.calc.beforeWrite(table, row, copied, { isNew: true, account: opts.account, calcRuns }));
+    this.checkChildKeys(table, row);
     const names = info.fields.map((f) => f.name).filter((n) => row[n] !== null && row[n] !== undefined);
     const uuid = this.fileMode === 'native' ? this.uuid.next() : undefined;
     this.changeOne(table, next, undefined, () => this.sql
@@ -8300,6 +8311,8 @@ export class Store {
           if (text !== this.keptText(f, typed[n], r)) this.textStyles.write(table.id, recordId, f.id, text ?? '', undefined, r);
         }
       }
+      this.checkChildKeys(table, row, current as Row);
+      this.checkParentKeyChange(table, recordId, row, current as Row);
       const changed = info.fields.map((f) => f.name).filter((n) => cols.has(n) || row[n] !== current[n]);
       const sets = changed.map((n) => `${q(n)} = ?`);
       // Only if nobody saved it since it was read: another server process can, between the two.
@@ -8823,6 +8836,9 @@ export class Store {
       this.checkRecordRule(table, pv, 'delete', 'delete', row);
     }
     const before = this.sql.prepare(`SELECT * FROM ${q(info.table)} WHERE _fm_record_id = ?`).get(recordId) as Record<string, SqlValue> | undefined;
+    // Foreign keys this record is the parent of: restrict refuses now, before anything is changed.
+    const orphaned = before ? this.parentKeysLeaving(this.table(info), before, recordId) : [];
+    const run = () => {
     if (before && opts.cascade !== false) this.cascadeDelete(info.table, recordId, before, opts);
     const res = this.changeOne(this.table(info), recordId, before as Row | undefined, () => this.sql.prepare(`DELETE FROM ${q(info.table)} WHERE _fm_record_id = ?`).run(recordId));
     if (res.changes === 0) throw new StoreError(101, 'Record is missing');
@@ -8836,6 +8852,10 @@ export class Store {
       this.notify('unlock', info.table, recordId, undefined, { account: lock.account, owner: lock.owner });
     }
     this.notify('delete', info.table, recordId);
+    if (orphaned.length) this.followOnDelete(orphaned, opts);
+    };
+    if (orphaned.length) this.keyStep(run);
+    else run();
   }
 
   /**
@@ -8891,9 +8911,145 @@ export class Store {
     const columns = new Set((this.sql.prepare(`PRAGMA table_info(${q(table)})`).all() as { name: string }[]).map((c) => c.name));
     const kept = this.fileMode === 'native' && (!row._fm_uuid || row._fm_uuid === '') ? { ...row, _fm_uuid: this.uuid.next() } : row;
     const names = Object.keys(kept).filter((k) => columns.has(k));
+    this.checkChildKeys(this.schema.tables.find((t) => t.name === table)!, kept as Row);
     this.sql.prepare(`INSERT INTO ${q(table)} (${names.map(q).join(', ')}) VALUES (${names.map(() => '?').join(', ')})`).run(...names.map((n) => kept[n]));
     this.audit('create', table, id, Object.fromEntries(names.filter((n) => !n.startsWith('_fm_') && row[n] !== null).map((n) => [n, row[n]])), opts);
     this.notify('create', table, id, Number(row._fm_mod_id ?? 0));
+  }
+
+  // --- foreign keys (native files; foreign-keys.ts) ------------------------
+
+  private keyCache?: { schema: Schema; keys: ResolvedForeignKey[] };
+  /** Change events of a foreign key's step, held until the step stands (a refusal rolls back what they tell of). */
+  private keyPublications?: (() => void)[];
+
+  /** The file's foreign keys; a compat file has none. */
+  private foreignKeys(): ResolvedForeignKey[] {
+    if (this.fileMode !== 'native') return [];
+    const schema = this.schema;
+    if (this.keyCache?.schema !== schema) this.keyCache = { schema, keys: foreignKeysOf(schema) };
+    return this.keyCache.keys;
+  }
+
+  private readonly keySql = (sql: string) => this.prepared(sql) as unknown as { get(...p: SqlValue[]): unknown; all(...p: SqlValue[]): unknown[] };
+
+  /**
+   * A record about to be written as a child: each key it now holds must be a parent's (error 505, the code for a value
+   * that is not an existing value). Empty keys are allowed; an unchanged key isn't looked up again.
+   */
+  private checkChildKeys(table: Table, row: Row, before?: Row): void {
+    for (const fk of this.foreignKeys()) {
+      if (fk.child.table.id !== table.id) continue;
+      const cf = fk.child.field, pf = fk.parent.field;
+      const v = row[cf.name] as SqlValue;
+      if (emptyKey(v) || (before && sameKey(cf, before[cf.name], v))) continue;
+      const where = `${fk.child.table.name}::${cf.name}`;
+      if (typeof v === 'string' && /[\r\n]/.test(v)) throw new StoreError(505, `Foreign key "${fk.name}": ${where} holds one ${fk.parent.table.name} key, not a list of them`);
+      // A record of a self-referencing key may name itself.
+      if (fk.parent.table.id === table.id && sameKey(pf, row[pf.name], v)) continue;
+      if (!parentHas(this.keySql, fk, v)) throw new StoreError(505, `Foreign key "${fk.name}": no ${fk.parent.table.name} record has ${pf.name} ${JSON.stringify(v)}, so ${where} can't hold it`);
+    }
+  }
+
+  /** An edit that changes a parent's key while child records still use the old one is refused (there is no ON UPDATE). */
+  private checkParentKeyChange(table: Table, recordId: number, row: Row, before: Row): void {
+    for (const fk of this.foreignKeys()) {
+      if (fk.parent.table.id !== table.id) continue;
+      const pf = fk.parent.field, cf = fk.child.field;
+      const old = before[pf.name] as SqlValue;
+      if (emptyKey(old) || sameKey(pf, row[pf.name], old) || parentHas(this.keySql, fk, old, recordId)) continue;
+      // The record itself, in a self-referencing key, unless the same edit leaves it naming the old key.
+      const self = fk.child.table.id === table.id && !sameKey(cf, row[cf.name], old) ? recordId : undefined;
+      const n = childIds(this.keySql, fk, old, self).length;
+      if (n) throw new StoreError(505, `Foreign key "${fk.name}": ${n} ${fk.child.table.name} record${n === 1 ? '' : 's'} use${n === 1 ? 's' : ''} ${pf.name} ${JSON.stringify(old)}; change ${n === 1 ? 'it' : 'them'} before changing this ${fk.parent.table.name} record's ${pf.name}`);
+    }
+  }
+
+  /**
+   * The keys a delete (one record's `row`) or a truncate (no row: every record) takes from child records that have no
+   * other parent with that key. Restrict refuses here, before anything is deleted; the others are followed after.
+   */
+  private parentKeysLeaving(table: Table, row?: Record<string, SqlValue>, recordId?: number): { fk: ResolvedForeignKey; value?: SqlValue }[] {
+    const out: { fk: ResolvedForeignKey; value?: SqlValue }[] = [];
+    for (const fk of this.foreignKeys()) {
+      if (fk.parent.table.id !== table.id) continue;
+      const self = fk.child.table.id === table.id;
+      let n: number;
+      let value: SqlValue | undefined;
+      if (!row) {
+        if (self) continue; // the children go with the table
+        n = childrenWithKeys(this.keySql, fk).length;
+      } else {
+        value = row[fk.parent.field.name];
+        if (emptyKey(value) || parentHas(this.keySql, fk, value!, recordId)) continue;
+        n = childIds(this.keySql, fk, value!, self ? recordId : undefined).length;
+      }
+      if (!n) continue;
+      if (fk.onDelete === 'restrict') {
+        throw new StoreError(505, `Foreign key "${fk.name}" (on delete restrict): ${n} ${fk.child.table.name} record${n === 1 ? '' : 's'} use${n === 1 ? 's' : ''} ${row ? `this record's ${fk.parent.field.name} ${JSON.stringify(value)}` : `${fk.parent.table.name} keys`}; delete or change ${n === 1 ? 'it' : 'them'} first`);
+      }
+      out.push({ fk, value });
+    }
+    return out;
+  }
+
+  /** After the parent is gone: cascade deletes the children (each delete audited and followed in turn), set-null empties their key, no-action refuses if any are left. */
+  private followOnDelete(leaving: { fk: ResolvedForeignKey; value?: SqlValue }[], opts: WriteOptions): void {
+    for (const { fk, value } of leaving) {
+      if (value !== undefined && parentHas(this.keySql, fk, value)) continue;
+      const ids = value === undefined ? childrenWithKeys(this.keySql, fk) : childIds(this.keySql, fk, value);
+      if (!ids.length) continue;
+      if (fk.onDelete === 'no-action') {
+        throw new StoreError(505, `Foreign key "${fk.name}" (on delete no action): ${ids.length} ${fk.child.table.name} record${ids.length === 1 ? '' : 's'} would be left without a ${fk.parent.table.name} record; delete or change ${ids.length === 1 ? 'it' : 'them'} first`);
+      }
+      const info = this.occurrenceInfo({ to: fk.child.occurrence, store: this, table: fk.child.table });
+      for (const id of ids) {
+        try {
+          if (fk.onDelete === 'cascade') this.delete(info, id, opts);
+          else this.update(info, id, { [fk.child.field.name]: '' }, undefined, { ...opts, dataEntry: undefined, styles: undefined, editKey: undefined });
+        } catch (e) {
+          rethrowExecutionRefusal(e);
+          // Already gone through another relationship or key.
+          if (!(e instanceof StoreError && e.code === 101)) throw e;
+        }
+      }
+    }
+  }
+
+  /** A write that follows foreign keys, all or nothing: in its own savepoint (or write transaction) with its change events held. */
+  private keyStep<T>(run: () => T): T {
+    if (!this.sql.isTransaction) return this.withWriteTransaction(run);
+    const name = `fk_${++this.trials}`;
+    const audit = this.heldAudit.length;
+    const outer = this.keyPublications;
+    const held: (() => void)[] = [];
+    this.keyPublications = held;
+    this.sql.exec(`SAVEPOINT ${name}`);
+    let out: T;
+    try {
+      out = run();
+      this.sql.exec(`RELEASE ${name}`);
+    } catch (e) {
+      this.sql.exec(`ROLLBACK TO ${name}; RELEASE ${name}`);
+      this.heldAudit.length = Math.min(this.heldAudit.length, audit);
+      this.keyPublications = outer;
+      this.resetCaches();
+      throw e;
+    }
+    this.keyPublications = outer;
+    if (outer) outer.push(...held);
+    else for (const publish of held) publish();
+    return out;
+  }
+
+  /** Design: the records already there must keep a new foreign key, or it is refused with how many don't and the first few keys. */
+  private checkForeignKeyData(relationship: number): void {
+    const fk = this.foreignKeys().find((k) => k.relationship === relationship);
+    if (!fk) return;
+    const bad = orphans(this.keySql, fk);
+    if (!bad.count) return;
+    throw new StoreError(505, `Foreign key "${fk.name}" can't be added: ${bad.count} ${fk.child.table.name} record${bad.count === 1 ? ' has' : 's have'} a ${fk.child.field.name} that no ${fk.parent.table.name} record has as ${fk.parent.field.name}` +
+      ` (or more than one line), for example ${bad.values.map((v) => JSON.stringify(v)).join(', ')}; fix or empty those first`);
   }
 
   /** Records being deleted by cascades now, so a cycle of relationships stops. */
@@ -9335,6 +9491,7 @@ export class Store {
     if (locked.length) throw new StoreError(301, `Record is in use by another user (${locked[0].account})`);
     // Read before the delete, in batches, only when there are stand-ins to take out; all or nothing with the delete.
     const table = this.table(info);
+    const orphaned = this.parentKeysLeaving(table);
     let n: number;
     this.sql.exec('SAVEPOINT truncate_table');
     try {
@@ -9346,6 +9503,7 @@ export class Store {
         after = Number(rows[rows.length - 1]._fm_record_id);
       }
       n = Number(this.sql.prepare(`DELETE FROM ${q(info.table)}`).run().changes);
+      if (orphaned.length) this.keyStep(() => this.followOnDelete(orphaned, opts));
       this.sql.exec('RELEASE truncate_table');
     } catch (e) {
       this.sql.exec('ROLLBACK TO truncate_table');

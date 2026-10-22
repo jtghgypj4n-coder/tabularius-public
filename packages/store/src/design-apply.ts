@@ -10,13 +10,16 @@
 // text can't carry (a script's "full access" line, objects in other files) is named in `skipped`, not guessed.
 // Tables are read back for adding a table, renaming it, and adding or changing a field's type, kind, comment, formula
 // summary and Options (a field is never deleted from text). Table occurrences and relationships are read back too (relationships.txt; only relationships
-// are ever deleted, and only with `remove`). Accounts and privilege sets are not
+// are ever deleted, and only with `remove`), with a native file's foreign keys: adding, changing or removing a relationship's
+// "Foreign key" line adds, changes or drops it. Accounts and privilege sets are not
 // read back (accounts and privilege sets carry access, so they stay in Manage Security): edits there are listed as skipped, so nothing in a plan is a half-applied change.
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 import { scriptText } from '../../fmp12/src/index.ts';
 import type { DesignOp, ValueListFieldSpec } from './design.ts';
+import { ON_DELETE, type ForeignKeySpec } from './foreign-keys.ts';
+import type { OnDelete } from '../../fmp12/src/index.ts';
 import { designObjects, designText, stableJson, type DesignSource } from './design-text.ts';
 
 export interface DesignPlan {
@@ -209,7 +212,7 @@ function tableOp(path: string, text: string, curText: string | undefined, curren
   return { ops, notes, name };
 }
 
-export interface RelBlock { key: string; left: string; right: string; predicates: string[]; options: string; raw: string }
+export interface RelBlock { key: string; left: string; right: string; predicates: string[]; options: string; raw: string; /** A native file's foreign key line, without its "  Foreign key " start. */ foreignKey?: string }
 
 /** relationships.txt as designText() writes it: the occurrences (name to base table), then the relationships. */
 export function parseRelationships(path: string, text: string): { occurrences: Map<string, string>; relationships: RelBlock[] } {
@@ -239,12 +242,38 @@ export function parseRelationships(path: string, text: string): { occurrences: M
     const n = (seen.get(b[0]) ?? 0) + 1;
     seen.set(b[0], n);
     const options = b.find((l) => l.startsWith('  Options: '))?.slice('  Options: '.length) ?? '';
-    return { key: `${b[0]}#${n}`, left: b[0].slice(0, at), right: b[0].slice(at + 3), predicates: b.slice(1).filter((l) => !l.startsWith('  Options: ')).map((l) => l.slice(2)), options, raw: b.join('\n') };
+    const keys = b.filter((l) => l.startsWith(FOREIGN_KEY));
+    if (keys.length > 1) throw fail(path, `the relationship "${b[0]}" has ${keys.length} foreign key lines; a relationship carries one`);
+    const foreignKey = keys[0]?.slice(FOREIGN_KEY.length);
+    return { key: `${b[0]}#${n}`, left: b[0].slice(0, at), right: b[0].slice(at + 3), predicates: b.slice(1).filter((l) => !l.startsWith('  Options: ') && !l.startsWith(FOREIGN_KEY)).map((l) => l.slice(2)), options, raw: b.join('\n'), ...(foreignKey !== undefined ? { foreignKey } : {}) };
   });
   return { occurrences, relationships };
 }
 
 const JOIN_OPERATORS = ['=', '≠', '<', '≤', '>', '≥', '×'];
+const FOREIGN_KEY = '  Foreign key ';
+
+/**
+ * A foreign key line (design-text.ts writes it): `"Name": Child::Field references Parent::Field, on delete cascade`,
+ * the child and parent being the relationship's two occurrences. The tables in the change are their base tables.
+ */
+function foreignKeyOf(path: string, line: string, r: RelBlock, baseOf: (occurrence: string) => string | undefined): ForeignKeySpec {
+  const m = /^("(?:[^"\\]|\\.)*"): (.+) references (.+), on delete (\S+)$/.exec(line);
+  if (!m) throw fail(path, `can't read the foreign key "${line}" (it should read "Name": ${r.left}::Field references ${r.right}::Field, on delete restrict)`);
+  let name: string;
+  try { name = JSON.parse(m[1]); } catch { throw fail(path, `the foreign key name ${m[1]} should be a quoted name`); }
+  if (!ON_DELETE.includes(m[4] as OnDelete)) throw fail(path, `the foreign key "${name}" says on delete ${m[4]}; it can be ${ON_DELETE.join(', ')}`);
+  const end = (text: string, what: string) => {
+    const occ = text.startsWith(`${r.left}::`) ? r.left : text.startsWith(`${r.right}::`) ? r.right : undefined;
+    if (!occ) throw fail(path, `the foreign key "${name}" ${what} "${text}" should be ${r.left}::Field or ${r.right}::Field`);
+    const table = baseOf(occ);
+    if (!table) throw fail(path, `the foreign key "${name}" names ${occ}, which shows no table of this file`);
+    return { occ, table, field: text.slice(occ.length + 2) };
+  };
+  const child = end(m[2], 'child'), parent = end(m[3], 'parent');
+  if (child.occ === parent.occ) throw fail(path, `the foreign key "${name}" should join ${r.left} and ${r.right}, one on each side`);
+  return { name, child: { table: child.table, field: child.field }, parent: { table: parent.table, field: parent.field }, onDelete: m[4] as OnDelete };
+}
 
 function predicateOf(path: string, line: string, left: string, right: string) {
   if (!line.startsWith(`${left}::`)) throw fail(path, `the match "${line}" should start with "${left}::"`);
@@ -297,6 +326,13 @@ function relationshipsPlan(path: string, text: string, curText: string, src: Des
   }
   for (const [key, line] of have.occurrences) if (!want.occurrences.has(key)) out.notes.push(`${path}: table occurrence "${line.slice(0, line.lastIndexOf(' → '))}" is not in the file; it stays (an occurrence is never deleted from text, and a renamed one looks like a new one)`);
 
+  // The base table an occurrence shows, as the folder's own occurrence lines say (else as the file has it).
+  const baseOf = (occ: string): string | undefined => {
+    const line = want.occurrences.get(occ.toLowerCase());
+    if (line) return line.slice(line.lastIndexOf(' → ') + 3);
+    const to = schema.tableOccurrences.find((t) => t.name.toLowerCase() === occ.toLowerCase() && !t.dataSourceId);
+    return to && schema.tables.find((t) => t.id === to.baseTableId)?.name;
+  };
   const sorted = [...schema.relationships].sort((a, b) => a.id - b.id);
   const byKey = new Map(have.relationships.map((r, i) => [r.key, { r, id: sorted[i]?.id }]));
   const wantKeys = new Set<string>();
@@ -307,14 +343,16 @@ function relationshipsPlan(path: string, text: string, curText: string, src: Des
     const o = relationshipOptions(path, r.options, r.left, r.right);
     const opts = { leftCreate: o.create[0], rightCreate: o.create[1], leftDelete: o.remove[0], rightDelete: o.remove[1] };
     const old = byKey.get(r.key);
+    const foreignKey = r.foreignKey !== undefined ? foreignKeyOf(path, r.foreignKey, r, baseOf) : undefined;
     if (!old) {
-      out.relationship.push({ op: 'createRelationship', left: r.left, right: r.right, predicates: preds, ...opts });
+      out.relationship.push({ op: 'createRelationship', left: r.left, right: r.right, predicates: preds, ...opts, ...(foreignKey ? { foreignKey } : {}) });
       out.lines.push(`Add relationship ${r.left} ↔ ${r.right} (${path})`);
       if (o.sorted) out.notes.push(`${path}: "sorted" on ${r.left} ↔ ${r.right} is set in Manage Database, not from text`);
     } else if (old.r.raw !== r.raw) {
       if (old.id === undefined) continue;
       if (relationshipOptions(path, old.r.options, old.r.left, old.r.right).sorted !== o.sorted) out.notes.push(`${path}: "sorted" on ${r.left} ↔ ${r.right} is set in Manage Database, not from text`);
-      out.relationship.push({ op: 'updateRelationship', relationship: old.id, predicates: preds, ...opts });
+      const keyChange = foreignKey ? { foreignKey } : old.r.foreignKey !== undefined ? { foreignKey: null } : {};
+      out.relationship.push({ op: 'updateRelationship', relationship: old.id, predicates: preds, ...opts, ...keyChange });
       out.lines.push(`Change relationship ${r.left} ↔ ${r.right} (${path})`);
     }
   }

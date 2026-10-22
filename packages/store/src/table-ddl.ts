@@ -1,9 +1,11 @@
 // GetTableDDL ( tableOccurrences ; ignoreRelationships ), FileMaker 2024's function for describing tables to a
 // language model: one CREATE TABLE per table occurrence, its fields with SQL types and their comments, and a
 // FOREIGN KEY for each equijoin to another listed occurrence. FileMaker's exact layout of the text isn't
-// documented; this is the same information in plain SQL.
+// documented; this is the same information in plain SQL. A native file's declared foreign key is written as a named
+// CONSTRAINT with its ON DELETE, on the child's occurrence only.
 
 import type { Field, Schema } from '../../fmp12/src/index.ts';
+import { onDeleteSql } from './foreign-keys.ts';
 
 const SQL_TYPE: Record<string, string> = {
   text: 'varchar(255)', number: 'numeric', date: 'date', time: 'time', timestamp: 'timestamp', container: 'varbinary',
@@ -43,6 +45,18 @@ export function tableDDL(schema: Schema, list: string, ignoreRelationships: bool
         const otherId = mine === 'left' ? r.rightTableOccurrenceId : r.leftTableOccurrenceId;
         const other = schema.tableOccurrences.find((t) => t.id === otherId);
         if (!other || !ids.has(other.id) || other.id === to.id) continue;
+        if (r.foreignKey) {
+          // A declared foreign key (native files) is written once, on its child, with its name and ON DELETE.
+          const fk = r.foreignKey;
+          const p = r.predicates[0];
+          if (!p || fk.child !== mine) continue;
+          const here = mine === 'left' ? p.leftField : p.rightField;
+          const there = mine === 'left' ? p.rightField : p.leftField;
+          const hidden = (occ: { baseTableId?: number }, field: string): boolean => !!visible && !visible(schema.tables.find((b) => b.id === occ.baseTableId)?.name ?? '', field);
+          if (!here || !there || hidden(to, here) || hidden(other, there)) continue;
+          lines.push(`  CONSTRAINT ${quote(fk.name)} FOREIGN KEY (${quote(here)}) REFERENCES ${quote(other.name)} (${quote(there)}) ON DELETE ${onDeleteSql(fk.onDelete)}`);
+          continue;
+        }
         for (const p of r.predicates) {
           if (p.operator !== '=' ) continue;
           const here = mine === 'left' ? p.leftField : p.rightField;

@@ -211,6 +211,26 @@ export interface Relationship {
   /** "Delete related records in this table when a record is deleted in the other table", per side. */
   leftDelete?: boolean;
   rightDelete?: boolean;
+  /** A named foreign key declared on the relationship: native files only (Tabularius design mode), never read from a .fmp12. */
+  foreignKey?: ForeignKey;
+}
+
+/** What deleting a parent record does to the child records that use its key. */
+export type OnDelete = 'restrict' | 'cascade' | 'set-null' | 'no-action';
+
+/**
+ * A foreign key on a relationship whose one match is child field = parent field. The ids are kept as well as the side
+ * so a later change to the relationship that no longer matches them is caught rather than silently retargeted.
+ */
+export interface ForeignKey {
+  name: string;
+  /** The side of the relationship that holds the child (referencing) field. */
+  child: 'left' | 'right';
+  childTableId: number;
+  childFieldId: number;
+  parentTableId: number;
+  parentFieldId: number;
+  onDelete: OnDelete;
 }
 
 export interface CatalogItem {
