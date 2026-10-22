@@ -318,5 +318,6 @@ export function redactStep<T>(step: T): T {
   const walk = (v: unknown): unknown => typeof v === 'string' ? redactSecrets(v, force)
     : Array.isArray(v) ? v.map(walk)
     : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, walk(x)])) : v;
-  return new CredentialRedactor().data(walk(step)) as T;
+  // Text that merely names a field ("Okapi Key") is judged by redactSecrets above; this pass hides values under secret-named keys and their copies.
+  return new CredentialRedactor().data(walk(step), undefined, false) as T;
 }

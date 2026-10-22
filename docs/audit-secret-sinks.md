@@ -73,6 +73,12 @@ a bearer, cookie or URL form. Names with a credential word after other letters (
 (`callerText`) is masked for `name=value` and `"name": value` only, so a readable message such as
 "Invalid token: signature mismatch" is not changed.
 
+Conversion reports mask the literal values inside formulas and script text they quote
+(`maskFormula`). Their other text, such as script and field names, is not scrubbed by
+remembered value, because a script inspection also learns harmless short values (`file:`,
+`_`, `$result`) that would mangle names and paths. A secret typed into a script name is
+therefore not recognised.
+
 ## Validation
 
 Run the new matrix with a light process limit:
