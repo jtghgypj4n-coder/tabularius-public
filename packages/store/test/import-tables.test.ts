@@ -193,3 +193,15 @@ test('a limited account may not import tables', () => {
     assert.equal(store.schema.tables.length, 0);
   } finally { store.close(); }
 });
+
+test('a sheet or column named like an Object property takes no choice that was not made', () => {
+  const sheet: SheetInput = { name: 'constructor', rows: [['name', 'toString', 'Age'], ['Ann', 'x', '31'], ['Bob', 'y', '44']] };
+  const plain = planImportTables([sheet]);
+  // Overrides as a caller builds them (an ordinary object), for other sheets.
+  assert.doesNotThrow(() => planImportTables([sheet], { overrides: { Other: { Age: 'text' as const } } }));
+  const planned = planImportTables([sheet], { overrides: { Other: { Age: 'text' as const } } });
+  assert.deepEqual(planned.sheets[0].columns.map((c) => c.kind), plain.sheets[0].columns.map((c) => c.kind));
+  // A choice that was made, under the sheet's own name, still counts.
+  const forced = planImportTables([sheet], { overrides: { constructor: { Age: 'text' as const } } });
+  assert.equal(forced.sheets[0].columns.find((c) => c.header === 'Age')!.kind, 'text');
+});

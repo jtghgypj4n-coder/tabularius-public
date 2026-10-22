@@ -36,8 +36,21 @@ export function choicesFor(plan: ImportTablesPlan, sheet: string): { value: stri
 /** Choices by sheet, then by the column's name in the sheet. */
 export type Choices = Record<string, Record<string, string>>;
 
+/** A sheet or column can be named anything, "__proto__" and "constructor" included: choices are read and written as own properties only. */
+const own = <T>(o: Record<string, T> | undefined, key: string): T | undefined => (o && Object.hasOwn(o, key) ? o[key] : undefined);
+const put = <T>(o: Record<string, T>, key: string, value: T): void => {
+  Object.defineProperty(o, key, { value, enumerable: true, writable: true, configurable: true });
+};
+
+/** The choice made for a column, if any. */
+export const chosen = (choices: Choices, sheet: string, header: string): string | undefined => own(own(choices, sheet), header);
+
 export function choose(choices: Choices, sheet: string, header: string, value: string): Choices {
-  return { ...choices, [sheet]: { ...choices[sheet], [header]: value } };
+  const columns: Record<string, string> = { ...own(choices, sheet) };
+  put(columns, header, value);
+  const out: Choices = { ...choices };
+  put(out, sheet, columns);
+  return out;
 }
 
 /** A choice that no longer fits the plan (its sheet or column went, or it links to a sheet no longer there) is dropped. */
@@ -50,7 +63,9 @@ export function keepValid(choices: Choices, plan: ImportTablesPlan): Choices {
       const link = /^link:(.*)$/.exec(value);
       if (!planned.columns.some((c) => c.header === header)) continue;
       if (link && !plan.sheets.some((s) => s.sheet === link[1] && s.sheet !== sheet)) continue;
-      (out[sheet] ??= {})[header] = value;
+      let kept = own(out, sheet);
+      if (!kept) put(out, sheet, (kept = {}));
+      put(kept, header, value);
     }
   }
   return out;
