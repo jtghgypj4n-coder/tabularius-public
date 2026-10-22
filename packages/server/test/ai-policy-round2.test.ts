@@ -175,6 +175,61 @@ test('R2 cancellation during retry body cleanup never starts another request', a
   assert.equal(calls, 1);
 });
 
+test('R2 assistant revocation after a tool returns nothing already gathered', async (t) => {
+  const { host, store } = fixture(t);
+  const full = store.privileges('Admin').set;
+  store.savePrivilegeSet({ ...full, aiVisible: { Items: true } });
+  const assistant = new Assistant(host, undefined as never, { apiKey: 'generated' });
+  let calls = 0;
+  t.mock.method(assistant as unknown as { call: (...args: any[]) => Promise<unknown> }, 'call', async () => {
+    if (++calls === 1) {
+      return { content: [
+        { type: 'tool_use', id: 'one', name: 'show_records', input: { layout: 'Items', query: [], summary: 'generated' } },
+        { type: 'tool_use', id: 'two', name: 'show_records', input: { layout: 'Items', query: [], summary: 'generated again' } },
+      ], stop_reason: 'tool_use' };
+    }
+    return { content: [{ type: 'text', text: 'unexpected dispatch' }], stop_reason: 'end_turn' };
+  });
+  // The human narrows access once the first tool has produced its found set.
+  let finds = 0;
+  const original = store.find.bind(store);
+  t.mock.method(store, 'find', (...args: Parameters<typeof store.find>) => {
+    const result = original(...args);
+    if (++finds === 1) store.savePrivilegeSet({ ...full, aiVisible: {} });
+    return result;
+  });
+  const result = await assistant.chat(store, 'Admin', [{ role: 'user', content: 'Show items' }], { layout: 'Items' }, store.privileges('Admin'));
+  assert.match(result.reply, /stopped/i);
+  assert.equal(finds, 1, 'the first tool ran under the old access and the second did not');
+  for (const key of ['proposals', 'foundSets', 'drafts', 'charts', 'dashboards', 'cleanups', 'automations'] as const) {
+    assert.deepEqual(result[key], [], `${key} gathered before the change are not returned`);
+  }
+  assert.equal(result.plans, undefined);
+  assert.equal(result.connections, undefined);
+  assert.doesNotMatch(JSON.stringify(result), /ordinary/);
+});
+
+test('R2 assistant stops when the account is deactivated mid-question even if its privilege set is unchanged', async (t) => {
+  const { host, store } = fixture(t);
+  store.savePrivilegeSet({ name: 'Asking', records: { view: true, edit: true, create: true, delete: true }, layouts: 'modifiable', valueLists: 'none',
+    scripts: 'none', extendedPrivileges: ['fmmcp'], aiVisible: { Items: true } });
+  store.setPassword('Asker', 'generated-pass-83', 'Asking');
+  const before = store.privileges('Asker');
+  const assistant = new Assistant(host, undefined as never, { apiKey: 'generated' });
+  let calls = 0;
+  t.mock.method(assistant as unknown as { call: (...args: any[]) => Promise<unknown> }, 'call', async () => {
+    if (++calls === 1) {
+      store.setAccountActive('Asker', false);
+      return { content: [{ type: 'tool_use', id: 'one', name: 'show_records', input: { layout: 'Items', query: [], summary: 'generated' } }], stop_reason: 'tool_use' };
+    }
+    return { content: [{ type: 'text', text: 'unexpected dispatch' }], stop_reason: 'end_turn' };
+  });
+  const result = await assistant.chat(store, 'Asker', [{ role: 'user', content: 'Show items' }], { layout: 'Items' }, before);
+  assert.equal(calls, 1, 'no provider request and no tool after the account is deactivated');
+  assert.match(result.reply, /I stopped there: Your access changed/);
+  assert.deepEqual(result.foundSets, []);
+});
+
 test('R2 assistant refresh retains a token ceiling on the first and subsequent calls', async (t) => {
   const { host, store } = fixture(t);
   store.setAiPolicy(false);
