@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { CONFIG, TOLERANCE, compare, confirmedRegressions, medianRatios, ratios, type Baseline, type BenchOutput } from './bench-check-lib.ts';
+import { CONFIG, TOLERANCE, compare, confirmedRegressions, median, medianRatios, ratios, wideElapsed, type Baseline, type BenchOutput } from './bench-check-lib.ts';
 
 const row = (ratio: number) => [{ group: 'Find', operation: 'sample', ratio }];
 const baseline: Baseline = { version: 1, config: CONFIG, tolerance: TOLERANCE, operations: row(10) };
@@ -33,4 +33,15 @@ test('rejects missing or reordered operations and changed benchmark size', () =>
   assert.throws(() => medianRatios([row(1), [], row(1)]), /operation list/);
   assert.throws(() => compare([], baseline), /baseline operation list/);
   assert.throws(() => compare(row(10), { ...baseline, config: { ...CONFIG, records: 20 } }), /configuration/);
+});
+
+test('wide budget checks full workload and finite elapsed time; three runs suppress an isolated outlier', () => {
+  const budget = { records: 270000, tables: 85, maxMs: 5000 };
+  const output = { counts: { records: 270000, tables: 85 }, timings: { firstUseTotalMs: 5000 } };
+  assert.equal(wideElapsed(output, budget), budget.maxMs);
+  assert.equal(median([700, 800, 10000]) > budget.maxMs, false);
+  assert.equal(median([5001, 6000, 700]) > budget.maxMs, true);
+  assert.throws(() => wideElapsed({ ...output, counts: { records: 100, tables: 3 } }, budget), /configuration/);
+  for (const firstUseTotalMs of [NaN, Infinity, -1, 0]) assert.throws(() => wideElapsed({ ...output, timings: { firstUseTotalMs } }, budget), /timing/);
+  assert.throws(() => wideElapsed(output, { ...budget, maxMs: 0 }), /budget/);
 });
