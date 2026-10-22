@@ -8465,6 +8465,11 @@ export class ScriptEngine {
   private goToRelated(f: Frame, p: StepParams): void {
     let win = this.current;
     if (!p.tableOccurrence) throw new ScriptError(ERROR.unavailable, 'Go to Related Record names no table');
+    // A step read from a file has its two options unread (the reader cannot decode them yet): say so once per script.
+    if (p.unreadOptions?.length) {
+      const warning = `Go to Related Record in script "${f.script.name}": the options ${p.unreadOptions.map((o) => `"${o}"`).join(' and ')} were not read from the file, so the current record alone was used; set them again in the script editor`;
+      if (!this.warnings.includes(warning)) this.warnings.push(warning);
+    }
     this.commit(win);
     // Match all records in the found set: records related to any of them, else to the current one.
     const from = p.matchFoundSet && win.layout && win.mode === 'browse' ? { occurrence: win.layout.occurrence, ids: this.foundSet(win).ids } : undefined;
