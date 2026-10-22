@@ -253,7 +253,7 @@ test('modernize: the pages of a small table keep their bytes in every mode and v
     }
   }
   // Pins the pages as the restyle (pills, initials badges, floating panels) made them; re-pin when the templates change on purpose.
-  assert.equal(createHash('sha256').update(JSON.stringify(pages)).digest('hex'), 'eeac299b45f19537fcc7b6530bcdcfc52c349ffd849168dd705e9c43ff913ad1');
+  assert.equal(createHash('sha256').update(JSON.stringify(pages)).digest('hex'), 'f2144cd2c2ac7ecdd07f9e678448f68abb56a916592cae54bdb5a6a456924f9f');
 });
 
 for (const native of [true, false]) for (const type of ['date', 'timestamp'] as const) {
@@ -403,8 +403,8 @@ test('modernize: the status pill, the initials badge and the record title read t
   assert.equal(h.recHead({ fieldData: {} }, true)[0].kids[0].text, 'New Business Status');
   assert.equal(h.recHead({ fieldData: {} }, false)[0].kids[0].text, 'Business Status');
   assert.equal(make({ title: 'Customers', columns: [col('Name')] }).recHead({ fieldData: {} }, true)[0].kids[0].text, 'New Customer');
-  // A plural that is not made by dropping the s ("Companies") falls back to "New record" instead of a cut-off word.
-  assert.equal(make({ title: 'Companies', columns: [col('Name')] }).recHead({ fieldData: {} }, true)[0].kids[0].text, 'New record');
+  // A plural that is not made by dropping the s ("Companies", "Boxes") falls back to "New record" instead of a cut-off word.
+  for (const title of ['Companies', 'Boxes', 'Addresses', 'Batches', 'Dishes']) assert.equal(make({ title, columns: [col('Name')] }).recHead({ fieldData: {} }, true)[0].kids[0].text, 'New record', title);
   // A value with a number of three digits or more is a code, not a person: no badge.
   const code = h.recHead({ fieldData: { Full_Name: 'Unit 101' } }, false)[0].kids[0];
   assert.deepEqual([code.text, code['data-i']], ['Unit 101', undefined]);
