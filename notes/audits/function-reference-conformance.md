@@ -2,7 +2,7 @@
 
 The inventory contains 368 function entries across 19 Claris families. Each entry stores only a function name, category, and Claris topic URL in [function-inventory.data.ts](../../packages/calc/test/function-inventory.data.ts). The category links below cite the source listings. No Claris page prose is copied into the inventory.
 
-The engine currently implements 211 catalog entries, does not implement 157, and has 169 engine-map keys absent from the Claris catalog.
+The engine currently implements 351 catalog entries, does not implement 17, and has 169 engine-map keys absent from the Claris catalog. Of the 351, 211 are keys of the function table, Pi and Let are language forms the parser reads, and 138 are the parameters of Get ( ... ), which is one function: see the Get parameters section.
 
 | Claris family | Catalog | Implemented | Not implemented | Verified cited examples | Known, unverified |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -18,14 +18,14 @@ The engine currently implements 211 catalog entries, does not implement 157, and
 | [Aggregate](https://help.claris.com/en/pro-help/content/aggregate-functions.html) | 10 | 10 | 0 | 1 | 0 |
 | [Repeating](https://help.claris.com/en/pro-help/content/repeating-functions.html) | 3 | 3 | 0 | 0 | 1 |
 | [Financial](https://help.claris.com/en/pro-help/content/financial-functions.html) | 4 | 4 | 0 | 1 | 0 |
-| [Trigonometric](https://help.claris.com/en/pro-help/content/trigonometric-functions.html) | 9 | 8 | 1 | 1 | 0 |
-| [Logical](https://help.claris.com/en/pro-help/content/logical-functions.html) | 20 | 19 | 1 | 3 | 0 |
+| [Trigonometric](https://help.claris.com/en/pro-help/content/trigonometric-functions.html) | 9 | 9 | 0 | 1 | 0 |
+| [Logical](https://help.claris.com/en/pro-help/content/logical-functions.html) | 20 | 20 | 0 | 3 | 0 |
 | [Artificial intelligence](https://help.claris.com/en/pro-help/content/artificial-intelligence-functions.html) | 14 | 11 | 3 | 0 | 1 |
 | [Miscellaneous](https://help.claris.com/en/pro-help/content/miscellaneous-functions.html) | 11 | 8 | 3 | 1 | 0 |
-| [Get](https://help.claris.com/en/pro-help/content/get-functions.html) | 138 | 0 | 138 | 0 | 1 |
+| [Get](https://help.claris.com/en/pro-help/content/get-functions.html) | 138 | 138 | 0 | 0 | 1 |
 | [Design](https://help.claris.com/en/pro-help/content/design-functions.html) | 26 | 23 | 3 | 0 | 0 |
 | [Mobile](https://help.claris.com/en/pro-help/content/mobile-functions.html) | 5 | 2 | 3 | 0 | 1 |
-| **Total** | **368** | **211** | **157** | **70** | **4** |
+| **Total** | **368** | **351** | **17** | **70** | **4** |
 
 The 70 expressions with explicit results are in [claris-examples.data.ts](../../packages/calc/test/claris-examples.data.ts) and run in the calc test suite. 4 additional documented examples are explicitly marked unverified because their results depend on account privileges, repeating field state, model-specific embedding vectors, or a FileMaker Go device. Representative verified or unverified examples cover 18 of 19 families. Design has no example row in this sample. This is not a page-by-page census of which of all 368 function topics publish result-bearing examples.
 
@@ -81,11 +81,11 @@ The 70 expressions with explicit results are in [claris-examples.data.ts](../../
 
 ### Trigonometric
 
-`Acos`, `Asin`, `Atan`, `Cos`, `Degrees`, `Radians`, `Sin`, `Tan`
+`Acos`, `Asin`, `Atan`, `Cos`, `Degrees`, `Pi`, `Radians`, `Sin`, `Tan`
 
 ### Logical
 
-`Case`, `Choose`, `Evaluate`, `EvaluationError`, `ExecuteSQL`, `ExecuteSQLe`, `GetAsBoolean`, `GetField`, `GetNthRecord`, `GetSummary`, `If`, `IsEmpty`, `IsValid`, `IsValidExpression`, `Lookup`, `LookupNext`, `Self`, `SetRecursion`, `While`
+`Case`, `Choose`, `Evaluate`, `EvaluationError`, `ExecuteSQL`, `ExecuteSQLe`, `GetAsBoolean`, `GetField`, `GetNthRecord`, `GetSummary`, `If`, `IsEmpty`, `IsValid`, `IsValidExpression`, `Let`, `Lookup`, `LookupNext`, `Self`, `SetRecursion`, `While`
 
 ### Artificial intelligence
 
@@ -105,6 +105,8 @@ The 70 expressions with explicit results are in [claris-examples.data.ts](../../
 
 ## Not implemented catalog names
 
+Each is left out for a reason the inventory data records (NOT_IMPLEMENTED_REASON): a camera, sensor or Core ML model on a device, a vendor service, or nothing in the store to answer from (no table comment, field annotation, display names or stable layout object ids). YearName is left out because Claris shows its result only as an image of Japanese text.
+
 ### Container
 
 `GetLiveText`, `GetLiveTextAsJSON`, `ReadQRCode`
@@ -112,14 +114,6 @@ The 70 expressions with explicit results are in [claris-examples.data.ts](../../
 ### Japanese
 
 `Furigana`, `YearName`
-
-### Trigonometric
-
-`Pi`
-
-### Logical
-
-`Let`
 
 ### Artificial intelligence
 
@@ -129,10 +123,6 @@ The 70 expressions with explicit results are in [claris-examples.data.ts](../../
 
 `GetAddonInfo`, `GetLayoutObjectOwnerInfo`, `LayoutObjectUUID`
 
-### Get
-
-`Get(AccountExtendedPrivileges)`, `Get(AccountGroupName)`, `Get(AccountName)`, `Get(AccountPasswordDaysRemaining)`, `Get(AccountPrivilegeSetName)`, `Get(AccountType)`, `Get(ActiveFieldContents)`, `Get(ActiveFieldName)`, `Get(ActiveFieldTableName)`, `Get(ActiveLayoutObjectName)`, `Get(ActiveModifierKeys)`, `Get(ActivePortalRowNumber)`, `Get(ActiveRecordNumber)`, `Get(ActiveRepetitionNumber)`, `Get(ActiveSelectionSize)`, `Get(ActiveSelectionStart)`, `Get(AllowAbortState)`, `Get(AllowFormattingBarState)`, `Get(ApplicationArchitecture)`, `Get(ApplicationLanguage)`, `Get(ApplicationVersion)`, `Get(CacheFileName)`, `Get(CacheFilePath)`, `Get(CalculationRepetitionNumber)`, `Get(ConnectionAttributes)`, `Get(ConnectionState)`, `Get(CurrentDate)`, `Get(CurrentExtendedPrivileges)`, `Get(CurrentHostTimestamp)`, `Get(CurrentPrivilegeSetName)`, `Get(CurrentTime)`, `Get(CurrentTimestamp)`, `Get(CurrentTimeUTCMicroseconds)`, `Get(CurrentTimeUTCMilliseconds)`, `Get(CustomMenuSetName)`, `Get(DesktopPath)`, `Get(Device)`, `Get(DocumentsPath)`, `Get(DocumentsPathListing)`, `Get(EncryptionState)`, `Get(ErrorCaptureState)`, `Get(FileLocaleElements)`, `Get(FileMakerPath)`, `Get(FileName)`, `Get(FilePath)`, `Get(FileSize)`, `Get(FoundCount)`, `Get(GuidedAccessState)`, `Get(HighContrastState)`, `Get(HostApplicationVersion)`, `Get(HostIPAddress)`, `Get(HostName)`, `Get(InstalledFMPlugins)`, `Get(InstalledFMPluginsAsJSON)`, `Get(LastError)`, `Get(LastErrorDetail)`, `Get(LastErrorLocation)`, `Get(LastMessageChoice)`, `Get(LastStepTokensUsed)`, `Get(LayoutAccess)`, `Get(LayoutCount)`, `Get(LayoutName)`, `Get(LayoutNumber)`, `Get(LayoutTableName)`, `Get(LayoutViewState)`, `Get(MenubarState)`, `Get(ModifiedFields)`, `Get(MultiUserState)`, `Get(NetworkProtocol)`, `Get(NetworkType)`, `Get(OpenDataFileInfo)`, `Get(PageCount)`, `Get(PageNumber)`, `Get(PersistentID)`, `Get(PreferencesPath)`, `Get(PrinterName)`, `Get(QuickFindText)`, `Get(RecordAccess)`, `Get(RecordID)`, `Get(RecordModificationCount)`, `Get(RecordNumber)`, `Get(RecordOpenCount)`, `Get(RecordOpenState)`, `Get(RegionMonitorEvents)`, `Get(RequestCount)`, `Get(RequestOmitState)`, `Get(RevertTransactionOnErrorState)`, `Get(ScreenDepth)`, `Get(ScreenHeight)`, `Get(ScreenScaleFactor)`, `Get(ScreenWidth)`, `Get(ScriptAnimationState)`, `Get(ScriptName)`, `Get(ScriptParameter)`, `Get(ScriptResult)`, `Get(SessionIdentifier)`, `Get(SortState)`, `Get(StatusAreaState)`, `Get(SystemAppearance)`, `Get(SystemDrive)`, `Get(SystemIPAddress)`, `Get(SystemLanguage)`, `Get(SystemLocaleElements)`, `Get(SystemNICAddress)`, `Get(SystemPlatform)`, `Get(SystemStorageAvailable)`, `Get(SystemVersion)`, `Get(TemporaryPath)`, `Get(TextRulerVisible)`, `Get(TotalRecordCount)`, `Get(TouchKeyboardState)`, `Get(TransactionOpenState)`, `Get(TriggerCurrentPanel)`, `Get(TriggerExternalEvent)`, `Get(TriggerGestureInfo)`, `Get(TriggerKeystroke)`, `Get(TriggerModifierKeys)`, `Get(TriggerTargetPanel)`, `Get(UserCount)`, `Get(UserName)`, `Get(UseSystemFormatsState)`, `Get(UUID)`, `Get(UUIDNumber)`, `Get(WindowContentHeight)`, `Get(WindowContentWidth)`, `Get(WindowDesktopHeight)`, `Get(WindowDesktopWidth)`, `Get(WindowHeight)`, `Get(WindowLeft)`, `Get(WindowMode)`, `Get(WindowName)`, `Get(WindowOrientation)`, `Get(WindowStyle)`, `Get(WindowTop)`, `Get(WindowUUID)`, `Get(WindowVisible)`, `Get(WindowWidth)`, `Get(WindowZoomLevel)`
-
 ### Design
 
 `BaseTableComment`, `FieldAnnotation`, `FieldDisplayNames`
@@ -140,6 +130,13 @@ The 70 expressions with explicit results are in [claris-examples.data.ts](../../
 ### Mobile
 
 `GetAVPlayerAttribute`, `GetSensor`, `RangeBeacons`
+
+## Get parameters
+
+Get is one function with a parameter. All 138 parameters on Claris's [Get functions](https://help.claris.com/en/pro-help/content/get-functions.html) page are known to the engine, and [function-inventory.data.ts](../../packages/calc/test/function-inventory.data.ts) classifies each one (a test keeps the lists in step with the code):
+
+- **Answered from the run** (91): the script engine's or the stored calculation's own Get switch reads the state: the account and its privilege set, the layout, the window, the found set and record, the script and its parameter, the last error, the file, and so on.
+- **Server default** (47): a fixed answer for a server with no screen, window, printer or device (a state flag of 0, an empty text where Claris says so), or a value from the clock or the host machine. A host that knows better can supply it; Get ( UserCount ) and Get ( SystemLanguage ) are two answers a person should not rely on yet.
 
 ## Engine-only names
 
