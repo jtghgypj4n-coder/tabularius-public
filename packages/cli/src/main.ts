@@ -21,7 +21,7 @@ import { FmpDatabase, fileSource, encryptionInfo, readLayoutDesigns, segmentOf, 
 import { BUILT_IN_EXTENDED_PRIVILEGES, addCensus, styleCensus, styleCensusText, calcFidelity, censusText, exportSql, exportSqlSummary, planImportTables, importTables, importTablesSummary, notionMarkdownSheet, MAX_IMPORT_ROWS, type SheetInput, type ColumnOverrides, type ColumnKind, findStaleCalcs, layoutCensus, type LayoutCensus, createStore, designReport, importFmp12, PASSWORD_POLICY, DEFAULT_MIN_PASSWORD_LENGTH, reconvert, reconvertCheck, verifySecurityAudit, verifyRecordAudit, anchorHead, checkAnchor, Store, syncPlan, openForPlanning, applySync, readSyncLog, releaseHeldTables, type ConflictPolicy, writeBackKit, designText, writeDesignText, diffDesigns, planDesignApply, readDesignFolder, type DesignOp, type ReconvertPreview, csvField } from '../../store/src/index.ts';
 import { xlsxSheetNames } from '../../scripts/src/xlsx.ts';
 import { importFileRowIterator, neverAllowed, parseAllowList, SCREEN_STEPS, SERVER_STEPS, testScripts, type ScriptTestResult } from '../../scripts/src/index.ts';
-import { conversionReport, explainScriptFailure, type ScriptFailure, DEFAULT_MODEL, Host, serve, serveCluster, serveStdio, aiStatus, STORE_EXT, ENCRYPTED_EXT, encryptFileSync, decryptFileSync, setAdminPassword, adminPasswordProblem, tokenExpiry, backupFolder, backupSets, defaultBackupDir, parseInterval, parseTime, restoreAt, restoreBackup, AccountChangesError, type AccountDifference, type ChangedSince, verifySet, describeCheck, resolveEmbedEndpoint, resolveImageEmbed, localCertificateFiles, Standby, S3, s3FromEnv, mirrorDown, fetchFmsExport, migrateFms, describeMigration, copySize, readSettings, runningServer, dataApiSource, dataApiClient, checkSyncAllowed, describeApply, describePlan, verifySync, describeSyncVerification, parseSyncConfig, CONTAINER_PULL_MAX_BYTES, type FmsExport } from '../../server/src/index.ts';
+import { conversionReport, explainScriptFailure, type ScriptFailure, DEFAULT_MODEL, Host, serve, serveCluster, serveStdio, aiStatus, STORE_EXT, ENCRYPTED_EXT, encryptFileSync, decryptFileSync, setAdminPassword, adminPasswordProblem, tokenExpiry, readLocalMcpToken, backupFolder, backupSets, defaultBackupDir, parseInterval, parseTime, restoreAt, restoreBackup, AccountChangesError, type AccountDifference, type ChangedSince, verifySet, describeCheck, resolveEmbedEndpoint, resolveImageEmbed, localCertificateFiles, Standby, S3, s3FromEnv, mirrorDown, fetchFmsExport, migrateFms, describeMigration, copySize, readSettings, runningServer, dataApiSource, dataApiClient, checkSyncAllowed, describeApply, describePlan, verifySync, describeSyncVerification, parseSyncConfig, CONTAINER_PULL_MAX_BYTES, type FmsExport } from '../../server/src/index.ts';
 // optimize's report (kept apart from the busy import line above).
 import { sheetsFromFile, checkSheetNames, sheetNameOf } from '../../server/src/import-sheets.ts';
 import { optimizationReport, openApiDocument, typesFromOpenApi, checkSolution, checkSolutionText, createFeed, importIcs, listFeeds, revokeFeed } from '../../server/src/index.ts';
@@ -258,6 +258,11 @@ Hosting (point it at a folder of .fmp12 files; each is converted once):
                                              twice, hidden, in a terminal; else read from
                                              TABULARIUS_PASSWORD or stdin). Without one the
                                              console only opens on this machine.
+  tabularius mcp-token <folder>              Print the token an AI app presents at /mcp to work as
+                                             the administrator (Authorization: Bearer ...). The server
+                                             makes it on first start; it is kept in the folder in a
+                                             file only your account can read. --mcp-token sets another
+                                             token for a server instead.
   tabularius backup <folder> [--to DIR] [--keep 7]
                                              Back up every hosted file now (safe while serving);
                                              encrypted when TABULARIUS_BACKUP_KEY holds a passphrase
@@ -1389,14 +1394,16 @@ function main(argv: string[]): number {
       if (!(Number.isInteger(workers) && workers >= 1 && workers <= 64)) throw new Error('serve: --workers takes a number of processes (1 to 64) or auto');
       if (workers > 1) {
         serveCluster({ dir: path, port, hostname, mcpToken, scriptNetwork, scriptNetworkAllow, listFilesPublicly, appConnections, webhooks, inboundHooks, testOutbound, ...(sendMail ? { sendMail } : {}), tlsCert, tlsKey, publicUrl, mcpAllowedOrigins, proxyHeader, trustedProxies, edgeLimits, acme, backups, offsite, progressive, statsInterval, logLimit, replicationToken, sqlPort, ai, aiExclude, oidc, ldap, encryptionKey, background: true }, workers, PASSWORD_POLICY.blankFromNetwork).then(({ url, close }) => {
-          if (exposedPlain) console.warn(`Warning: this server listens on ${hostname} over plain HTTP, so passwords and sign-in tokens cross the network unencrypted. Add --https <your domain> (or --https local for a local network), or put it behind a proxy that does HTTPS and give --public-url https://...`);
-          console.log(`hosting ${path} with ${workers} worker processes`);
-          console.log(`Web client: ${url}/app/   Admin: ${url}/admin/   Data API: ${url}/fmi/data/vLatest   MCP: ${url}/mcp`);
-          if (ai) console.log(`AI assistant on (${ai.model ?? DEFAULT_MODEL}): questions and what it reads go to Anthropic`);
-          console.log(backups ? `backups every ${every} to ${dest ?? defaultBackupDir(path)}, keeping ${keep}${process.env.TABULARIUS_BACKUP_KEY ? ', encrypted' : ''}` : 'backups off');
+          // Ready for a stop before anything is printed: whoever sees the first line may signal at once.
           const stop = () => void close().finally(() => process.exit(0));
           process.once('SIGINT', stop);
           process.once('SIGTERM', stop);
+          if (exposedPlain) console.warn(`Warning: this server listens on ${hostname} over plain HTTP, so passwords and sign-in tokens cross the network unencrypted. Add --https <your domain> (or --https local for a local network), or put it behind a proxy that does HTTPS and give --public-url https://...`);
+          console.log(`hosting ${path} with ${workers} worker processes`);
+          console.log(`Web client: ${url}/app/   Admin: ${url}/admin/   Data API: ${url}/fmi/data/vLatest   MCP: ${url}/mcp`);
+          if (!mcpToken) console.log(`  AI apps need a token at /mcp: run  tabularius mcp-token ${path}  to print the administrator's, or make one for an account in the admin console (Connect an AI app)`);
+          if (ai) console.log(`AI assistant on (${ai.model ?? DEFAULT_MODEL}): questions and what it reads go to Anthropic`);
+          console.log(backups ? `backups every ${every} to ${dest ?? defaultBackupDir(path)}, keeping ${keep}${process.env.TABULARIUS_BACKUP_KEY ? ', encrypted' : ''}` : 'backups off');
         }, (e) => {
           process.stderr.write(`error: ${plainError(e)}\n`);
           process.exit(1);
@@ -1408,31 +1415,9 @@ function main(argv: string[]): number {
       const drainMs = graceText === undefined || graceText === '' ? undefined : Number(graceText) * 1000;
       if (drainMs !== undefined && !(Number.isFinite(drainMs) && drainMs >= 1000 && drainMs <= 86_400_000)) throw new Error('serve: TABULARIUS_DRAIN_SECONDS is a number of seconds (1 to 86400)');
       serve({ dir: path, drainMs, port, hostname, serviceInstalled: () => installed()?.folder === resolve(path), mcpToken, scriptNetwork, scriptNetworkAllow, listFilesPublicly, appConnections, webhooks, inboundHooks, testOutbound, ...(sendMail ? { sendMail } : {}), tlsCert, tlsKey, publicUrl, mcpAllowedOrigins, proxyHeader, trustedProxies, edgeLimits, acme, backups, offsite, progressive, statsInterval, logLimit, replicationToken, sqlPort, ai, aiExclude, oidc, ldap, encryptionKey, background: true }).then(({ url, host, server, offsite: offsiteSchedule }) => {
-        // Told once it is listening, so a start that fails (a bad address, a port in use) gives only its own error.
-        if (exposedPlain) console.warn(`Warning: this server listens on ${hostname} over plain HTTP, so passwords and sign-in tokens cross the network unencrypted. Add --https <your domain> (or --https local for a local network), or put it behind a proxy that does HTTPS and give --public-url https://...`);
-        console.log(`hosting ${host.names().join(', ') || '(no databases)'}`);
-        for (const name of host.names()) {
-          const store = host.get(name);
-          const blank = store?.blankPasswordAccounts() ?? [];
-          if (blank.length) {
-            console.log(`${name}: ${blank.join(', ')} ${blank.length > 1 ? 'have' : 'has'} no password${PASSWORD_POLICY.blankFromNetwork ? ', and anyone who can reach this server can sign in' : '; signing in works from this computer only'} (set one with: tabularius passwd ${path} ${name} ${blank[0]})`);
-          }
-          const blankSet = new Set(blank.map((n) => n.toLowerCase()));
-          const stuck = (store?.unmigratedAccounts() ?? []).filter((n) => !blankSet.has(n.toLowerCase()));
-          if (stuck.length) {
-            console.log(`${name}: ${stuck.join(', ')} ${stuck.length > 1 ? 'had' : 'had a'} password in FileMaker that doesn't carry over, so ${stuck.length > 1 ? 'they' : 'it'} can't sign in at all yet (set one with: tabularius passwd ${path} ${name} ${stuck[0]} — or the admin console)`);
-          }
-        }
-        console.log(`Web client: ${url}/app/   Admin: ${url}/admin/   Data API: ${url}/fmi/data/vLatest   MCP: ${url}/mcp`);
-        if (ai) console.log(`AI assistant on (${ai.model ?? DEFAULT_MODEL}): questions and what it reads go to Anthropic`);
-        console.log(backups ? `backups every ${every} to ${dest ?? defaultBackupDir(path)}, keeping ${keep}${process.env.TABULARIUS_BACKUP_KEY ? ', encrypted' : ''}` : 'backups off');
-        if (openPage) openBrowser(`${url}/admin/#welcome`);
-        if (offsite) console.log(`backups copied off-site to ${offsite.url}${process.env.TABULARIUS_BACKUP_KEY ? ' (encrypted)' : ''}`);
-        if (replicationToken) console.log(`standby servers can follow this one: tabularius standby <folder> --primary ${url} --token ...`);
-        if (progressive) console.log(`changes saved every ${progressiveEvery}: restore to any of those moments with tabularius restore --at`);
-        if (encryptionKey) console.log('encryption at rest on: stores are re-encrypted on a clean shutdown (Ctrl-C), not left as plaintext');
-        // The last changes go off-site before the process ends.
-        // A first signal stops cleanly (running requests finish, the files are saved and closed); a second one stops at once.
+        // Ready for a stop before anything is printed: whoever sees the first line may signal at once. The last changes go
+        // off-site before the process ends. A first signal stops cleanly (running requests finish, the files are saved and
+        // closed); a second one stops at once.
         let stopping = false;
         let filesClosed = false;
         const stop = () => {
@@ -1449,6 +1434,30 @@ function main(argv: string[]): number {
         };
         process.on('SIGINT', stop);
         process.on('SIGTERM', stop);
+        // Told once it is listening, so a start that fails (a bad address, a port in use) gives only its own error.
+        if (exposedPlain) console.warn(`Warning: this server listens on ${hostname} over plain HTTP, so passwords and sign-in tokens cross the network unencrypted. Add --https <your domain> (or --https local for a local network), or put it behind a proxy that does HTTPS and give --public-url https://...`);
+        console.log(`hosting ${host.names().join(', ') || '(no databases)'}`);
+        for (const name of host.names()) {
+          const store = host.get(name);
+          const blank = store?.blankPasswordAccounts() ?? [];
+          if (blank.length) {
+            console.log(`${name}: ${blank.join(', ')} ${blank.length > 1 ? 'have' : 'has'} no password${PASSWORD_POLICY.blankFromNetwork ? ', and anyone who can reach this server can sign in' : '; signing in works from this computer only'} (set one with: tabularius passwd ${path} ${name} ${blank[0]})`);
+          }
+          const blankSet = new Set(blank.map((n) => n.toLowerCase()));
+          const stuck = (store?.unmigratedAccounts() ?? []).filter((n) => !blankSet.has(n.toLowerCase()));
+          if (stuck.length) {
+            console.log(`${name}: ${stuck.join(', ')} ${stuck.length > 1 ? 'had' : 'had a'} password in FileMaker that doesn't carry over, so ${stuck.length > 1 ? 'they' : 'it'} can't sign in at all yet (set one with: tabularius passwd ${path} ${name} ${stuck[0]} — or the admin console)`);
+          }
+        }
+        console.log(`Web client: ${url}/app/   Admin: ${url}/admin/   Data API: ${url}/fmi/data/vLatest   MCP: ${url}/mcp`);
+        if (!mcpToken) console.log(`  AI apps need a token at /mcp: run  tabularius mcp-token ${path}  to print the administrator's, or make one for an account in the admin console (Connect an AI app)`);
+        if (ai) console.log(`AI assistant on (${ai.model ?? DEFAULT_MODEL}): questions and what it reads go to Anthropic`);
+        console.log(backups ? `backups every ${every} to ${dest ?? defaultBackupDir(path)}, keeping ${keep}${process.env.TABULARIUS_BACKUP_KEY ? ', encrypted' : ''}` : 'backups off');
+        if (openPage) openBrowser(`${url}/admin/#welcome`);
+        if (offsite) console.log(`backups copied off-site to ${offsite.url}${process.env.TABULARIUS_BACKUP_KEY ? ' (encrypted)' : ''}`);
+        if (replicationToken) console.log(`standby servers can follow this one: tabularius standby <folder> --primary ${url} --token ...`);
+        if (progressive) console.log(`changes saved every ${progressiveEvery}: restore to any of those moments with tabularius restore --at`);
+        if (encryptionKey) console.log('encryption at rest on: stores are re-encrypted on a clean shutdown (Ctrl-C), not left as plaintext');
       }, (e) => {
         process.stderr.write(`error: ${plainError(e)}\n`);
         process.exit(1);
@@ -1717,6 +1726,15 @@ function main(argv: string[]): number {
         setAdminPassword(path, password);
         console.log(`admin password set for ${path}`);
       })());
+      return 0;
+    }
+    case 'mcp-token': {
+      const problem = hostFolderProblem(path);
+      if (problem) throw new Error(`mcp-token: ${problem}`);
+      const token = readLocalMcpToken(path);
+      if (!token) throw new Error(`mcp-token: ${path} has no /mcp token yet. Start the server once (tabularius serve ${path}), which makes it, then run this again.`);
+      if (process.env.TABULARIUS_MCP_TOKEN) console.error('note: this server is started with TABULARIUS_MCP_TOKEN, which it uses instead of this token');
+      console.log(token);
       return 0;
     }
     case 'backup': {

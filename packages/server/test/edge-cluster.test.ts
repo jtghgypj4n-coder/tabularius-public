@@ -68,3 +68,21 @@ test('cluster keep-alive survives both front and worker request budgets without 
     });
   }
 });
+
+test('a request that says Connection: close still gets the worker\'s answer, never a 502 from a pipe the worker had already closed', { timeout: 45000 }, async t => {
+  stubCommands(t);
+  const dir = mkdtempSync(join(tmpdir(), 'edge-cluster-close-'));
+  const app = await serveCluster({ dir, port: 0, hostname: '127.0.0.1', log: () => {} }, 2);
+  t.after(async () => { await app.close(); rmSync(dir, { recursive: true, force: true }); });
+  const port = Number(new URL(app.url).port);
+  // The client's Connection header is about its own hop. Passed on, it made the worker hang up as soon as it had
+  // answered, which can be before the front has written the whole request.
+  const answers = new Map<string, number>();
+  for (let i = 0; i < 400; i++) {
+    const c = await new RawClient(port).ready();
+    const text = await c.send(request('/oauth/register', 'Content-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n', 'POST') + '{}').end();
+    const status = text.split(' ')[1];
+    answers.set(status, (answers.get(status) ?? 0) + 1);
+  }
+  assert.deepEqual([...answers], [['400', 400]]);
+});

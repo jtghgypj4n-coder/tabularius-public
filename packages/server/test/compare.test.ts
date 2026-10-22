@@ -76,11 +76,11 @@ test('unrelated files are matched by name; MCP tool', { skip }, async () => {
   assert.ok(c.tables.added.includes('MOVIE'));
   assert.ok(c.tables.removed.includes('Congress'));
 
-  const { server, url, host: served } = await serve({ dir, port: 0, log: () => {} });
+  const { server, url, host: served } = await serve({ mcpToken: 'test-admin-token', dir, port: 0, log: () => {} });
   try {
     const call = async (args: unknown) => (await (await fetch(`${url}/mcp`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-protocol-version': '2025-06-18' },
+      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-protocol-version': '2025-06-18', authorization: 'Bearer test-admin-token' },
       body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'compare_solutions', arguments: args } }),
     })).json()).result;
     const out = await call({ from: 'Charts', to: 'Flicks' });

@@ -62,6 +62,7 @@ send them elsewhere, backups:
 | `.openhbam-admin` | Shared admin-console password hash; keep private |
 | `.openhbam-admin-passkeys` | Admin-console passkeys; keep private |
 | `.openhbam-mcp-tokens.json` | MCP access tokens; keep private |
+| `.openhbam-mcp-token` | The administrator's token for `/mcp`, made on first start (`tabularius mcp-token <folder>` prints it); readable only by the account that runs the server; keep private |
 | `.openhbam-connections.json` | Configured external-service connections (no secrets) |
 | `.openhbam-connection-secrets.json` | Encrypted external-service credentials; keep private |
 | `.openhbam-connections.key` | Key for those credentials when no key is supplied by the environment; keep private |

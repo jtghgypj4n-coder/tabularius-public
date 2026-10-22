@@ -15,7 +15,7 @@ async function start(t: TestContext, bodyMs?: number) {
   stubCommands(t);
   const dir = mkdtempSync(join(tmpdir(), 'edge-app-'));
   createStore(join(dir, 'Edge.openhbam.sqlite'));
-  const app = await serve({ dir, port: 0, hostname: '127.0.0.1', watch: false, checkFiles: false, statsInterval: 0, log: () => {}, edgeLimits: { connectionsPerAddress: 400, ...(bodyMs ? { bodyMs, checkMs: 10 } : {}) } });
+  const app = await serve({ dir, port: 0, hostname: '127.0.0.1', watch: false, checkFiles: false, statsInterval: 0, log: () => {}, mcpToken: 'edge-admin', edgeLimits: { connectionsPerAddress: 400, ...(bodyMs ? { bodyMs, checkMs: 10 } : {}) } });
   t.after(async () => {
     app.server.closeAllConnections();
     await new Promise<void>(resolve => app.server.close(() => resolve()));
@@ -37,6 +37,9 @@ async function start(t: TestContext, bodyMs?: number) {
   return { ...app, store, port, call, login };
 }
 
+// /mcp answers no one without a credential: the server under test is given this administrator token.
+const MCP_AUTH = 'Authorization: Bearer edge-admin\r\n';
+
 test('production JSON, upload, import and MCP readers enforce declared family caps without receiving a body', async t => {
   const s = await start(t);
   const token = await s.login();
@@ -46,7 +49,7 @@ test('production JSON, upload, import and MCP readers enforce declared family ca
     [`${api}/records`, 10 * 1024 * 1024 + 1, auth + 'Content-Type: application/json\r\n'],
     [`${api}/records/1/containers/File`, 1024 * 1024 * 1024 + 1, auth + 'Content-Type: multipart/form-data; boundary=abc\r\n'],
     ['/tabularius/design/v1/databases/Edge/import-tables', 50 * 1024 * 1024 + 256 * 1024 + 1, auth + 'Content-Type: multipart/form-data; boundary=abc\r\n'],
-    ['/mcp', 4 * 1024 * 1024 + 1, 'Content-Type: application/json\r\nAccept: application/json, text/event-stream\r\n'],
+    ['/mcp', 4 * 1024 * 1024 + 1, MCP_AUTH + 'Content-Type: application/json\r\nAccept: application/json, text/event-stream\r\n'],
   ] as const) {
     const c = await new RawClient(s.port).ready();
     c.send(request(path, `${headers}Content-Length: ${bytes}\r\nExpect: 100-continue\r\n`, 'POST'));
@@ -73,7 +76,7 @@ test('production JSON, upload, import and MCP readers enforce declared family ca
   assert.match(await s.call('/tabularius/design/v1/databases/Edge/import-tables?stage=import', auth + 'Content-Type: multipart/form-data; boundary=abc\r\n', 'POST', form), /^HTTP\/1\.1 413 /);
   assert.deepEqual(s.store.schema.tables.map(table => table.name), tables, 'the part cap cannot partially import tables');
   const mcpBody = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'ping', params: { _meta: { padding: 'x'.repeat(70 * 1024) } } });
-  assert.match(await s.call('/mcp', 'Content-Type: application/json\r\nAccept: application/json, text/event-stream\r\n', 'POST', mcpBody), /^HTTP\/1\.1 200 /);
+  assert.match(await s.call('/mcp', MCP_AUTH + 'Content-Type: application/json\r\nAccept: application/json, text/event-stream\r\n', 'POST', mcpBody), /^HTTP\/1\.1 200 /);
   assert.equal(s.store.findIds('Items').length, 1);
 });
 
@@ -116,7 +119,7 @@ test('live streams evict at ten per session, cap total subscribers, release list
   const mcp = async () => {
     const c = await new RawClient(s.port).ready();
     clients.push(c);
-    c.send(request('/mcp', 'Accept: text/event-stream\r\n'));
+    c.send(request('/mcp', MCP_AUTH + 'Accept: text/event-stream\r\n'));
     await c.until(text => text.includes('\r\n\r\n'));
     return c;
   };

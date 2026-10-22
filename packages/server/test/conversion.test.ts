@@ -20,7 +20,7 @@ before(async () => {
   if (skip) return;
   dir = mkdtempSync(join(tmpdir(), 'tabularius-conversion-'));
   for (const f of files) copyFileSync(join(fixtures, f), join(dir, f));
-  const s = await serve({ dir, port: 0, log: () => {} });
+  const s = await serve({ mcpToken: 'test-admin-token', dir, port: 0, log: () => {} });
   server = s.server;
   base = s.url;
   host = s.host;
@@ -77,7 +77,7 @@ test('conversion report: network steps, broken references', { skip }, () => {
 test('MCP: conversion_report', { skip }, async () => {
   const res = await fetch(`${base}/mcp`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-protocol-version': '2025-06-18' },
+    headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-protocol-version': '2025-06-18', authorization: 'Bearer test-admin-token' },
     body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'conversion_report', arguments: { database: 'Standards' } } }),
   });
   const r = JSON.parse((await res.json()).result.content[0].text);
@@ -161,7 +161,7 @@ test('why one thing doesn\'t work: every place in it, and the scripts it perform
 
   const res = await fetch(`${base}/mcp`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-protocol-version': '2025-06-18' },
+    headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-protocol-version': '2025-06-18', authorization: 'Bearer test-admin-token' },
     body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'conversion_report', arguments: { database: 'Standards', item: 'Mail out' } } }),
   });
   assert.match((await res.json()).result.content[0].text, /Sends only when switched on/);

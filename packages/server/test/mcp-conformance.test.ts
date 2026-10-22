@@ -64,9 +64,12 @@ async function stopChild(p: ChildProcessWithoutNullStreams): Promise<void> {
   await exited;
 }
 
+// /mcp answers no one without a credential, so the wire cases carry the administrator's token unless a case says otherwise.
+const ADMIN_TOKEN = 'conformance-admin-token';
+
 before(async () => {
   dir = mkdtempSync(join(tmpdir(), 'tabularius-mcp-conformance-'));
-  const s = await serve({ dir, port: 0, watch: false, log: () => {} });
+  const s = await serve({ dir, port: 0, watch: false, log: () => {}, mcpToken: ADMIN_TOKEN });
   server = s.server;
   base = s.url;
   child = spawn(process.execPath, ['--no-warnings', join(ROOT, 'packages/cli/src/main.ts'), 'mcp', dir], {
@@ -106,7 +109,7 @@ async function stdio(line: string, id?: string | number): Promise<Seen> {
 }
 
 async function http(c: Case): Promise<Seen> {
-  const headers: Record<string, string> = { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-protocol-version': '2025-06-18' };
+  const headers: Record<string, string> = { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-protocol-version': '2025-06-18', authorization: `Bearer ${ADMIN_TOKEN}` };
   for (const [k, v] of Object.entries(c.headers ?? {})) { if (v === null) delete headers[k]; else headers[k] = v; }
   const method = c.method ?? 'POST';
   const ac = new AbortController();

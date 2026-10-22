@@ -47,8 +47,9 @@ async function refused(res: Response) {
 }
 
 test('/mcp allows its own Origin and no Origin, and refuses foreign or malformed origins', async (t) => {
-  const base = await start(t);
-  for (const headers of [{ origin: base }, undefined]) {
+  const base = await start(t, { mcpToken: 'origin-admin' });
+  const admin = { authorization: 'Bearer origin-admin' };
+  for (const headers of [{ origin: base, ...admin }, admin]) {
     const res = await rpc(base, headers);
     assert.equal(res.status, 200);
     assert.deepEqual(await res.json(), { jsonrpc: '2.0', id: 1, result: {} });

@@ -12,7 +12,7 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdir
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { applyStarter, createStore, Store } from '../../store/src/index.ts';
-import { serve } from '../src/index.ts';
+import { serve, MCP_LOCAL_TOKEN_FILE } from '../src/index.ts';
 
 const root = join(import.meta.dirname, '..', '..', '..');
 const main = join(root, 'packages', 'cli', 'src', 'main.ts');
@@ -152,7 +152,7 @@ test('the recorder sees what the program is asked to reach, and refuses it', asy
 const basic = (account: string, password: string) => 'Basic ' + btoa(`${account}:${password}`);
 
 /** Everything a person or a program does on an ordinary day: both web pages, the docs, the Data API, OData and the AI connector. */
-async function useIt(port: number, password: string): Promise<void> {
+async function useIt(port: number, password: string, dir: string): Promise<void> {
   for (const page of ['/app/', '/admin/', '/docs', '/docs/connect-ai', '/']) assert.ok((await get(port, page)).status < 500, page);
   const status = await get(port, '/tabularius/admin/v1/status');
   assert.equal(status.status, 200);
@@ -164,7 +164,7 @@ async function useIt(port: number, password: string): Promise<void> {
   const layout = encodeURIComponent(layouts.response.layouts.find((l) => !l.folderLayoutNames)!.name);
   assert.equal((await get(port, `/fmi/data/vLatest/databases/Tasks/layouts/${layout}/records?_limit=5`, { headers: auth })).status, 200);
   assert.ok((await get(port, '/fmi/odata/v4/Tasks/$metadata', { headers: { authorization: basic('Admin', password) } })).status < 500);
-  const initialize = await get(port, '/mcp', { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' }, body: '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"t","version":"1"}}}' });
+  const initialize = await get(port, '/mcp', { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', authorization: `Bearer ${readFileSync(join(dir, MCP_LOCAL_TOKEN_FILE), 'utf8').trim()}` }, body: '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"t","version":"1"}}}' });
   assert.equal(initialize.status, 200, initialize.text);
   await get(port, '/fmi/data/vLatest/databases/Tasks/sessions/' + token, { method: 'DELETE', headers: auth });
 }
@@ -184,7 +184,7 @@ test('a server started with no flags makes no outbound connection: start, a conv
   t.after(done);
   const hosted = converting ? 2 : 1;
   await waitFor('the files to be hosted', async () => (JSON.parse((await get(port, '/tabularius/admin/v1/status')).text) as { databases: unknown[] }).databases.length >= hosted);
-  await useIt(port, password);
+  await useIt(port, password, dir);
   await sleep(4000); // idle: timers, the damage check, the backup schedule, anything on a clock
   assert.ok(server.hooked(), 'the recorder was loaded in the server');
   assert.deepEqual(server.attempts(), [], 'it tried to reach something other than this computer');

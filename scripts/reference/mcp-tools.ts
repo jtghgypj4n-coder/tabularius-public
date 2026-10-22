@@ -26,7 +26,7 @@ export const tools: Record<string, McpToolNotes> = {
   },
 
   sync_status: {
-    permissions: 'Only the administrator\'s own client (this computer, or the server\'s MCP token); never an account. Read-only: an administrator settles conflicts and starts writes in the admin console\'s Sync page. Shows only files with AI turned on. Record values, passwords and password file paths are never shown.',
+    permissions: 'Only the administrator\'s own client (the server\'s MCP token); never an account. Read-only: an administrator settles conflicts and starts writes in the admin console\'s Sync page. Shows only files with AI turned on. Record values, passwords and password file paths are never shown.',
     example: {
       arguments: { database: 'Shop' },
       response: pretty({

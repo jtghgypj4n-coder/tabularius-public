@@ -168,7 +168,7 @@ async function fixture(withReplication = false) {
   const staging = new Store(stagingPath, 'Invoices Staging');
   staging.applyDesign([{ op: 'createTable', name: 'Invoices', fields: [{ name: 'Amount', type: 'number' }, { name: 'Status' }] }, { op: 'createField', table: 'Invoices', name: 'Notes', type: 'text' }] as never);
   staging.close();
-  const hosted = await serve({ dir, port: 0, watch: false, listFilesPublicly: true, ...(withReplication ? { replicationToken: 'reference-replication-token' } : {}), testOutbound: {}, webhooks: true, inboundHooks: true, appConnections: true, log: () => {} });
+  const hosted = await serve({ dir, port: 0, watch: false, mcpToken: 'reference-mcp-admin', listFilesPublicly: true, ...(withReplication ? { replicationToken: 'reference-replication-token' } : {}), testOutbound: {}, webhooks: true, inboundHooks: true, appConnections: true, log: () => {} });
   const adminBasic = `Basic ${Buffer.from('Admin:pw').toString('base64')}`;
   const login = await fetch(`${hosted.url}/fmi/data/vLatest/databases/Invoices/sessions`, { method: 'POST', headers: { authorization: adminBasic, 'content-type': 'application/json' }, body: '{}' });
   assert.equal(login.status, 200, await login.clone().text());
@@ -561,7 +561,12 @@ test('REST reference examples match live status and response shape', async () =>
       if (url.pathname.startsWith('/fmi/odata/') && ['PATCH', 'PUT', 'DELETE'].includes(method)) headers.set('if-match', '*');
       let response: Response;
       try { response = await fetch(url, { method, headers, redirect: 'manual', signal: AbortSignal.timeout(5000), ...(uploadBody ? { body: uploadBody } : rawBody ? { body: rawBody as unknown as BodyInit } : body ? { body } : {}) }); }
-      catch (e) { failures.push(`${label}: request failed (${(e as Error).message})`); continue; }
+      catch (e) {
+        // fetch only says "fetch failed"; the cause (a reset, a refused connection, a timeout) is what tells a server fault from a test one.
+        const cause = (e as { cause?: { code?: string; message?: string } }).cause;
+        failures.push(`${label}: request failed (${(e as Error).message}${cause ? `: ${cause.code ?? cause.message}` : ''})`);
+        continue;
+      }
       const contentType = response.headers.get('content-type') ?? '';
       let text: string;
       if (/text\/event-stream|application\/x-ndjson/i.test(contentType)) {
@@ -662,7 +667,7 @@ test('REST reference examples match live status and response shape', async () =>
   try {
     const dash = await fetch(`${f.url}/tabularius/dashboards/v1/databases/Invoices`, { method: 'POST', headers: { authorization: `Bearer ${f.token}`, 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Sales', description: 'Invoice totals', widgets: [{ title: 'Revenue by customer', kind: 'chart', chart: 'bar', layout: 'Invoices', groupBy: ['Customer'], measure: { field: 'Amount', fn: 'sum' } }] }) });
     assert.equal(dash.status, 201, await dash.clone().text());
-    await client.connect(new StreamableHTTPClientTransport(new URL(`${f.url}/mcp`)));
+    await client.connect(new StreamableHTTPClientTransport(new URL(`${f.url}/mcp`), { requestInit: { headers: { authorization: 'Bearer reference-mcp-admin' } } }));
     const listing = await mcpListing();
     const runtimeIds: Record<string, string> = {};
     for (const tool of listing.tools) {

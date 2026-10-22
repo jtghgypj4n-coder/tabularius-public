@@ -567,7 +567,7 @@ export const tools: Record<string, McpToolNotes> = {
   },
 
   create_database: {
-    permissions: 'The server administrator only (the --mcp-token bearer, a loopback client when no token is set, or stdio); every account and API token is refused.',
+    permissions: 'The server administrator only (the --mcp-token bearer, the server\'s MCP token, or stdio); every account and API token is refused.',
     example: {
       arguments: { name: 'ReferenceScratch' },
       response: JSON.stringify({ database: 'ReferenceScratch' }, null, 2),
