@@ -71,10 +71,10 @@ The original tests read alongside the scoped diffs included `crash-points-harnes
 ## Fixes and independent review
 
 - `packages/server/src/backup.ts:831` and `:855`: use the existing SQLite-compatible account identity key for account-difference maps and display names. This closes a refusal bypass for distinct Unicode account names; both restore routes have regressions.
-- `packages/server/src/backup.ts:1073`: honor the supplied cancellation signal through point-in-time staging and immediately before synchronous batch publication. Regression cases cover an already-cancelled request and cancellation during the second database, including claim cleanup.
+- `packages/server/src/backup.ts:1073`: honor the supplied cancellation signal through point-in-time staging and immediately before synchronous batch publication. Regression cases cover an already-cancelled request and cancellation during the second database, including claim cleanup. On this repository the check runs after the set's manifest is verified and each file is staged (so an already-cancelled request is seen after the first staging step, and its staged copy is cleaned up), not at function entry.
 - `packages/server/src/schedules.ts:534`: delete the skipped-run counter when deleting its schedule. Regression includes interval edits, timer replacement, repeated deletion, and separate bounded-history/restart checks.
 
-An independent **gpt-6-astra** review read the changed production code and review tests. It reported no actionable security findings. Its suggested stronger assertions—checking the reported Unicode name and cancellation during a second staged database—were added and passed. This was a code review, not a claim that the reviewer reran tests.
+An independent read-only review (before this port) read the changed production code and review tests. It reported no actionable security findings. Its suggested stronger assertions—checking the reported Unicode name and cancellation during a second staged database—were added and passed. This was a code review, not a claim that the reviewer reran tests.
 
 ## Reproduction and results
 
