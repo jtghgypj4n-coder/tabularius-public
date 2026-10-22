@@ -61,12 +61,17 @@ export function normalizeWebViewerHosts(input: unknown): string[] {
   return out;
 }
 
+/** The most stored entries looked at, and the most dropped ones named: a restored file can hold any number, and each read is on a page's way. */
+const STORED_LOOKED_AT_MAX = 1000;
+const DROPPED_NAMED_MAX = 50;
+
 /** The stored list sorted into what can be trusted and what cannot: a value written by anything but setWebViewerHosts (a restored or foreign file) is dropped unless it passes the same checks. */
-function checkStored(stored: unknown): { hosts: string[]; dropped: string[] } {
+export function checkStoredWebViewerHosts(stored: unknown): { hosts: string[]; dropped: string[] } {
   const hosts: string[] = [];
   const dropped: string[] = [];
   if (!Array.isArray(stored)) return { hosts, dropped };
-  for (const v of stored) {
+  const looked = stored.length > STORED_LOOKED_AT_MAX ? stored.slice(0, STORED_LOOKED_AT_MAX) : stored;
+  for (const v of looked) {
     try {
       const host = normalizeWebViewerHost(v);
       if (host === v) { if (!hosts.includes(host)) hosts.push(host); continue; }
@@ -75,17 +80,21 @@ function checkStored(stored: unknown): { hosts: string[]; dropped: string[] } {
     dropped.push(String(typeof v === 'string' ? v : JSON.stringify(v)).replace(/[^\x20-\x7e]/g, '?').slice(0, 100));
   }
   // Only so many can be listed; the rest are dropped too.
-  return { hosts: hosts.slice(0, WEB_VIEWER_HOSTS_MAX), dropped: [...dropped, ...hosts.slice(WEB_VIEWER_HOSTS_MAX)] };
+  dropped.push(...hosts.slice(WEB_VIEWER_HOSTS_MAX));
+  const unlisted = Math.max(0, dropped.length - DROPPED_NAMED_MAX) + (stored.length - looked.length);
+  const named = dropped.slice(0, DROPPED_NAMED_MAX);
+  if (unlisted > 0) named.push(`… and ${unlisted} more ${unlisted === 1 ? 'entry' : 'entries'} not listed`);
+  return { hosts: hosts.slice(0, WEB_VIEWER_HOSTS_MAX), dropped: named };
 }
 
 /** The stored list as it can be trusted. */
 export function trustedWebViewerHosts(stored: unknown): string[] {
-  return checkStored(stored).hosts;
+  return checkStoredWebViewerHosts(stored).hosts;
 }
 
 /** The stored entries that are not trusted, written plainly, for the console to name. */
 export function droppedWebViewerHosts(stored: unknown): string[] {
-  return checkStored(stored).dropped;
+  return checkStoredWebViewerHosts(stored).dropped;
 }
 
 /** Whether a listed entry (a stored host or `*.` wildcard) would let a web viewer load a page of the host name `name`. */
