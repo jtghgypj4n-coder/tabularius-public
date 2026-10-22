@@ -354,10 +354,19 @@ General properties:
   Origin is absent, and Fetch Metadata other than `same-origin` or `none`.
   The same guard covers Basic-authenticated Data API, OData, SQL and XML
   requests, Admin API login, OAuth authorization POST, and originless MCP
-  requests. An opaque `Origin: null` is refused. Without `--public-url`,
-  ambient-credential routes accept only IP literals, localhost and its
-  subdomains, or operator-configured `--https` domains as Host; otherwise
-  configure the public URL when serving a DNS name.
+  requests. An opaque `Origin: null` is refused. Without `--public-url`, a
+  request that comes from a browser (any `Sec-Fetch-*` header, an `Origin` or a
+  `Referer`) or carries a cookie is accepted on an ambient-credential route
+  only when its Host is an IP literal, localhost or a subdomain of it, or an
+  operator-configured `--https` domain; the 403 then says to set `--public-url`
+  or `--https` for the name, and the server logs each such name once. A client
+  that sends no browser header and no cookie (curl, a server, a database
+  driver) is not held to the host name. Gap: a very old browser that sends no
+  Fetch Metadata and suppresses `Origin` and `Referer` on a rebound page's
+  plain GET looks like such a client; the passwordless local console and the
+  empty-password accounts still check the Host name themselves, and a cookie
+  is always held to it. Upgrade note: serving a DNS name to browsers behind a
+  proxy now needs `--public-url` (or `--https` for the name).
   Forwarded headers cannot nominate an allowed origin. Native clients may
   omit Origin, Referer and Fetch Metadata, but console cookie or console Basic
   authentication without any of them requires `x-tabularius-console: 1` or

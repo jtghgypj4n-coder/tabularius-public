@@ -819,6 +819,10 @@ Pick one:
   sets these from FileMaker Server's certificate.
 - **Behind a proxy** such as Caddy, nginx or a load balancer that handles TLS:
   give `--public-url https://files.example.com` so links and redirects use it.
+  Without it, a browser's request addressed to that name is refused with 403
+  (`Cross-origin request denied: ... set --public-url or --https`) and the
+  server logs the name once; scripts and drivers with no browser headers are
+  not affected.
   Also give `--proxy-header` with
   the header it writes the visitor's address into: `x-forwarded-for` (Caddy,
   Tailscale, cloudflared, nginx with `$proxy_add_x_forwarded_for`),
