@@ -5037,6 +5037,9 @@ export class ScriptEngine {
       const sub = new ScriptEngine({
         ...this.opts, executionAccount, session: undefined, layout: undefined, foundSet: undefined, recordId: undefined, mode: undefined, preview: undefined,
         trigger: undefined, parameter: asText(parameter).slice(0, SERVER_TEXT_LIMIT), debug: undefined, insertFile: undefined, pause: undefined, dialog: undefined,
+        // The person's browser windows and where they stand in them belong to the caller's run, not the server's.
+        startWindow: undefined, openWindows: undefined, variables: undefined, startedBy: undefined, activeObjectId: undefined,
+        activeObject: undefined, activeRow: undefined, lastVisited: undefined, requests: undefined, view: undefined,
         // Scripts it calls on the server run at once, so waiting on each other can't fill the queue.
         serverQueue: undefined,
         onAccessDenial: p.wait === false && !p.callback ? undefined : this.opts.onAccessDenial,
