@@ -28,9 +28,9 @@ function clocks(t: TestContext) {
 // sockets, fixtures or real waits. The log payload itself need not be SQLite WAL.
 function replication(t: TestContext) {
   const store = { name: 'Tasks' } as Store;
-  const host = { get: (name: string) => name === store.name ? store : undefined, names: () => [store.name] } as Host;
+  const host = { get: (name: string) => name === store.name ? store : undefined, names: () => [store.name], onClose: [] } as unknown as Host;
   let follower: LogFollower;
-  const shipper = { add: (f: LogFollower) => { follower = f; f.started?.(store); }, follow: () => {} } as unknown as LogShipper;
+  const shipper = { add: (f: LogFollower) => { follower = f; f.started?.(store); }, follow: () => {}, remove: () => {} } as unknown as LogShipper;
   const repl = new Replication(host, shipper, 'test-token');
   t.after(() => repl.close());
   const request = async (path: string) => {

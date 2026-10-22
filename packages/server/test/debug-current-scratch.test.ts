@@ -18,7 +18,7 @@ test('debug Current reads the paused execution store and returns the ended-run f
   const store = new Store(path);
   const session: Session = { token: 'test-session', db: 'Shop', account: 'Admin', client: 'rest', started: Date.now(), lastUsed: performance.now(), scripts: new ScriptSession() };
   const host = { get: (name: string) => name === 'Shop' ? store : undefined, scriptOptions: () => ({}) } as unknown as Host;
-  const dataApi = { authorize: () => session, alive: () => true } as unknown as DataApi;
+  const dataApi = { authorize: () => session, alive: () => true, endListeners: new Set() } as unknown as DataApi;
   const debug = new DebugApi(host, dataApi);
   let storeOpen = true;
   const call = async (method: string, pathAndQuery: string, body?: unknown) => {

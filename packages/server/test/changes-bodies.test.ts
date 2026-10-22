@@ -13,7 +13,7 @@ for (const mode of ['changes', 'digest'] as const) for (const retry of [false, t
     const store = generatedStore(t);
     store.applyDesign([{ op: 'createTable', name: 'Records', fields: [{ name: 'Note', type: 'text' }] }]);
     const host = {
-      dir: dirname(store.path), openStores: () => [store], onAdd: [],
+      dir: dirname(store.path), openStores: () => [store], onAdd: [], onClose: [],
       get: (name: string) => name === store.name ? store : undefined,
     } as unknown as Host;
     const hooks = new Webhooks(host, new ChangeFeed(host, {} as never), true);
