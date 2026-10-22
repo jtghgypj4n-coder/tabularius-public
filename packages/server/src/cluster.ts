@@ -389,7 +389,9 @@ const LEADER_ONLY = /^\/(?:tabularius\/admin\/|tabularius\/hooks\/|fmi\/admin\/|
 
 /** Which worker a request goes to; undefined: whichever is least busy. */
 export function route(req: IncomingMessage, workers: number): number | undefined {
-  const path = (req.url ?? '/').split('?')[0];
+  // Read the path as the dispatcher does (index.ts): dot segments, including %2e, collapse before anything is matched.
+  let path = (req.url ?? '/').split('?')[0];
+  try { path = new URL(req.url ?? '/', 'http://localhost').pathname; } catch { /* the worker answers 400 */ }
   // The leader: the admin console and Admin API, the change feed, every identity-provider sign-in request (start and
   // callback), an AI app's OAuth sign-in page (its process-local identity-provider resume handler lives on the leader,
   // and is lost on restart), an AI app registering itself (its per-address

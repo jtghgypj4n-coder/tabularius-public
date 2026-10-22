@@ -161,6 +161,26 @@ test('cluster Basic affinity follows the folded account across routes and changi
   }
 });
 
+test('cluster routing reads the path as the dispatcher does: dot segments cannot spread one account over the workers', () => {
+  const workers = 8;
+  const call = (url: string, method: string, headers: Record<string, string>) => route({ url, method, headers } as unknown as IncomingMessage, workers);
+  const plain = call('/fmi/data/vLatest/databases/Review/sessions', 'POST', { authorization: basic('victim', 'guess') });
+  const paths = [
+    '/fmi/data/vLatest/databases/Review/./sessions', '/fmi/data/vLatest/databases/Review/x/../sessions', '/fmi/data/vLatest/databases/Review/sessions/.',
+    '/fmi/data/vLatest/databases/Review/%2e/sessions', '/fmi/data/vLatest/databases/Review/%2E/sessions', '/fmi/data/vLatest/databases/Review/x/%2e%2E/sessions',
+    '/fmi/data/vLatest/databases/Review/sessions?x=1', '/fmi/data/vLatest/databases/Review/sessions/%2e',
+  ];
+  for (const path of paths) {
+    const seen = new Set<number | undefined>();
+    for (let i = 0; i < 40; i++) seen.add(call(path, 'POST', { authorization: basic('victim', 'guess'), 'x-fm-data-access-token': `${(i % 8).toString(16).padStart(2, '0')}${'e'.repeat(46)}` }));
+    assert.deepEqual([...seen], [plain], path);
+  }
+  const session = '05' + 'b'.repeat(46);
+  for (const path of [`/fmi/data/vLatest/databases/Review/./sessions/${session}`, `/fmi/data/vLatest/databases/Review/x/../sessions/${session}`, `/fmi/data/vLatest/databases/Review/%2e/sessions/${session}`, `/fmi/data/vLatest/databases/Review/sessions/${session}/.`]) {
+    assert.equal(call(path, 'DELETE', { authorization: basic('other', 'wrong'), 'x-fm-data-access-token': '01' + 'd'.repeat(46) }), 5, path);
+  }
+});
+
 test('local and federated rest/web sessions cannot inherit a recreated identity from a peer', async (t) => {
   const { dir, host, store } = await setup(t);
   store.setExternalAccount('group', 'Reader');
