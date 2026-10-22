@@ -75,11 +75,27 @@ export interface ChangeImpact {
 const lower = (s: string) => s.toLowerCase();
 const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+/** What each function that takes a name as text can be given the name of; the file-name-only ones name none of these. */
+const NAMES_OF: Record<string, readonly ImpactKind[]> = {
+  evaluate: ['field', 'table', 'layout', 'script', 'valueList'],
+  executesql: ['field', 'table'],
+  getfield: ['field', 'table'], getfieldname: ['field', 'table'], getnthrecord: ['field', 'table'],
+  fieldtype: ['field', 'table'], fieldstyle: ['field', 'layout'], fieldrepetitions: ['field', 'layout'], fieldbounds: ['field', 'layout'],
+  fieldcomment: ['field', 'table'], fieldnames: ['table', 'layout'], layoutobjectnames: ['layout'], getlayoutobjectattribute: ['layout'],
+  valuelistitems: ['valueList'], relationinfo: ['table'],
+};
+
+/** Could a name computed at run time, in one of these calls or slots, be the target's? */
+function mayNameTarget(reads: NonNullable<Refs['byName']>, target: Target): boolean {
+  if ([...reads.calls].some((call) => NAMES_OF[call]?.includes(target.kind as ImpactKind))) return true;
+  return !!reads.slots && [...reads.slots].some((slot) => slot === target.kind);
+}
+
 /** A use that names the target inside a string (or a SQL query), which a rename won't change. */
 function namesInText(refs: Refs | undefined, target: Target): 'yes' | 'may' | undefined {
   const reads = refs?.byName;
   if (!reads) return undefined;
-  if (reads.fromText || (reads.incomplete && (reads.calls.size || reads.byConstruction))) return 'may';
+  if (reads.fromText || (reads.incomplete && mayNameTarget(reads, target))) return 'may';
   const bare = target.name.replace(/^.*::/, '');
   const names = target.kind === 'field' ? [target.name, bare] : [target.name];
   const patterns = names.map((n) => new RegExp(`(^|[^\\w])${esc(n)}($|[^\\w])`, 'i'));

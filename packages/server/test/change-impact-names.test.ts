@@ -156,3 +156,21 @@ test('unparseable editor formulas retain an explicit text fallback and warn cons
   assert.equal(use.breaks, true);
   assert.match(use.why, /may name it in text|could not be parsed/i);
 });
+
+test('a computed name only counts against the kinds it can name', async (t) => {
+  const store = generated(t);
+  store.applyDesign([
+    { op: 'createScript', name: 'Computed layout', text: 'Go to Layout [ Layout Name: $dest ]' },
+    { op: 'createField', table: 'Congress', name: 'Layouts', kind: 'calculation', calculation: 'LayoutNames ( Get ( FileName ) )' },
+  ]);
+  const where = (report: Awaited<ReturnType<typeof changeImpact>>, text: string) => report.uses.filter((u) => u.where.includes(text));
+  const field = await changeImpact(store, undefined, 'field', 'Party', 'rename');
+  assert.deepEqual(where(field, 'Computed layout'), [], 'a layout name cannot be a field');
+  assert.deepEqual(where(field, 'Congress::Layouts'), [], 'LayoutNames takes a file name, not the name of anything renamed');
+  const layout = await changeImpact(store, undefined, 'layout', 'Congress', 'rename');
+  const computed = where(layout, 'Computed layout');
+  assert.equal(computed.length, 1);
+  assert.equal(computed[0].breaks, true);
+  assert.match(computed[0].why, /may name it in text/);
+  assert.deepEqual(where(layout, 'Congress::Layouts'), []);
+});

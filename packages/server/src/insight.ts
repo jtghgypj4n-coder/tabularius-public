@@ -16,6 +16,9 @@ import { lintFormula, type Privileges, type Store } from '../../store/src/index.
 
 // --- references --------------------------------------------------------------
 
+/** What a script-step slot that takes a name can name. */
+export type SlotKind = 'field' | 'layout' | 'script';
+
 /** What a place in the solution points at. Fields are keyed "Table::Field" (base table). */
 export interface Refs {
   fields: Set<string>;
@@ -34,6 +37,8 @@ export interface Refs {
     fromText?: boolean;
     /** A script-step slot takes a name even without a by-name function call. */
     byConstruction?: boolean;
+    /** What the slots that take a computed name can name. */
+    slots?: Set<SlotKind>;
   };
   /** Why a formula here could not be parsed. */
   unparsed?: string;
@@ -70,27 +75,28 @@ const OUTBOUND = /^(Send Mail|Send Event|Send DDE Execute|Insert from URL|Open U
 /** A string that reads as a SQL query: its table and field names count as uses. */
 export const SQL_TEXT = /\bSELECT\b[\s\S]*\bFROM\b|\b(?:UPDATE|DELETE\s+FROM|INSERT\s+INTO)\b/i;
 
-function mergeByName(refs: Refs, reads: ByNameReads, flags: { fromText?: boolean; byConstruction?: boolean } = {}): void {
+function mergeByName(refs: Refs, reads: ByNameReads, flags: { fromText?: boolean; byConstruction?: SlotKind } = {}): void {
   if (!reads.calls.length && !reads.texts.length && !flags.fromText && !flags.byConstruction) return;
   const into = refs.byName ??= { calls: new Set(), texts: [] };
   for (const call of reads.calls) into.calls.add(call);
   into.texts = [...new Set([...into.texts, ...reads.texts])];
   if (reads.incomplete) into.incomplete = true;
   if (flags.fromText) into.fromText = true;
-  if (flags.byConstruction) into.byConstruction = true;
+  if (flags.byConstruction) { into.byConstruction = true; (into.slots ??= new Set()).add(flags.byConstruction); }
 }
 
 // Only unparseable source reaches these legacy regexes. Parsed formulas use call
 // nodes and decoded literals, never a scan of their source or display text.
 const FALLBACK_BY_NAME = new RegExp(`\\b(${[...BY_NAME_FUNCTIONS].join('|')})\\b|\\bby name\\b|\\bby calculation\\b`, 'gi');
-function byNameTextFallback(formula: string, refs: Refs, byConstruction: boolean): void {
+function byNameTextFallback(formula: string, refs: Refs, byConstruction: SlotKind | false): void {
   const matches = [...formula.matchAll(FALLBACK_BY_NAME)];
   const calls = matches.flatMap((m) => m[1] ? [lower(m[1])] : []);
   const sql = SQL_TEXT.test(formula);
-  const texts = matches.length || sql || byConstruction
-    ? [...formula.matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((m) => m[1]) : [];
+  // Nothing the old scan would have found: unparseable text alone is no sign of a name.
+  if (!matches.length && !sql && !byConstruction) return;
+  const texts = [...formula.matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((m) => m[1]);
   if (sql) texts.push(formula); // Preserve the old SQL word fallback only for invalid source.
-  mergeByName(refs, { calls, texts, incomplete: true }, { fromText: true, byConstruction });
+  mergeByName(refs, { calls, texts, incomplete: true }, { fromText: true, byConstruction: byConstruction || undefined });
 }
 
 /** Lookups over one store's schema, built once. */
@@ -153,7 +159,7 @@ class Catalog {
   }
 
   /** Adds what a formula reads: fields (through their occurrences) and functions it calls. */
-  formula(formula: string | undefined, refs: Refs, contextToId?: number, locals?: string[], byConstruction = false): void {
+  formula(formula: string | undefined, refs: Refs, contextToId?: number, locals?: string[], byConstruction: SlotKind | false = false): void {
     if (!formula) return;
     formula = this.ext(formula);
     let node: Node | undefined;
@@ -178,7 +184,7 @@ class Catalog {
       // Analyse the slot as a name argument, but retain only calls actually in
       // the tree: the synthetic wrapper is not a function the formula calls.
       const slot = byNameReads({ k: 'call', name: 'GetField', args: [node] });
-      mergeByName(refs, { ...slot, calls: reads.calls }, { byConstruction: true });
+      mergeByName(refs, { ...slot, calls: reads.calls }, { byConstruction });
     } else mergeByName(refs, reads);
     const ctxTable = contextToId !== undefined ? this.toTable.get(lower(this.toName.get(contextToId) ?? '')) : undefined;
     let seen = unknownFormulas.get(refs);
@@ -271,7 +277,9 @@ function stepRefs(cat: Catalog, p: StepParams | undefined, calculations: string[
   for (const f of [p.calculation, p.value, p.repetition, p.repetitionCalculation, p.parameter, p.title, p.message]) {
     cat.formula(f, refs);
   }
-  for (const f of [p.fieldName, p.layoutCalculation, p.scriptCalculation]) cat.formula(f, refs, undefined, undefined, true);
+  cat.formula(p.fieldName, refs, undefined, undefined, 'field');
+  cat.formula(p.layoutCalculation, refs, undefined, undefined, 'layout');
+  cat.formula(p.scriptCalculation, refs, undefined, undefined, 'script');
   for (const f of Object.values(p.slots ?? {})) cat.formula(f, refs);
   cat.fieldRef(p.field, refs);
   cat.fieldRef(p.ai?.sourceField, refs);
