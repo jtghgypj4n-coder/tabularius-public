@@ -5,7 +5,7 @@
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { FUNCTIONS, PLUGIN_NOT_INSTALLED, PLUGIN_PREFIX, mbsFunctionNames } from '../packages/calc/src/functions.ts';
+import { PLUGIN_NOT_INSTALLED, PLUGIN_PREFIX, mbsFunctionNames, pluginCallBehaviour } from '../packages/calc/src/functions.ts';
 import { BUILTIN_PACKS } from '../packages/plugins/src/registry.ts';
 import { PLUGIN_FUNCTIONS } from '../packages/fmp12/src/index.ts';
 
@@ -14,10 +14,23 @@ const MBS_FAMILIES: Record<string, string> = {
   list: 'List', quicklist: 'QuickList', hash: 'Hash', container: 'Container', folders: 'Folders', progressdialog: 'Progress dialog',
 };
 
+const BASEELEMENTS_PARTIAL: Record<string, string> = {
+  BE_EvaluateJavaScript: 'Runs only a fixed set of programs from JSON custom functions; other JavaScript returns `?`.',
+  BE_ContainerCompress: 'Sets a compressed mark but leaves the container data unchanged.',
+  BE_ContainerUncompress: 'Sets a compressed mark but leaves the container data unchanged.',
+  BE_FileMakerSQL: 'Ignores the file name argument and always queries the current file.',
+};
+
 export function pluginMatrix(): string {
   const be = PLUGIN_FUNCTIONS.filter((f) => /^be_/i.test(f)).sort((a, b) => a.localeCompare(b));
-  const runs = be.filter((f) => FUNCTIONS.has(f.toLowerCase()));
-  const unknown = be.filter((f) => !FUNCTIONS.has(f.toLowerCase()));
+  const partialNames = new Set(Object.keys(BASEELEMENTS_PARTIAL).map((name) => name.toLowerCase()));
+  const partial = be.filter((f) => partialNames.has(f.toLowerCase()));
+  if (partial.length !== Object.keys(BASEELEMENTS_PARTIAL).length) throw new Error('BASEELEMENTS_PARTIAL must name BaseElements functions');
+  const partialCount = new Set(partial.map((name) => BASEELEMENTS_PARTIAL[name])).size;
+  const runs = be.filter((f) => pluginCallBehaviour(f) === 'runs' && !partialNames.has(f.toLowerCase()));
+  const outbox = be.filter((f) => pluginCallBehaviour(f) === 'outbox');
+  const refused = be.filter((f) => pluginCallBehaviour(f) === 'refused');
+  const unknown = be.filter((f) => !['runs', 'outbox', 'refused'].includes(pluginCallBehaviour(f)));
   const mbs = mbsFunctionNames();
   const families = new Map<string, number>();
   for (const n of mbs) {
@@ -33,7 +46,7 @@ export function pluginMatrix(): string {
   lines.push('<!-- known-difference-file: Vendor plug-ins ;; Tabularius runs its own versions of a few plug-in functions and gives ? for the rest; for several plug-ins the vendor function list is incomplete or could not be found, so the product identity, the function names and the results of some named calls are unverified ;; A script that calls a plug-in function not listed as running gets ?, and one that relies on a function whose result is unverified may get a different value from the real plug-in ;; The vendor function reference or a run of the real plug-in for each unverified function -->', '');
   lines.push('A FileMaker plug-in is native code. Tabularius never loads one. Instead it runs its own versions of the functions people use most, and anything else gives what FileMaker gives when the plug-in is not installed: `?`. A script can still ask whether the plug-in is there (`BE_Version = "?"`, `GetAsNumber ( EmailVersion ) < 1.61`).', '');
   lines.push('| Plug-in | How Tabularius handles it | Functions that run | Functions that give `?` |', '| --- | --- | --- | --- |');
-  lines.push(`| ${pack.name} (\`${pack.owner}\`, ${pack.publisher}) | Built in, on for every file; an administrator can turn it off per file | ${runs.length} | ${unknown.length} |`);
+  lines.push(`| ${pack.name} (\`${pack.owner}\`, ${pack.publisher}) | Built in, on for every file; an administrator can turn it off per file | ${runs.length + partial.length} run, ${partialCount} in part, ${outbox.length} only in test mode, ${refused.length} refused | ${unknown.length} not built |`);
   lines.push('| Troi Text | Built in, on for every file; an administrator can turn it off per file | 1 documented pure function | other documented functions give `?` |');
   lines.push('| Troi Dialog | Built in, on for every file; an administrator can turn it off per file | 1 documented pure function | other documented functions give `?` |');
   lines.push(`| Monkeybread Software (MBS) | Built in; \`MBS ( "Name" ; … )\` | ${mbs.length} | every other MBS name gives an MBS error text, and \`MBS ( "IsError" )\` then says 1 until the next MBS call, within the same script run |`);
@@ -41,8 +54,12 @@ export function pluginMatrix(): string {
   lines.push('| Any other plug-in | Not run | 0 | every function (calls Tabularius cannot name show as `⟨OWNR:index⟩`) |');
   lines.push('| A plug-in written for Tabularius | Runs in a sandbox, switched on per file by an administrator (see [writing-a-plugin.md](writing-a-plugin.md)) | its own | none |', '');
   lines.push('## BaseElements', '');
-  lines.push(`Functions that run (${runs.length}):`, '', runs.join(', '), '');
-  lines.push(`Functions that give \`?\` (${unknown.length}): these reach outside the server (files, clipboard, windows, other programs) or are not reimplemented yet.`, '', unknown.join(', ') || '(none)', '');
+  lines.push(`Run (${runs.length}):`, '', runs.join(', '), '');
+  lines.push(`Run in part (${partialCount}):`, '', ...partial.map((name) => `- \`${name}\`: ${BASEELEMENTS_PARTIAL[name]}`), '');
+  lines.push(`Only recorded in outbound test mode, otherwise \`?\` (error 3) (${outbox.length}):`, '', outbox.join(', '), '');
+  lines.push(`Always \`?\` (error 3) on a server (${refused.length}):`, '', refused.join(', '), '');
+  lines.push(`Not built (${unknown.length}):`, '', unknown.join(', ') || '(none)', '');
+  lines.push('`BE_Version`, `BE_VersionPro` and `BE_VersionAutoUpdate` return the text `tabularius`; a script that tests `BE_Version = "?"` treats the plug-in as installed, while one that reads the version as a number gets 0.', '');
   lines.push('## Monkeybread Software (MBS)', '');
   lines.push(`${mbs.length} functions run, by family:`, '', '| Family | Functions |', '| --- | --- |');
   for (const [family, n] of [...families].sort((a, b) => a[0].localeCompare(b[0]))) lines.push(`| ${MBS_FAMILIES[family] ?? family} | ${n} |`);

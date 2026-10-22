@@ -8,7 +8,7 @@ A FileMaker plug-in is native code. Tabularius never loads one. Instead it runs 
 
 | Plug-in | How Tabularius handles it | Functions that run | Functions that give `?` |
 | --- | --- | --- | --- |
-| BaseElements (`GyBE`, Goya) | Built in, on for every file; an administrator can turn it off per file | 128 | 32 |
+| BaseElements (`GyBE`, Goya) | Built in, on for every file; an administrator can turn it off per file | 102 run, 3 in part, 18 only in test mode, 8 refused | 32 not built |
 | Troi Text | Built in, on for every file; an administrator can turn it off per file | 1 documented pure function | other documented functions give `?` |
 | Troi Dialog | Built in, on for every file; an administrator can turn it off per file | 1 documented pure function | other documented functions give `?` |
 | Monkeybread Software (MBS) | Built in; `MBS ( "Name" ; … )` | 435 | every other MBS name gives an MBS error text, and `MBS ( "IsError" )` then says 1 until the next MBS call, within the same script run |
@@ -18,13 +18,30 @@ A FileMaker plug-in is native code. Tabularius never loads one. Instead it runs 
 
 ## BaseElements
 
-Functions that run (128):
+Run (98):
 
-BE_ArrayChangeValue, BE_ArrayDelete, BE_ArrayFind, BE_ArrayGetSize, BE_ArrayGetValue, BE_ArraySetFromValueList, BE_ButtonAlternate, BE_ButtonCancel, BE_ButtonOK, BE_CipherDecrypt, BE_CipherEncrypt, BE_ClipboardFormats, BE_ClipboardGetText, BE_ClipboardSetText, BE_ContainerCompress, BE_ContainerIsCompressed, BE_ContainerUncompress, BE_CreateKeyPair, BE_DecryptAES, BE_DecryptWithKey, BE_EncodingBase64, BE_EncodingHex, BE_EncryptAES, BE_EncryptWithKey, BE_EvaluateJavaScript, BE_ExecuteSystemCommand, BE_FileCopy, BE_FileDelete, BE_FileExists, BE_FileListFolder, BE_FileMakerSQL, BE_FileModificationTimestamp, BE_FileMove, BE_FileOpen, BE_FilePatternCount, BE_FileReadText, BE_FileReplaceText, BE_FileSelectDialog, BE_FileSize, BE_FileTypeAll, BE_FileTypeFile, BE_FileTypeFolder, BE_FileWriteText, BE_FolderCreate, BE_FTP_Delete, BE_FTP_Upload, BE_FTP_UploadFile, BE_GetLastDDLError, BE_GetLastError, BE_GetMachineName, BE_GetPublicKey, BE_GetSystemDrive, BE_Gzip, BE_HTTP_DELETE, BE_HTTP_GET, BE_HTTP_GETFile, BE_HTTP_PATCH, BE_HTTP_POST, BE_HTTP_PUTData, BE_HTTP_PUTFile, BE_HTTP_ResponseCode, BE_HTTP_ResponseHeaders, BE_HTTP_SetCustomHeader, BE_HTTP_SetProxy, BE_JSON_ArraySize, BE_JSON_Encode, BE_JSON_Error_Description, BE_JSON_jq, BE_JSONPath, BE_MessageDigest, BE_MessageDigestAlgorithmMD5, BE_MessageDigestAlgorithmMDC2, BE_MessageDigestAlgorithmSHA, BE_MessageDigestAlgorithmSHA1, BE_MessageDigestAlgorithmSHA224, BE_MessageDigestAlgorithmSHA256, BE_MessageDigestAlgorithmSHA384, BE_MessageDigestAlgorithmSHA512, BE_OpenURL, BE_PDFGetPages, BE_PDFPageCount, BE_RegularExpression, BE_ScriptControlExit, BE_ScriptControlHalt, BE_ScriptControlPause, BE_ScriptControlResume, BE_SelectFolder, BE_SignatureGenerateRSA, BE_SignatureVerifyRSA, BE_SMTPAddAttachment, BE_SMTPSend, BE_SMTPServer, BE_SMTPSetHeader, BE_StackCount, BE_StackDelete, BE_StackPop, BE_StackPush, BE_TextExtractWords, BE_TimeCurrentMilliseconds, BE_TimeUTCMilliseconds, BE_TimeZoneOffset, BE_UnGzip, BE_Unzip, BE_Unzip_Deprecated, BE_ValuesContainsDuplicates, BE_ValuesFilterOut, BE_ValuesSort, BE_ValuesTimesDuplicated, BE_ValuesTrim, BE_ValuesUnique, BE_VariableGet, BE_VariableSet, BE_VectorDotProduct, BE_VectorEuclideanDistance, BE_Version, BE_VersionAutoUpdate, BE_VersionPro, BE_XMLCanonical, BE_XMLParse, BE_XMLStripInvalidCharacters, BE_XMLStripNodes, BE_XMLTidy, BE_XOR, BE_XPath, BE_XPathAll, BE_XSLT_Apply, BE_XSLT_ApplyInMemory, BE_Zip
+BE_ArrayChangeValue, BE_ArrayDelete, BE_ArrayFind, BE_ArrayGetSize, BE_ArrayGetValue, BE_ArraySetFromValueList, BE_ButtonAlternate, BE_ButtonCancel, BE_ButtonOK, BE_CipherDecrypt, BE_CipherEncrypt, BE_ContainerIsCompressed, BE_CreateKeyPair, BE_DecryptAES, BE_DecryptWithKey, BE_EncodingBase64, BE_EncodingHex, BE_EncryptAES, BE_EncryptWithKey, BE_FileCopy, BE_FileDelete, BE_FileExists, BE_FileListFolder, BE_FileModificationTimestamp, BE_FileMove, BE_FilePatternCount, BE_FileReadText, BE_FileReplaceText, BE_FileSize, BE_FileTypeAll, BE_FileTypeFile, BE_FileTypeFolder, BE_FileWriteText, BE_FolderCreate, BE_GetLastDDLError, BE_GetLastError, BE_GetMachineName, BE_GetPublicKey, BE_GetSystemDrive, BE_Gzip, BE_JSON_ArraySize, BE_JSON_Encode, BE_JSON_Error_Description, BE_JSON_jq, BE_JSONPath, BE_MessageDigest, BE_MessageDigestAlgorithmMD5, BE_MessageDigestAlgorithmMDC2, BE_MessageDigestAlgorithmSHA, BE_MessageDigestAlgorithmSHA1, BE_MessageDigestAlgorithmSHA224, BE_MessageDigestAlgorithmSHA256, BE_MessageDigestAlgorithmSHA384, BE_MessageDigestAlgorithmSHA512, BE_PDFGetPages, BE_PDFPageCount, BE_RegularExpression, BE_ScriptControlExit, BE_ScriptControlHalt, BE_ScriptControlPause, BE_ScriptControlResume, BE_SignatureGenerateRSA, BE_SignatureVerifyRSA, BE_StackCount, BE_StackDelete, BE_StackPop, BE_StackPush, BE_TextExtractWords, BE_TimeCurrentMilliseconds, BE_TimeUTCMilliseconds, BE_TimeZoneOffset, BE_UnGzip, BE_Unzip, BE_Unzip_Deprecated, BE_ValuesContainsDuplicates, BE_ValuesFilterOut, BE_ValuesSort, BE_ValuesTimesDuplicated, BE_ValuesTrim, BE_ValuesUnique, BE_VariableGet, BE_VariableSet, BE_VectorDotProduct, BE_VectorEuclideanDistance, BE_Version, BE_VersionAutoUpdate, BE_VersionPro, BE_XMLCanonical, BE_XMLParse, BE_XMLStripInvalidCharacters, BE_XMLStripNodes, BE_XMLTidy, BE_XOR, BE_XPath, BE_XPathAll, BE_XSLT_Apply, BE_XSLT_ApplyInMemory, BE_Zip
 
-Functions that give `?` (32): these reach outside the server (files, clipboard, windows, other programs) or are not reimplemented yet.
+Run in part (3):
+
+- `BE_ContainerCompress`: Sets a compressed mark but leaves the container data unchanged.
+- `BE_ContainerUncompress`: Sets a compressed mark but leaves the container data unchanged.
+- `BE_EvaluateJavaScript`: Runs only a fixed set of programs from JSON custom functions; other JavaScript returns `?`.
+- `BE_FileMakerSQL`: Ignores the file name argument and always queries the current file.
+
+Only recorded in outbound test mode, otherwise `?` (error 3) (18):
+
+BE_FTP_Delete, BE_FTP_Upload, BE_FTP_UploadFile, BE_HTTP_DELETE, BE_HTTP_GET, BE_HTTP_GETFile, BE_HTTP_PATCH, BE_HTTP_POST, BE_HTTP_PUTData, BE_HTTP_PUTFile, BE_HTTP_ResponseCode, BE_HTTP_ResponseHeaders, BE_HTTP_SetCustomHeader, BE_HTTP_SetProxy, BE_SMTPAddAttachment, BE_SMTPSend, BE_SMTPServer, BE_SMTPSetHeader
+
+Always `?` (error 3) on a server (8):
+
+BE_ClipboardFormats, BE_ClipboardGetText, BE_ClipboardSetText, BE_ExecuteSystemCommand, BE_FileOpen, BE_FileSelectDialog, BE_OpenURL, BE_SelectFolder
+
+Not built (32):
 
 BE_BackgroundTaskAdd, BE_BackgroundTaskList, BE_ClipboardGetFile, BE_ClipboardSetFile, BE_ContainerConvertImage, BE_ContainerGetType, BE_ContainerListTypes, BE_ConvertContainer, BE_CurlGetInfo, BE_CurlSetOption, BE_CurlTrace, BE_DebugInformation, BE_DialogDisplay, BE_DialogProgress, BE_DialogProgressUpdate, BE_ExportFieldContents, BE_FileImport, BE_FileSaveDialog, BE_JPEGRecompress, BE_Notification, BE_Pause, BE_PDFAppend, BE_PreferenceDelete, BE_PreferenceGet, BE_PreferenceSet, BE_ScriptExecute, BE_ScriptStepInstall, BE_ScriptStepPerform, BE_ScriptStepRemove, BE_SetTextEncoding, BE_SplitBEFileNodes, BE_XMLValidate
+
+`BE_Version`, `BE_VersionPro` and `BE_VersionAutoUpdate` return the text `tabularius`; a script that tests `BE_Version = "?"` treats the plug-in as installed, while one that reads the version as a number gets 0.
 
 ## Monkeybread Software (MBS)
 
