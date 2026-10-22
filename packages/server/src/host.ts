@@ -1332,7 +1332,10 @@ export class Host {
   private closeStores(lock: boolean): void {
     const stores = [...this.stores.values(), ...this.paused.values()];
     // Session cleanup may inspect every store; finish it while all connections are still open.
-    for (const s of stores) for (const f of this.onClose) f(s);
+    // A cleanup that fails (a shared lock table already closed under it) must not keep the files from being closed.
+    for (const s of stores) for (const f of this.onClose) {
+      try { f(s); } catch (e) { this.log(`closing ${s.name}: session cleanup failed: ${(e as Error).message}`); }
+    }
     for (const s of stores) {
       const path = s.path;
       let whole = true;
