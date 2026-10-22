@@ -35,6 +35,7 @@
     "test:visual": "node --no-warnings scripts/test-visual.ts",
     "smoke:sync": "node --no-warnings scripts/smoke-sync.ts",
     "a11y:web": "node --no-warnings scripts/a11y-web.ts",
+    "measure:web-load": "node --no-warnings scripts/web-load-measure.ts",
     "converter-quality": "node --no-warnings scripts/converter-quality.ts",
     "release:verify-repro": "node --no-warnings scripts/verify-repro.ts",
     "release:sbom": "node --no-warnings scripts/sbom.ts",

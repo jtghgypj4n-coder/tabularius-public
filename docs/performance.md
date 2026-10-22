@@ -275,6 +275,45 @@ time to leave headroom on slower runners. The test also checks that browse
 does not fetch design, debugger, dashboard-view or chart modules. This is a
 machine-specific measurement, not a promise for every hosted file or device.
 
+## Caching the web client's files
+
+The web client is served as separate modules straight from `packages/web` (there
+is no build step), 53 of them on the way to the sign-in screen. They used to be
+sent with `cache-control: no-cache`, so a second visit still made one request
+per file to be told "not modified". Now the server (`packages/server/src/web-build.ts`)
+gives all the client's files one build id, a hash of their content, and writes
+it into the references between them: `./layout.ts` is sent as
+`./layout.ts?v=<id>`, and so are the scripts, styles and icon a page names. A
+file asked for with the current id is sent as `public, max-age=31536000,
+immutable`, so the browser keeps it and asks for nothing on the next visit.
+The pages, the service worker and the manifest stay `no-cache`; when any file
+changes the id changes, the page names new URLs, and the browser fetches each
+once. A file asked for with no id, or an old one, is revalidated as before, so
+a stale link never gets a stale file kept for good. Each page also gets a
+`<link rel="modulepreload">` for every module its entry imports statically, so
+the browser asks for all of them at once instead of finding each after the one
+that imports it has arrived.
+
+`npm run measure:web-load` measures it in Chromium: a first visit and a second
+visit in a new tab with the cache kept, through a counting pass-through to the
+server, with the service worker blocked so its own requests do not hide the
+cost. Median of five visits, on the sandbox this was written in (a machine
+measurement, not a promise):
+
+| | before | after |
+|---|---|---|
+| Second visit, requests to the server | 55 | 1 (the page) |
+| Second visit, slow mobile (150 ms, 1.5 Mbit/s): scripts have run | 1,817 ms | 277 ms |
+| Second visit, broadband (40 ms, 10 Mbit/s): scripts have run | 525 ms | 143 ms |
+| First visit, slow mobile: scripts have run | 2,771 ms | 2,441 ms |
+| First visit, requests to the server | 55 | 55 |
+
+The first visit still fetches every module; it is limited by the bytes
+(about 290 KiB compressed). Removing that cost takes fewer bytes or fewer files,
+which means splitting or bundling the 7,000-line `Session` class in `main.ts`,
+and this change leaves that alone. `packages/web/e2e/module-caching.e2e.ts`
+asserts the second visit fetches no script or style.
+
 ## Launch-day overload capacity
 
 On 2026-10-17, a three-second synthetic HTTP load test ran on macOS 25.4, Apple M5 Max (18 reported CPUs), 128 GiB RAM, Node 22.22.2. With one worker and 5,000 generated records, 64 concurrent mixed-workload sessions gave find p95 of 311 ms at 850 completed requests/s; 96 sessions gave find p95 of 805 ms at 629 completed requests/s and 20 HTTP 503s. Find p95 remained below one second through 96 tested sessions, including a 30,000-record file, because the gate shed work first. The lower completed rate at 96 sessions reflects closed-loop clients waiting and requests shed under overload.

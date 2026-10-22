@@ -32,7 +32,7 @@ import type { SqlValue } from '../../store/src/find.ts';
 import { SERVER_VERSION, serverCommit } from './version.ts';
 import { ReadAudit } from './read-audit.ts';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { join, normalize, extname, sep } from 'node:path';
+import { dirname, join, normalize, extname, sep } from 'node:path';
 import { stripTypeScriptTypes } from 'node:module';
 import { explainAccessDenial, fmpXmlResult, formulaGuard, PendingApprovalError, PrivilegeError, StoreError, ExplainRelatedError, writer, canCreateRelated, explainField, explainRelated, occurrence, csvField, type EvaluateOptions, type FindRequest, type LayoutInfo, type Privileges, type SortSpec, type Store } from '../../store/src/index.ts';
 import { externalFieldNames, type DeviceType, type CustomMenu, type Script, type CustomMenuItem, type LayoutDesign, type LayoutObject, type StepParams, type Theme, type TriggerMode } from '../../fmp12/src/index.ts';
@@ -53,6 +53,7 @@ import { FAULT_MESSAGE, isFault, logFault } from './fault-log.ts';
 import type { Host } from './host.ts';
 import { sendError } from './pages.ts';
 import { loadAsset, sendAsset, type Asset } from './static-cache.ts';
+import { Derived, WebBuild, staticImports, versionPage, versionScript } from './web-build.ts';
 import { journalDeletes, journalFieldChange, snapshotField, snapshotFields, snapshotRows } from './cleanup.ts';
 import { said } from './said.ts';
 
@@ -206,6 +207,8 @@ const TYPES: Record<string, string> = {
 
 export class WebClient {
   private readonly host: Host;
+  private readonly build = new WebBuild(WEB_ROOT);
+  private readonly derived = new Derived();
   private readonly api: DataApi;
   private readonly paused = new Map<string, Paused>();
   /** Each session's running button scripts, by token and file, so the person can stop them (Allow User Abort). */
@@ -517,6 +520,22 @@ export class WebClient {
     }
   }
 
+  /**
+   * The file as the browser gets it. Read, type-stripped and hashed once, until the file changes; a script, and a page
+   * naming scripts, also carry the build id on the files they reference (web-build.ts).
+   */
+  private async versioned(file: string, ext: string, id: string): Promise<Asset> {
+    const strip = (bytes: Buffer) => stripTypeScriptTypes(bytes.toString('utf8'), { mode: 'strip' });
+    const base = await loadAsset(file, ext === '.ts' ? strip : undefined);
+    if (ext === '.ts' || (ext === '.js' && file !== join(WEB_ROOT, 'sw.js'))) return this.derived.get(file, id, base, () => versionScript(base.body.toString('utf8'), id));
+    if (ext !== '.html') return base;
+    return this.derived.get(file, id, base, () => versionPage(base.body.toString('utf8'), id, file, WEB_ROOT, async (module) => {
+      // A module that can't be read is left to fail in the browser; it doesn't take the page down with it.
+      const source = await loadAsset(module, strip).then((a) => a.body.toString('utf8'), () => '');
+      return staticImports(source).map((rel) => join(dirname(module), rel));
+    }));
+  }
+
   private async serveStatic(req: IncomingMessage, res: ServerResponse, rel: string): Promise<void> {
     const file = normalize(join(WEB_ROOT, rel));
     const ext = extname(file);
@@ -525,15 +544,20 @@ export class WebClient {
       return;
     }
     let asset: Asset;
+    let id: string;
     try {
-      // Read, type-stripped and hashed once, until the file changes.
-      asset = await loadAsset(file, ext === '.ts' ? (bytes) => stripTypeScriptTypes(bytes.toString('utf8'), { mode: 'strip' }) : undefined);
+      id = await this.build.id();
+      asset = await this.versioned(file, ext, id);
     } catch {
       sendError(req, res, 404);
       return;
     }
+    // A script, style or image asked for with the current build id never changes under that URL (web-build.ts), so the
+    // browser may keep it for good; the pages, the service worker and anything asked for without it are revalidated.
+    const forever = ext !== '.html' && ext !== '.webmanifest' && file !== join(WEB_ROOT, 'sw.js')
+      && new URL(req.url ?? '/', 'http://localhost').searchParams.get('v') === id;
     await sendAsset(req, res, {
-      'content-type': TYPES[ext], 'cache-control': 'no-cache', 'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer',
+      'content-type': TYPES[ext], 'cache-control': forever ? 'public, max-age=31536000, immutable' : 'no-cache', 'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer',
       // Web viewers draw a solution's HTML in frames; a frame can't navigate itself out to the network.
       // No other site may frame the app (clickjacking).
       // frame-src also names the https hosts an administrator let web viewers load (any file's; the client frames only its own file's).
