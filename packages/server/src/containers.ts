@@ -15,7 +15,8 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { Worker } from 'node:worker_threads';
 import { execFile } from 'node:child_process';
-import { accessSync, statSync, constants, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { accessSync, statSync, constants, mkdtempSync } from 'node:fs';
+import { cleanupPath, readFileSync, writeFileSync } from '../../store/src/fs-boundary.ts';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CONTAINER_CHUNK } from '../../store/src/index.ts';
@@ -447,9 +448,11 @@ export class ContainerFiles {
     if (!run) return undefined;
     if (!await this.takeToolSlot(signal)) return undefined;
     let dir: string | undefined;
+    let cleanup = () => {};
     try {
       if (this.stopped || signal?.aborted) return undefined;
       dir = mkdtempSync(join(tmpdir(), 'tabularius-thumb-'));
+      cleanup = cleanupPath(dir, { recursive: true, force: true });
       writeFileSync(join(dir, 'in'), data);
       const [cmd, args] = run(dir);
       await new Promise<void>((resolve, reject) => {
@@ -460,7 +463,7 @@ export class ContainerFiles {
     } catch {
       return undefined;
     } finally {
-      try { if (dir) rmSync(dir, { recursive: true, force: true }); }
+      try { cleanup(); }
       finally { this.releaseToolSlot(); }
     }
   }

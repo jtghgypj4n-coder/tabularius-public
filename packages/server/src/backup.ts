@@ -1,5 +1,5 @@
 import { checkPathLength } from '../../store/src/portable-path.ts';
-import { renameFileSync as renameSync, removeFileSync as rmSync } from '../../store/src/file-ops.ts';
+import { renameCheckedSync as renameSync, removeFileSync as rmSync } from '../../store/src/file-ops.ts';
 // Backups of a hosted folder, safe while the server runs.
 //
 // Each run writes a backup set: Backups/2026-10-11_174500/<name>.openhbam.sqlite
@@ -26,7 +26,8 @@ import { isDamageError } from '../../store/src/damage.ts';
 import { accountKey } from '../../store/src/account-provisioning.ts';
 import { refuseNewer, storedFormat } from '../../store/src/store-format.ts';
 import { DatabaseSync, backup } from 'node:sqlite';
-import { accessSync, chmodSync, constants, copyFileSync, existsSync, linkSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
+import { accessSync, chmodSync, closeSync, constants, existsSync, linkSync, lstatSync, mkdirSync, readdirSync, realpathSync, statSync } from 'node:fs';
+import { checkedFile, cleanupPath, openSync, copyFileSync, readFileSync, writeFileSync } from '../../store/src/fs-boundary.ts';
 import { randomUUID } from 'node:crypto';
 import { basename, dirname, join, resolve } from 'node:path';
 import { STORE_EXT } from './host.ts';
@@ -228,14 +229,23 @@ async function backupOnce(folder: string, dest: string, keep: number, passphrase
   const partial = join(dest, `${name}.partial`);
   // Refuse before creating any part of a backup, including manifest staging and database sidecars.
   for (const f of [...names, 'backup.json']) checkPathLength(join(partial, f), 90, platform);
-  mkdirSync(partial, { recursive: true });
+  mkdirSync(dest, { recursive: true, mode: 0o700 });
+  // Exclusive directory creation: never adopt a pre-existing staging folder.
+  mkdirSync(partial, { mode: 0o700 });
+  const cleanupPartial = cleanupPath(partial, { recursive: true, force: true });
   try {
     writeBackupInfo(partial, { finished: {}, sha256: {} });
     for (const f of names) {
       check();
+      const checkSource = checkedFile(join(folder, f));
       const src = new DatabaseSync(join(folder, f), { readOnly: true });
       try {
+        checkSource();
+        // SQLite inherits this private file's mode rather than its default.
+        closeSync(openSync(join(partial, f), 'wx', 0o600));
+        const checkCopy = checkedFile(join(partial, f));
         await backup(src, join(partial, f), { rate: 100, progress: () => { check(); return 100; } });
+        checkCopy();
         check();
       } finally {
         src.close();
@@ -273,7 +283,7 @@ async function backupOnce(folder: string, dest: string, keep: number, passphrase
     renameSync(partial, join(dest, name));
     crashPoint('backup:after-publish');
   } catch (e) {
-    rmSync(partial, { recursive: true, force: true });
+    cleanupPartial();
     throw e;
   }
   const sets = backupSets(dest);
@@ -529,7 +539,7 @@ function releasePidFile(folder: string, ino: number): void {
 
 /** The process id of a server hosting the folder, if one is running. */
 export function runningServer(folder: string): number | undefined {
-  const file = join(folder, PID_FILE);
+  const file = join(folderKey(folder), PID_FILE);
   if (!existsSync(file)) return undefined;
   const pid = Number(readFileSync(file, 'utf8'));
   if (!Number.isInteger(pid) || pid <= 0) return undefined;

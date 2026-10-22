@@ -17,7 +17,8 @@ import { DatabaseSync, backup, type Session, type StatementSync, type SQLInputVa
 import { createHash, createHmac, pbkdf2Sync, scrypt, scryptSync, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { isIP } from 'node:net';
 import { basename, dirname, extname, join, relative, resolve, isAbsolute } from 'node:path';
-import { closeSync, constants as fsConstants, existsSync, mkdirSync, openSync, readFileSync, readSync, rmSync, statSync, writeFileSync, writeSync } from 'node:fs';
+import { closeSync, constants as fsConstants, existsSync, mkdirSync, readSync, rmSync, statSync } from 'node:fs';
+import { checkedFile, cleanupPath, openSync, readFileSync, writeFileSync, writeSync } from './fs-boundary.ts';
 import { externalFieldNames, parseDate, parseTime, parseTimestamp, type DateStyle, type Field, type FieldType, type LayoutDesign, type LayoutDesigns, type LayoutObject, type Schema, type Table } from '../../fmp12/src/index.ts';
 import { findWhere, registerFindFunctions, beginFindBudget, FindError, type RelatedCriteria, type FieldInfo, type FindRequest, type SqlValue, type WordIndex } from './find.ts';
 import { defineFold, WordIndexes, wordIndexName } from './words.ts';
@@ -1312,7 +1313,7 @@ export class Store {
   private heldAudit: { seq: number; onAudit?: (file: object, seq: number) => void }[] = [];
   private heldNewIds = new Map<string, number>();
   /** Container files written to disk (external storage) under the held transaction: removed if it rolls back. */
-  private heldFiles: string[] = [];
+  private heldFiles: (() => void)[] = [];
 
   /**
    * Before a write: a script's open transaction takes this file (a savepoint),
@@ -1449,7 +1450,7 @@ export class Store {
       // No container names them any more: the files go too, as if they had never been put in.
       // A file that can't be removed (in use, no permission) is only left behind: the rollback stands, and other files' holds still end.
       for (const f of written) {
-        try { rmSync(f, { force: true }); } catch { /* orphaned file only */ }
+        try { f(); } catch { /* orphaned file only */ }
       }
     }
     if (this.denialPending.size) this.scheduleDenials(0);
@@ -1458,13 +1459,15 @@ export class Store {
 
   /** Copies the live database to `dest` while it stays in use (SQLite's online backup). */
   async backup(dest: string): Promise<void> {
+    closeSync(openSync(dest, 'a', 0o600));
+    const check = checkedFile(dest);
     // Each copy step runs on a worker thread. SQLite answers a step that starts while this connection is in the middle of
     // a write with "busy", which Node reports as error code 0 ("not an error") from the other file; the write is over a
     // moment later, so the copy starts again, as a busy file is retried everywhere else.
     for (let attempt = 1; ; attempt++) {
       try {
         await backup(this.sql, dest);
-        return;
+        break;
       } catch (e) {
         const error = e as { code?: string; errcode?: number };
         const busy = error.code === 'ERR_SQLITE_ERROR' && (error.errcode === 0 || error.errcode === 5 || error.errcode === 6);
@@ -1472,6 +1475,7 @@ export class Store {
         await new Promise<void>((resolve) => setTimeout(resolve, 5));
       }
     }
+    check();
   }
 
   // --- several users -------------------------------------------------------
@@ -7057,12 +7061,20 @@ export class Store {
     const full = safeWritePath(root, rel, this.externalDirectoryLinks);
     if (!full) return undefined;
     beforeWrite?.(root, rel);
-    const fd = openSync(full, fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL | (fsConstants.O_NOFOLLOW ?? 0), 0o666);
+    // Open external storage keeps its historical umask-filtered permissions.
+    // Pass the effective mode because guarded opens also chmod the descriptor.
+    const fd = openSync(full, fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL | (fsConstants.O_NOFOLLOW ?? 0), 0o666 & ~process.umask());
+    const cleanup = cleanupPath(full);
+    let complete = false;
     try {
       if (spooled(file)) eachContainerPiece(file, (_n, piece) => { for (let done = 0; done < piece.length;) done += writeSync(fd, piece, done, piece.length - done); });
       else writeFileSync(fd, file.data);
-    } finally { closeSync(fd); }
-    if (this.heldBy) this.heldFiles.push(full);
+      complete = true;
+    } finally {
+      closeSync(fd);
+      if (!complete) cleanup();
+    }
+    if (this.heldBy) this.heldFiles.push(cleanup);
     return { rel, full };
   }
 

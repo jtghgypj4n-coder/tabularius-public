@@ -13,7 +13,8 @@
 // (before a byte is taken in) and again when it finishes, with the account's privileges at that moment.
 
 import { createHash, randomBytes, type Hash } from 'node:crypto';
-import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, rmSync, writeFileSync, writeSync, lstatSync, readdirSync, readSync } from 'node:fs';
+import { closeSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readSync, rmSync } from 'node:fs';
+import { cleanupPath, openSync, writeFileSync, writeSync } from '../../store/src/fs-boundary.ts';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ContainerFile } from '../../store/src/index.ts';
@@ -144,6 +145,7 @@ export interface ContainerUpload extends ContainerTarget {
 
 interface Held extends ContainerUpload {
   path: string;
+  cleanup: () => void;
   hash: Hash;
   /** The SHA-256 the client said the file has, to check at the end. */
   expected?: string;
@@ -156,8 +158,8 @@ interface Held extends ContainerUpload {
 }
 
 /** Spool folders in use, removed when the process ends (an upload cut short by a crash cannot be resumed anyway). */
-const folders = new Set<string>();
-process.once('exit', () => { for (const f of folders) rmSync(f, { recursive: true, force: true }); });
+const folders = new Map<string, () => void>();
+process.once('exit', () => { for (const cleanup of folders.values()) cleanup(); });
 
 const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 
@@ -180,7 +182,7 @@ export class ContainerUploads {
     if (!this.dir) {
       mkdirSync(this.tmp, { recursive: true });
       this.dir = mkdtempSync(join(this.tmp, 'tabularius-container-uploads-'));
-      folders.add(this.dir);
+      folders.set(this.dir, cleanupPath(this.dir, { recursive: true, force: true }));
       try { writeFileSync(join(this.dir, 'owner.json'), JSON.stringify({ pid: process.pid, started: Date.now(), version: 1 }), { flag: 'wx', mode: 0o600 }); }
       catch { /* Age-based sweep remains available if the marker cannot be written. */ }
     }
@@ -208,12 +210,12 @@ export class ContainerUploads {
     if (this.declared() + size > MAX_CONTAINER_UPLOAD_BYTES) throw new ContainerUploadError(413, 'Too many bytes are being uploaded at once; try again when one has finished');
     const id = randomBytes(18).toString('base64url');
     const path = this.spool(id);
-    closeSync(openSync(path, 'w'));
+    closeSync(openSync(path, 'wx', 0o600));
     const held: Held = {
       id, db: who.db, account: who.account, ...target,
       filename: typeof meta.filename === 'string' && meta.filename ? meta.filename.replace(/^[\s\S]*[\\/]/, '') || null : null,
       mime: typeof meta.mime === 'string' && meta.mime ? meta.mime : 'application/octet-stream',
-      size, received: 0, path, hash: createHash('sha256'), expected: typeof meta.sha256 === 'string' ? meta.sha256.toLowerCase() : undefined,
+      size, received: 0, path, cleanup: cleanupPath(path), hash: createHash('sha256'), expected: typeof meta.sha256 === 'string' ? meta.sha256.toLowerCase() : undefined,
       touched: this.now(), writing: false, finishing: false, cancelled: false,
     };
     this.uploads.set(id, held);
@@ -323,7 +325,7 @@ export class ContainerUploads {
 
   private drop(u: Held): void {
     this.uploads.delete(u.id);
-    rmSync(u.path, { force: true });
+    u.cleanup();
   }
 
   /** Removes uploads nothing has arrived for in the idle time: their bytes would otherwise stay until the server stopped. */
@@ -343,7 +345,7 @@ export class ContainerUploads {
     this.timer = undefined;
     for (const u of [...this.uploads.values()]) this.drop(u);
     if (this.dir) {
-      rmSync(this.dir, { recursive: true, force: true });
+      folders.get(this.dir)?.();
       folders.delete(this.dir);
     }
     this.dir = undefined;

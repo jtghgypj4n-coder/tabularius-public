@@ -1,5 +1,4 @@
-import { renameFile as rename } from '../../store/src/file-ops.ts';
-import { renameFileSync as renameSync } from '../../store/src/file-ops.ts';
+import { renameCheckedFile as rename, renameCheckedSync as renameSync } from '../../store/src/file-ops.ts';
 // The server's logs, like FileMaker Server's Logs folder: tab-separated text
 // files in <folder>/Logs, each renamed <name>-old.log when it reaches the size
 // limit and started again, so a log never fills the disk.
@@ -25,8 +24,9 @@ import { renameFileSync as renameSync } from '../../store/src/file-ops.ts';
 
 import { isCredentialParameterName } from '../../scripts/src/credentials.ts';
 import { redactDiagnosticText } from '../../scripts/src/redaction.ts';
-import { appendFile, mkdir, stat } from 'node:fs/promises';
-import { existsSync, mkdirSync, readFileSync, statSync, appendFileSync } from 'node:fs';
+import { mkdir, stat } from 'node:fs/promises';
+import { existsSync, mkdirSync, statSync } from 'node:fs';
+import { appendFile, appendFileSync, readFileSync } from '../../store/src/fs-boundary.ts';
 import { join } from 'node:path';
 
 export const LOGS = ['Event', 'Access', 'ScriptEvent', 'fmdapi', 'Admin'] as const;
@@ -133,10 +133,11 @@ export class ServerLogs {
           await mkdir(this.dir, { recursive: true });
           const file = join(this.dir, `${log}.log`);
           if (this.rotate) {
-            let size = 0;
-            try { size = (await stat(file)).size; }
-            catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e; }
-            if (size >= this.limit) await rename(file, join(this.dir, `${log}-old.log`));
+            try {
+              if ((await stat(file)).size >= this.limit) await rename(file, join(this.dir, `${log}-old.log`));
+            } catch (error) {
+              if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+            }
           }
           await appendFile(file, lines.join(''));
         } catch (e) {

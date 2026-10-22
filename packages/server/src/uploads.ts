@@ -17,7 +17,8 @@
 import { eachChunk } from './dataapi.ts';
 import type { IncomingMessage } from 'node:http';
 import { randomBytes } from 'node:crypto';
-import { closeSync, existsSync, mkdirSync, openSync, readdirSync, rmSync, statSync, writeSync } from 'node:fs';
+import { closeSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { cleanupPath, openSync, writeSync } from '../../store/src/fs-boundary.ts';
 import { join } from 'node:path';
 import type { ImportProgress } from '../../store/src/index.ts';
 import type { Host } from './host.ts';
@@ -136,6 +137,7 @@ export class Uploads {
   /** When each upload last started or received a piece (monotonic milliseconds). */
   private readonly active = new Map<string, number>();
   private readonly writing = new Set<string>();
+  private readonly cleanups = new Map<string, () => void>();
   private readonly conversions = new Map<string, { stop: AbortController; done: Promise<void> }>();
 
   constructor(host: Host, log: (msg: string) => void = () => {}, opts: { now?: () => number; idleMs?: number } = {}) {
@@ -175,6 +177,12 @@ export class Uploads {
     return join(this.dir, `${id}.part`);
   }
 
+  private cleanPart(id: string): void {
+    const cleanup = this.cleanups.get(id);
+    this.cleanups.delete(id);
+    cleanup?.();
+  }
+
   private taken(name: string): boolean {
     const lower = name.toLowerCase();
     return !!this.host.get(name) || existsSync(join(this.host.dir, name + STORE_EXT)) || existsSync(join(this.host.dir, name + STORE_EXT + ENCRYPTED_EXT)) || existsSync(join(this.host.dir, name + '.fmp12'))
@@ -206,6 +214,7 @@ export class Uploads {
     mkdirSync(this.dir, { recursive: true, mode: 0o700 });
     const id = `${this.owner}-${randomBytes(9).toString('base64url')}`;
     closeSync(openSync(this.part(id), 'wx', 0o600));
+    this.cleanups.set(id, cleanupPath(this.part(id)));
     const u: Upload = { id, name, size, received: 0, phase: 'uploading', started: new Date().toISOString() };
     this.uploads.set(id, u);
     this.active.set(id, this.now());
@@ -305,7 +314,7 @@ export class Uploads {
         }
       }
     } catch (e) {
-      rmSync(this.part(u.id), { force: true });
+      this.cleanPart(u.id);
       if (stop.signal.aborted) this.log(`cancelled upload of ${u.name}.fmp12`);
       else {
         u.phase = 'failed';
@@ -314,10 +323,11 @@ export class Uploads {
       }
     } finally {
       if (stop.signal.aborted) {
-        rmSync(this.part(u.id), { force: true });
+        this.cleanPart(u.id);
         this.uploads.delete(u.id);
         this.active.delete(u.id);
       }
+      this.cleanups.delete(u.id);
       u.finished = new Date().toISOString();
       u.progress = undefined;
     }
@@ -332,7 +342,7 @@ export class Uploads {
       conversion?.stop.abort();
       return conversion?.done; // The conversion owns its files until the worker has exited.
     }
-    rmSync(this.part(id), { force: true });
+    this.cleanPart(id);
     this.uploads.delete(id);
     this.active.delete(id);
   }
@@ -343,7 +353,7 @@ export class Uploads {
     const cutoff = this.now() - this.idleMs;
     for (const [id, u] of this.uploads) {
       if (this.writing.has(id) || u.phase !== 'uploading' || (this.active.get(id) ?? 0) > cutoff) continue;
-      rmSync(this.part(id), { force: true });
+      this.cleanPart(id);
       this.uploads.delete(id);
       this.active.delete(id);
       this.log(`removed abandoned upload of ${u.name}.fmp12: nothing arrived for ${Math.round(this.idleMs / 3_600_000)} hours`);
@@ -353,7 +363,7 @@ export class Uploads {
   private prune(): void {
     for (const [id, u] of this.uploads) {
       if (this.uploads.size <= KEEP) break;
-      if (u.phase === 'hosted' || u.phase === 'failed' || u.phase === 'locked') { this.uploads.delete(id); this.active.delete(id); }
+      if (u.phase === 'hosted' || u.phase === 'failed' || u.phase === 'locked') { this.uploads.delete(id); this.active.delete(id); this.cleanups.delete(id); }
     }
   }
 }

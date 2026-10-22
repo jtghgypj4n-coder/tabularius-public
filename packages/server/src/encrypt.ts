@@ -7,9 +7,9 @@
 // Streams, so multi-gigabyte files never sit in memory.
 
 import { createCipheriv, createDecipheriv, randomBytes, scrypt, scryptSync } from 'node:crypto';
-import { closeSync, fstatSync, fsyncSync, openSync, readSync, writeSync } from 'node:fs';
+import { open, openSync, writeSync, writeFileHandle } from '../../store/src/fs-boundary.ts';
+import { closeSync, fstatSync, fsyncSync, readSync } from 'node:fs';
 import type { FileHandle } from 'node:fs/promises';
-import { open } from 'node:fs/promises';
 
 const MAGIC = Buffer.from('OPENHBAM-ENC1\n');
 const CHUNK = 1 << 20;
@@ -46,14 +46,6 @@ function writeAllSync(output: number, data: Buffer, path: string): void {
     const written = writeSync(output, data, offset, data.length - offset);
     if (written <= 0) throw new Error(`${path}: write made no progress`);
     offset += written;
-  }
-}
-
-async function writeAll(output: FileHandle, data: Buffer, path: string): Promise<void> {
-  for (let offset = 0; offset < data.length;) {
-    const { bytesWritten } = await output.write(data, offset, data.length - offset);
-    if (bytesWritten <= 0) throw new Error(`${path}: write made no progress`);
-    offset += bytesWritten;
   }
 }
 
@@ -95,7 +87,7 @@ export async function encryptFile(src: string, dest: string, passphrase: string,
   let output: FileHandle | undefined;
   try {
     output = await open(dest, 'w');
-    await writeAll(output, Buffer.concat([MAGIC, salt, prefix]), dest);
+    await writeFileHandle(output, Buffer.concat([MAGIC, salt, prefix]));
     const size = (await input.stat()).size;
     const buf = Buffer.alloc(CHUNK);
     let pos = 0;
@@ -104,7 +96,7 @@ export async function encryptFile(src: string, dest: string, passphrase: string,
       if (bytesRead === 0 && pos < size) throw new Error(`${src} changed while being encrypted`);
       pos += bytesRead;
       const last = pos >= size;
-      await writeAll(output, sealChunk(key, prefix, n, buf.subarray(0, bytesRead), last), dest);
+      await writeFileHandle(output, sealChunk(key, prefix, n, buf.subarray(0, bytesRead), last));
       if (last) break;
     }
     await output.sync();
@@ -208,7 +200,7 @@ export async function decryptFile(src: string, dest: string, passphrase: string)
       } catch {
         throw new Error(n === 0 ? `can't decrypt ${src}: wrong passphrase, or the file is damaged` : `${src} is damaged`);
       }
-      await writeAll(output, plain, dest);
+      await writeFileHandle(output, plain);
       if (last) break;
     }
     await output.sync();

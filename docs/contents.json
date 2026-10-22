@@ -333,6 +333,7 @@
         "docs/audits/audit-plugin-ecosystem.md",
         "docs/audits/mcp-conformance.md",
         "docs/audits/r25-22-date-time-functions.md",
+        "docs/audits/r25-11-filesystem-races.md",
         "docs/audit-mutation.md",
         "docs/audits/r19-06-session-sequence-fuzz.md",
         "docs/audits/r26-12-action-matrix.md",
