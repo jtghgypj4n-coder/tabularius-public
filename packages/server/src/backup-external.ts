@@ -251,11 +251,19 @@ export async function stageExternal(setDir: string, folder: string, names: strin
     const key = `${sub}/${name}`;
     roots.set(key, [...(roots.get(key) ?? []), rel]);
   }
-  for (const key of roots.keys()) {
-    if (!existsSync(join(setDir, native(key)))) continue;
-    for (const file of walk(setDir, key)) {
-      const listed = manifest[file] ?? (file.endsWith(ENCRYPTED_EXT) ? manifest[file.slice(0, -ENCRYPTED_EXT.length)] : undefined);
-      if (!listed) throw new Error(`${file}: absent from backup.json external manifest`);
+  // Every container folder the set holds for these databases must be listed, whether or not the manifest names any of
+  // its files: a manifest with no external section, or one that lists only another database's files, vouches for nothing.
+  for (const sub of EXTERNAL_DIRS) {
+    for (const name of names) {
+      const key = `${sub}/${name}`;
+      const dir = join(setDir, native(key));
+      let found;
+      try { found = lstatSync(dir); } catch (e) { if ((e as NodeJS.ErrnoException).code === 'ENOENT') continue; throw e; }
+      if (!found.isDirectory()) throw new Error(`${key}: not a plain folder in the backup set`);
+      for (const file of walk(setDir, key)) {
+        const listed = manifest[file] ?? (file.endsWith(ENCRYPTED_EXT) ? manifest[file.slice(0, -ENCRYPTED_EXT.length)] : undefined);
+        if (!listed) throw new Error(`${file}: absent from backup.json external manifest`);
+      }
     }
   }
   const staged: [string, string][] = [];

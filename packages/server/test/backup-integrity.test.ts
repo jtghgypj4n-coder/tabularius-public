@@ -146,3 +146,25 @@ test('database restore requires backup.json when either generation has container
     assert.equal(readFileSync(join(root, 'Files/A/keep'), 'utf8'), 'keep container');
   }
 });
+
+for (const drop of ['all', 'B']) test(`restore refuses container files the manifest does not list (${drop === 'all' ? 'no external section' : 'only another database\'s entries'})`, async (t) => {
+  {
+    const { folder, set } = setup(t);
+    for (const name of ['A.openhbam.sqlite', 'B.openhbam.sqlite']) createStore(join(folder, name));
+    for (const db of ['A', 'B']) {
+      mkdirSync(join(folder, 'Files', db), { recursive: true });
+      writeFileSync(join(folder, 'Files', db, 'f'), `${db} original`);
+    }
+    const backup = (await backupFolder(folder, set, 0, '')).dir;
+    const infoPath = join(backup, 'backup.json');
+    const info = JSON.parse(readFileSync(infoPath, 'utf8'));
+    if (drop === 'all') delete info.external;
+    else for (const rel of Object.keys(info.external)) if (rel.startsWith('Files/B/')) delete info.external[rel];
+    writeFileSync(infoPath, JSON.stringify(info));
+    for (const db of ['A', 'B']) writeFileSync(join(folder, 'Files', db, 'f'), `${db} edited`);
+    const before = ['A', 'B'].map((name) => readFileSync(join(folder, `${name}.openhbam.sqlite`)));
+    await assert.rejects(restoreBackup(folder, backup, undefined, ''), /absent from backup\.json external manifest/);
+    for (const db of ['A', 'B']) assert.equal(readFileSync(join(folder, 'Files', db, 'f'), 'utf8'), `${db} edited`);
+    ['A', 'B'].forEach((name, i) => assert.deepEqual(readFileSync(join(folder, `${name}.openhbam.sqlite`)), before[i]));
+  }
+});

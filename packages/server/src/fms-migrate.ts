@@ -320,8 +320,9 @@ function interval(minutes: number): string {
 
 /**
  * Brings a FileMaker Server's setup into `dest`, a Tabularius folder (made if
- * missing). Files already in the folder, and schedules with a name already
- * used, are left as they are, so running it again only adds what's new.
+ * missing). A file already in the folder (its container files with it), and
+ * schedules with a name already used, are left as they are, so running it
+ * again only adds files and schedules that are new.
  */
 export function migrateFms(exp: FmsExport, dest: string, opts: MigrateOptions = {}): MigrationReport {
   if (opts.dryRun) return migrateFmsClaimed(exp, dest, opts);
@@ -349,7 +350,7 @@ function migrateFmsClaimed(exp: FmsExport, dest: string, opts: MigrateOptions): 
   const taken = new Set<string>();
   for (const db of databases) {
     if (basename(db.filename) !== db.filename || /[\\\0:]/.test(db.filename) || !/\.fmp12$/i.test(db.filename)) {
-      throw new Error(`Invalid migration filename: ${db.filename}`);
+      throw new FmsMigrationError(`invalid hosted filename: ${db.filename}`);
     }
     const name = basename(db.filename, extname(db.filename));
     const entry: MigrationReport['files'][number] = { name, done: false };
