@@ -23,12 +23,14 @@ const REGISTRY_LEVEL = new Set(['co', 'com', 'org', 'net', 'gov', 'gob', 'edu', 
 function isPublicSuffix(labels: string[]): boolean {
   const name = labels.join('.');
   if (SHARED_SUFFIXES.has(name)) return true;
+  // A name above a listed one (windows.net over blob.core.windows.net) allows everything the listed one does.
+  for (const shared of SHARED_SUFFIXES) if (shared.endsWith(`.${name}`)) return true;
   // Every blog on a blog service has its own name under it, in each country's flavour (blogspot.com, blogspot.co.uk, ...).
   if (labels[0] === 'blogspot') return true;
   // Names under amazonaws.com (or its China twin) are the cloud's service names (s3, compute, regional endpoints): a wildcard over one allows every
   // customer's. Service and region is two labels (s3.us-east-1) and a bucket's own name is a label more; the dual-stack and FIPS endpoints add a label
   // of their own, so they are told by it.
-  const aws = name.endsWith('.amazonaws.com') ? 2 : name.endsWith('.amazonaws.com.cn') ? 3 : 0;
+  const aws = `.${name}`.endsWith('.amazonaws.com') ? 2 : `.${name}`.endsWith('.amazonaws.com.cn') ? 3 : 0;
   if (aws && (labels.length - aws <= 2 || labels.some((l) => l === 'dualstack' || l.endsWith('-fips') || l === 'fips') && labels.length - aws <= 3)) return true;
   return labels.length === 2 && labels[1].length === 2 && REGISTRY_LEVEL.has(labels[0]);
 }
