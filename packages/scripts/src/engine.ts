@@ -1765,6 +1765,15 @@ export class ScriptEngine {
   }
 
   private async customDialog(f: Frame, p: StepParams, name: string): Promise<void> {
+    // Claris lists Show Custom Dialog as unsupported on FileMaker Server and in the Data API. With no one to answer, no
+    // button is pressed and no field is filled: the step is error 3 and Get ( LastMessageChoice ) stays as it was (the
+    // error code is inferred from how other unsupported steps behave; Claris does not say).
+    if (!this.opts.dialog) {
+      const message = 'Show Custom Dialog is not supported in scripts run without a person (FileMaker Server and the Data API do not support it); nothing was shown';
+      const warning = `${message} (script "${f.script.name}")`;
+      if (!this.warnings.includes(warning)) this.warnings.push(warning);
+      throw new ScriptError(ERROR.unavailable, message);
+    }
     const calc = (x: string | undefined) => (x === undefined ? '' : asText(this.eval(f, x)));
     const buttons = p.buttons?.length ? p.buttons.map(calc) : ['OK'];
     const title = calc(p.title);
@@ -1775,11 +1784,6 @@ export class ScriptEngine {
       // FileMaker's Use password character option isn't decoded from files, so a label naming a password stands in for it.
       password: x.password ?? /password|passwort|mot de passe|contrase/i.test(calc(x.label)),
     }));
-    if (!this.opts.dialog) {
-      this.actions.push({ step: name, script: f.script.name, title, message, buttons });
-      this.lastMessageChoice = 1;
-      return;
-    }
     const left = this.deadline - Date.now();
     this.hold();
     let answer: { button: number; inputs?: string[] } | undefined;
