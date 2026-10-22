@@ -28,7 +28,7 @@ Adding a foreign key, or changing what it checks, first checks the records alrea
 
 ## What writes must keep
 
-Every record write in the file is checked inside the same transaction as the write: create, edit, duplicate, delete and Truncate Table. Import Records, the web client's import, the Data API, OData, scripts and live sync's pulls all write through these. A refusal is error 505 ("Value is not an existing value in the file"), with a message that names the foreign key. A refused write changes nothing.
+Every record write in the file is checked inside the same transaction as the write: create, edit, duplicate, delete, Truncate Table, and putting a record back from the audit log (the admin console's put-back, `restoreRecord`). A table that is the parent in a foreign key reads, checks and writes under one write lock, so another server process can't add a child in between. Import Records, the web client's import, the Data API, OData, scripts and live sync's pulls all write through these. A refusal is error 505 ("Value is not an existing value in the file"), with a message that names the foreign key. A refused write changes nothing.
 
 - **Child keys.** A child record's key must match a parent record's key. Text is compared without regard to case, as the relationship compares it, and other types are compared as stored. An empty key is allowed. A key with more than one line is refused, because a child holds one parent key. A key that an edit leaves unchanged is not looked up again. In a self-referencing key, a record may name itself.
 - **Parent keys.** An edit that changes a parent's key while child records still use the old key is refused. There is no ON UPDATE choice. An edit that leaves another parent with the old key is allowed. Parent keys need not be unique.
@@ -61,6 +61,6 @@ Live sync's "keep related records" setting (`cascade: false`) leaves "delete rel
 
 - There is no ON UPDATE (cascading a changed parent key to its children). A parent key change while children use it is refused.
 - A key across files (a table occurrence of another hosted file) is refused.
-- A child write is refused when the parent key is missing even if the account can't see parent records. As in SQL databases, the refusal tells the account that no parent has that key.
+- A child write is refused when the parent key is missing even if the account can't see parent records. As in SQL databases, the refusal tells the account that no parent has that key. A refused parent delete or key change gives the number of child records only when the account can view the child table; otherwise it names only the table. These checks read every record, whatever the account may see (the read-gate inventory lists them as internal integrity reads).
 - Values are checked one record at a time. Large imports into a child table run one parent lookup per record.
 - Export to a compat file does not carry foreign keys. The compat-check registry (N5) is a separate change.
