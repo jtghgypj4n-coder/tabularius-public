@@ -34,11 +34,11 @@ runs but omits the listed behavior or options.
 | Script step | What happens |
 |---|---|
 | Print Setup | Returns successfully without applying print settings. <!-- engine.ts --> |
-| Open Help; Open Settings; Open Sharing; Open File Options; Open Hosts; Open Find/Replace; Open Upload to Host; Open Favorites | Return successfully without opening their corresponding client flows. <!-- engine.ts --> |
+| Open Settings; Open Sharing; Open File Options; Open Hosts; Open Find/Replace; Open Upload to Host; Open Favorites | Return successfully without opening their corresponding client flows. <!-- engine.ts --> |
 | Show/Hide Text Ruler; Allow Formatting Bar; Enable Touch Keyboard | Show nothing, but keep the setting for the window the script is in (a new window starts with all three off), so Get ( TextRulerVisible ), Get ( AllowFormattingBarState ) and Get ( TouchKeyboardState ) give what the script set, for as long as the script runs. They are 0 until a script sets them, as Claris documents for a server or WebDirect. Only scripts written in the script editor set them; the same steps in an imported .fmp12 file or pasted FileMaker XML still do nothing, as their options aren't read yet. <!-- engine.ts --> |
 | Set Layout Object Animation | Shows nothing, but Get ( ScriptAnimationState ) gives 1 after On and 0 after Off, for every window until the script ends (off to begin with, as Claris says). <!-- engine.ts --> |
 | Edit User Dictionary; Set Dictionary | Return successfully without changing spelling dictionaries. <!-- engine.ts --> |
-| Arrange All Windows | Returns successfully without arranging windows. <!-- engine.ts --> |
+| Arrange All Windows | Returns successfully without arranging windows. Window-card arrangement is unverified: the engine has window state but no documented arrangement behavior or client action. <!-- engine.ts --> <!-- known-difference: Scripts and script steps ;; Window arrangement behavior is unverified ;; Script succeeds without arranging windows ;; Confirm the expected client arrangement behavior --> |
 | Set Multi-User | Returns successfully without changing sharing; hosted files are always shared. <!-- engine.ts --> |
 
 Close File with no file named leaves the current file open while its script runs.

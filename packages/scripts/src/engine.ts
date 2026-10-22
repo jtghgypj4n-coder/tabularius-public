@@ -4835,13 +4835,16 @@ export class ScriptEngine {
         return undefined;
       case 120: case 42:
         return undefined;
+      case 32: // Open Help: the server's guides are available at /docs.
+        this.actions.push({ step: s.name, script: f.script.name, open: 'help' });
+        return undefined;
       case 45: // Undo/Redo: the script's own uncommitted field edits in the current record
         this.undoRedo(win, p.undo ?? 'undo');
         return undefined;
       case 149: // Open Edit Saved Finds: the web client's Edit Saved Finds dialog
         this.actions.push({ step: s.name, script: f.script.name, open: 'saved-finds' });
         return undefined;
-      case 32: case 105: case 109: case 113: case 114: case 118: case 129: case 172: case 183: case 209:
+      case 105: case 109: case 113: case 114: case 118: case 129: case 172: case 183: case 209:
         return undefined;
     }
     return unsupported();
