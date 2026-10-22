@@ -20,7 +20,8 @@ services:
       # Daily backups to /data/Backups, keeping the last 7.
       TABULARIUS_BACKUP_EVERY: 1d
       TABULARIUS_BACKUP_KEEP: "7"
-      # Needed for MCP from other machines (AI clients send it as a Bearer token).
+      # Optional: a fixed MCP token for AI clients on other machines, sent as a Bearer token.
+      # Every /mcp request needs a credential.
       # TABULARIUS_MCP_TOKEN: change-me
       # The address people use to reach the server, if it's behind a proxy.
       # TABULARIUS_PUBLIC_URL: https://filemaker.example.com

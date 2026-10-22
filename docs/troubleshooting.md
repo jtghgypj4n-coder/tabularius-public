@@ -253,7 +253,7 @@ host this copy instead, or rename the file.
 
 ## `this server takes in one upload`
 
-The file is bigger than `TABULARIUS_MAX_UPLOAD` (10 GB by default; the message gives the exact limit and both sizes). Copy it into the hosted
+The file is bigger than `TABULARIUS_MAX_UPLOAD` (10 GiB by default; the message gives the exact limit and both sizes). Copy it into the hosted
 folder named in the message instead (the server converts files that appear there), or start the server with `TABULARIUS_MAX_UPLOAD` set to a
 larger number of bytes.
 

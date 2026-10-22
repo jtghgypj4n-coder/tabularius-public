@@ -20,7 +20,7 @@ Server administrators who know `fmcsadmin` (the command-line tool for FileMaker 
 | `delete schedule` | Checked | |
 | `get serverconfig`, `get serverprefs`, `get cwpconfig` | Checked | Answers values that describe Tabularius (no cache size or connection limits to speak of). |
 | `set serverprefs BlockNewUsersEnabled=…` | Checked | Refuses every new sign-in; open sessions carry on. |
-| `set` of any other setting | No | Answers code 21 (not supported): the settings have nothing to change here. |
+| `set` of any other setting | No | Answers 960 (parameter is invalid) for a name it does not know; a known setting with a value it does not take answers code 21 (not supported). |
 | `certificate import`, `delete` | Checked | Installs a certificate from your own authority; see ADMIN.md. |
 | `certificate create` | By the route | The CSR route exists; the emic build refused the command before sending it (see the log). |
 | `stop`, `start` | By the route | Closes and reopens every hosted file; the server process keeps running. Stop and start the process itself with your service manager. |

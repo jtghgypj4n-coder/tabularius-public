@@ -43,7 +43,7 @@ The routes are in the [REST reference](reference/rest.md#admin-api). A test (`ad
 | Certificate: import | Answered | `PATCH /fmi/admin/api/v2/server/certificate/import` |
 | Certificate: delete | Answered | `DELETE /fmi/admin/api/v2/server/certificate/delete` |
 
-Schedules of the kinds FileMaker Server has and the Admin API shape here does not carry (a system-script schedule, a script sequence, a verify schedule) answer code 21. Tabularius has a verify schedule of its own (`kind: "verify"` on the console's `/tabularius/admin/v1/schedules`: it reads every page of the hosted files, or of one), which this Admin API does not list because the shape of Claris's `verifyType` is not known. A backup schedule reads its new set back (and one older set) unless `verifyBackup` is false. Schedule parity with FileMaker Server's schedule types is audited in `notes/audits/audit-schedule-parity.md`.
+Schedules of the kinds FileMaker Server has and the Admin API shape here does not carry (a system-script schedule, a script sequence, a verify schedule) answer code 21. Tabularius has a verify schedule of its own (`kind: "verify"` on the console's `/tabularius/admin/v1/schedules`: it reads every page of the hosted files, or of one), which this Admin API does not list because the shape of Claris's `verifyType` is not known. A backup schedule reads its new set back (and one older set) unless `verifyBackup` is false. Schedule parity with FileMaker Server's schedule types was audited in an internal note that is not in this repository.
 
 ## Not answered, by name
 
@@ -52,11 +52,11 @@ These Claris calls have no route here. Each is a candidate once the reference is
 - Update the server name; update the Admin Console account; administrator contact information; administrator roles (create, update, delete); restricted access; Admin API public keys; discovery.
 - Database folders: the additional database folder, the backup folder and the progressive backup folder, and the remote container folder paths; progressive backup settings; cancel a running backup; back up now.
 - Remote backups: list, restore, download.
-- Script error logs setting; the certificate settings for unknown revocation status; Let's Encrypt request and renew.
+- Script error logs setting; the certificate settings for unknown revocation status. Let's Encrypt is not an Admin API call here: `serve --https <domain>` gets and renews certificates itself.
 - Plug-in enable and disable; plug-in configuration.
 - Session timeouts (FileMaker Pro and Go, and WebDirect); database filtering; simultaneous FileMaker Server Extension sessions; license information; email notifications.
 - Identity provider settings (Amazon, Google, Microsoft, Apple, custom OAuth); the external account group name.
-- Database remove, download and upload, and the multi-part upload calls.
+- Database download and upload, and the multi-part upload calls. Database remove answers code 21 (not supported).
 - The Data API, OData and ODBC/JDBC (XDBC) settings.
 - Model server; Hugging Face token.
 - Standby server and server role (Tabularius has no counterpart: it is one server, or several worker processes with `serve --workers N`).

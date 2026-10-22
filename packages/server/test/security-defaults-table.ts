@@ -84,7 +84,7 @@ export const ROWS: Row[] = [
   {
     id: 'listen', section: 'Network and transport', setting: 'Listen address',
     default: 'This computer only (127.0.0.1)',
-    changedBy: '`--host 0.0.0.0` (or an address), `TABULARIUS_HOST`, which also needs HTTPS or `--allow-plain-http` (next rows); `--https <domain>` listens on every address unless `--host` says otherwise. `tabularius service install` listens on this computer only too, and applies the same rule to `--host`. The PostgreSQL-protocol port (`--sql-port`) listens on the same address',
+    changedBy: '`--host 0.0.0.0` (or an address), `TABULARIUS_HOST`, which also needs HTTPS or `--allow-plain-http` (next rows); `--https <domain>` listens on every address unless `--host` says otherwise. `tabularius service install` listens on this computer only too unless its `-- --https <domain>` option is given (every address then), and applies the same rule to `--host`. The PostgreSQL-protocol port (`--sql-port`) listens on the same address',
     risk: 'Anyone who can reach the machine can reach the sign-in pages. Set an admin password and use HTTPS before listening on the network',
     how: 'probed', expect: 'loopback only',
     observe: async (c) => listeningOn(c.port),
@@ -220,7 +220,7 @@ export const ROWS: Row[] = [
   {
     id: 'idle', section: 'Sign-in and accounts', setting: 'Session idle time',
     default: '15 minutes for Data API and web client sessions; 15 minutes for Admin API tokens',
-    changedBy: 'Admin console Settings, or the Admin API session timeout (1 to 1440 minutes); the web client can have its own',
+    changedBy: 'Admin console Settings, or `POST /tabularius/admin/v1/session-timeout` (1 to 1440 minutes), for Data API and web client sessions only; Admin API tokens stay at 15 minutes; the web client can have its own',
     risk: 'Longer sessions leave a signed-in browser or script usable for longer if it is left or taken',
     how: 'probed', expect: '15 / 15 / 15',
     observe: async (c) => {
@@ -326,7 +326,7 @@ export const ROWS: Row[] = [
   {
     id: 'script-install', section: 'What can reach outside', setting: 'Scripts installing plug-ins (Install Plug-In File)',
     default: 'Off',
-    changedBy: 'Admin console setting (`scriptPluginInstall` in the folder\'s settings file)',
+    changedBy: '`tabularius plugins <folder> script-install on|off` (stored as `scriptPluginInstall` in the folder\'s settings file)',
     risk: 'A script (and so whoever can run it) could add code that runs in the server',
     how: 'read from code', expect: 'off',
     observe: async (c) => (c.scriptPluginInstall() === false && grep(c.source('packages/server/src/server-config.ts'), /(values\(\)\.scriptPluginInstall === true)/) ? 'off' : 'on'),

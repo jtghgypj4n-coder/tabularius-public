@@ -13,12 +13,13 @@ described where the feature is ([README](../README.md), [ADMIN](../ADMIN.md)).
 
 A test (`packages/cli/test/docs-drift.test.ts`) fails when the code reads an
 `TABULARIUS_*` variable that no page documents, or a page documents one that
-nothing reads, so this list and the code cannot drift apart.
+nothing reads. The test checks each name against the pages, not against this table, so this table is not the complete list; the page for a feature often names the variables it reads.
 
 ## Hosting and network
 
 | Variable | Same as | What it sets |
 | --- | --- | --- |
+| `PORT` | `--port` | The port when `--port` is not given: 8080, or 443 with `--https name`. |
 | `TABULARIUS_HOST` | `--host` | The address to listen on (`127.0.0.1` by default; `0.0.0.0` with `--https name`). Beyond this computer it needs HTTPS or `TABULARIUS_ALLOW_PLAIN_HTTP`. |
 | `TABULARIUS_ALLOW_PLAIN_HTTP` | `--allow-plain-http` | Lets the server listen beyond this computer over plain HTTP, which it otherwise refuses to do (a proxy or network you control does the HTTPS). Set in the Docker image. |
 | `TABULARIUS_MIN_PASSWORD_LENGTH` | | The fewest characters a new password may have in a file whose own policy names no minimum, and for the admin console. 12 when unset (for the command line program and the server it starts; code that embeds the library sets none unless told); `0` for none. An AI tool can keep or raise a file's minimum but not lower it. A file's own minimum (`tabularius privileges <folder> <db> policy`) wins. |
@@ -31,7 +32,7 @@ nothing reads, so this list and the code cannot drift apart.
 | `TABULARIUS_WORKERS` | `--workers` | The number of worker processes, or `auto` for one per CPU core. |
 | `TABULARIUS_PROGRESSIVE` | `--progressive` | How often changes are saved as a point you can restore to with `tabularius restore --at`; `off` for never. |
 | `TABULARIUS_HOME` | | The folder holding per-user settings (`~/.openhbam` by default): the AI key file, and the service definition's files. |
-| `TABULARIUS_STOP_GRACE_MS` | | How long `tabularius service stop` waits for the server to finish before it ends it (30000 by default). |
+| `TABULARIUS_STOP_GRACE_MS` | | How long a restart or upgrade waits for the server to finish before it ends it (30000 by default). |
 | `TABULARIUS_MCP_TOKEN` | `--mcp-token` | The MCP access token, inline. |
 | `TABULARIUS_MCP_TOKEN_FILE` | `--mcp-token-file` | A private regular file holding the MCP access token. |
 | `TABULARIUS_DRAIN_SECONDS` | | How long a stopping server lets requests that are already running finish before it closes them (1 to 86400, 20 by default; see [Upgrading](upgrading.md), "Stopping and restarting"). |

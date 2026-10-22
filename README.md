@@ -101,8 +101,8 @@ when you press Ctrl-C. To host your own FileMaker file, see [QUICKSTART.md](QUIC
   `conversion_report` (also `tabularius report <folder>`, and the Report tab in
   design mode) lists what in a file won't work yet; `conversion_guide` is the
   plain-English version written when a file is converted or converted again
-  (what won't work until changed, what works differently, such as Send Mail,
-  Insert from URL and web viewers that load internet pages, and the built-in
+  (what won't work as it is, what works differently, such as Send Mail,
+  Insert from URL (off until the file's script network switch is on) and web viewers that load internet pages, and the built-in
   replacement for each, with the assistant's overview on top when it is on;
   secrets in scripts are hidden), also under Guide in the admin console's
   Hosted files; `optimization_report` (also `tabularius optimize`, and Optimize
@@ -322,8 +322,7 @@ when you press Ctrl-C. To host your own FileMaker file, see [QUICKSTART.md](QUIC
   (20 messages) is sent with each question. Prompts are cached
   between tool steps to keep API costs down,
   and each answer shows the tokens it used. `--ai-daily-tokens 2000000` caps
-  what the assistant may use per day (cached input counts at a tenth, as it
-  is billed); past it, questions wait until the next day (UTC).
+  what the assistant may use per day (cached input counts at a tenth); past it, questions wait until the next day (UTC).
   `--ai-account-daily-tokens 200000` does the same per account, and shows
   each person their own usage. The count is
   kept in `<folder>/.openhbam-ai-usage.sqlite`, shared by every worker
@@ -371,7 +370,7 @@ when you press Ctrl-C. To host your own FileMaker file, see [QUICKSTART.md](QUIC
   app runs, these steps stop with error 3
   and say why. A capture-only file (see outbound test mode) never reaches
   AI. Insert Embedding and Perform Semantic Find by natural language need an
-  embedding model, which Tabularius doesn't offer yet.
+  embedding model (see the embeddings paragraph above).
 
 Not yet: containers in FileMaker's secure (encrypted) external storage. See <!-- known-difference: Reading .fmp12 files ;; Containers in FileMaker's secure (encrypted) external storage are not supported ;; Such containers do not come across from a converted file ;; An owner decision on supporting them, and a sample file that has them -->
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
@@ -841,7 +840,7 @@ without installing a wrapper program.
 
 Once installed, the same is one command on every system:
 `tabularius service install <folder> [--system] [--port 8080] [--host 127.0.0.1] [-- serve options]`
-(it listens on this computer only until you give `--host 0.0.0.0` and HTTPS, for example `-- --https local`),
+(it listens on this computer only, unless `--host` says otherwise or `-- --https <domain>` is given, which listens on every address),
 `tabularius service print ...` and `tabularius service uninstall`.
 
 **Upgrading in place.** `tabularius upgrade` (or `install.sh --upgrade`,

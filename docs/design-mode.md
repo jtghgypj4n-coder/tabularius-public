@@ -6,7 +6,7 @@ the converted store (`<name>.openhbam.sqlite`); the `.fmp12` is never written.
 
 Three ways in, all doing the same changes:
 
-- **Web client**: the Design button in the toolbar (or `/app/design.html`).
+- **Web client**: File > Manage > Database… or Manage > Layouts…, Open Quickly "Design", or Layout mode in the layout bar (or `/app/design.html`).
 - **REST**: `GET /tabularius/design/v1/databases/{db}` for the whole design,
   `POST` the same URL with `{"changes": [...]}`, `GET .../history`,
   `GET .../layouts/{id}` for a layout's stored design, `POST .../check` with

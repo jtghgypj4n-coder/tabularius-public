@@ -546,7 +546,7 @@ Some protections are always on:
 - Scripts an AI app runs never send mail or reach the network, whatever the Script network switch says.
 - AI apps never see the values of fields whose names mark them as secrets,
   such as Password, API Key, Access Token, Secret or Credential. A field
-  named only "Key" or "Token" isn't hidden, so rename it or keep the file
+  named only "Key" isn't hidden, so rename it or keep the file
   away from AI.
 
 ## 6. What differs from FileMaker
@@ -651,7 +651,7 @@ case). A compiled expression lasts for the person's session (for AI clients,
 the account's); one session can hold 1,000. JavaScript's engine has no match limit
 as PCRE does, so Tabularius gives every regular expression a time limit instead:
 a pattern that backtracks without end, such as `(a+)+$` on a long run of a's,
-is stopped after half a second (two seconds for all the expressions in one
+is stopped after half a second (half a second for all the expressions in one
 MBS call) with an MBS error, and `BE_RegularExpression` and
 `BE_ReadTextFile`'s delimiter give "?" and error -1. It can't hold up the
 server's other work.
