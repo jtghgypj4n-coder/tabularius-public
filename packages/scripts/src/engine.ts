@@ -1,4 +1,4 @@
-import { portableName, checkPathLength } from '../../store/src/portable-path.ts';
+import { documentNamePart, checkPathLength } from '../../store/src/portable-path.ts';
 // Runs FileMaker scripts against hosted stores, the way FileMaker Server runs
 // them for the Data API: no user interface, one window per file, found sets
 // kept as lists of record ids. Steps that need a screen (dialogs, web viewers,
@@ -7002,7 +7002,7 @@ export class ScriptEngine {
     } else if (docs >= 0) rel = s.slice(docs + DOCUMENTS.length);
     else rel = s.split('/').pop() ?? '';
     const parts = rel.split('/');
-    if (!rel || parts.some((x) => !portableName(x) || x.startsWith('.'))) return undefined;
+    if (!rel || parts.some((x) => !documentNamePart(x) || x.startsWith('.'))) return undefined;
     const path = join(base, ...parts);
     try { checkPathLength(path, 64); } catch { return undefined; }
     // A link inside the folder that points outside it is not a way out: where the path (or its nearest existing parent) really is must be under the folder.
@@ -7031,7 +7031,7 @@ export class ScriptEngine {
     const docs = s.indexOf(DOCUMENTS);
     const rel = docs >= 0 ? s.slice(docs + DOCUMENTS.length) : s.split('/').pop() ?? '';
     const parts = rel.split('/');
-    if (!rel || parts.some((x) => !portableName(x) || x.startsWith('.'))) return false;
+    if (!rel || parts.some((x) => !documentNamePart(x) || x.startsWith('.'))) return false;
     let at = this.opts.documents;
     for (const part of parts) {
       at = join(at, part);
@@ -7232,7 +7232,7 @@ export class ScriptEngine {
         if (!existsSync(path) || !statSync(path).isFile()) throw new ScriptError(ERROR.missingFile, 'The file is missing');
         if (isOpen(path)) throw new ScriptError(ERROR.fileInUse, 'The file is open');
         const name = asText(this.eval(f, p.newName ?? '')).trim();
-        if (!portableName(name) || name.startsWith('.')) throw new ScriptError(ERROR.missingFile, `"${name}" is not a file name`);
+        if (!documentNamePart(name) || (process.platform !== 'win32' && /[/\\:]/.test(name)) || name.startsWith('.')) throw new ScriptError(ERROR.missingFile, `"${name}" is not a file name`);
         const to = join(dirname(path), name);
         if (existsSync(to)) throw new ScriptError(ERROR.fileInUse, `A file named "${name}" exists`);
         renameSync(path, to);

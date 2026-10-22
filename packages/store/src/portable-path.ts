@@ -7,6 +7,13 @@ export function portableName(name: string): boolean {
     Buffer.byteLength(name) <= 255;
 }
 
+/** A name a script reads, writes or renames in the documents folder. Windows refuses device names, trailing dots and
+ * the like, so they are refused there; elsewhere they are ordinary names and only an empty one is not.
+ */
+export function documentNamePart(name: string, platform: NodeJS.Platform = process.platform): boolean {
+  return platform === 'win32' ? portableName(name) : !!name;
+}
+
 /** Stored relative names. On Windows either separator is accepted, but never a drive, device or ADS.
  * Elsewhere a name is only checked structurally: backslash, quotes and the like are ordinary characters there.
  */
