@@ -7,7 +7,7 @@ missing from it. `npm run docs:known-differences` rewrites it, and a test fails 
 marker (`<!-- known-difference: area ;; what ;; how it shows ;; what would settle it -->`). Internal working notes are not
 part of it.
 
-**103 entries in 18 areas.** Waiting on: 22 on a sample file, 49 on a FileMaker run or Design Report, 10 on a Claris answer, 16 on a decision by the owner (an entry can wait on more than one).
+**106 entries in 19 areas.** Waiting on: 22 on a sample file, 50 on a FileMaker run or Design Report, 10 on a Claris answer, 16 on a decision by the owner (an entry can wait on more than one).
 
 ## Data API
 
@@ -26,6 +26,12 @@ part of it.
 | What differs or is unknown | How it shows | What would settle it | Where it is written |
 | --- | --- | --- | --- |
 | YearName is not implemented because its exact output (Japanese era names) could not be read from the Claris page, and negative or fractional times, ambiguous locale-dependent text parsing and mixed text coercions follow Tabularius choices that the Claris pages do not define | A calculation using YearName returns an error, and one that builds a time outside a clock day or parses ambiguous date text may give a different answer from FileMaker | A readable Claris YearName reference or a FileMaker run of YearName, out-of-range times and ambiguous date text | [docs/audits/r25-22-date-time-functions.md](audits/r25-22-date-time-functions.md) — “(the whole page)” |
+
+## File system races
+
+| What differs or is unknown | How it shows | What would settle it | Where it is written |
+| --- | --- | --- | --- |
+| The behaviour under failed or racing file operations is tested only on a local macOS run with injected failures; Linux and Windows behaviour and every other file system or platform error is unverified, and no Claris behaviour is claimed | On another platform or file system a failed write, rename or link may leave a different state than the tests show | A run of the same failure-injection tests on Linux and Windows | [docs/audits/r25-11-filesystem-races.md](audits/r25-11-filesystem-races.md) — “(the whole page)” |
 
 ## MBS plug-in functions
 
@@ -54,6 +60,7 @@ part of it.
 | --- | --- | --- | --- |
 | What FileMaker answers for edit-without-view definitions, layouts with no record access and expired or locked accounts over each protocol is unknown, and field byte 0x01 of an imported privilege set is read conservatively | Those cases follow this project's own choice (fail closed); an imported set can hide a field FileMaker shows | A Claris file and server run that exercises each case | [docs/audit-privilege-matrix.md › Claris evidence limits](audit-privilege-matrix.md) — “…guessed. The existing importer explicitly treats unverified field byte 0x01 conservatively; this matrix…” |
 | Whether FileMaker's AI-visible data policy and redaction match this review is not settled | Nothing shows; the review makes no claim about undocumented Claris behaviour | A FileMaker run of the same policy and redaction checks | [docs/audits/audit-review-round2-ai-policy.md › Round-two review: AI policy, redaction, MCP and agent tools](audits/audit-review-round2-ai-policy.md) — “…about Claris behavior. Claris equivalence is unverified.” |
+| Whether the original product applies the same origin and cookie rules to its browser-facing routes is unknown | Tabularius refuses cross-site requests that carry saved credentials, whatever the original does | A run of the same cross-site requests against the original server | [docs/audits/r25-08-csrf-cors-matrix.md › Compatibility and review](audits/r25-08-csrf-cors-matrix.md) — “…Tabularius-specific origin/cookie policies is unverified. This report makes no claim that it documents or…” |
 | Whether FileMaker's audit, restore and output behaviour matches this audit log is not settled | Nothing shows; the report makes no claim about undocumented Claris behaviour | A FileMaker run of the same audit, restore and output checks | [docs/audits/r26-12-audit-log.md › Validation and review](audits/r26-12-audit-log.md) — “…Claris audit/restore/output equivalence is unverified; this report makes no claim about undocumented Claris…” |
 | Whether FileMaker lets a validation by value list see records the editor may not view is not confirmed, and the behaviour is kept as it was | A field validated against a list backed by confidential data can accept a value the editor could not see listed | A native FileMaker test with a restricted account | [docs/calculation-privileges.md › Value-list membership validation: retained compatibility behavior](calculation-privileges.md) — “FileMaker parity for this finding remains unverified. Retaining the behavior” |
 | LDAP sign-in is tested against a stand-in directory, not a live Active Directory | A directory with matching rules the stand-in lacks may behave differently | A run against a live directory | [README.md › Try it](../README.md) — “protocol, not yet a live Active Directory ). People type their directory username and password” |
@@ -107,6 +114,7 @@ part of it.
 | --- | --- | --- | --- |
 | The limit on how deeply a request body may nest does not yet cover the shared readJson reader | A very deeply nested body sent to a route that uses that reader is not refused by this check | An owner decision, or moving that reader onto the check | [ADMIN.md › Request and upload limits](../ADMIN.md) — “…byte-size limit. The shared readJson reader is not yet covered.” |
 | --progressive and --replication-token do not work together with --workers | Run one process, the default, to use them | An owner decision | [ADMIN.md › Using every CPU core](../ADMIN.md) — “Not yet together with --workers: --progressive and” |
+| Whether FileMaker's backup, restore and account handling match this review is not settled | Nothing shows; the review asserts no undocumented Claris behaviour | A FileMaker run of the same backup and restore checks | [docs/audits/audit-review-round2-backup.md › Limits](audits/audit-review-round2-backup.md) — “Claris parity is unverified here. No undocumented Claris behavior is asserted; the invariants above describe…” |
 | Whether Claris Server trusts forwarding headers, how it treats malformed ones and how it groups IPv6 addresses is unverified; Tabularius applies its own strict profile | Address attribution, limits and lockouts behind a proxy may differ from FileMaker Server | A Claris Server run behind a proxy with valid, malformed and IPv6 forwarding headers | [docs/security-defaults.md › KNOWN](security-defaults.md) — “…malformed-header behavior, and IPv6 grouping \| Unverified; no Claris behavior is claimed documented or…” |
 | Encryption at rest across several worker processes is not yet combined with point-in-time backups or standbys | The combination is not offered | An owner decision | [README.md › Hosting for a team](../README.md) — “go. Not yet combined with point-in-time backups or standbys. The admin” |
 
