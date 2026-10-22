@@ -165,6 +165,13 @@ export function conversionGuide(store: Store, hosted: string[] = [], report: Con
       instead: 'Check Get ( LastError ) after them, or ask the assistant why a script fails ("Why?" on the error) for a rewrite.',
     });
   }
+  if (r.steps.importMode.length) {
+    breaks.push({
+      title: 'Import Records steps need their mode set', severity: 'high', count: uses(r.steps.importMode), where: places(r.steps.importMode),
+      what: `${plural(uses(r.steps.importMode), 'step')} stop with error 3 and import nothing until each step is re-entered with Add, Update matching or Replace chosen.`,
+      instead: 'Open the script in design mode and choose the mode, or use the script-text form with Add, Update or Replace written out.',
+    });
+  }
   if (r.functions.notYet.length) {
     breaks.push({
       title: 'FileMaker functions not available yet', severity: 'high', count: uses(r.functions.notYet), where: places(r.functions.notYet),

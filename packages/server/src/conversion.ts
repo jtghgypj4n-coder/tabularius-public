@@ -41,6 +41,8 @@ export interface ConversionReport {
     dialogs: ConversionItem[];
     /** Go to Related Record steps read from a file: their "match all records" and "show only related records" options are not read. */
     relatedOptions: ConversionItem[];
+    /** Import Records steps read from a file whose binary mode is still undecoded. */
+    importMode: ConversionItem[];
     /** Send no email unless the server's administrator switches sending on. */
     blocked: ConversionItem[];
     /** Reach the network: off unless the server allows it. */
@@ -212,6 +214,7 @@ export function conversionReport(store: Store, hosted: string[] = [], focus?: (w
   const stepsNotYet = new Tally(keep);
   const dialogs = new Tally(keep);
   const relatedOptions = new Tally(keep);
+  const importMode = new Tally(keep);
   const blocked = new Tally(keep);
   const network = new Tally(keep);
   const screenOnly = new Tally(keep);
@@ -221,11 +224,14 @@ export function conversionReport(store: Store, hosted: string[] = [], focus?: (w
   const commentedOut: ConversionReport['commentedOut'] = [];
   for (const script of s.scripts) {
     script.steps.forEach((step, i) => {
+      const where = `Script "${script.name}", line ${i + 1}`;
+      if (step.stepId === 35 && step.params?.undecodedOptions?.includes('Import mode') && !step.params.importAction && (!focus || focus(where))) {
+        importMode.add('Import Records', where);
+      }
       if (!step.enabled) return;
       const p = step.params as { dataSource?: { id: number }; script?: { file?: { id: number } } } | undefined;
       const file = p?.dataSource?.id ?? p?.script?.file?.id;
       if (file !== undefined) fileSteps.set(file, (fileSteps.get(file) ?? 0) + 1);
-      const where = `Script "${script.name}", line ${i + 1}`;
       if (focus && !focus(where)) return;
       if (step.stepId === COMMENT) return;
       if (step.stepId === SHOW_CUSTOM_DIALOG) dialogs.add(step.name, where);
@@ -289,7 +295,7 @@ export function conversionReport(store: Store, hosted: string[] = [], focus?: (w
     unknownTokens: [...unknown.values()].sort((a, b) => a.kind.localeCompare(b.kind) || a.id.localeCompare(b.id)),
     summary: '',
     functions: { notYet: notYet.list(), undecoded: undecoded.list(), plugIns: named(plugIns).map((item) => item.name.startsWith('unknown plug-in (id only)') ? { ...item, where: [] } : item) },
-    steps: { notYet: stepsNotYet.list(), dialogs: dialogs.list(), relatedOptions: relatedOptions.list(), blocked: blocked.list(), network: network.list(), screenOnly: screenOnly.list(), clientOnly: clientOnly.list() },
+    steps: { notYet: stepsNotYet.list(), dialogs: dialogs.list(), relatedOptions: relatedOptions.list(), importMode: importMode.list(), blocked: blocked.list(), network: network.list(), screenOnly: screenOnly.list(), clientOnly: clientOnly.list() },
     unparsed: unparsed.slice(0, LIST),
     broken: broken.slice(0, LIST),
     commentedOut: commentedOut.slice(0, LIST),
@@ -358,6 +364,7 @@ function summarize(r: ConversionReport, unparsed: number, broken: number): strin
   const missing = r.dataSources.filter((d) => !d.hosted && (d.occurrences || d.scriptSteps));
   const problems: string[] = [];
   if (r.steps.notYet.length) problems.push(`- **Script steps not available yet**: ${names(r.steps.notYet)}. Each one fails with error 3 and the script carries on, as in FileMaker.`);
+  if (r.steps.importMode.length) problems.push(`- **Import Records steps need their mode set**: ${plural(uses(r.steps.importMode), 'step')}. They stop with error 3 and import nothing until Add, Update matching or Replace is set again in the script editor.`);
   if (r.functions.notYet.length) problems.push(`- **FileMaker functions not available yet**: ${names(r.functions.notYet)}.`);
   if (r.functions.plugIns.length) problems.push(`- **Plug-in functions** (no plug-ins run here, so formulas using them give an error): ${names(r.functions.plugIns)}.`);
   if (r.functions.undecoded.length) problems.push(`- **Functions the reader can't name yet**: ${plural(uses(r.functions.undecoded), 'use')} of ${plural(r.functions.undecoded.length, 'function')}.`);
@@ -409,6 +416,7 @@ const WHY: [keyof ConversionReport['steps'] | 'notYetFns' | 'plugIns' | 'undecod
   ['notYet', 'Script steps not available yet: each fails with error 3 and the script carries on, as in FileMaker'],
   ['dialogs', 'Show Custom Dialog: error 3 when the script runs with no person to answer (a schedule, Perform Script on Server, the Data API)'],
   ['relatedOptions', 'Go to Related Record options are not read from the file: only the current record\'s related records are used'],
+  ['importMode', 'Import Records mode read from the file is undecoded: error 3 and no records imported until the mode is set again'],
   ['blocked', 'Sends only when switched on: Tabularius sends no email by default'],
   ['network', 'Needs the network, which is off unless the server allows it (AI-run scripts stay offline)'],
   ['screenOnly', 'Only affect a window, so they are skipped when the script runs on the server (as FileMaker Server does)'],
