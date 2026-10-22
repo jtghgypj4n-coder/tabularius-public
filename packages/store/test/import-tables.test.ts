@@ -205,3 +205,20 @@ test('a sheet or column named like an Object property takes no choice that was n
   const forced = planImportTables([sheet], { overrides: { constructor: { Age: 'text' as const } } });
   assert.equal(forced.sheets[0].columns.find((c) => c.header === 'Age')!.kind, 'text');
 });
+
+test('a Notion property named like an Object property is a column, and a page without it has an empty cell', () => {
+  for (const pages of [
+    [{ file: 'A.md', text: '# A\n\n__proto__: x\nOther: 1' }],
+    [{ file: 'A.md', text: '# A\n\nconstructor: x' }, { file: 'B.md', text: '# B' }],
+    [{ file: 'A.md', text: '# A\n\ntoString: x\nhasOwnProperty: y' }, { file: 'B.md', text: '# B\n\nOther: 2' }],
+  ]) {
+    const sheet = notionMarkdownSheet('Pages', pages);
+    assert.ok(sheet.rows.every((r) => r.every((cell) => typeof cell === 'string')), 'every cell is text');
+    assert.doesNotThrow(() => planImportTables([sheet]));
+    const [header, first, second] = sheet.rows;
+    const at = header.findIndex((h) => h === '__proto__' || h === 'constructor' || h === 'toString');
+    assert.equal(first[at], 'x');
+    if (second) assert.equal(second[at], '');
+  }
+  assert.equal(({} as Record<string, unknown>).x, undefined);
+});
