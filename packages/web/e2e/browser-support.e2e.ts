@@ -67,8 +67,8 @@ test('copy results copies diagnostics without session tokens, file names or acco
 
 test('missing module support replaces the loading screen with a named feature and next step', { skip }, async () => {
   const page = await window(browser);
-  // A browser without module support never runs the entry point: serve it empty so only the page's own fallback can replace "Loading…".
-  await page.route('**/src/main.ts', (route) => route.fulfill({ status: 200, contentType: 'text/javascript', body: '' }));
+  // A browser without module support never runs the entry point: serve it empty (its URL carries the build id) so only the page's own fallback can replace "Loading…".
+  await page.route('**/src/main.ts?v=*', (route) => route.fulfill({ status: 200, contentType: 'text/javascript', body: '' }));
   await page.addInitScript(() => { delete (HTMLScriptElement.prototype as unknown as { noModule?: boolean }).noModule; });
   try {
     await page.goto(hosted.url + '/app/');
