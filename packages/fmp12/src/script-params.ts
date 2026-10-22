@@ -71,6 +71,12 @@ export interface StepParams {
   undecodedOptions?: string[];
   /** Imported binary options whose encoding has not been established by generated fixtures. */
   unsupportedOptions?: string[];
+  /**
+   * Options of a step that the binary reader does not decode (their bits are unverified) but whose step still runs
+   * without them. The step runs with those options at their defaults and says so; setting them in the script editor
+   * (script text) clears the list.
+   */
+  unreadOptions?: string[];
   /** Perform Script on Server: false when "Wait for completion" is off (unset means wait). */
   wait?: boolean;
   /** Main formula: a condition, Set Field value, Exit Script result, count, URL, ... */
@@ -915,7 +921,9 @@ export function decodeStepParams(stepId: number, rec: Uint8Array, p: Node | unde
       return out;
     }
     case 74: { // Go to Related Record
-      const out: StepParams = { useLayout: choice === 5 };
+      // "Match all records in current found set" and "Show only related records" are not read: a candidate bit map
+      // exists but has never been compared with a sample file.
+      const out: StepParams = { useLayout: choice === 5, unreadOptions: ['Match all records in current found set', 'Show only related records'] };
       const to = shortRef(p?.child(128)?.kv.get(17));
       if (to !== undefined) out.tableOccurrence = ref(to, ctx.tableOccurrenceName);
       if (choice === 5) out.layout = ref(refAt(rec, 6), ctx.layoutName);
