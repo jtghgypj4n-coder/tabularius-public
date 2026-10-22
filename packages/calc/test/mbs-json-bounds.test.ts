@@ -19,6 +19,13 @@ test('jsonModify refuses an array index past the limit, quickly', () => {
     const out = modify('[]', path, '1');
     assert.match(String(out), /^\w*Error: Array index.*past the 1,000,000/, path);
   }
+  // `length` of an array is as good as an index: a path step named length, or a merge of an object that has one.
+  for (const [doc, path] of [['{"a":[]}', 'a[length]'], ['{"a":[1]}', 'a[length]']]) {
+    assert.match(String(modify(doc, path, '30000000')), /^\w*Error: Array index.*past the 1,000,000/, path);
+  }
+  const merge = knownJavaScript(program(['var target = [] ; ', 'var source = {"length":30000000} ; '], 'JSON.stringify ( Object.assign(target, source));'));
+  assert.match(String(merge), /^\w*Error: Array index.*past the 1,000,000/);
+  assert.equal(knownJavaScript(program(['var target = [1,2] ; ', 'var source = {"length":1} ; '], 'JSON.stringify ( Object.assign(target, source));')), '[1]');
   assert.ok(performance.now() - t < 2000, 'the index was walked');
   assert.equal(modify('[]', '[3]', '1'), '[null,null,null,1]');
   assert.equal(modify('[1]', '[1000000]', '1')!.length > 1_000_000, true);

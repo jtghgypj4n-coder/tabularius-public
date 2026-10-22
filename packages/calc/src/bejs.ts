@@ -83,7 +83,8 @@ const isObject = (x: unknown): x is Record<string, unknown> => x !== null && typ
 const MAX_ARRAY_INDEX = 1_000_000;
 const setData = (target: object, key: string | number, value: unknown): void => {
   if (Array.isArray(target)) {
-    const n = /^\d+$/.test(String(key)) ? Number(key) : 0;
+    // Setting `length` makes the same sparse array an index does.
+    const n = key === 'length' ? Number(value) : /^\d+$/.test(String(key)) ? Number(key) : 0;
     if (n > MAX_ARRAY_INDEX) throw new RangeError(`Array index ${n.toLocaleString('en-US')} is past the ${MAX_ARRAY_INDEX.toLocaleString('en-US')} Tabularius allows`);
   }
   Object.defineProperty(target, key, Array.isArray(target) && key === 'length'
