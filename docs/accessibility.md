@@ -87,6 +87,94 @@ There is no theme switch in any of the pages, so there is nothing for a choice t
 
 ### Admin console
 
+#### Interactive-state inventory
+
+The admin console uses section links rather than tabs: it has no `role="tab"` or
+tablist. The audit signs in, isolates each section (including sections normally hidden
+until their feature has data), runs axe in that state, walks its keyboard stops, compares
+their order with visual rows, and restores the page afterward. Its data is synthetic: the
+in-memory hosted store and records are built by the audit, and a disabled sample schedule
+is seeded through the Admin API.
+It also opens the passphrase modal with synthetic text, audits it, and closes it with
+Escape. The sections below are the `main` panels in `packages/server/admin/index.html`.
+
+| Section | How checked |
+|---|---|
+| Welcome | Isolated panel axe scan; upload and conversion states are manual. |
+| Getting started | Isolated panel axe scan. |
+| Connected | Isolated panel axe scan; synthetic connected-client rows are covered by `admin-states.e2e.ts`. |
+| Who is on which record | Isolated panel axe scan. |
+| Hosted files | Isolated panel axe scan; conversion guide focus is covered by `admin-guide-focus.e2e.ts`. |
+| Backups | Isolated panel axe scan; restore disclosure is listed below. |
+| Sync with FileMaker Server | Isolated panel axe scan; setup, review, schedules and log states are listed below. |
+| Stale calculations | Isolated panel axe scan. |
+| Dependencies | Isolated panel axe scan. |
+| Running on the server | Isolated panel axe scan. |
+| Script schedules | Isolated panel axe scan; synthetic schedule confirmation is covered by `admin-states.e2e.ts`. |
+| Inbound hooks | Isolated panel axe scan. |
+| Slowest scripts | Isolated panel axe scan. |
+| Script tests | Isolated panel axe scan. |
+| AI use | Isolated panel axe scan. |
+| New solution from a description | Isolated panel axe scan; generated plan states are manual. |
+| AI digests | Isolated panel axe scan. |
+| Plug-ins | Isolated panel axe scan. |
+| Connections | Isolated panel axe scan. |
+| Outbox | Isolated panel axe scan. |
+| Unusual access | Isolated panel axe scan. |
+| Account usage | Isolated panel axe scan. |
+| Security health | Isolated panel axe scan. |
+| Security events | Isolated panel axe scan. |
+| Audit log | Isolated panel axe scan; settings disclosure is listed below. |
+| View as a privilege set | Isolated panel axe scan. |
+| What a set or account can do | Isolated panel axe scan. |
+| Test this account | Isolated panel axe scan. |
+| Access review | Isolated panel axe scan. |
+| Compare two sets | Isolated panel axe scan. |
+| SSO group mapping | Isolated panel axe scan. |
+| Provisioning (SCIM) | Isolated panel axe scan. |
+| Field access | Isolated panel axe scan. |
+| Least privilege | Isolated panel axe scan. |
+| Connect an AI app | Isolated panel axe scan. |
+| Logs | Isolated panel axe scan. |
+| Console passkeys | Isolated panel axe scan. |
+
+The disclosures are native `<details>` controls; `a11y:web` opens and audits every one
+present in the signed-in page, including dynamically rendered disclosures. They are: sign-in help; backup restore;
+scheduled syncs, sync log; schedule creation; inbound-hook creation; connection creation;
+audit-log settings; SSO setup; and dynamically rendered hosted-file reports, profiler
+rows, conversion results and optimization details. There are no custom tabs or toast
+component. State messages use the page's `role="status"` and `role="alert"` regions.
+
+The native passphrase `<dialog>` is the only in-page modal. Destructive and sensitive
+actions use the browser's native `confirm()` prompt: remove a passkey; rotate or delete an
+inbound hook; delete, remove, run or change a sync; change AI access or personal-data
+isolation; apply an optimization, restore container files or restore a record; disconnect
+a client; cancel a server script; approve changed hosted files; delete a schedule or SSO
+mapping; clear or remove a connection field or connection; empty the outbox; revoke an
+AI token; issue or disable SCIM provisioning; sign out a session or account; revoke a
+session token; deactivate an account or set a temporary password; set an account password;
+undo or apply a stale calculation refresh; and replace a database from a backup. These
+native prompts are inventoried from the page code, not individually driven by axe.
+
+| Dialog or keyboard path | How checked |
+|---|---|
+| Passphrase dialog | Synthetic modal: axe scan, initial focus, Shift+Tab containment, Escape and return focus in `admin-keyboard-a11y.e2e.ts`; also opened in `a11y:web`. |
+| Browser confirmation prompts | Native browser UI, so not in the page axe tree. Schedule delete accept/dismiss and no-request behavior are covered by `admin-states.e2e.ts`; other actions are inventoried above and need the manual checks below. |
+| Section navigation and in-panel controls | `a11y:web` walks each panel's Tab stops and checks their visual row order. `admin-keyboard-a11y.e2e.ts` activates each rendered button and link with Enter; feature-specific form outcomes still need manual review. |
+| Tables | The generated table helper provides a visually hidden name and `scope="col"`; `admin-keyboard-a11y.e2e.ts` checks every rendered table. |
+
+#### Manual checks still to do
+
+- Use NVDA or JAWS with the passphrase modal and native confirmation prompts; verify the
+  spoken dialog name, instructions, default action, dismissal and focus return.
+- Use VoiceOver and TalkBack on the section navigation, disclosures, status and alert
+  updates, and dynamically populated tables. Confirm each status change is spoken once.
+- With a screen reader, exercise the conditional panels and row actions using real feature
+  setup in an isolated test server, especially Sync, SCIM, Connections, Plug-ins, Outbox,
+  AI and account remediation.
+- Review the meaning and reading order of every table caption with a screen reader, and
+  verify confirmation text is announced before an irreversible action.
+
 - **Lists on a timer.** Connected clients, records in use, hosted files, schedules,
   backups, uploads, the profiler, slow finds, AI use, digests and the outbox refresh
   every 5–30 s. Each refresh rebuilt the list and dropped keyboard focus to the page. A

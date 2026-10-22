@@ -982,9 +982,20 @@ function render(el, html) {
 
 function table(rows, cols, empty) {
   if (!rows.length) return `<p class="empty">${empty}</p>`;
-  return `<table><thead><tr>${cols.map((c) => `<th class="${c.num ? 'num' : ''}">${c.labelHtml ?? (c.label ? esc(c.label) : '<span class="sr-only">Actions</span>')}</th>`).join('')}</tr></thead><tbody>${
+  const name = cols.map((c) => (c.labelHtml !== undefined ? String(c.labelHtml).replace(/<[^>]*>/g, '') : c.label || 'Actions').trim()).filter(Boolean).join(', ');
+  return `<table><caption class="sr-only">${esc(name)} table</caption><thead><tr>${cols.map((c) => `<th scope="col" class="${c.num ? 'num' : ''}">${c.labelHtml ?? (c.label ? esc(c.label) : '<span class="sr-only">Actions</span>')}</th>`).join('')}</tr></thead><tbody>${
     rows.map((r) => `<tr>${cols.map((c) => `<td class="${c.num ? 'num' : c.wrap ? 'wrap' : ''}">${c.html ? c.html(r) : esc(c.get(r))}</td>`).join('')}</tr>`).join('')
   }</tbody></table>`;
+}
+
+async function copyToClipboard(button, value, status) {
+  try {
+    await navigator.clipboard.writeText(value);
+    status.textContent = 'Copied.';
+  } catch {
+    status.textContent = 'Copy failed. Select and copy the text manually.';
+  }
+  button.focus();
 }
 
 // The conversion guide's Markdown: headings, bullets, bold, and the indented Instead/Where lines under a bullet.
@@ -1209,6 +1220,29 @@ async function call(method, path, body) {
 // It goes to the server with the one request that converts the file and is not kept here or there.
 function askPassphrase(title, hint, error) {
   const dlg = $('pass-dialog');
+  if (!dlg.dataset.trapsFocus) {
+    dlg.dataset.trapsFocus = 'true';
+    dlg.addEventListener('keydown', (event) => {
+      if (event.key !== 'Tab') return;
+      const stops = [...dlg.querySelectorAll('input:not([disabled]), button:not([disabled]), a[href], select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')]
+        .filter((el) => !el.hidden && el.getClientRects().length);
+      if (!stops.length) {
+        event.preventDefault();
+        dlg.focus();
+        return;
+      }
+      const first = stops[0];
+      const last = stops.at(-1);
+      const active = document.activeElement;
+      if (event.shiftKey && (active === first || active === dlg || !dlg.contains(active))) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (active === last || !dlg.contains(active))) {
+        event.preventDefault();
+        first.focus();
+      }
+    });
+  }
   $('pass-title').textContent = title;
   $('pass-help').textContent = `This file uses Encryption at Rest. Enter the passphrase it was encrypted with in FileMaker. It is used for this conversion only and never stored.${hint ? ` Hint: ${hint}` : ''}`;
   $('pass-error').hidden = !error;
@@ -1328,8 +1362,8 @@ const hookOutcome = (c) => c.outcome === 'ok' ? '<span class="ok">done</span>'
 function showSecret(name, secret, path) {
   const box = $('hook-secret');
   box.hidden = false;
-  box.innerHTML = `<p>The secret for <strong>${esc(name)}</strong>. Copy it now: it is not shown again.${path ? ` Calls go to <code>${esc(location.origin + path)}</code>.` : ''}</p><p><code id="hook-secret-text">${esc(secret)}</code> <button id="hook-secret-copy">Copy</button> <button id="hook-secret-done">Done</button></p>`;
-  $('hook-secret-copy').onclick = () => navigator.clipboard?.writeText(secret).then(() => { $('hook-secret-copy').textContent = 'Copied'; });
+  box.innerHTML = `<p>The secret for <strong>${esc(name)}</strong>. Copy it now: it is not shown again.${path ? ` Calls go to <code>${esc(location.origin + path)}</code>.` : ''}</p><p><code id="hook-secret-text">${esc(secret)}</code> <button id="hook-secret-copy">Copy</button> <span id="hook-secret-copy-status" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></span> <button id="hook-secret-done">Done</button></p>`;
+  $('hook-secret-copy').onclick = () => copyToClipboard($('hook-secret-copy'), secret, $('hook-secret-copy-status'));
   $('hook-secret-done').onclick = () => { box.hidden = true; box.innerHTML = ''; };
 }
 $('add-hook').addEventListener('submit', async (e) => {
@@ -1981,7 +2015,7 @@ async function refresh() {
     { label: 'Next', get: (x) => x.running ? 'running' : !x.enabled ? 'off' : x.onOpen ? 'next opening' : when(x.next) },
     { label: 'Last run', wrap: true, html: (x) => !x.last ? '' : `${esc(when(x.last.at))}: ${outcome(x.last)}` },
     { label: 'Last error', wrap: true, html: (x) => !x.lastError ? '' : x.lastError === x.last || x.lastError.at === x.last?.at ? 'the last run' : `${esc(when(x.lastError.at))}: ${outcome(x.lastError)}` },
-    { label: '', wrap: true, html: (x) => `<button data-history="${esc(x.id)}" data-name="${esc(x.name)}" aria-label="${historyOf === x.id ? 'Hide runs' : 'Runs'} of ${esc(x.name)}" aria-expanded="${historyOf === x.id}">${historyOf === x.id ? 'Hide runs' : 'Runs'}</button> <button data-run="${esc(x.id)}" aria-label="Run ${esc(x.name)} now">Run now</button> ${x.connectionsHeld ? `<button data-approve-scripts="${esc(x.id)}" data-name="${esc(x.name)}" aria-label="Approve the changed scripts for ${esc(x.name)}">Approve scripts</button> ` : ''}<button data-toggle="${esc(x.id)}" data-on="${x.enabled ? 1 : ''}" aria-label="${x.enabled ? 'Turn off' : 'Turn on'} ${esc(x.name)}">${x.enabled ? 'Turn off' : 'Turn on'}</button> <button data-delete="${esc(x.id)}" data-name="${esc(x.name)}" aria-label="Delete the schedule ${esc(x.name)}">Delete</button>` },
+    { label: '', wrap: true, html: (x) => `<button data-history="${esc(x.id)}" data-name="${esc(x.name)}" aria-label="${historyOf === x.id ? 'Hide runs' : 'Runs'} of ${esc(x.name)}" aria-expanded="${historyOf === x.id}">${historyOf === x.id ? 'Hide runs' : 'Runs'}</button> <button data-run="${esc(x.id)}" aria-label="Run now: ${esc(x.name)}">Run now</button> ${x.connectionsHeld ? `<button data-approve-scripts="${esc(x.id)}" data-name="${esc(x.name)}" aria-label="Approve the changed scripts for ${esc(x.name)}">Approve scripts</button> ` : ''}<button data-toggle="${esc(x.id)}" data-on="${x.enabled ? 1 : ''}" aria-label="${x.enabled ? 'Turn off' : 'Turn on'} ${esc(x.name)}">${x.enabled ? 'Turn off' : 'Turn on'}</button> <button data-delete="${esc(x.id)}" data-name="${esc(x.name)}" aria-label="Delete the schedule ${esc(x.name)}">Delete</button>` },
   ], 'No scripts are scheduled.'));
   await showHistory(s.schedules);
   await showHooks(s.databases.map((d) => d.name));
@@ -3195,10 +3229,10 @@ $('mcp-add').addEventListener('submit', async (e) => {
     box.innerHTML = `<p class="note">Copy this now: the token is shown only once. Anyone with it can do what ${esc(t.account)} can do in ${esc(t.database)}${t.readOnly || t.layouts ? ', within its limits' : ''}.${
       t.warning ? ` ${esc(t.warning)}.` : ''}${plain ? ' This page is on plain http, so the token would cross the network unencrypted: set up https first (serve --acme or --tls-cert).' : ''}</p>` +
       `<p><button type="button" id="mcp-test">Check it works</button> <span class="meta" id="mcp-test-result" role="status"></span></p>` +
-      mcpConfigs(t).map(([title, text], i) => `<div class="mcp-config"><h3>${esc(title)} <button type="button" data-copy="${i}">Copy</button></h3><pre>${esc(text)}</pre></div>`).join('') +
+      mcpConfigs(t).map(([title, text], i) => `<div class="mcp-config"><h3>${esc(title)} <button type="button" data-copy="${i}">Copy</button><span class="sr-only" data-copy-status role="status" aria-live="polite" aria-atomic="true"></span></h3><pre>${esc(text)}</pre></div>`).join('') +
       '<p class="meta">Then ask the app something like "What is in this database?" or pick one of the Tabularius prompts it lists (explain the solution, find records in plain English, what to know after converting).</p>';
     box.querySelectorAll('[data-copy]').forEach((b) => b.addEventListener('click', () => {
-      navigator.clipboard?.writeText(b.closest('.mcp-config').querySelector('pre').textContent).then(() => (b.textContent = 'Copied'));
+      copyToClipboard(b, b.closest('.mcp-config').querySelector('pre').textContent, b.parentElement.querySelector('[data-copy-status]'));
     }));
     $('mcp-test').addEventListener('click', async () => {
       $('mcp-test-result').textContent = 'Checking…';
@@ -4013,8 +4047,8 @@ $('scim-issue').addEventListener('click', async () => {
   catch (err) { say(`Can't turn it on: ${plainMessage(err)}`); return; }
   showScim(r);
   $('scim-token').innerHTML = `<p class="note">In the identity provider's provisioning settings, set the base URL (tenant URL) to <code>${esc(location.origin + r.path)}</code> and the API token (secret token) to the one below. It is shown only now.</p>` +
-    `<p><code id="scim-token-value">${esc(r.token)}</code> <button id="scim-copy">Copy</button></p>`;
-  $('scim-copy').addEventListener('click', () => navigator.clipboard?.writeText(r.token));
+    `<p><code id="scim-token-value">${esc(r.token)}</code> <button id="scim-copy">Copy</button> <span id="scim-copy-status" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></span></p>`;
+  $('scim-copy').addEventListener('click', () => copyToClipboard($('scim-copy'), r.token, $('scim-copy-status')));
 });
 $('scim-revoke').addEventListener('click', async () => {
   if (!confirm('Turn provisioning off? The identity provider can no longer change accounts; the accounts it made stay.')) return;
