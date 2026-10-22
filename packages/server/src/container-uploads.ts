@@ -13,7 +13,7 @@
 // (before a byte is taken in) and again when it finishes, with the account's privileges at that moment.
 
 import { createHash, randomBytes, type Hash } from 'node:crypto';
-import { closeSync, mkdirSync, mkdtempSync, openSync, rmSync, writeFileSync, writeSync, lstatSync, readdirSync, readSync } from 'node:fs';
+import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, rmSync, writeFileSync, writeSync, lstatSync, readdirSync, readSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ContainerFile } from '../../store/src/index.ts';
@@ -68,13 +68,13 @@ export function sweepOrphanUploadFolders(opts: UploadSweepOptions): { removed: s
     try {
       const before = lstatSync(path);
       if (!before.isDirectory() || (typeof process.getuid === 'function' && before.uid !== process.getuid())) { result.kept++; continue; }
+      if (folders.has(path)) { result.kept++; continue; }
       let newest = before.mtimeMs;
       for (const child of readdirSync(path)) {
         try { newest = Math.max(newest, lstatSync(join(path, child)).mtimeMs); }
         catch (error) { throw error; }
       }
       const age = now - newest;
-      if (age <= olderThanMs) { result.kept++; continue; }
       let marker: { pid?: unknown } | undefined;
       try {
         const markerPath = join(path, 'owner.json');
@@ -92,6 +92,8 @@ export function sweepOrphanUploadFolders(opts: UploadSweepOptions): { removed: s
           if (parsed && typeof parsed === 'object') marker = parsed as { pid?: unknown };
         }
       } catch { /* Missing, unreadable, oversized or malformed marker means age decides. */ }
+      const ownPid = marker?.pid === process.pid;
+      if (ownPid || age <= olderThanMs) { result.kept++; continue; }
       const dirAge = now - before.mtimeMs;
       if (typeof marker?.pid === 'number' && Number.isSafeInteger(marker.pid) && marker.pid > 0 && dirAge < WEEK_MS && alive(marker.pid)) { result.kept++; continue; }
       const again = lstatSync(path);
@@ -174,6 +176,7 @@ export class ContainerUploads {
   }
 
   private spool(id: string): string {
+    if (this.dir && !existsSync(this.dir)) { folders.delete(this.dir); this.dir = undefined; }
     if (!this.dir) {
       mkdirSync(this.tmp, { recursive: true });
       this.dir = mkdtempSync(join(this.tmp, 'tabularius-container-uploads-'));
