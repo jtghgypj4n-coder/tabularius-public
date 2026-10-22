@@ -317,6 +317,29 @@ test('SMTPUTF8 is required and negotiated for Unicode local parts', async () => 
   assert.deepEqual(conversations[1]!.rcpt, ['josé@example.test']);
 });
 
+test('a recipient with a very long run of spaces is refused at once, not after seconds of matching', async () => {
+  conversations.length = 0;
+  const mail = mailTransport(account(), 'sender@test.example');
+  for (const recipient of ['a' + ' '.repeat(60_000) + 'b@c<', 'a' + ' '.repeat(60_000) + 'b@c.com', ' '.repeat(60_000) + '<a@b.example>']) {
+    const started = Date.now();
+    await assert.rejects(mail({ to: [recipient], cc: [], bcc: [], subject: 'x', text: 't', fromName: '', attachments: [], files: ['Synthetic'] }), /not an email address|too/);
+    assert.ok(Date.now() - started < 500, `refused in ${Date.now() - started} ms`);
+  }
+  assert.equal(conversations.length, 0);
+});
+
+test('a Unicode Reply-To address needs SMTPUTF8 like the sender and recipients', async () => {
+  conversations.length = 0;
+  smtpBehavior = 'ok';
+  const message: OutgoingMail = { to: ['a@example.test'], cc: [], bcc: [], subject: 'x', text: 'body', replyTo: 'josé@example.test', fromName: '', attachments: [], files: ['Synthetic'] };
+  await assert.rejects(mailTransport(account(), 'sender@test.example')(message), /does not support SMTPUTF8/);
+  assert.ok(!conversations[0]!.lines.some((line) => line.startsWith('MAIL FROM:')));
+  smtpBehavior = 'smtp-utf8';
+  await mailTransport(account(), 'sender@test.example')(message);
+  assert.ok(conversations[1]!.lines.includes('MAIL FROM:<sender@test.example> SMTPUTF8'));
+  assert.match(conversations[1]!.data, /^Reply-To: josé@example\.test$/m);
+});
+
 test('CR/LF in every caller-controlled header field is rejected before opening SMTP', async () => {
   conversations.length = 0;
   const send = mailTransport(account(), 'sender@test.example');

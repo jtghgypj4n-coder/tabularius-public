@@ -44,10 +44,14 @@ export function redirectTransport(config: SmtpConfig, to: string): (m: Redirecte
 /** One plain address: no display name, list or anything a header could be split on. */
 const mailbox = (value: string): { address: string; display?: string } => {
   rejectHeaderBreaks('email address', value);
-  const m = /^\s*(?:(?:((?:"(?:[^"\\]|\\.)*")|[^<>]*?)\s*)<([^<>]+)>|([^<>]+))\s*$/.exec(value);
+  // A mailbox is short; refusing a long one first keeps the matching below cheap whatever the text holds.
+  if (Buffer.byteLength(value, 'utf8') > 998) throw new Error(`"${value.slice(0, 40)}..." is not an email address (longer than 998 bytes)`);
+  // Each pattern has one way to match any text (no overlapping repeats), so none backtracks over a long run of spaces.
+  const text = value.trim();
+  const m = /^("(?:[^"\\]|\\.)*")\s*<([^<>]+)>$/.exec(text) ?? /^([^<>]*)<([^<>]+)>$/.exec(text) ?? /^()()([^<>]+)$/.exec(text);
   if (!m) throw new Error(`"${value}" is not an email address`);
   const display = m[1]?.trim();
-  const address = (m[2] ?? m[3] ?? '').trim();
+  const address = (m[2] || m[3] || '').trim();
   const at = address.lastIndexOf('@');
   if (at < 1 || at !== address.indexOf('@') || at === address.length - 1 || /[\s<>(),;"\\]/.test(address)) throw new Error(`"${value}" is not an email address`);
   const local = address.slice(0, at);
@@ -108,21 +112,23 @@ export function mailTransport(config: SmtpConfig, from: string, most = MAIL_RECI
     rejectHeaderBreaks('subject', m.subject);
     if (m.replyTo !== undefined) rejectHeaderBreaks('reply-to', m.replyTo);
     if (m.replyTo && !isAddress(m.replyTo)) throw new Error(`"${m.replyTo}" is not one Reply-To email address`);
+    const named = m.to.length + m.cc.length + m.bcc.length;
+    if (!named) throw new Error('the message has no recipients');
+    if (named > most) throw new Error(`the message names ${named} recipients, more than ${most}`);
     const all = [...m.to, ...m.cc, ...m.bcc].map(mailbox);
-    if (!m.to.length && !m.cc.length && !m.bcc.length) throw new Error('the message has no recipients');
-    if (all.length > most) throw new Error(`the message names ${all.length} recipients, more than ${most}`);
     enforceContentLimit(m);
     const name = m.fromName.trim();
+    const replyTo = m.replyTo && isAddress(m.replyTo) && mailbox(m.replyTo).address.toLowerCase() !== sender.toLowerCase() ? mailbox(m.replyTo).address : undefined;
     const head = [
       // An encoded word can't sit inside quotes: a name that isn't plain ASCII goes unquoted.
       fold('From', name ? `${quoteDisplay(name)} <${sender}>` : sender),
       ...(m.to.length ? [fold('To', m.to.map(formatMailbox).join(', '))] : []),
       ...(m.cc.length ? [fold('Cc', m.cc.map(formatMailbox).join(', '))] : []),
-      ...(m.replyTo && isAddress(m.replyTo) && mailbox(m.replyTo).address.toLowerCase() !== sender.toLowerCase() ? [fold('Reply-To', mailbox(m.replyTo).address)] : []),
+      ...(replyTo ? [fold('Reply-To', replyTo)] : []),
     ];
     // BCC recipients are in the envelope only.
     const recipients = all.filter((a, i) => all.findIndex((x) => x.address.toLowerCase() === a.address.toLowerCase()) === i).map((a) => a.address);
-    await send(account, sender, recipients, mime(head, m), m.signal);
+    await send(account, sender, recipients, mime(head, m), m.signal, replyTo ? [replyTo] : []);
   };
 }
 
@@ -260,7 +266,7 @@ interface Server {
 }
 
 /** One SMTP conversation: EHLO, STARTTLS when not already secure, AUTH PLAIN, then one message to its recipients. */
-async function send(server: Server, from: string, to: string[], data: string, signal?: AbortSignal): Promise<void> {
+async function send(server: Server, from: string, to: string[], data: string, signal?: AbortSignal, headerAddresses: string[] = []): Promise<void> {
   signal?.throwIfAborted();
   // A name is checked on the lookup the connection uses; an address written out is checked here (a socket does no lookup for one).
   const refused = hostRefusal({ private: true }, server.host);
@@ -334,7 +340,7 @@ async function send(server: Server, from: string, to: string[], data: string, si
       }
     }
     const smtpUtf8 = /\bSMTPUTF8\b/i.test(ehlo);
-    const needsUtf8 = /[^\x00-\x7f]/.test(from.split('@')[0] ?? '') || to.some((address) => /[^\x00-\x7f]/.test(address.split('@')[0] ?? ''));
+    const needsUtf8 = /[^\x00-\x7f]/.test(from.split('@')[0] ?? '') || [...to, ...headerAddresses].some((address) => /[^\x00-\x7f]/.test(address.split('@')[0] ?? ''));
     if (needsUtf8 && !smtpUtf8) throw new Error('the SMTP server does not support SMTPUTF8 for a Unicode email address');
     if (server.user) await command(`AUTH PLAIN ${Buffer.from(`\0${server.user}\0${server.password}`).toString('base64')}`, 235);
     if (!to.length) {
