@@ -377,20 +377,30 @@ export async function serve(opts: ServeOptions): Promise<{ server: Server; host:
     if (was) {
       const unfinished = unfinishedStandbyFiles(was);
       log(`taking over from ${was.primary}: this folder was its standby${unfinished.length ? `; ${unfinished.join(', ')} had not caught up to a whole state and may need restoring from a backup` : ''}`);
-      rmSync(join(opts.dir, STANDBY_STATE), { force: true });
       // The copy is as the primary was some moments before it failed, or longer if the link was down: a token revoked there since
-      // is alive here, and nothing says which. They are ended unless the operator knows the standby had caught up.
+      // is alive here, and nothing says which. They are ended unless the operator knows the standby had caught up. This comes first and
+      // does not depend on the standby's note, and the note is removed only at the end, so a failure part way is met again at the next start.
       let ended = 0;
+      const endedIn = new Map<Store, number>();
       for (const store of host.openStores()) {
         let fileEnded = 0;
         if (!opts.keepApiTokensOnTakeover) for (const t of store.apiTokens()) if (store.revokeApiToken(t.id)) fileEnded++;
+        endedIn.set(store, fileEnded);
         ended += fileEnded;
-        const at = was.files[store.name]?.at;
-        const lastChange = at ? new Date(at).toISOString() : undefined;
-        store.recordStandbyTakeover({ standbyOf: was.primary, ...(lastChange ? { lastChange } : {}), tokensEnded: fileEnded, keptTokens: !!opts.keepApiTokensOnTakeover });
-        log(`taking over ${store.name}: its copy was last updated ${lastChange ?? 'at an unknown time'}; accounts, passwords and privileges changed on ${was.primary} after that are not here, so review them`);
       }
       if (ended) log(`taking over: ended ${ended} API token${ended === 1 ? '' : 's'}, because the standby cannot show which the main server had revoked; issue new ones (--keep-api-tokens-on-takeover keeps them after a planned switch)`);
+      for (const [store, fileEnded] of endedIn) {
+        // The note is a file on disk: a time that is not one is "unknown", not a reason to stop.
+        const at = was.files?.[store.name]?.at;
+        const lastChange = typeof at === 'number' && Number.isFinite(at) && at > 0 && at < 8.64e15 ? new Date(at).toISOString() : undefined;
+        try {
+          store.recordStandbyTakeover({ standbyOf: String(was.primary), ...(lastChange ? { lastChange } : {}), tokensEnded: fileEnded, keptTokens: !!opts.keepApiTokensOnTakeover });
+        } catch (e) {
+          log(`taking over ${store.name}: could not record it in the security log: ${(e as Error).message}`);
+        }
+        log(`taking over ${store.name}: its copy was last updated ${lastChange ?? 'at an unknown time'}; accounts, passwords and privileges changed on ${was.primary} after that are not here, so review them`);
+      }
+      rmSync(join(opts.dir, STANDBY_STATE), { force: true });
     }
     // Each file's changes, taken for point-in-time backups and standbys.
     const shipper = new LogShipper(host, log);

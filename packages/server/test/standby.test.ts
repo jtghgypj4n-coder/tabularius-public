@@ -203,3 +203,36 @@ test('a takeover ends the API tokens the standby cannot show are still valid, un
     rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
 });
+
+test('a takeover whose standby note holds nonsense still ends the API tokens and removes the note', { skip }, async () => {
+  const root = mkdtempSync(join(tmpdir(), 'tabularius-standby-badnote-'));
+  const folder = join(root, 'spare');
+  mkdirSync(folder);
+  copyFileSync(fixture, join(folder, 'Charts.fmp12'));
+  try {
+    for (const note of [
+      { primary: 'http://primary.invalid:8080', files: { Charts: { run: 'r', seq: 1, wholeAfter: 1, size: 0, mtimeMs: 0, at: 1e20 } } },
+      { primary: 'http://primary.invalid:8080', files: { Charts: { run: 'r', seq: 1, wholeAfter: 1, size: 0, mtimeMs: 0, at: 'yesterday' } } },
+      { primary: 'http://primary.invalid:8080', files: 5 },
+      { primary: 42, files: { Charts: null } },
+    ]) {
+      let s = await serve({ dir: folder, port: 0, watch: false, log: () => {} });
+      s.host.get('Charts')!.setPassword('svc', 'service-password-1');
+      const token = s.host.get('Charts')!.createApiToken('svc', { label: 'integration' });
+      await new Promise<void>((resolve) => s.server.close(() => resolve()));
+      writeFileSync(join(folder, STANDBY_STATE), JSON.stringify(note));
+      const lines: string[] = [];
+      s = await serve({ dir: folder, port: 0, watch: false, log: (m) => void lines.push(m) });
+      try {
+        assert.equal(s.host.get('Charts')!.apiToken(token), undefined, JSON.stringify(note) + '\n' + lines.join('\n'));
+        assert.ok(!existsSync(join(folder, STANDBY_STATE)), 'the note is removed once the takeover is done');
+        assert.equal(s.host.get('Charts')!.securityEvents({ category: 'Standby takeover' }).length >= 1, true);
+        assert.ok(lines.some((m) => /last updated at an unknown time/.test(m)), lines.join('\n'));
+      } finally {
+        await new Promise<void>((resolve) => s.server.close(() => resolve()));
+      }
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
