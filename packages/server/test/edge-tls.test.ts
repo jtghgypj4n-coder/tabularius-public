@@ -40,5 +40,12 @@ test('TLS and the shared-port redirect enforce deadlines, header limits and admi
   const redirect = await new RawClient(port).ready();
   assert.match(await redirect.send(request('/', 'Connection: close\r\n')).end(), /^HTTP\/1\.1 308 /);
   assert.match(await secure('X-Big: ' + 'x'.repeat(16 * 1024) + '\r\n'), /^HTTP\/1\.1 431 /);
+  assert.match(await secure('Host: duplicate.example\r\n'), /^HTTP\/1\.1 400 /);
+  assert.match(await secure('X-Note: one\r\n two\r\n'), /^HTTP\/1\.1 400 /);
+  const badRedirect = await new RawClient(port).ready();
+  const text = await badRedirect.send(request('/', 'Host: duplicate.example\r\n')
+    + request('/must-not-redirect', 'Connection: close\r\n')).end();
+  assert.match(text, /^HTTP\/1\.1 400 /);
+  assert.equal((text.match(/HTTP\/1\.1 /g) ?? []).length, 1);
   assert.match(await secure(), /^HTTP\/1\.1 200 /);
 });
