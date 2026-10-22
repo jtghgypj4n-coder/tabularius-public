@@ -1,5 +1,7 @@
 # Documentation
 
+Running a solution: [finds and reports](guides/running/finds-and-reports.md), [accounts and privilege sets](guides/running/accounts-and-privilege-sets.md), [masking](guides/running/masking.md), [hosting and HTTPS](guides/running/hosting-and-https.md), [sync](guides/running/sync.md), [plug-in replacements](guides/running/plugin-replacements.md), [dashboards and charts](guides/running/dashboards-and-charts.md), [backup and restore](tutorials/backup-and-restore.md), [the Data API](tutorials/data-api-client.md), and [AI features and policy](tutorials/let-an-ai-use-your-file-safely.md).
+
 Start with the [quickstart](../QUICKSTART.md), or browse the [examples](../examples/README.md).
 
 To read these pages offline with search, build the site: `npm run docs:build` writes it to `dist/docs-site`, and `index.html` there opens from disk with no server.
