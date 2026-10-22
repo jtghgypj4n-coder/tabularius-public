@@ -31,12 +31,12 @@ const dir = mkdtempSync(join(tmpdir(), 'tabularius-audit-path-'));
 const marker = join(dir, 'forbidden-command');
 try {
   for (const name of ['launchctl', 'systemctl', 'sc', 'git', 'npm', 'curl', 'sudo']) {
-    writeFileSync(join(dir, name), '#!/bin/sh\nprintf blocked >> "$TABULARIUS_AUDIT_MARKER"\nexit 99\n', { mode: 0o700 });
+    writeFileSync(join(dir, name), '#!/bin/sh\nprintf blocked >> "$REVIEW_AUDIT_MARKER"\nexit 99\n', { mode: 0o700 });
   }
   symlinkSync(process.execPath, join(dir, 'node'));
   const run = spawnSync(process.execPath, ['--test', '--test-concurrency=2', '--test-timeout=60000', '--test-reporter=tap', ...(files.length ? files : defaults)], {
     cwd: resolve(import.meta.dirname, '..'),
-    env: { ...process.env, PATH: dir, TABULARIUS_AUDIT_MARKER: marker },
+    env: { ...process.env, PATH: dir, REVIEW_AUDIT_MARKER: marker },
     stdio: 'inherit',
   });
   assert.ok(!existsSync(marker), 'a test attempted a forbidden command');
