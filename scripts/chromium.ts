@@ -92,10 +92,11 @@ export async function launchChromium(chromium: string, profile: string, extra: s
     '--headless=new', '--disable-gpu', '--no-sandbox', '--no-first-run',
     `--user-data-dir=${profile}`, '--remote-debugging-port=0', ...extra, 'about:blank',
   ], { stdio: ['ignore', 'ignore', 'pipe'] });
-  // Chrome prints "DevTools listening on ws://…" to stderr once it is ready.
+  // Chrome prints "DevTools listening on ws://…" to stderr once it is ready. A runner running other jobs
+  // can take well over 15 s to start it, so the wait only catches a Chromium that will never answer.
   const wsUrl = await new Promise<string>((resolve, reject) => {
     let buf = '';
-    const t = setTimeout(() => reject(new Error('Chromium did not start in time')), 15_000);
+    const t = setTimeout(() => reject(new Error('Chromium did not start in time')), 90_000);
     chrome.stderr!.on('data', (d) => {
       buf += d;
       const m = /DevTools listening on (ws:\/\/\S+)/.exec(buf);
