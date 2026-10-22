@@ -5,6 +5,7 @@
 // on that nothing uses, record limits that limit nothing, and calculations that total records the set can't view.
 // Read-only: it changes nothing, and it never shows a password, a token or a record's values.
 
+import type { Node } from '../../calc/src/index.ts';
 import { isFullAccess, Privileges, type PrivilegeDefinition, type Store } from '../../store/src/index.ts';
 
 export type Severity = 'high' | 'medium' | 'low';
@@ -56,24 +57,19 @@ function readsSomething(formula: string, fields: string[]): boolean {
   return fields.some((f) => new RegExp(`(^|[^\\w])${f.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[^\\w])`, 'i').test(c));
 }
 
-/**
- * Table occurrences a formula names (TO::Field), other than `own`. A name may hold spaces, so the words before `::`
- * can include the operator before it (`x and Secrets::A` reads "and Secrets"): the name is the longest end of those
- * words that is a table occurrence (`known`, lower case), looking back at most eight words.
- */
-function occurrencesRead(formula: string, own: string, known: ReadonlySet<string>): string[] {
-  const c = code(formula);
-  const out = new Set<string>();
-  for (const m of c.matchAll(/([^\s;()[\]"&+\-*/=<>≠≤≥,¶]+(?: [^\s;()[\]"&+\-*/=<>≠≤≥,¶]+)*)\s*::/g)) {
-    const words = m[1].split(' ');
-    let name = m[1];
-    for (let i = Math.max(0, words.length - 8); i < words.length; i++) {
-      const tail = words.slice(i).join(' ');
-      if (known.has(tail.toLowerCase())) { name = tail; break; }
-    }
-    if (name.toLowerCase() !== own.toLowerCase()) out.add(name);
+/** Functions that read a field or a table named by a text the formula builds: they can read anything. */
+const DYNAMIC_READERS = new Set(['evaluate', 'getfield', 'executesql']);
+
+/** Does the formula call a function that can read a field or table it does not name? */
+function readsDynamically(n: Node): boolean {
+  switch (n.k) {
+    case 'call': return DYNAMIC_READERS.has(n.name.toLowerCase()) || n.args.some(readsDynamically);
+    case 'let': return n.binds.some(([, b, rep]) => readsDynamically(b) || (rep !== undefined && readsDynamically(rep))) || readsDynamically(n.body);
+    case 'unary': return readsDynamically(n.a);
+    case 'bin': return readsDynamically(n.a) || readsDynamically(n.b);
+    case 'field': case 'var': return n.rep !== undefined && readsDynamically(n.rep);
+    default: return false;
   }
-  return [...out];
 }
 
 export function reviewPrivileges(store: Store, opts: { unusedDays?: number } = {}): PrivilegeReview {
@@ -186,7 +182,6 @@ export function reviewPrivileges(store: Store, opts: { unusedDays?: number } = {
     // Calculations that read what the set can't: an unstored total over related records it may not view shows their sum anyway.
     const p: Privileges = new Privileges('', set as PrivilegeDefinition, store, (): Privileges => p);
     if (p.readsEverything) continue;
-    const known = new Set(store.schema.tableOccurrences.map((o) => o.name.toLowerCase()));
     for (const t of store.schema.tables) {
       if (p.table(t.name).view === false) continue;
       const own = store.schema.tableOccurrences.find((o) => o.baseTableId === t.id && !o.dataSourceId)?.name ?? t.name;
@@ -194,9 +189,15 @@ export function reviewPrivileges(store: Store, opts: { unusedDays?: number } = {
         if (f.kind !== 'calculation' || !f.options?.unstored || !f.calculation || p.fieldAccess(t.name, f.name) === 'none') continue;
         // A masked field still shows a stand-in of its value (its last four characters), so it is checked too.
         const masked = p.fieldAccess(t.name, f.name) === 'masked';
-        const hidden = occurrencesRead(f.calculation, own, known).flatMap((name) => {
-          const to = store.schema.tableOccurrences.find((o) => o.name.toLowerCase() === name.toLowerCase());
-          const bt = to && !to.dataSourceId ? store.schema.tables.find((x) => x.id === to.baseTableId) : undefined;
+        // What the calculation engine reads, by its own parser (so comments, text and spaced names are read as it reads them).
+        // A formula the engine can't parse can't be evaluated either, so it reads nothing.
+        const compiled = store.calc.formula(t, f);
+        const named = compiled ? compiled.fields.flatMap((r) => (r.occurrence === undefined || r.occurrence.toLowerCase() === own.toLowerCase() ? [] : [r.occurrence])) : [];
+        const reads = new Set(named.map((n) => store.schema.tableOccurrences.find((o) => o.name.toLowerCase() === n.toLowerCase())).flatMap((to) => (to && !to.dataSourceId ? [to.baseTableId] : [])));
+        // Evaluate, GetField and ExecuteSQL can read any table.
+        if (compiled && readsDynamically(compiled.node)) for (const o of store.schema.tableOccurrences) if (!o.dataSourceId && o.baseTableId !== t.id) reads.add(o.baseTableId);
+        const hidden = [...reads].flatMap((id) => {
+          const bt = store.schema.tables.find((x) => x.id === id);
           if (!bt) return [];
           const view = p.table(bt.name).view;
           return view === true ? [] : [`${bt.name}${view === false ? '' : ' (some records)'}`];
