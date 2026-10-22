@@ -246,7 +246,7 @@ test('with error capture off, a failing step shows its error; Continue carries o
   assert.equal(go.result, '105 ran');
   assert.equal(asked.length, 1);
   assert.deepEqual(asked[0].buttons, ['Continue', 'Cancel']);
-  assert.match(asked[0].message, /Layout is missing \(error 105\)/);
+  assert.match(asked[0].message, /No such layout \(error 105\)/);
   assert.match(asked[0].message, /"Go to Layout" in script "test"/);
   // Cancel, or closing the dialog, halts the script: nothing after the step runs.
   const stop = await run(SCRIPT, { dialog: async () => ({ button: 2 }) });

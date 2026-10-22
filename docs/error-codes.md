@@ -1,9 +1,11 @@
 # Script error codes
 
-`Get ( LastError )` after a failing step, compared with FileMaker. The numbers
-and meanings follow Claris's current list,
+`Get ( LastError )` after a failing step, compared with FileMaker. The code
+numbers, and what each code means, follow Claris's current list,
 <https://help.claris.com/en/pro-help/content/error-codes.html> (read 2026-10-13).
-`packages/store/src/error-codes.ts` holds every code with a short meaning, and
+The short descriptions are written in our own words, so they read differently
+from Claris's, and the quotes below are marked as quotes.
+`packages/store/src/error-codes.ts` holds every code with a short description, and
 `packages/scripts/test/error-codes.test.ts` runs each row below.
 
 Claris's list says what each code means, not which step returns it. So each
