@@ -719,7 +719,7 @@ test('/mcp answers no one without a credential, this computer included; the fold
   });
   assert.equal(await call({}), 401, 'this computer, with nothing to show');
   assert.equal(await call({ host: 'localhost:8080' }), 401);
-  assert.equal(await call({ host: 'evil.example' }), 401);
+  assert.equal(await call({ host: 'evil.example' }), 403, 'a page whose name points at 127.0.0.1: refused by the same-origin guard before authentication');
   assert.equal(await call({ 'x-forwarded-for': '203.0.113.9' }), 401);
   // The server made a token of its own on first start, in a file only its owner can read.
   const file = join(dir, MCP_LOCAL_TOKEN_FILE);
