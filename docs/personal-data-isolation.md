@@ -46,16 +46,18 @@ Tabularius works each field out once, from its name, its type and a sample of it
   - fields whose names say they hold names, emails, phones, addresses, ids, card or bank numbers, dates of birth, notes or comments;
   - fields that record who made or changed a record;
   - container fields;
-  - List of summaries;
+  - summary fields of every result type;
   - text fields whose values look like emails, phone numbers, card numbers or social security numbers.
-- **Personal, whatever its name:** a calculation that reads a personal field (`Substitute ( Full Name ; " " ; "_" )` named Code), and a text field whose value is looked up from another record.
+- **Personal, whatever its name or result type:** calculated fields, auto-enter calculations and looked-up values. This conservative rule includes custom functions and dynamic field/SQL reads: a number, boolean encoded as a number, or code can reveal personal data too. A human can explicitly mark a safe derived field as Not personal.
+- **Secret-named fields:** credentials such as passwords and PINs are personal even when numeric, so typed finds and ranges cannot probe their values. Existing secret-value output redaction still applies. Marking such a field **Not personal** lifts this protection (its value still shows as hidden, but a range find can narrow it down), so leave the mark off.
+- **Generated keys:** a field whose only formula is `Get ( UUID )` as an auto-enter calculation is not personal, so lookups and joins by a primary key keep working (the same value copied into a child table's key field is judged by its own values). Any other calculation, lookup or summary is personal, including one on a key or restricted to a value list: the calculation rule comes first.
 - **Not personal:**
-  - numbers, dates and times whose names say nothing personal;
+  - ordinary stored numbers, dates and times whose names say nothing personal;
   - number keys and serial numbers (Customer ID, kf_ContactID);
   - text fields named as codes or keys whose values are all codes (INV-0042); a text "Sort Key" holding names is personal;
   - fields restricted to a value list;
   - text fields that hold only a few repeated values, like a status or a category.
-- **Anything else counts as personal, to be safe.** That includes free text and empty text fields. A calculation counts as personal unless its name and values say otherwise.
+- **Anything else counts as personal, to be safe.** That includes free text and empty text fields.
 
 Click **Personal** or **Not personal** next to a field to override this, and **Reset** to go back. Overrides are recorded in the security log.
 
@@ -81,7 +83,7 @@ Also:
 - **Scripts can't use AI steps** (Generate Response from Model, Perform Find by Natural Language), because a script's prompt is whatever text it puts together.
 - **Pictures can't be sent** to the assistant.
 - **A refused record change** (a failed validation, a missing privilege) reaches the model only as "the file refused this change", because a validation message can quote the record.
-- **AI import matching** sees each column's header and the kind of each sample value (`<EMAIL_4>`), never the values themselves. Short numbers and yes/no values are kept.
+- **AI import matching** sees headers that match existing target field names; other headers become column positions because they may be a mistaken first data row. Samples become stand-ins (`<EMAIL_4>`). Short numbers and yes/no values are kept only when the header does not identify personal data or a secret.
 
 ## The security log
 
@@ -95,7 +97,9 @@ This is a strong guard, not a guarantee. These are the gaps we know of:
 - **Personal data in the design.** A name typed into a value list, a script comment, a layout label or a field comment is not swapped, unless it looks like an email, phone or card number. Field and table names are sent as they are. So are account names, which design and security tools list (and which are often people's names).
 - **Sorting and counting.** The model can sort records by a personal field and count records, so it can learn, for example, which of two stand-ins comes first alphabetically. It never sees the values.
 - **Values kept for stand-ins.** Every personal value an account's AI is shown is kept in the file, for that account, until isolation is turned off. Deleting a record (or emptying its table) deletes the whole values it held from there, for every account: its stored fields' values as they were shown (a date in either format, each repetition of a repeating field on its own). A saved copy as a clone starts with an empty vault. Values found inside longer text, worked out by an unstored calculation, or kept in another file's vault are not matched and stay, and neither are the records taken away by reverting a create, a reconversion, or dropping a table or field; a value another record holds too is given a new stand-in the next time it is shown. A file that shows another file's fields keeps those values too. Deleting an account, or removing it through SCIM, deletes its stand-ins here and in the files it uses. When a refusal quotes data owned by an account of another file (a script run with its own privileges), the stand-ins for that quote are kept under that other account, not under the person who asked, and go when that account is deleted. (When the administrator is the one asking, they are kept under the administrator instead, and go only when isolation is turned off.) Removing the stand-ins in a file that is busy or closed at that moment is skipped, and they stay until the next deletion or until isolation is turned off.
-- **Renamed fields.** An administrator's mark is kept by the field's name, so renaming a field drops its mark and Tabularius works it out again.
-- **Spreadsheet headers.** AI import matching sends column headers as they are. When the first row is data rather than headers and isn't recognised as such, its values go too (emails, phones and card numbers are still swapped).
+- **Renamed fields.** An administrator's mark is kept by the field's name, so renaming a field drops its mark and Tabularius works it out again. The reverse also holds: delete a marked field and create another with the same name, and the new field inherits the mark. Review marks after redesigning a table.
+- **Spreadsheet headers.** A header matching an existing target field name is treated as schema and sent using that field's spelling. Other headers are withheld; matching may need more human input when those names carried useful meaning.
 - **Unusual identifiers.** National id formats other than US social security numbers, IBANs, licence plates and similar values are only caught when the field's name says what it holds, or when the field is free text (which counts as personal anyway). Mark such fields as Personal if their names don't say so.
 - **Fields worked out from a sample.** A field is judged from up to 200 of its values and re-checked every ten minutes. A text field that held only a few repeated values in that sample counts as not personal. Check **Settings** after importing new kinds of data.
+
+See the [indirect-channel audit and residual-signal table](../notes/audits/r25-02-redaction-oracles.md) for the distinction between isolation stand-ins and the separate AI-visible policy's pre-execution refusal.

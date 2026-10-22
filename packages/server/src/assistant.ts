@@ -1149,8 +1149,12 @@ export class Assistant {
     const usage = newUsage();
     const started = performance.now();
     const route = { model: this.fastModel() ?? this.opts.model ?? DEFAULT_MODEL, ...piiRoute(store, account) };
-    // With isolation on, the model judges columns by their names and the kind of each value (<EMAIL_4>), never the values.
-    if (route.pii) input = { ...input, columns: input.columns.map((c) => ({ ...c, sample: c.sample.map((v) => maskSample(route.pii!, v, c.header)) })) };
+    // An untrusted header may itself be the first data row. Only existing target field names
+    // are public schema; replace other headers with positions before sending anything to the model.
+    if (route.pii) input = { ...input, columns: input.columns.map((c) => ({ ...c,
+      header: input.fields.find((f) => f.name.toLowerCase() === c.header.trim().toLowerCase())?.name ?? `Column ${c.column + 1}`,
+      sample: c.sample.map((v) => maskSample(route.pii!, v, c.header)),
+    })) };
     const system = 'You match the columns of a spreadsheet someone is importing to the fields of a FileMaker table. For each column, pick ' +
       'the field it belongs in (null when none fits; never two columns into one field) and the fixes its values need, from: ' +
       `${TRANSFORMS.join(', ')}. date-mdy, date-dmy and date-ymd say how the column writes dates; number strips currency signs and ` +
