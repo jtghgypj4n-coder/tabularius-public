@@ -33,6 +33,7 @@ export const SECURITY_EVENT_KINDS = [
   'plugin-installed', 'plugin-install-refused',
   'script-network-on', 'script-network-off',
   'web-viewer-hosts-changed',
+  'standby-takeover',
 ] as const;
 
 /** The security and authentication events the audit log records, besides record changes. */
@@ -67,6 +68,7 @@ export const SECURITY_EVENT_CATEGORIES: Record<string, readonly SecurityEventKin
   'Plug-ins': ['plugin-installed', 'plugin-install-refused'],
   'Script network access': ['script-network-on', 'script-network-off'],
   'Web viewer hosts': ['web-viewer-hosts-changed'],
+  'Standby takeover': ['standby-takeover'],
   'AI access': ['ai-turned-off', 'ai-turned-on', 'ai-access-refused', 'ai-policy-on', 'ai-policy-off', 'pii-isolation-on', 'pii-isolation-off', 'pii-field-marked', 'ai-data-masked'],
 };
 
@@ -99,7 +101,7 @@ const NOTICE = new Set<string>([
   'two-factor-disabled', 'passkey-removed', 'recovery-code-used',
   'api-token-issued', 'scim-token-issued', 'privilege-set-unassigned', 'agent-added', 'agent-change-rejected',
   'ai-turned-on', 'ai-access-refused', 'blank-password-lan-allowed', 'pii-isolation-off', 'pii-field-marked',
-  'audit-settings-changed', 'audit-pruned', 'plugin-installed', 'web-viewer-hosts-changed',
+  'audit-settings-changed', 'audit-pruned', 'plugin-installed', 'web-viewer-hosts-changed', 'standby-takeover',
 ]);
 
 export function securityEventSeverity(kind: string): SecurityEventSeverity {
@@ -171,6 +173,10 @@ export function describeSecurityEvent(e: AuditEntry): string {
     case 'agent-change-approved': return `Approved a record ${str(d.kind) ?? 'change'} by AI agent${t}${num(d.recordId) != null ? ` (#${num(d.recordId)})` : ''}`;
     case 'agent-change-rejected': return `Rejected a record ${str(d.kind) ?? 'change'} by AI agent${t}`;
     case 'schema-changed': return `Schema changed${schemaOps(d)}`;
+    case 'standby-takeover': {
+      const kept = d.keptTokens === true;
+      return `Taken over from a standby of ${str(d.standbyOf) ?? 'another server'}; its copy was last updated ${str(d.lastChange) ?? 'at an unknown time'}. ${kept ? 'API tokens kept' : `${num(d.tokensEnded) ?? 0} API token${num(d.tokensEnded) === 1 ? '' : 's'} ended`}. Accounts, passwords and privileges changed on the main server after that are not here: review them`;
+    }
     case 'script-network-on': return 'Script network access turned on: this file\'s scripts can reach the network';
     case 'script-network-off': return 'Script network access turned off for this file';
     case 'web-viewer-hosts-changed': {

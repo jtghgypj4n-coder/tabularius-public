@@ -5094,6 +5094,14 @@ export class Store {
     });
   }
 
+  /**
+   * Records that this file is now served by the standby that held a copy of it: when the copy was last brought up to date, and what was done about
+   * API tokens. What the main server changed after that (accounts, passwords, privileges, revocations) is not in the copy, which the entry says.
+   */
+  recordStandbyTakeover(detail: { standbyOf: string; lastChange?: string; tokensEnded: number; keptTokens: boolean }): void {
+    this.logSecurity('standby-takeover', { detail });
+  }
+
   /** Records a provisioning token being issued or revoked (the token lives in the SCIM directory; see scim.ts). */
   logProvisioningToken(issued: boolean, by?: string): void {
     this.logSecurity(issued ? 'scim-token-issued' : 'scim-token-revoked', { account: by });
