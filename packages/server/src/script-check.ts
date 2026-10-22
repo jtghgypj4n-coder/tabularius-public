@@ -121,9 +121,11 @@ export function parseScriptText(text: string): Step[] {
       if (!raw || raw.startsWith('#')) continue;
     }
     while (!balanced(raw) && i + 1 < lines.length) raw += '\n' + lines[++i].trimStart();
-    const m = /^([^[]+?)\s*(?:\[(.*)\])?\s*$/s.exec(raw);
-    const name = (m?.[1] ?? raw).trim();
-    const inner = m?.[2]?.trim() ?? '';
+    // `Name [ parameters ]`, split at the first bracket (a pattern for this backtracks cubically on a long run of spaces).
+    const open = raw.indexOf('[');
+    const closed = open > 0 && raw.trimEnd().endsWith(']');
+    const name = (closed ? raw.slice(0, open) : raw).trim();
+    const inner = closed ? raw.trimEnd().slice(open + 1, -1).trim() : '';
     steps.push({ line, name, params: inner ? splitTop(inner, ';') : [], enabled });
   }
   return steps;

@@ -9,6 +9,8 @@ import { blanked } from './sql-grammar.ts';
 
 /** Queries longer than this, and queries with more selects, are not checked. */
 const MAX_CHECKED_QUERY = 200_000;
+/** Token comparisons the GROUP BY check may spend on one expression list (about a tenth of a second). */
+const MAX_GROUP_WORK = 20_000_000;
 const MAX_CHECKED_SELECTS = 50;
 
 interface Token { kind: 'id' | 'str' | 'num' | 'punct'; text: string }
@@ -129,15 +131,21 @@ function skipBrackets(list: Token[], open: number): number {
   return list.length;
 }
 
-const norm = (list: Token[]) => list.map((t) => t.text).join(' ');
 
 /** A column of the file used outside every aggregate and subquery that `grouped` does not cover, or undefined. */
 function ungrouped(expression: string, fields: ReadonlySet<string>, grouped: Set<string>, groupedExpressions: Token[][], ignore: ReadonlySet<string>): string | undefined {
   const list = tokens(expression);
   const masked = new Array<boolean>(list.length).fill(false);
+  // Every place the select list repeats a grouped expression is found by comparing tokens, stopping at the first
+  // that differs. A query that would need more than MAX_GROUP_WORK comparisons is left unchecked, like one that is
+  // too long: the check is a courtesy to the author, and it must not be a way to hold the server's thread.
+  if (list.length * groupedExpressions.reduce((n, g) => n + g.length, 0) > MAX_GROUP_WORK) return undefined;
   for (const g of groupedExpressions) {
-    const want = norm(g);
-    for (let i = 0; i + g.length <= list.length; i++) if (norm(list.slice(i, i + g.length)) === want) for (let k = i; k < i + g.length; k++) masked[k] = true;
+    for (let i = 0; i + g.length <= list.length; i++) {
+      let k = 0;
+      while (k < g.length && list[i + k].text === g[k].text) k++;
+      if (k === g.length) for (let m = i; m < i + g.length; m++) masked[m] = true;
+    }
   }
   for (let i = 0; i < list.length; i++) {
     const t = list[i];
@@ -176,6 +184,8 @@ export function checkGrouping(sql: string, fields: ReadonlySet<string>): void {
   for (const select of selects) {
     if (!select.group) continue;
     const items = splitTop(sql.slice(select.listStart, select.listEnd)).map(itemOf);
+    const byAlias = new Map<string, (typeof items)[number]>();
+    for (const i of items) if (i.alias && !byAlias.has(i.alias)) byAlias.set(i.alias, i);
     const grouped = new Set<string>();
     const groupedExpressions: Token[][] = [];
     const addGroup = (expression: string) => {
@@ -193,7 +203,7 @@ export function checkGrouping(sql: string, fields: ReadonlySet<string>): void {
       }
       addGroup(bare);
       // A name that is also a select-list alias groups that item too.
-      const alias = items.find((i) => i.alias && i.alias === bare.replace(/^"|"$/g, '').toLowerCase());
+      const alias = byAlias.get(bare.replace(/^"|"$/g, '').toLowerCase());
       if (alias) addGroup(alias.expression);
     }
     const aliases = new Set(items.flatMap((i) => (i.alias ? [i.alias] : [])));
