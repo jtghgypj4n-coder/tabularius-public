@@ -25,6 +25,7 @@ To run one test file: `node --no-warnings --test packages/server/test/some.test.
 - **Documentation that shows commands is run.** The tutorials in `docs/tutorials` and the folders in `examples` have tests that execute them. Change one and run its test.
 - **Say what is not done.** If a feature only partly works, the docs and the error message say so, in plain words. A message that a person can read and act on beats a code.
 - **The program has no runtime dependencies**, and a pull request should keep it that way: it runs on Node's own modules (`package.json` lists only development tools: TypeScript, Node's types, a browser driver and an accessibility checker). A new dependency, even a development one, needs a reason in the description; the licence check (`packages/cli/test/dependency-gate.test.ts`) refuses a licence we cannot ship. Prefer the standard library.
+- **Packages import downward only**: fmp12, then calc, then store, then scripts and plugins, then server, then cli; the web client imports nothing from the other packages. The same gate refuses a new upward import (`ALLOWED_IMPORTS` in `scripts/dependency-gate.ts`). Move shared code down instead.
 
 ## Before you push
 

@@ -7,7 +7,7 @@
 
 import type { LayoutDesign, LayoutObject, LayoutPart, ObjectStyle, StyleRule, Theme } from '../../fmp12/src/index.ts';
 import type { PageSetup } from '../../fmp12/src/schema.ts';
-import { pageSize, paginateColumns, slide, type SlideBox } from '../../web/src/preview.ts';
+import { pageSize, paginateColumns, slide, type SlideBox } from '../../fmp12/src/page-geometry.ts';
 import { textWidth, wrap, type FontName, type PdfOp, type PdfPage, type Rgb, type Stroke, type TextStyle } from './pdf.ts';
 
 /** Record data for the objects being drawn, in whatever record and portal row is current. */

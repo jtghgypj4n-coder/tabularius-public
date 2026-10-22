@@ -117,3 +117,8 @@ test('print in columns: across first fills rows of N, down first fills a column 
   // A page break before a part still starts a new page.
   assert.deepEqual(at(paginateColumns([10, 10, 10], () => false, frame, 200, { count: 3 }, { before: (i) => i === 2 })), [['0:0@0', '1:1@0'], ['2:0@0']]);
 });
+
+test('the browser copy of the page geometry equals the one the PDF layout uses', () => {
+  const copy = (path: string) => readFileSync(new URL(path, import.meta.url), 'utf8');
+  assert.equal(copy('../src/preview.ts'), copy('../../fmp12/src/page-geometry.ts'));
+});

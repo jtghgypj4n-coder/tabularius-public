@@ -132,7 +132,7 @@ on for scripts an AI app runs.
 | Sync with FileMaker Server, and its migration read | an administrator; sync also refuses this machine unless `TABULARIUS_SYNC_HOSTS` lists it | the request's lookup is the guard's | `fms-sync*`, `fms-migrate`, `sync-console` |
 | Worker proxy in a cluster | none (a unix socket path) | not a network address | `cluster` |
 | The command line asking the local server; the service health check | this machine's own access file | not routed: it is the machine itself | `service` |
-| The JavaScript sandbox | none: it refuses every connection | `store/src/javascript.ts` replaces the connect functions with a refusal | `javascript-functions` |
+| The JavaScript sandbox | none: it refuses every connection | `calc/src/javascript.ts` replaces the connect functions with a refusal | `javascript-functions` |
 
 `outbound-guard-drift.test.ts` scans the source of every package except the web
 client, and fails when a raw `fetch`, `http(s).request`, `net`/`tls` connect,

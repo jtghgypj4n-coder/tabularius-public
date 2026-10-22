@@ -66,7 +66,7 @@ The earlier 79 sites (75 catch clauses plus four promise rejection handlers) are
 | [packages/store/src/fidelity.ts](../packages/store/src/fidelity.ts) | 153, 169, 219 | — | 198 | Evaluation/query/name-resolution catches are guarded; unchanged catch reads native stored rows only. |
 | [packages/store/src/fmexport.ts](../packages/store/src/fmexport.ts) | — | — | 119 | Primitive repetition JSON decoding. |
 | [packages/store/src/import.ts](../packages/store/src/import.ts) | — | — | 118, 240 | Import replay and serialized import state only; no evaluation callbacks. |
-| [packages/store/src/javascript.ts](../packages/store/src/javascript.ts) | — | — | 40, 327 | Host syntax validation and process termination only. Embedded child/worker program catches are separate realms with no store/file-guard callbacks or host error identity. |
+| [packages/calc/src/javascript.ts](../packages/calc/src/javascript.ts) | — | — | 40, 327 | Host syntax validation and process termination only. Embedded child/worker program catches are separate realms with no store/file-guard callbacks or host error identity. |
 | [packages/store/src/layout-perf.ts](../packages/store/src/layout-perf.ts) | — | — | 76 | Syntax parsing over supplied names only. |
 | [packages/store/src/layout-speed.ts](../packages/store/src/layout-speed.ts) | 66 | — | — | Cost estimate fallback is guarded. |
 | [packages/store/src/reconvert.ts](../packages/store/src/reconvert.ts) | — | — | 203, 204 | Rollback/file cleanup and original throw; inner catch is native rollback only. |

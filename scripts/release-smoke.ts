@@ -73,7 +73,7 @@ try {
   const runtime = unpacked;
   const check = join(work, 'js-check.mjs');
   writeFileSync(check, [
-    `import { callJavaScript, stopJavaScript } from ${JSON.stringify(pathToFileURL(join(runtime, 'packages', 'store', 'src', 'javascript.ts')).href)};`,
+    `import { callJavaScript, stopJavaScript } from ${JSON.stringify(pathToFileURL(join(runtime, 'packages', 'calc', 'src', 'javascript.ts')).href)};`,
     `const run = (source) => { try { return callJavaScript({ name: 'Fn', parameters: [], source }, []).value; } catch (e) { return '? ' + e.message; } };`,
     `console.log(JSON.stringify([run('return 2 + 3'), run('return typeof process + "," + typeof require')]));`,
     'void stopJavaScript();',

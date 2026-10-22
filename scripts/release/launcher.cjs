@@ -47,7 +47,7 @@ function unpack() {
   }
 }
 
-// The sandbox a hosted file's JavaScript custom functions run in (packages/store/src/javascript.ts):
+// The sandbox a hosted file's JavaScript custom functions run in (packages/calc/src/javascript.ts):
 // `tabularius --tabularius-js-sandbox <program> <limit>` runs the program with nothing unpacked or read, under the
 // limits NODE_OPTIONS sets, since this executable doesn't read Node's flags from its command line. Without
 // those limits in force (no permission model, code from strings allowed, or no memory cap) it runs nothing.

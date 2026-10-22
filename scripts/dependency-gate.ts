@@ -3,14 +3,16 @@
 //   2. Dev-only packages are listed with theirs; a copyleft one is refused too, but a weak one (MPL-2.0) is allowed.
 //   3. Nothing is committed that must stay out: no file under fixtures/ (the public samples' terms are unknown, so
 //      `npm run fixtures` downloads them) and no FileMaker file anywhere.
-//   4. With --audit, `npm audit --omit=dev` finds no known high or critical vulnerability in what ships.
+//   4. Packages import only downward (fmp12, calc, store, then scripts and plug-ins, then server, then cli); the web
+//      client imports nothing from the other packages. Leaks that already exist are listed in KNOWN_LEAKS and shrink.
+//   5. With --audit, `npm audit --omit=dev` finds no known high or critical vulnerability in what ships.
 //
 //   node --no-warnings scripts/dependency-gate.ts [--audit]
 //
-// Checks 1 to 3 need no network and also run in the test suite (packages/cli/test/dependency-gate.test.ts).
+// Checks 1 to 4 need no network and also run in the test suite (packages/cli/test/dependency-gate.test.ts).
 // The audit needs the npm registry, so run it by hand (or from a scheduled job on the owner's runner).
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const ROOT = join(import.meta.dirname, '..');
@@ -84,12 +86,63 @@ export function committedProblems(paths: string[]): string[] {
     .map((p) => `${p} is committed, but ${p.startsWith('fixtures/') ? 'fixtures/ is downloaded by npm run fixtures and never committed' : 'FileMaker files are never committed'}`);
 }
 
+/** The packages a package may import from. `web` runs in the browser, so it imports none; nothing imports `web`, `cli` or `server` below it. */
+export const ALLOWED_IMPORTS: Record<string, string[]> = {
+  fmp12: [],
+  calc: ['fmp12'],
+  store: ['fmp12', 'calc'],
+  plugins: ['fmp12', 'calc', 'store'],
+  scripts: ['fmp12', 'calc', 'store'],
+  server: ['fmp12', 'calc', 'store', 'plugins', 'scripts'],
+  cli: ['fmp12', 'calc', 'store', 'plugins', 'scripts', 'server'],
+  web: [],
+};
+
+/** Upward imports that exist today, as "file -> package". Fix one and delete its line; the test fails on a line that no longer applies. */
+export const KNOWN_LEAKS: string[] = [
+  'packages/store/src/store.ts -> scripts',
+  'packages/server/src/page-draft.ts -> web',
+  'packages/server/src/modernize.ts -> web',
+];
+
+function sourceFiles(dir: string): string[] {
+  if (!existsSync(dir)) return [];
+  return readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+    if (e.isDirectory()) return ['node_modules', 'test', 'e2e', 'evals'].includes(e.name) ? [] : sourceFiles(join(dir, e.name));
+    return e.name.endsWith('.ts') && !e.name.endsWith('.d.ts') ? [join(dir, e.name)] : [];
+  });
+}
+
+/** Every "file -> package" import that goes to a package the file's own package may not use (tests, browser tests and evals are not scanned). */
+export function packageImports(root: string, allowed: Record<string, string[]> = ALLOWED_IMPORTS): string[] {
+  const out = new Set<string>();
+  for (const pkg of Object.keys(allowed)) {
+    for (const file of sourceFiles(join(root, 'packages', pkg))) {
+      const text = readFileSync(file, 'utf8');
+      for (const m of text.matchAll(/['"`](?:\.\.\/)+(fmp12|calc|store|plugins|scripts|server|cli|web)\//g)) {
+        const target = m[1];
+        if (target !== pkg && !allowed[pkg].includes(target)) out.add(`${file.slice(root.length + 1).split('\\').join('/')} -> ${target}`);
+      }
+    }
+  }
+  return [...out].sort();
+}
+
+/** What is wrong with the imports between packages: a new upward import, or a KNOWN_LEAKS line that is fixed and should go. */
+export function layeringProblems(imports: string[], known: string[] = KNOWN_LEAKS): string[] {
+  return [
+    ...imports.filter((i) => !known.includes(i)).map((i) => `${i}: a package may not import from a higher one (see ALLOWED_IMPORTS in scripts/dependency-gate.ts); move the shared code down`),
+    ...known.filter((k) => !imports.includes(k)).map((k) => `${k} is fixed: delete it from KNOWN_LEAKS in scripts/dependency-gate.ts`),
+  ];
+}
+
 function main(): void {
   const lock = JSON.parse(readFileSync(join(ROOT, 'package-lock.json'), 'utf8'));
   const packages = lockedPackages(lock);
   const problems = [
     ...licenceProblems(packages),
     ...committedProblems(execFileSync('git', ['ls-files', '-z'], { cwd: ROOT, encoding: 'utf8', maxBuffer: 64 << 20 }).split('\0').filter(Boolean)),
+    ...layeringProblems(packageImports(ROOT)),
   ];
 
   const byLicence = new Map<string, number>();
@@ -111,7 +164,7 @@ function main(): void {
     console.error(`\n${problems.length} problem${problems.length === 1 ? '' : 's'}:\n- ${problems.join('\n- ')}`);
     process.exit(1);
   }
-  console.log('Dependencies and committed files are fine.');
+  console.log('Dependencies, package layering and committed files are fine.');
 }
 
 if (import.meta.main) main();

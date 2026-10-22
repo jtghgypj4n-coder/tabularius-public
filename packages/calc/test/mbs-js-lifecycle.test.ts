@@ -3,7 +3,7 @@ import { afterEach, test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { ERR, evaluateText } from '../src/index.ts';
 import { closeMbsJavaScriptSession, MBS_JS_COOL_DOWN_LIMIT, MBS_JS_HANDLES_PER_SESSION } from '../src/mbs-js.ts';
-import { JavaScriptContext, JavaScriptResourceError, JS_CONTEXT_LIMIT, JS_CONTEXT_ACCOUNT_LIMIT, JS_COOL_DOWN_MS, stopJavaScript } from '../../store/src/javascript.ts';
+import { JavaScriptContext, JavaScriptResourceError, JS_CONTEXT_LIMIT, JS_CONTEXT_ACCOUNT_LIMIT, JS_COOL_DOWN_MS, stopJavaScript } from '../src/javascript.ts';
 
 const IDLE_MS = 60_000;
 afterEach(async () => { await stopJavaScript(); });

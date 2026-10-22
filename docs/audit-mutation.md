@@ -23,7 +23,7 @@ Only Node built-ins are used; no dependencies were added. TypeScript's types are
 The sandbox's generated programs can be included explicitly:
 
 ```sh
-npm run mutate -- packages/store/src/javascript.ts \
+npm run mutate -- packages/calc/src/javascript.ts \
   --raw=CHILD --lines=78:130 \
   --tests=packages/store/test/javascript-functions.test.ts,packages/store/test/sandbox-bootstrap-mutation.test.ts \
   --report=sandbox-mutation-report.json
@@ -58,7 +58,7 @@ Each candidate is counted once, using its final observed outcome after targeted 
 | `packages/server/src/password-login-policy.ts` | Whole module | 22 | 22 | 0 |
 | `packages/server/src/token-scope.ts` | Whole module | 38 | 38 | 0 |
 | `packages/server/src/adminapi.ts` | 288–300 | 17 | 17 | 0 |
-| `packages/store/src/javascript.ts` | CHILD raw program, 78–130 | 6 | 6 | 0 |
+| `packages/calc/src/javascript.ts` | CHILD raw program, 78–130 | 6 | 6 | 0 |
 | `packages/plugins/src/sandboxed.ts` | 40–107 | 41 | 41 | 0 |
 | **Total** | | **599** | **593** | **6** |
 
@@ -241,7 +241,7 @@ Tests used across passes: [`packages/server/test/adminapi-tokens.test.ts`](../pa
 299:branch:14815, 299:throw:14868
 ```
 
-### sandbox: `packages/store/src/javascript.ts`
+### sandbox: `packages/calc/src/javascript.ts`
 
 Tests used across passes: [`packages/store/test/javascript-functions.test.ts`](../packages/store/test/javascript-functions.test.ts), [`packages/store/test/sandbox-bootstrap-mutation.test.ts`](../packages/store/test/sandbox-bootstrap-mutation.test.ts).
 
