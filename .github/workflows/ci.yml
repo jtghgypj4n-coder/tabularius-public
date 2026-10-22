@@ -19,6 +19,10 @@ name: ci
 #   it does not start a run). It is not a required check. GitHub's free plan runs 20 jobs at
 #   once, 5 of them macOS, so macOS on every pull request left a queue of 15 and held a
 #   quarter of all runners.
+# - The suite is split so a run takes about 10 minutes when runners are free: `gates` (type
+#   check and the repo-wide scans, once), `test-shard` (the other test files in four shards,
+#   see scripts/test-plan.ts) and `test`, which only reports whether all of those passed.
+#   `test` is the required check; the shard names do not matter to branch protection.
 on:
   push:
     branches: [main]
@@ -34,30 +38,60 @@ concurrency:
   group: ci-${{ github.event.pull_request.number || github.sha }}-${{ github.event_name }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
-  test:
+  gates:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
+          cache: npm
       - run: npm ci
       - run: npm run typecheck
       - run: npm run fixtures
-      - run: npm run test:ci
+      - run: npm run gates
+  test-shard:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run fixtures
+      - run: npm run test:ci -- --shard=${{ matrix.shard }}/4
         env:
           TABULARIUS_SOAK: ${{ github.event_name == 'workflow_dispatch' && '1' || '' }}
+  test:
+    needs: [gates, test-shard]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - run: |
+          echo "gates: ${{ needs.gates.result }}, shards: ${{ needs.test-shard.result }}"
+          [ "${{ needs.gates.result }}" = success ] && [ "${{ needs.test-shard.result }}" = success ]
   test-macos:
     if: ${{ github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'macos') }}
     runs-on: macos-latest
-    timeout-minutes: 60
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
+          cache: npm
       - run: npm ci
-      - run: npm run typecheck
       - run: npm run fixtures
-      - run: npm run test:ci
+      - run: npm run test:ci -- --shard=${{ matrix.shard }}/3
