@@ -272,3 +272,44 @@ test('a generated unique key stays usable: lookups by key work under isolation',
   store.applyDesign([{ op: 'createField', table: 'Items', name: 'Mixed', options: { autoEnter: { calculation: true } }, calculation: 'Get ( UUID ) & Password' }]);
   assert.equal(classOf(store, 'Items', 'Mixed').pii, true);
 });
+
+test('a generated-key field stops being exempt once it holds anything but generated keys', async (t) => {
+  const { store } = await fixture(t);
+  store.setAiPolicy(false);
+  store.applyDesign([{ op: 'createField', table: 'Items', name: 'PrimaryKey', options: { autoEnter: { calculation: true } }, calculation: 'Get ( UUID )' }]);
+  const first = store.create('Items', { Name: 'first' }).recordId;
+  assert.equal(classOf(store, 'Items', 'PrimaryKey').pii, false, 'only generated keys so far');
+  // Someone types a legacy address into the key (or an import fills it): the field no longer says nothing about anyone.
+  store.update('Items', first, { PrimaryKey: ['legacy', 'person'].join('.') + '@example.test' });
+  store.create('Items', { Name: 'second' });
+  store.applyDesign([{ op: 'createField', table: 'Items', name: 'Marker' }]); // a design change makes the classes be worked out again
+  assert.equal(classOf(store, 'Items', 'PrimaryKey').pii, true, 'a typed email among generated keys');
+  // The check covers every record, not only the first sampled ones.
+  const { store: other } = await fixture(t);
+  other.setAiPolicy(false);
+  other.applyDesign([{ op: 'createField', table: 'Items', name: 'PrimaryKey', options: { autoEnter: { calculation: true } }, calculation: 'Get ( UUID )' }]);
+  for (let i = 0; i < 250; i++) other.create('Items', { Name: `row ${i}` });
+  assert.equal(classOf(other, 'Items', 'PrimaryKey').pii, false);
+  const last = other.create('Items', { Name: 'late' }).recordId;
+  other.update('Items', last, { PrimaryKey: 'Jane Example' });
+  other.applyDesign([{ op: 'createField', table: 'Items', name: 'Marker' }]);
+  assert.equal(classOf(other, 'Items', 'PrimaryKey').pii, true, 'a name beyond the first 200 records');
+});
+
+test('a generated-key calculation with a lookup in its options is not exempt', async (t) => {
+  const { store } = await fixture(t);
+  store.setAiPolicy(false);
+  store.applyDesign([{ op: 'createTable', name: 'Keys', fields: [{ name: 'Label' }] }]);
+  store.applyDesign([
+    { op: 'createOccurrence', name: 'KeysRel', table: 'Keys', id: 500 },
+    { op: 'createRelationship', left: 'Items', right: 'KeysRel', predicates: [{ left: 'Name', right: 'Label' }] },
+    { op: 'createField', table: 'Items', name: 'PrimaryKey', options: { autoEnter: { calculation: true, lookup: {
+      occurrenceId: 500, fieldId: store.schema.tables.find((x) => x.name === 'Keys')!.fields.find((x) => x.name === 'Label')!.id,
+    } } }, calculation: 'Get ( UUID )' },
+  ]);
+  const id = store.create('Items', { Name: 'third' }).recordId;
+  // Every stored value is a UUID, so only the lookup can make the difference.
+  store.update('Items', id, { PrimaryKey: '0F8FAD5B-D9CB-469F-A165-70867728950E' });
+  store.applyDesign([{ op: 'createField', table: 'Items', name: 'Marker' }]);
+  assert.equal(classOf(store, 'Items', 'PrimaryKey').pii, true);
+});
