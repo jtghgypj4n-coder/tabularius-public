@@ -28,15 +28,40 @@ function hook(t: TestContext, method: 'copyFileSync' | 'writeFileSync', replacem
   t.after(() => { t.mock.restoreAll(); syncBuiltinESMExports(); });
 }
 
+/**
+ * Files are opened and written through the file-system boundary (descriptors, not copyFileSync), so a fault is put in
+ * at the descriptor: `after(path)` runs once the bytes of a file opened by this path are all written, just before its
+ * descriptor is closed. A throw from it reaches the writer as the failure of that file.
+ */
+function atWriteClose(t: TestContext, after: (path: string) => void) {
+  const paths = new Map<number, string>();
+  const open = fs.openSync;
+  const close = fs.closeSync;
+  t.mock.method(fs, 'openSync', (...args: Parameters<typeof fs.openSync>) => {
+    const fd = open(...args);
+    if (typeof args[0] === 'string') paths.set(fd, args[0]);
+    return fd;
+  });
+  let inside = false;
+  t.mock.method(fs, 'closeSync', (fd: number) => {
+    const path = paths.get(fd);
+    paths.delete(fd);
+    // The fault itself opens and closes files, which must not set it off again.
+    if (!path || inside) return close(fd);
+    inside = true;
+    try { after(path); } finally { inside = false; close(fd); }
+  });
+  syncBuiltinESMExports();
+  t.after(() => { t.mock.restoreAll(); syncBuiltinESMExports(); });
+}
+
 for (const fault of ['ENOSPC', 'truncated', 'corrupted', 'writer'] as const) {
   test(`backup refuses ${fault} during external copy and retains the previous set`, async (t) => {
     const { live, backups, source } = setup(t);
     const previous = await backupFolder(live, backups, 1, '');
     fs.writeFileSync(source, 'changed container, requiring a new copy');
-    const copy = fs.copyFileSync;
-    hook(t, 'copyFileSync', (from, to, flags) => {
-      if (String(from) !== source) return copy(from, to, flags);
-      copy(from, to, flags);
+    atWriteClose(t, (to) => {
+      if (!to.includes('.partial') || !to.endsWith('Files/A/data')) return;
       if (fault === 'writer') {
         const child = spawnSync(process.execPath, ['--input-type=module', '--eval', `
           import { writeFileSync } from 'node:fs';
@@ -106,10 +131,8 @@ test('disk full midway through restore staging preserves live bytes and releases
   fs.writeFileSync(source, 'live container');
   const target = join(live, 'A.openhbam.sqlite');
   const before = fs.readFileSync(target);
-  const copy = fs.copyFileSync;
-  hook(t, 'copyFileSync', (from, to, flags) => {
-    copy(from, to, flags);
-    if (String(to).includes('A.restoring')) {
+  atWriteClose(t, (to) => {
+    if (to.includes('A.restoring')) {
       fs.truncateSync(to, 4);
       throw Object.assign(new Error(`ENOSPC: no space left on device, copy '${to}'`), { code: 'ENOSPC' });
     }
@@ -127,8 +150,16 @@ test('disk full writing the restore commit decision rolls back before returning 
   const staged = target + '.restoring';
   fs.writeFileSync(target, 'old'); fs.writeFileSync(staged, 'new');
   const write = fs.writeFileSync;
+  const open = fs.openSync;
+  const paths = new Map<number, string>();
+  t.mock.method(fs, 'openSync', (...args: Parameters<typeof fs.openSync>) => {
+    const fd = open(...args);
+    if (typeof args[0] === 'string') paths.set(fd, args[0]);
+    return fd;
+  });
   hook(t, 'writeFileSync', (path, data, options) => {
-    if (String(path).includes('.restore-journal.json.') && String(data).includes('"committed"')) {
+    const name = typeof path === 'number' ? paths.get(path) ?? '' : String(path);
+    if (name.includes('.restore-journal.json.') && String(data).includes('"committed"')) {
       write(path, '{', options);
       throw Object.assign(new Error('ENOSPC: no space left writing restore journal'), { code: 'ENOSPC' });
     }
@@ -159,13 +190,25 @@ for (const operation of ['backup', 'restore']) {
       import fs from 'node:fs';
       import { syncBuiltinESMExports } from 'node:module';
       import { backupFolder, restoreBackup } from ${JSON.stringify(new URL('../src/backup.ts', import.meta.url).href)};
-      const copy = fs.copyFileSync;
-      fs.copyFileSync = (from, to, flags) => {
-        if (${JSON.stringify(operation)} === 'backup' ? String(from) === ${JSON.stringify(source)} : String(to).endsWith('.sqlite.restoring')) {
-          fs.writeFileSync(to, fs.readFileSync(from).subarray(0, 4));
+      // Files are written through descriptors, so the process dies after only the first bytes of the copy are on disk.
+      const open = fs.openSync;
+      const close = fs.closeSync;
+      const paths = new Map();
+      fs.openSync = (...args) => {
+        const fd = open(...args);
+        if (typeof args[0] === 'string') paths.set(fd, args[0]);
+        return fd;
+      };
+      let inside = false;
+      fs.closeSync = (fd) => {
+        const path = paths.get(fd);
+        paths.delete(fd);
+        if (path && !inside && (${JSON.stringify(operation)} === 'backup' ? path.includes('.partial') && path.endsWith('Files/A/data') : path.endsWith('.sqlite.restoring'))) {
+          inside = true;
+          fs.truncateSync(path, 4);
           process.exit(73);
         }
-        return copy(from, to, flags);
+        return close(fd);
       };
       syncBuiltinESMExports();
       if (${JSON.stringify(operation)} === 'backup') await backupFolder(${JSON.stringify(live)}, ${JSON.stringify(backups)}, 1, '');
