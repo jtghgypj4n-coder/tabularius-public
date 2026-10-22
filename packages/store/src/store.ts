@@ -6193,7 +6193,8 @@ export class Store {
     const hash = proof?.hash;
     if (this.spendsScrypt(hash, account, from)) await checkPasswordAsync(password, DUMMY_HASH);
     let valid = hash !== undefined && await checkPasswordAsync(password, hash) && !this.accountInactive(account);
-    if (valid) {
+    // A lock taken while hashing is judged by signedIn below, which refuses a success without charging a wrong attempt.
+    if (valid && !this.lockedOut(account, from)) {
       // Hashing yields: another worker may replace the identity, change its password, or disable it.
       // Revalidate both the identity and the usable verifier before accepting the proof.
       const current = this.passwordState(account, from);
