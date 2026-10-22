@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createStore, Store, StoreError, normalizeWebViewerHost, normalizeWebViewerHosts, webViewerEntryCovers, describeSecurityEvent, securityEventCategory, securityEventSeverity } from '../src/index.ts';
+import { trustedWebViewerHosts } from '../src/web-viewer-hosts.ts';
 
 test('a file allows no web hosts to begin with; the list is kept in the file and in its security log', () => {
   const dir = mkdtempSync(join(tmpdir(), 'web-viewer-hosts-'));
@@ -77,4 +78,15 @@ test('an entry covers a host name when it is that name or a wildcard over it', (
   assert.equal(webViewerEntryCovers('maps.example.com', 'files.example.com'), false);
   assert.equal(webViewerEntryCovers('maps.example.com', ''), false);
   assert.equal(webViewerEntryCovers('maps.example.com', '[::1]'), false);
+});
+
+test('a wildcard over a public suffix is refused, but a wildcard over a site and a bare suffix-like name are not', () => {
+  for (const bad of ['*.co.uk', '*.org.uk', '*.gov.uk', '*.com.au', '*.co.nz', '*.co.jp', '*.ne.jp', '*.com.br', '*.com.cn', '*.co.za', '*.github.io', '*.herokuapp.com', '*.vercel.app', '*.pages.dev', '*.s3.amazonaws.com', '*.blogspot.com', '*.web.app', '*.Co.UK'])
+    assert.throws(() => normalizeWebViewerHost(bad), /public suffix/, bad);
+  // A name below the suffix is one site (or one account's sites), as before.
+  for (const ok of ['*.example.co.uk', 'example.co.uk', '*.myorg.github.io', 'maps.example.com', '*.example.org.uk', 'co.example.com', '*.co.example.com', '*.uk.example.com']) assert.equal(normalizeWebViewerHost(ok), ok.toLowerCase(), ok);
+  // The suffix itself, without a wildcard, is one host and no wider than it says.
+  assert.equal(normalizeWebViewerHost('github.io'), 'github.io');
+  // A stored list from a restored file loses such an entry too.
+  assert.deepEqual(trustedWebViewerHosts(['*.co.uk', 'maps.example.com', '*.example.co.uk']), ['maps.example.com', '*.example.co.uk']);
 });

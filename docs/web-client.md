@@ -278,7 +278,7 @@ the web shows as text that names the host to allow.
   can show them anything, including something that looks like the app. List only sites you trust. A change is
   recorded in the file's security log (Web viewer hosts), with what was allowed and removed.
 - A host name on the list says nothing about what is on its pages: allowing `*.example.com` allows every site under it,
-  and a name that is a public suffix (such as `*.co.uk`) would allow far more than you mean to.
+  so the console refuses a `*.` wildcard over a public suffix (such as `*.co.uk` or `*.github.io`). It knows the country registries' second levels and the common hosting platforms, not the whole public suffix list, so pick wildcards with care.
   The console refuses the names the server answers to, since a page of one would run beside the app: the address it was reached at, `--public-url`, the `--https` domains, the `--mcp-origin` and `--browser-origin` origins and the computer's own name. Set `--public-url` so the server knows its public address. A list that came back with a restored backup is checked against these names too, every time it is read, and against the name each request came in by: an entry that covers one is not honoured, and the console's answer lists it as `ignored`. The app page's policy names at most 200 hosts (about 8 KB of names) across all files; a host past that is not framed.
 
 <!-- known-difference: Web client ;; A web viewer loads an https address only when an administrator listed its host for the file, over https only; FileMaker loads any address, and Go Back, Go Forward and Perform JavaScript in Web Viewer do not work on a page from a web host ;; An address on the web shows as text naming the host, until it is listed ;; Owner decision -->

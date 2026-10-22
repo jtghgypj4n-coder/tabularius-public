@@ -36,6 +36,7 @@ test('web viewer hosts: none to begin with; the console lists them, the app page
     // Bad requests change nothing and say what is wrong.
     for (const bad of [{ hosts: 'maps.example.com' }, {}, null, { hosts: ['https://maps.example.com'] }, { hosts: ['127.0.0.1'] }, { hosts: [42] }]) assert.equal((await hostsOf(bad)).status, 400, JSON.stringify(bad));
     assert.match((await hostsOf({ hosts: ['maps.example.com/x'] })).body.error, /just a host name/);
+    assert.match((await hostsOf({ hosts: ['*.co.uk'] })).body.error, /public suffix/);
     // This server's own host is refused: a page of it would run beside the app.
     hosted.host.publicUrl = 'https://files.corp-example.com/';
     for (const hosts of [['files.corp-example.com'], ['*.corp-example.com']]) {

@@ -5,6 +5,24 @@ import { StoreError } from './errors.ts';
 
 export const WEB_VIEWER_HOSTS_MAX = 50;
 
+// Names under which anyone can register a site of their own, so a wildcard on one allows every stranger's page. The
+// country-code registries that sell names a level down (co.uk, com.au, ...) are matched by shape below; these are the
+// rest: hosting platforms people publish pages on, and the shared domains of cloud storage. Not the full public suffix
+// list (a dependency this package does not take), so a wildcard is still only as safe as the name the person picks.
+const SHARED_SUFFIXES = new Set([
+  'github.io', 'gitlab.io', 'bitbucket.io', 'herokuapp.com', 'vercel.app', 'netlify.app', 'pages.dev', 'workers.dev', 'web.app', 'firebaseapp.com', 'appspot.com',
+  'blogspot.com', 'wordpress.com', 'azurewebsites.net', 'azurestaticapps.net', 'cloudapp.azure.com', 'cloudfront.net', 'amazonaws.com', 's3.amazonaws.com', 'elasticbeanstalk.com',
+  'onrender.com', 'fly.dev', 'glitch.me', 'repl.co', 'surge.sh', 'myshopify.com', 'wixsite.com', 'weebly.com', 'ngrok.io', 'ngrok-free.app', 'trycloudflare.com', 'run.app',
+]);
+const REGISTRY_LEVEL = new Set(['co', 'com', 'org', 'net', 'gov', 'gob', 'edu', 'ac', 'ne', 'or', 'go', 'mil', 'ltd', 'plc', 'sch']);
+
+/** Whether a name is one under which many unrelated sites live (a country registry's co.uk, a hosting platform's github.io). */
+function isPublicSuffix(labels: string[]): boolean {
+  const name = labels.join('.');
+  if (SHARED_SUFFIXES.has(name)) return true;
+  return labels.length === 2 && labels[1].length === 2 && REGISTRY_LEVEL.has(labels[0]);
+}
+
 const LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 
 /** The host written the one way it is kept, or a StoreError saying what is wrong with it. */
@@ -22,6 +40,9 @@ export function normalizeWebViewerHost(input: unknown): string {
   // Web viewers load pages in the person's browser, so addresses on a private or local network are not for an allow-list either.
   if (/^(\d+|0x[0-9a-f]*)$/.test(labels[labels.length - 1]) || labels[labels.length - 1] === 'local' || labels[labels.length - 1] === 'localhost' || labels[labels.length - 1] === 'internal') {
     throw new StoreError(960, `"${input.trim()}" is an address on a local network, or a number: allow a public host name instead`);
+  }
+  if (wild && isPublicSuffix(labels)) {
+    throw new StoreError(960, `"${input.trim()}" is a public suffix, so it would allow every site under it: list a name below it, like *.example.${labels.join('.')}`);
   }
   return text;
 }
