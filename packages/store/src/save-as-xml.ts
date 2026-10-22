@@ -61,9 +61,11 @@ const UUID_NS = Buffer.from('6f70656e6862616d2d73617665617378', 'hex'); // "tabu
 // The real UUIDs for the saveAsXml call in progress (it is synchronous, so a
 // module-level slot is safe and spares threading them through every helper).
 let realUuids: Map<string, string> | undefined;
+/** A UUID as FileMaker writes it. The real UUIDs come from a file the caller supplies, so only this shape is written back into the XML. */
+const UUID_TEXT = /^[0-9A-Fa-f]{8}(?:-[0-9A-Fa-f]{4}){3}-[0-9A-Fa-f]{12}$/;
 function guid(seed: string): string {
   const real = realUuids?.get(seed);
-  if (real) return real;
+  if (real && UUID_TEXT.test(real)) return real;
   const h = createHash('sha1').update(UUID_NS).update(seed).digest();
   h[6] = (h[6] & 0x0f) | 0x50; // version 5
   h[8] = (h[8] & 0x3f) | 0x80; // RFC 4122 variant
@@ -502,10 +504,10 @@ export function uuidsFromSaveAsXml(xml: string | Uint8Array): Map<string, string
   const uuidOf = (e: XmlElement): string | undefined => {
     const u = elements(e).find((c) => c.name === 'UUID');
     const text = u?.children.filter((c): c is string => typeof c === 'string').join('').trim();
-    return text || undefined;
+    return text && UUID_TEXT.test(text) ? text : undefined;
   };
   const walk = (e: XmlElement, tableId: string | undefined): void => {
-    if (e.name === 'FMSaveAsXML' && e.attrs.UUID) out.set('file', e.attrs.UUID);
+    if (e.name === 'FMSaveAsXML' && e.attrs.UUID && UUID_TEXT.test(e.attrs.UUID)) out.set('file', e.attrs.UUID);
     if (e.name === 'FieldCatalog') tableId = elements(e).find((c) => c.name === 'BaseTableReference')?.attrs.id;
     const id = e.attrs.id;
     if (id !== undefined) {
