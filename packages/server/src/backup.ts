@@ -1289,8 +1289,6 @@ export function restoreRange(dest: string, file: string): { from: number; to: nu
 
 /** Puts databases back as they were at a moment (the latest point backed up at or before it). The server must be stopped. */
 export async function restoreAt(folder: string, dest: string, at: number, only?: string, passphrase = backupKey(), options: RestoreOptions = {}): Promise<{ file: string; time: number }[]> {
-  const { signal } = options;
-  signal?.throwIfAborted();
   const pid = hostingProcess(folder);
   if (pid !== undefined) throw new Error(`stop the server first (process ${pid} is hosting ${folder})`);
   const files = new Set<string>();
@@ -1306,27 +1304,28 @@ export async function restoreAt(folder: string, dest: string, at: number, only?:
   const release = claimFolder(folder, 'restore');
   try {
     for (const f of wanted) {
-      signal?.throwIfAborted();
       const point = restorePoint(dest, f, at);
       if (!point) {
         if (only) throw new Error(`no backup of ${only} from before ${new Date(at).toLocaleString()}`);
         continue;
       }
       const staged = await stageRestorePoint(point, join(folder, f), passphrase, undefined, options.acceptUnsigned, trusted);
+      // Checked once the set's manifest has been verified and the file staged, and again after its container files.
+      options.signal?.throwIfAborted();
       // The container files are the ones in the manifest that was checked, not a second read of it.
       external.push(await stageExternal(point.set, folder, [f.slice(0, -STORE_EXT.length)], passphrase, options.signal, staged.external));
       // Only the logs vouched for were replayed, so the file is as it was at the last of those.
       const time = staged.logs.length === point.logs.length ? point.time : staged.logs.at(-1)?.at ?? point.finished;
       const newer = changedSince(join(folder, f), time);
       if (newer) options.newerThanBackup?.push({ file: f, ...newer });
-      signal?.throwIfAborted();
+      options.signal?.throwIfAborted();
       crashPoint('restore-at:after-file');
       out.push({ file: f, time });
     }
     const differences = out.flatMap(({ file }) => accountDifferences(file, join(folder, file), join(folder, file) + '.restoring'));
     options.differences?.push(...differences);
     if (differences.length && options.refuseAccountChanges) throw new AccountChangesError(differences);
-    signal?.throwIfAborted();
+    options.signal?.throwIfAborted();
     commitRestore(folder, [...out.flatMap(({ file }) => restorePointFiles(join(folder, file))), ...external.flatMap((stage) => stage.files)]);
     crashPoint('restore-at:after-commit');
   } finally {
