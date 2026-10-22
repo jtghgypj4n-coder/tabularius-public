@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { addressBucket, canonicalIP } from './client-ip.ts';
 export { addressBucket } from './client-ip.ts';
 
@@ -205,7 +206,11 @@ export class SignInFailures extends Map<string, Failure> {
 
   accountKey(account: string, from: string, database?: string): string {
     if (sharedSource(from)) from = 'unknown';
-    const key = `${lockoutName(account).replace(/\u0000/g, '').slice(0, 128)}\0${addressBucket(from)}`;
+    const name = lockoutName(account).replace(/\u0000/g, '');
+    // Keep keys bounded without merging distinct names that share a long prefix.
+    // The suffix makes long keys longer than any short name, so the namespaces cannot collide.
+    const bounded = name.length <= 128 ? name : `${name.slice(0, 96)}:${createHash('sha256').update(name).digest('hex')}`;
+    const key = `${bounded}\0${addressBucket(from)}`;
     return database === undefined ? key : `${database.toLowerCase()}\0${key}`;
   }
 

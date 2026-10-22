@@ -8,7 +8,8 @@
 //   start with its number), so a session's globals and variables stay put;
 // - signing in goes by account name, so the failed sign-ins that lock an
 //   account out are all counted in one place;
-// - other credentials (API tokens, accounts signing in to OData) always go to
+// - Basic password requests on every surface follow that same account routing;
+// - other credentials (API tokens) always go to
 //   the same worker, by a hash of the credential;
 // - the admin console, the Admin API, the change feed and sign-in through an
 //   identity provider go to the leader,
@@ -60,6 +61,7 @@ import { basename, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { SharedRecordLocks, type Change, type Store } from '../../store/src/index.ts';
 import { monotonicClock } from '../../store/src/monotonic.ts';
+import { lockoutName } from '../../store/src/sign-in-failures.ts';
 import { AutoTls, type CertificateState } from './acme.ts';
 import { claimFolder } from './backup.ts';
 import { ENCRYPTED_EXT } from './encrypt.ts';
@@ -413,10 +415,23 @@ export function route(req: IncomingMessage, workers: number): number | undefined
   // limit is counted in memory, so it holds for the whole server only in one process) and inbound hooks (one process
   // sees every call, so a replayed one is refused and the limits hold).
   if (LEADER_ONLY.test(path)) return 0;
+  // Match DataApi's decoded, nonempty components, including trailing/repeated slashes.
+  const data = /^\/fmi\/data\/(?:vLatest|v1|v2)(\/.*)?$/.exec(path);
+  let parts: string[] = [];
+  try { parts = (data?.[1] ?? '').split('/').filter(Boolean).map(decodeURIComponent); } catch { /* malformed paths are refused by DataApi */ }
+  // DELETE ends the session in the decoded path, regardless of any credential headers.
+  if (req.method === 'DELETE' && parts.length === 4 && parts[0] === 'databases' && parts[2] === 'sessions' && /^[0-9a-f]{48}$/.test(parts[3])) {
+    const owner = parseInt(parts[3].slice(0, 2), 16);
+    if (owner < workers) return owner;
+  }
+  const sessions = req.method === 'POST' && parts[0] === 'databases' && !!parts[1] && parts[2] === 'sessions';
+  const passwordSignIn = sessions && (parts.length === 3 || parts[3] === 'passkey-2fa');
   // A Data API app logging in with what a sign-in through an identity provider gave it: the leader holds those.
-  if (req.headers['x-fm-data-oauth-request-id'] !== undefined) return 0;
+  if (sessions && parts.length === 3 &&
+      (req.headers['x-fm-data-oauth-request-id'] !== undefined || req.headers['x-fm-data-oauth-identifier'] !== undefined)) return 0;
   const auth = req.headers.authorization ?? '';
-  const header = req.headers['x-fm-data-access-token'];
+  // SQL/OData and established Data API sessions prefer this header over Basic; password login and MCP do not.
+  const header = !passwordSignIn && /^\/(?:fmi\/(?:data|odata)\/|tabularius\/sql\/)/.test(path) ? req.headers['x-fm-data-access-token'] : undefined;
   const token = /^Bearer\s+(\S+)$/i.exec(auth)?.[1] ?? (typeof header === 'string' ? header : undefined)
     ?? /^\/fmi\/data\/[^/]+\/databases\/[^/]+\/sessions\/([0-9a-f]{48})$/.exec(path)?.[1];
   // A session's token starts with the number of the worker holding it.
@@ -424,12 +439,13 @@ export function route(req: IncomingMessage, workers: number): number | undefined
     const id = parseInt(token.slice(0, 2), 16);
     if (id < workers) return id;
   }
-  // Signing in: by account name, so failed attempts on an account are all counted in one place
-  // (lockout), while different accounts spread over the workers.
-  if (req.method === 'POST' && /^\/fmi\/data\/[^/]+\/databases\/[^/]+\/sessions$/.test(path)) {
-    const basic = /^Basic\s+(\S+)$/i.exec(auth)?.[1];
-    if (!basic) return undefined;
-    const account = Buffer.from(basic, 'base64').toString('utf8').split(':')[0].toLowerCase();
+  // Every Basic surface counts guesses by the same folded account. Hashing the entire credential
+  // lets changing passwords (or switching from Data API to OData/MCP/SQL) select a fresh worker.
+  // Preserve token-first handlers; password sign-in and MCP use the Basic account instead.
+  const basic = /^Basic\s+(.+)$/i.exec(auth)?.[1];
+  if (basic) {
+    if (typeof header === 'string' && header) return createHash('sha256').update(header).digest()[0] % workers;
+    const account = lockoutName(Buffer.from(basic, 'base64').toString('utf8').split(':')[0]);
     return createHash('sha256').update(account).digest()[0] % workers;
   }
   // Other credentials: always the same worker, so what it keeps for them (script globals) stays.
