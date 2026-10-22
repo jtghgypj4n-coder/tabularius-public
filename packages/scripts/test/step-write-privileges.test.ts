@@ -302,7 +302,7 @@ test('Write to Data File cannot copy a container from an inaccessible record ID'
     s.store.setContainer('Tasks', 1, 'File', 1, { filename: 'secret.txt', mime: 'text/plain', data: new TextEncoder().encode('secret bytes') });
     s.store.savePrivilegeSet({ ...s.reader, records: { ...s.reader.records, view: 'Title = "two"' } });
     writeFileSync(join(s.dir, 'output.txt'), '');
-    const result = await s.run('Open Data File [ "output.txt" ; Target: $file ]\nWrite to Data File [ File ID: $file ; Data source: Tasks::File ; Write as: Bytes ]', false, { foundSet: [1] });
+    const result = await s.run('Open Data File [ "output.txt" ; Target: $file ]\nWrite to Data File [ File ID: $file ; Data source: Tasks::File ]', false, { foundSet: [1] });
     assert.equal(result.result, '200');
     assert.equal(readFileSync(join(s.dir, 'output.txt'), 'utf8'), '');
   } finally { s.close(); }

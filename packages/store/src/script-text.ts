@@ -393,6 +393,7 @@ function params(ctx: Ctx, name: string, parts: string[]): StepParams | undefined
           case 'new position': p.calculation = value; break;
           case 'create folders': p.createFolders = onOff(value); break;
           case 'read as': case 'write as':
+            if (name === 'Write to Data File' && !/^utf-?(8|16)$/i.test(value.trim())) throw fail(ctx, 'Write to Data File writes UTF-16 or UTF-8, not "' + value.trim() + '"');
             p.encoding = /utf-?8/i.test(value) ? 'utf-8' : /bytes/i.test(value) ? 'bytes' : 'utf-16';
             break;
         }
@@ -603,6 +604,9 @@ function params(ctx: Ctx, name: string, parts: string[]): StepParams | undefined
         return hit;
       };
       if (name === 'Insert Embedding in Found Set') ai.replaceTarget = false;
+      if (name === 'Generate Response from Model' && parts.some((x) => labelled(x.trim(), 'Prompt') !== undefined) && parts.some((x) => labelled(x.trim(), 'User Prompt') !== undefined)) {
+        throw fail(ctx, 'Generate Response from Model has both Prompt and User Prompt: Prompt is another spelling of User Prompt, so give only one');
+      }
       for (const part of parts) {
         const t = part.trim();
         const into = targetLabels.map((l) => labelled(t, l)).find((v) => v !== undefined);
@@ -631,7 +635,8 @@ function params(ctx: Ctx, name: string, parts: string[]): StepParams | undefined
           const value = labelled(t, known[0])!;
           // A key written into the script is shown as "…" and can't be read back: it would be lost.
           if (known[1] === 'apiKey' && value.trim() === '"…"') throw fail(ctx, 'API key "…" stands for a key written into the script, which isn\'t shown: give the key again, from a field or variable');
-          ai[known[1]] = value;
+          // Generate Response from Model has no separate prompt option: its prompt is the user prompt.
+          ai[name === 'Generate Response from Model' && known[1] === 'prompt' ? 'input' : known[1]] = value;
         }
         // Kept as written, as other steps keep options this parser doesn't know, so they print back unchanged.
         else (p.slots ??= {})[128 + Object.keys(p.slots ?? {}).length] = part;
@@ -728,7 +733,7 @@ function params(ctx: Ctx, name: string, parts: string[]): StepParams | undefined
       if (target) {
         const valueList = rest.map((x) => labelled(x, 'Value list')).find((x) => x !== undefined);
         p.sort = [{ field: fieldRef(ctx, target), order, ...(valueList !== undefined ? { valueList: ref(ctx, ctx.schema.valueLists, valueList, 'value list') } : {}) }];
-      } else if (order !== 'ascending') p.sortOrder = order;
+      } else if (orderText !== undefined) p.sortOrder = order;
       break;
     }
     case 'Sort Records': {
