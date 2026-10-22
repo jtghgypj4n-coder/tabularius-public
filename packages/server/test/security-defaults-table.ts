@@ -238,10 +238,10 @@ export const ROWS: Row[] = [
   },
   {
     id: 'api-tokens', section: 'Sign-in and accounts', setting: 'API tokens (`ohbt_`) made for an account',
-    default: 'Never expire, and can write, unless made read-only or given an expiry',
-    changedBy: 'Chosen when the token is made (`readOnly`, `expires`, surfaces, layouts); the console lists and revokes them',
-    risk: 'A token that leaks works until someone revokes it. The security health page lists tokens that never expire',
-    how: 'probed', expect: 'no expiry, read-write',
+    default: 'Expire after 90 days (a calendar feed address, 365), and can write, unless made read-only or given another lifetime',
+    changedBy: 'Chosen when the token is made (`--expires-days` or `expiresDays`, 0 for none; `readOnly`, surfaces, layouts), or for every new one except calendar feeds with `TABULARIUS_TOKEN_DEFAULT_DAYS` (0 for none); the console lists and revokes them',
+    risk: 'A token that leaks works until it expires or someone revokes it. Asking for 0 days makes one that never expires, and the security health page lists those. Tokens made before this default keep the lifetime they had',
+    how: 'probed', expect: 'expires in 90 days, read-write',
     observe: async (c) => c.apiTokenShape(),
   },
   {
@@ -440,10 +440,6 @@ export const OWNER_DECISIONS: { title: string; text: string }[] = [
   {
     title: '`/mcp` is open to programs on this computer',
     text: 'On a computer other people also sign in to, any of them can reach `/mcp` on the loopback address and act as the administrator. It is documented and gated against browsers (no origin, localhost host name), but not against other local users. Recommended: generate a token at first start and print where it is stored, or require `--mcp-token` as soon as the server listens beyond this computer (it already warns about plain HTTP there). Changing it breaks the local `tabularius mcp` set-up described in docs/connect-ai.md.',
-  },
-  {
-    title: 'API tokens never expire by default',
-    text: 'A token made without an expiry works until revoked. The security health page already lists them. Recommended: a default expiry of 90 days in the console\'s token form (not in the API, where scripts depend on the current behaviour).',
   },
   {
     title: 'Admin console is open to this computer until a password is set',

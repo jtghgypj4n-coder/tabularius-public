@@ -5,7 +5,6 @@ import { auditJsonLine } from '../../store/src/audit-output.ts';
 import '../../store/src/legacy-env.ts';
 import { isLoopbackHost, plainHttpRefusal } from './loopback.ts';
 import { availableParallelism, homedir, tmpdir } from 'node:os';
-import { expiryClock } from '../../store/src/clock.ts';
 import { spawn } from 'node:child_process';
 import { DatabaseSync } from 'node:sqlite';
 import { createServer as createNetServer } from 'node:net';
@@ -22,7 +21,7 @@ import { FmpDatabase, fileSource, encryptionInfo, readLayoutDesigns, segmentOf, 
 import { BUILT_IN_EXTENDED_PRIVILEGES, addCensus, styleCensus, styleCensusText, calcFidelity, censusText, exportSql, exportSqlSummary, planImportTables, importTables, importTablesSummary, notionMarkdownSheet, MAX_IMPORT_ROWS, type SheetInput, type ColumnOverrides, type ColumnKind, findStaleCalcs, layoutCensus, type LayoutCensus, createStore, designReport, importFmp12, PASSWORD_POLICY, reconvert, reconvertCheck, verifySecurityAudit, verifyRecordAudit, anchorHead, checkAnchor, Store, syncPlan, openForPlanning, applySync, readSyncLog, releaseHeldTables, type ConflictPolicy, writeBackKit, designText, writeDesignText, diffDesigns, planDesignApply, readDesignFolder, type DesignOp, type ReconvertPreview, csvField } from '../../store/src/index.ts';
 import { xlsxSheetNames } from '../../scripts/src/xlsx.ts';
 import { importFileRowIterator, neverAllowed, parseAllowList, SCREEN_STEPS, SERVER_STEPS, testScripts, type ScriptTestResult } from '../../scripts/src/index.ts';
-import { conversionReport, explainScriptFailure, type ScriptFailure, DEFAULT_MODEL, Host, serve, serveCluster, serveStdio, aiStatus, STORE_EXT, ENCRYPTED_EXT, encryptFileSync, decryptFileSync, setAdminPassword, backupFolder, backupSets, defaultBackupDir, parseInterval, parseTime, restoreAt, restoreBackup, AccountChangesError, type AccountDifference, type ChangedSince, verifySet, describeCheck, resolveEmbedEndpoint, resolveImageEmbed, localCertificateFiles, Standby, S3, s3FromEnv, mirrorDown, fetchFmsExport, migrateFms, describeMigration, copySize, readSettings, runningServer, dataApiSource, dataApiClient, checkSyncAllowed, describeApply, describePlan, verifySync, describeSyncVerification, parseSyncConfig, CONTAINER_PULL_MAX_BYTES, type FmsExport } from '../../server/src/index.ts';
+import { conversionReport, explainScriptFailure, type ScriptFailure, DEFAULT_MODEL, Host, serve, serveCluster, serveStdio, aiStatus, STORE_EXT, ENCRYPTED_EXT, encryptFileSync, decryptFileSync, setAdminPassword, tokenExpiry, backupFolder, backupSets, defaultBackupDir, parseInterval, parseTime, restoreAt, restoreBackup, AccountChangesError, type AccountDifference, type ChangedSince, verifySet, describeCheck, resolveEmbedEndpoint, resolveImageEmbed, localCertificateFiles, Standby, S3, s3FromEnv, mirrorDown, fetchFmsExport, migrateFms, describeMigration, copySize, readSettings, runningServer, dataApiSource, dataApiClient, checkSyncAllowed, describeApply, describePlan, verifySync, describeSyncVerification, parseSyncConfig, CONTAINER_PULL_MAX_BYTES, type FmsExport } from '../../server/src/index.ts';
 // optimize's report (kept apart from the busy import line above).
 import { sheetsFromFile, checkSheetNames, sheetNameOf } from '../../server/src/import-sheets.ts';
 import { optimizationReport, openApiDocument, typesFromOpenApi, checkSolution, checkSolutionText, createFeed, importIcs, listFeeds, revokeFeed } from '../../server/src/index.ts';
@@ -435,17 +434,19 @@ Hosting (point it at a folder of .fmp12 files; each is converted once):
   tabularius plugins <folder> pack <plug-in folder> [--key key.pem] [-o file.ohplugin]
                                              Turn a plug-in on or off for one hosted file; the
                                              server applies it when it next starts
-  tabularius token <folder> <database> create <account> [--label L] [--read-only] [--expires-days N] [--surfaces fmrest,fmodata,fmxdbc] [--layouts L1,L2,...]
+  tabularius token <folder> <database> create <account> [--label L] [--read-only] [--expires-days N|0] [--surfaces fmrest,fmodata,fmxdbc] [--layouts L1,L2,...]
                                              A revocable API token for an integration, acting as
                                              <account> (use it as a Bearer token on the Data API
-                                             and SQL). Shown once. --read-only forbids writes.
+                                             and SQL). Shown once. --read-only forbids writes. It stops
+                                             working after 90 days unless --expires-days says otherwise
+                                             (0 for none).
                                              --layouts limits it to those Data API layouts (and
                                              only the Data API; OData and SQL refuse it).
       ... list                               The file's tokens (never the secret)
       ... revoke <id>                        Revoke a token by its id
   tabularius calendar-feed <folder> <database> create --account A --layout L --start FIELD [--end F] [--title F] [--description F] [--location F]
                                              [--zone UTC|Europe/London] [--query '[{"Status":"open"}]'] [--limit N] [--label L]
-                                             [--expires-days N] [--public-url https://host] [--json]
+                                             [--expires-days N|0] [--public-url https://host] [--json]
                                              A calendar link for a layout's date field: a read-only API token
                                              scoped to that layout, as <account>, and the address that carries
                                              the field choices. The address is shown once, as a token is.
@@ -699,10 +700,11 @@ function optionValue(args: string[], name: string, what: string): string | undef
 }
 
 function expiryDays(args: string[], command: string): string | undefined {
-  const error = () => new Error(`${command}: --expires-days takes a number of days above zero`);
+  const error = () => new Error(`${command}: --expires-days takes a number of days above zero, or 0 (or "never") for no expiry`);
   let days: string | undefined;
   try { days = strictFlag(args, '--expires-days'); } catch { throw error(); }
-  if (days !== undefined && !(/^\d+(\.\d+)?$/.test(days) && Number(days) > 0)) throw error();
+  if (days === 'never') return '0';
+  if (days !== undefined && !/^\d+(\.\d+)?$/.test(days)) throw error();
   return days;
 }
 
@@ -2493,7 +2495,8 @@ function main(argv: string[]): number {
           const token = store.createApiToken(account, {
             label,
             readOnly,
-            expires: days ? new Date(expiryClock.now() + Number(days) * 86_400_000) : undefined,
+            // Left out, the token lives the default (90 days, TABULARIUS_TOKEN_DEFAULT_DAYS); 0 or "never" asks for none.
+            expires: tokenExpiry(days === undefined ? undefined : Number(days)),
             surfaces: tokenSurfaces,
             layouts: tokenLayouts,
             provenance: 'service',

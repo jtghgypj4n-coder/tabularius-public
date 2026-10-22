@@ -64,6 +64,7 @@ nothing reads, so this list and the code cannot drift apart.
 | `TABULARIUS_LDAP_USER_ATTRIBUTE` | `--ldap-user-attribute` | The attribute holding the user name. |
 | `TABULARIUS_LDAP_EMAIL_ATTRIBUTE` | `--ldap-email-attribute` | The attribute holding the email address. |
 | `TABULARIUS_LDAP_GROUP_ATTRIBUTE` | `--ldap-group-attribute` | The attribute listing the person's groups. |
+| `TABULARIUS_TOKEN_DEFAULT_DAYS` | | Days a new API token or AI-app token lives when no lifetime is asked for (90 by default; `0` for none). A calendar feed address gets a year. Asking for `--expires-days 0` still makes a token that never expires. |
 
 ## The AI assistant
 
