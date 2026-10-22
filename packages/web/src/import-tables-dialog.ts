@@ -5,7 +5,7 @@
 
 import type { Api } from './api.ts';
 import { h, button } from './design/dom.ts';
-import { choicesFor, choose, currentChoice, filesProblem, importTablesForm, importTablesQuery, keepValid, sheetLine, type Choices, type ImportTablesDone, type ImportTablesPreview } from './import-tables-model.ts';
+import { choicesFor, choose, chosen, currentChoice, filesProblem, importTablesForm, importTablesQuery, keepValid, sheetLine, type Choices, type ImportTablesDone, type ImportTablesPreview } from './import-tables-model.ts';
 
 export async function importTablesDialog(api: Api, onImported: () => void): Promise<void> {
   if (document.querySelector('dialog.import-tables-dialog')) return;
@@ -46,7 +46,7 @@ export async function importTablesDialog(api: Api, onImported: () => void): Prom
       s.columns.forEach((c, ci) => {
         const id = `import-tables-kind-${si}-${ci}`;
         const pick = h('select', { id, 'aria-label': `Type of ${c.header || '(no name)'} in ${s.sheet}` }, ...choicesFor(plan, s.sheet).map((o) => h('option', { value: o.value }, o.label))) as HTMLSelectElement;
-        pick.value = currentChoice(c, choices[s.sheet]?.[c.header]);
+        pick.value = currentChoice(c, chosen(choices, s.sheet, c.header));
         pick.addEventListener('change', () => {
           choices = choose(choices, s.sheet, c.header, pick.value);
           void run('preview', id);

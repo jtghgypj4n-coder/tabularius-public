@@ -279,9 +279,11 @@ export function planImportTables(sheets: SheetInput[], opts: { overrides?: Colum
   const primary = new Map(parsed.map((p) => [p.sheet.name, new Set(p.rows.map((r) => stripNotionLink(r[0]?.trim() ?? '')).filter(Boolean))]));
   parsed.forEach((p, si) => {
     const plan = planned[si];
-    const override = opts.overrides?.[p.sheet.name] ?? {};
+    // Sheets and columns can be named anything: only the choices that were made (own properties) count.
+    const ownOf = <T>(o: Record<string, T> | undefined, key: string): T | undefined => (o && Object.hasOwn(o, key) ? o[key] : undefined);
+    const override = ownOf(opts.overrides, p.sheet.name) ?? {};
     for (const c of plan.columns) {
-      const forced = override[c.header] ?? override[c.name];
+      const forced = ownOf(override, c.header) ?? ownOf(override, c.name);
       if (forced !== undefined) {
         const link = /^link:(.+)$/.exec(forced);
         if (link) {

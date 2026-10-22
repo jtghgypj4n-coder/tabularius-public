@@ -1,7 +1,7 @@
 // Import Tables: the plan's picks, the choices a person makes on it and the request that sends the files again.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { MAX_FILES, choicesFor, choose, currentChoice, filesProblem, importTablesForm, importTablesQuery, keepValid, sheetLine, type ImportTablesPlan, type PlannedColumn } from '../src/import-tables-model.ts';
+import { MAX_FILES, choicesFor, choose, chosen, currentChoice, filesProblem, importTablesForm, importTablesQuery, keepValid, sheetLine, type ImportTablesPlan, type PlannedColumn } from '../src/import-tables-model.ts';
 
 const col = (header: string, kind: PlannedColumn['kind'], extra: Partial<PlannedColumn> = {}): PlannedColumn => ({ column: 0, header, name: header, kind, inferred: true, ...extra });
 const PLAN: ImportTablesPlan = {
@@ -57,4 +57,27 @@ test('the request carries the files, the pages and folder, and only the choices 
 test('a sheet is one line: its table, rows, fields without the skipped ones, and links', () => {
   assert.equal(sheetLine(PLAN.sheets[1]), 'Orders: table Orders, 1 row, 2 fields, 1 link');
   assert.equal(sheetLine(PLAN.sheets[0]), 'Clients: table Clients, 3 rows, 2 fields');
+});
+
+test('a sheet or column named like an Object property is a name, and changes nothing outside the choices', () => {
+  const plan: ImportTablesPlan = {
+    notes: [],
+    sheets: [
+      { sheet: '__proto__', table: 'Proto', idField: 'polluted', rows: 1, ragged: 0, notes: [], columns: [col('polluted', 'text'), col('constructor', 'text')] },
+      { sheet: 'constructor', table: 'Constructor', idField: 'name', rows: 1, ragged: 0, notes: [], columns: [col('name', 'text')] },
+    ],
+  };
+  const made = choose(choose(choose({}, '__proto__', 'polluted', 'skip'), '__proto__', 'constructor', 'number'), 'constructor', 'name', 'date');
+  const kept = keepValid(made, plan);
+  assert.equal(({} as Record<string, unknown>).polluted, undefined, 'Object.prototype is untouched');
+  assert.equal(({} as Record<string, unknown>).constructor, Object);
+  for (const c of [made, kept]) {
+    assert.deepEqual(Object.keys(c), ['__proto__', 'constructor']);
+    assert.deepEqual(JSON.parse(JSON.stringify(c)), { ['__proto__']: { polluted: 'skip', constructor: 'number' }, constructor: { name: 'date' } });
+  }
+  assert.equal(chosen(made, '__proto__', 'polluted'), 'skip');
+  // A sheet with no choice reads as none, whatever its name.
+  assert.equal(chosen({}, 'constructor', 'name'), undefined);
+  assert.equal(chosen({}, '__proto__', 'x'), undefined);
+  assert.equal(currentChoice(plan.sheets[1].columns[0], undefined), 'text');
 });
