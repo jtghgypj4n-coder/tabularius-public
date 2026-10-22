@@ -59,8 +59,12 @@ export interface StandbyOptions {
 
 /** The standby state of a folder, if it is (or was) a standby. */
 export function standbyState(folder: string, log: (message: string) => void = console.warn): StandbyState | undefined {
-  try { return readJsonStateSync<StandbyState>(join(folder, STANDBY_STATE)); }
-  catch (e) {
+  try {
+    // The note is a file on disk: whatever it holds, a folder with one was a standby's. Fields of the wrong type read as unknown.
+    const note = readJsonStateSync<Partial<StandbyState> | null>(join(folder, STANDBY_STATE));
+    const files = note && typeof note.files === 'object' && note.files !== null && !Array.isArray(note.files) ? note.files : {};
+    return { primary: typeof note?.primary === 'string' ? note.primary : 'an unknown server', files };
+  } catch (e) {
     if ((e as NodeJS.ErrnoException).code !== 'ENOENT') {
       log(`standby state ${join(folder, STANDBY_STATE)} could not be read; starting without standby state: ${(e as Error).message}`);
     }
@@ -70,7 +74,7 @@ export function standbyState(folder: string, log: (message: string) => void = co
 
 /** Files a standby has copied but not yet brought to a whole state, by name. */
 export function unfinishedStandbyFiles(state: StandbyState): string[] {
-  return Object.entries(state.files).filter(([, f]) => f.seq < f.wholeAfter).map(([n]) => n);
+  return Object.entries(state.files).filter(([, f]) => !!f && typeof f === 'object' && f.seq < f.wholeAfter).map(([n]) => n);
 }
 
 class Stop extends Error {}
