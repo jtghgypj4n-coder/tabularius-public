@@ -192,6 +192,13 @@ export function conversionGuide(store: Store, hosted: string[] = [], report: Con
       what: `${plural(uses(r.triggers.undecoded), 'trigger')} on ${plural(r.triggers.layouts, 'layout')} have an event this build cannot name and will not run; open the layout in FileMaker to see which they are, then set them again in design mode.`,
     });
   }
+  if (r.steps.importMode.length) {
+    breaks.push({
+      title: 'Import Records steps need their mode set', severity: 'high', count: uses(r.steps.importMode), where: places(r.steps.importMode),
+      what: `${plural(uses(r.steps.importMode), 'step')} stop with error 3 and import nothing until each step is re-entered with Add, Update matching or Replace chosen.`,
+      instead: 'Open the script in design mode and choose the mode, or use the script-text form with Add, Update or Replace written out.',
+    });
+  }
   if (r.functions.notYet.length) {
     breaks.push({
       title: 'FileMaker functions not available yet', severity: 'high', count: uses(r.functions.notYet), where: places(r.functions.notYet),

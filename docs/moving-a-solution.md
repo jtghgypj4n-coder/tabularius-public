@@ -593,7 +593,10 @@ Scripts run on the server, as FileMaker Server runs them.
 - **Screen-only steps** are skipped on the server, as on FileMaker Server.
 - **FileMaker Pro–only steps** (a person choosing a file, AppleScript)
   give error 3, as on FileMaker Server.
-- **Import Records** reads files only from `<folder>/Documents`.
+- **Import Records** reads files only from `<folder>/Documents`. Steps from a
+  converted file stop with error 3 and import nothing until their mode (Add,
+  Update matching or Replace) is set again in the script editor. In script text,
+  write out Add, Update or Replace.
 
 To try a script's mail and web calls safely, start the server with
 `--test-outbound`. Every message goes to `<folder>/Outbox` instead of its
