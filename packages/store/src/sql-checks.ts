@@ -5,7 +5,7 @@
 // and not named by the GROUP BY; two sides whose columns are both plain fields of known, different types. A query
 // they cannot read with certainty runs as written, so what FileMaker accepts is never refused here.
 import { CalcError, ERR } from '../../calc/src/values.ts';
-import { blanked } from './sql-grammar.ts';
+import { blanked, trailingWord } from './sql-grammar.ts';
 
 /** Queries longer than this, and queries with more selects, are not checked. */
 const MAX_CHECKED_QUERY = 200_000;
@@ -168,7 +168,7 @@ function ungrouped(expression: string, fields: ReadonlySet<string>, grouped: Set
 /** The item without its alias: `SUM(x) AS total` and `x total` are `SUM(x)` and `x`. */
 function itemOf(item: string): { expression: string; alias?: string } {
   const m = /^([\s\S]*?[\w)"'\]])\s+(AS\s+)?([A-Za-z_]\w*|"(?:[^"]|"")+")\s*$/i.exec(item);
-  const last = m ? /(\w+)\s*$/.exec(m[1])?.[1].toLowerCase() : undefined;
+  const last = m ? trailingWord(m[1])?.toLowerCase() : undefined;
   const aliased = m && (m[2] || (!WORDS.has(m[3].toLowerCase()) && !(last && WORDS.has(last))));
   return aliased ? { expression: m![1].trim(), alias: m![3].replace(/^"|"$/g, '').toLowerCase() } : { expression: item.trim() };
 }

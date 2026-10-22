@@ -684,6 +684,13 @@ function addInterval(v: SQLOutputValue, n: number, unit: string): SQLInputValue 
   return `${String(t.getUTCFullYear()).padStart(4, '0')}-${two(t.getUTCMonth() + 1)}-${two(t.getUTCDate())}T${two(t.getUTCHours())}:${two(t.getUTCMinutes())}:${two(t.getUTCSeconds())}`;
 }
 
+/** The text without the spaces at its end (a scan from the end: `/ +$/` tries every start of a long run of spaces). */
+function withoutTrailingSpaces(text: string): string {
+  let end = text.length;
+  while (end > 0 && text[end - 1] === ' ') end--;
+  return end === text.length ? text : text.slice(0, end);
+}
+
 /** The date, time, string and number functions of FileMaker SQL (and ODBC), for SQLite functions of the same names. */
 export const SQL_DATE_FUNCTIONS: Record<string, (...args: SQLOutputValue[]) => SQLInputValue> = {
   YEAR: field('y'), MONTH: field('m'), DAY: field('d'), HOUR: field('h'), MINUTE: field('mi'), SECOND: field('s'),
@@ -749,7 +756,7 @@ export const SQL_DATE_FUNCTIONS: Record<string, (...args: SQLOutputValue[]) => S
     if (a === null || b === null) return null;
     const first = String(a);
     const second = String(b);
-    const kept = first.replace(/ +$/, '') + second.replace(/ +$/, '');
+    const kept = withoutTrailingSpaces(first) + withoutTrailingSpaces(second);
     return kept + ' '.repeat(first.length + second.length - kept.length);
   },
   // `+` and `-` on dates: a date plus or minus days, a date minus a date (days between); otherwise plain arithmetic.

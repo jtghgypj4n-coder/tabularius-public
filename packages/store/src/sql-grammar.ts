@@ -20,14 +20,35 @@ export function blanked(sql: string, top = false): string {
 }
 
 /** FileMaker's CAST(container AS VARCHAR) returns an embedded file's name, not its internal container id. */
+/** The word that ends `text` (after any blanks): `/(\w+)\s*$/`, found by a scan from the end, not by trying every start. */
+export function trailingWord(text: string): string | undefined {
+  let end = text.length;
+  while (end > 0 && /\s/.test(text[end - 1])) end--;
+  let start = end;
+  while (start > 0 && /\w/.test(text[start - 1])) start--;
+  return start < end ? text.slice(start, end) : undefined;
+}
+
+/** An `ORDER BY` key as its expression and the ASC or DESC after it, with the blanks before that (found from the end, not by backtracking). */
+export function orderKeyParts(key: string): { expression: string; direction?: string } {
+  const text = key.trimEnd();
+  const n = /^desc$/i.test(text.slice(-4)) ? 4 : /^asc$/i.test(text.slice(-3)) ? 3 : 0;
+  const at = text.length - n;
+  let start = at;
+  while (start > 0 && /\s/.test(text[start - 1])) start--;
+  // The blanks must follow something: leading blanks are not the start of a direction.
+  if (!n || start === at || !text.slice(0, start).trim()) return { expression: key.trim() };
+  return { expression: text.slice(0, start).trim(), direction: text.slice(start) };
+}
+
 export function containerCastsToName(sql: string, isContainer: (name: string) => boolean): string {
   if (!/\bCAST\b/i.test(sql)) return sql;
   const plain = blanked(sql);
-  const cast = /\bCAST\s*\(\s*((?:(?:"(?:[^"]|"")+"|[A-Za-z_]\w*)\s*\.\s*)?(?:"(?:[^"]|"")+"|[A-Za-z_]\w*))\s+AS\s+VARCHAR(?:\s*\(\s*\d+\s*\))?\s*\)/gi;
-  return sql.replace(cast, (whole, operand: string, at: number) => {
+  // The last name of the operand (the field, after any table name) is captured by the pattern itself.
+  const cast = /\bCAST\s*\(\s*((?:(?:"(?:[^"]|"")+"|[A-Za-z_]\w*)\s*\.\s*)?(?:"((?:[^"]|"")+)"|([A-Za-z_]\w*)))\s+AS\s+VARCHAR(?:\s*\(\s*\d+\s*\))?\s*\)/gi;
+  return sql.replace(cast, (whole, operand: string, quoted: string | undefined, plainName: string | undefined, at: number) => {
     if (plain.slice(at, at + 4).toUpperCase() !== 'CAST') return whole;
-    const field = /(?:"((?:[^"]|"")+)"|([A-Za-z_]\w*))\s*$/.exec(operand);
-    const name = field?.[1]?.replace(/""/g, '"') ?? field?.[2];
+    const name = quoted?.replace(/""/g, '"') ?? plainName;
     return name && isContainer(name) ? `(SELECT filename FROM _fm_containers WHERE id = ${operand})` : whole;
   });
 }
@@ -435,19 +456,19 @@ function withTiesLimit(sql: string, top: string, count: number, offset: number, 
   const expressions: string[] = [];
   for (const item of items) {
     const m = /^([\s\S]*?[\w)"'\]])\s+(AS\s+)?([A-Za-z_]\w*|"(?:[^"]|"")+")\s*$/i.exec(item);
-    const last = m ? /(\w+)\s*$/.exec(m[1])?.[1].toUpperCase() : undefined;
+    const last = m ? trailingWord(m[1])?.toUpperCase() : undefined;
     const aliased = m && (m[2] || (!NOT_ALIAS.has(m[3].toUpperCase()) && !(last && NOT_ALIAS.has(last))));
     const expression = (aliased ? m![1] : item).trim();
     expressions.push(expression);
     if (aliased) named.set(m![3].replace(/^"|"$/g, '').toLowerCase(), expression);
   }
   const keys = splitTop(sql.slice(order.index + order[0].length, orderEnd)).map((key) => {
-    const m = /^\s*([\s\S]*?)(\s+(?:ASC|DESC))?\s*$/i.exec(key)!;
-    const bare = m[1].trim();
+    const m = orderKeyParts(key);
+    const bare = m.expression;
     const position = /^\d+$/.test(bare) ? expressions[Number(bare) - 1] : undefined;
     if (/^\d+$/.test(bare) && !position) throw new CalcError(ERR.calculation, `ORDER BY ${bare} is not a column of the select list`);
     const alias = /^(?:[A-Za-z_]\w*|"(?:[^"]|"")+")$/.test(bare) ? named.get(bare.replace(/^"|"$/g, '').toLowerCase()) : undefined;
-    return `${position ?? alias ?? bare}${m[2] ?? ''}`;
+    return `${position ?? alias ?? bare}${m.direction ?? ''}`;
   }).join(', ');
   const rest = sql.slice(fromAt, order.index);
   const ranked = `${sql.slice(0, select.index)}SELECT RANK() OVER (ORDER BY ${keys}) AS fm_r, ROW_NUMBER() OVER (ORDER BY ${keys}) AS fm_n ${rest}`;
