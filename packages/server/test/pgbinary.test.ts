@@ -96,14 +96,29 @@ test('numeric: signs, scales, NaN and infinities; malformed headers and digits a
   assert.equal(code(() => decodeNumeric(header(1, 0, 0, 0x4000, 1))), '22P03', 'scale over the maximum');
   assert.equal(code(() => decodeNumeric(header(1, 0, 0, 0, 10000))), '22P03', 'digit over 9999');
   assert.equal(code(() => decodeNumeric(header(1, 0, 0, 0, -1))), '22P03', 'negative digit');
-  // Extreme weights stay bounded: the largest and smallest numeric decode without a RangeError.
-  assert.equal(decodeNumeric(header(1, 0x7fff, 0, 0, 1)).length, 1 + 0x7fff * 4);
+  // A ten-byte numeric may not expand to 131,072 digits: whole parts past 1,000 digits (FileMaker keeps 400) are refused.
+  assert.equal(decodeNumeric(header(1, 249, 0, 0, 1)), '1' + '0'.repeat(249 * 4), 'a 997-digit whole part is read');
+  assert.equal(decodeNumeric(header(1, 249, 0, 0, 9999)).length, 1000, 'a 1,000-digit whole part is read');
+  assert.equal(code(() => decodeNumeric(header(1, 250, 0, 0, 1))), '22003', 'a 1,001-digit whole part is refused');
+  assert.equal(code(() => decodeNumeric(header(1, 0x7fff, 0, 0, 1))), '22003', 'the largest weight is refused');
+  // The smallest weight with the largest scale stays bounded by the scale, not by the weight.
   assert.equal(decodeNumeric(header(1, -0x8000, 0, 0x3fff, 1)), '0.' + '0'.repeat(0x3fff));
-  // A number field's text: exponents beyond numeric's range are refused at once instead of writing out the zeros.
+  // A number field's text: exponents beyond 1,000 are refused at once instead of writing out the zeros.
   const started = performance.now();
   assert.equal(code(() => binaryValue('1e999999999', OID.numeric)), '22003');
   assert.equal(code(() => binaryValue('1e-20000', OID.numeric)), '22003');
+  assert.equal(code(() => binaryValue('1e150000', OID.numeric)), '22003', 'not a 75 KB numeric per row');
+  assert.equal(code(() => binaryValue('1e1000', OID.numeric)), '22003', '1,001 whole digits');
+  assert.equal(code(() => binaryValue('1e-1001', OID.numeric)), '22003');
+  assert.equal(decodeNumeric(binaryValue('1e999', OID.numeric)!), '1' + '0'.repeat(999), 'what is written can be read back');
   assert.ok(performance.now() - started < 1000);
+  // A long run of digits that ends in a character that is not part of a number is read in linear time.
+  for (const bad of ['1'.repeat(80_000) + 'x', '1'.repeat(80_000) + '.1.', '.' + '1'.repeat(80_000) + 'e']) {
+    const t0 = performance.now();
+    assert.equal(binaryValue(bad, OID.numeric), null, 'no number, as the text format reads it');
+    assert.equal(code(() => binaryValue(bad, OID.float8)), '22P02');
+    assert.ok(performance.now() - t0 < 250, `${bad.length} characters took ${performance.now() - t0} ms`);
+  }
   assert.equal(binaryValue('$3750', OID.numeric), null, 'no number reads as NULL, as in the text format');
 });
 
@@ -260,6 +275,36 @@ test('casts name parameter types, arrays included', () => {
   assert.deepEqual([...castParamTypes('SELECT 1 WHERE x = ANY($1::int4[]) AND t.oid = any($2::oid[]) AND k = $3::uuid AND j = $4::jsonb AND d < $5::interval AND n = ANY($6::text [ ])')],
     [[1, 1007], [2, 1028], [3, 2950], [4, 3802], [5, 1186], [6, 1009]]);
   assert.deepEqual([...castParamTypes("SELECT '$1::int4' AS a, $1::point")], [], 'a cast inside a string, or to a type with no binary form, names nothing');
+});
+
+test('arrays: what a parameter expands to is capped, so a ten-kilobyte Bind cannot become ninety megabytes', () => {
+  const numericArray = (count: number, weight: number, dscale = 0) => {
+    const value = Buffer.concat([be(8, (b) => { b.writeUInt16BE(1, 0); b.writeInt16BE(weight, 2); b.writeUInt16BE(dscale, 6); }), be(2, (b) => b.writeInt16BE(1))]);
+    const element = Buffer.concat([i32(value.length), value]);
+    return Buffer.concat([i32(1), i32(0), i32(OID.numeric), i32(count), i32(1), ...Array.from({ length: count }, () => element)]);
+  };
+  // The reviewer's shape: 707 numerics at weight 32767 in 9,918 bytes, which read as a 92,668,612-character string.
+  const reviewer = numericArray(707, 0x7fff);
+  assert.equal(reviewer.length, 9918);
+  let started = performance.now();
+  assert.equal(code(() => binaryParam(reviewer, 1231)), '22003');
+  assert.ok(performance.now() - started < 100, `${performance.now() - started} ms`);
+  // Each element under the digit cap, together far past what the message could hold: refused by the budget.
+  const wide = numericArray(707, 249);
+  started = performance.now();
+  assert.equal(code(() => binaryParam(wide, 1231)), '54000');
+  // The smallest weight with the largest scale: 16,385 characters from ten bytes, each.
+  assert.equal(code(() => binaryParam(numericArray(707, -0x8000, 0x3fff), 1231)), '54000');
+  assert.ok(performance.now() - started < 250, `${performance.now() - started} ms`);
+  // The budget is shared by every parameter of one Bind.
+  const shared = { left: 10_000, total: 10_000 };
+  assert.equal(String(binaryParam(numericArray(4, 249), 1231, shared)).length, 4 * 997 + 5);
+  assert.equal(code(() => binaryParam(numericArray(8, 249), 1231, shared)), '54000');
+  // What real lists need still reads: 100,000 int4 and a megabyte of text, each well within four characters per byte.
+  const ints = encodeArray(Array.from({ length: 100_000 }, (_, i) => -2147483648 + i), OID.int4);
+  assert.equal(String(binaryParam(ints, 1007)).length, 100_000 * 12 + 1);
+  const texts = encodeArray(Array.from({ length: 1000 }, () => 'q"'.repeat(500)), OID.text);
+  assert.equal(String(binaryParam(texts, 1009)).length, 1000 * (1500 + 3) + 1);
 });
 
 test('seeded random bytes in every type: a value or a BinaryFormatError, nothing else, quickly', () => {

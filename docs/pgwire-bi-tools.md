@@ -68,7 +68,7 @@ asyncpg, Npgsql, psycopg 3, pgx and pgjdbc in binary mode ask for values in Post
 | Type | Binary parameter | Binary result |
 | --- | --- | --- |
 | `bool`, `int2`, `int4`, `int8`, `oid`, `float4`, `float8` | Read | Written |
-| `numeric` (NaN and the infinities included) | Read | Written; a number field holding text that is not a number is NULL, as in the text format |
+| `numeric` (NaN and the infinities included) | Read, up to 1,000 digits before the point (`22003` past it) | Written, with the same cap and exponents up to 1,000 (`22003` past them); a number field holding text that is not a number is NULL, as in the text format |
 | `text`, `varchar`, `bpchar`, `name`, `json`, unspecified | Read; invalid UTF-8 or a NUL byte is `22021`, as in the text format | Written |
 | `jsonb` | Read (version 1) | Written |
 | `uuid` | Read | Written; a stored value that is not a uuid is `22P02` and not written short |
@@ -82,7 +82,9 @@ A parameter is read into the value its text format gives, so a query finds the s
 
 The rules of the extended protocol that drivers rely on hold as in PostgreSQL, each with a byte-level test: a Bind with more than one format code but fewer than its parameters, with a different number of parameters than the statement, or with more than one result format code but not one per column is refused with `08P01` at Bind; a statement with no rows takes any number of result codes; Describe of a statement before Bind gives its parameter types and text formats, Describe of the portal the formats Bind asked for.
 
-Malformed binary input is answered with an error, and the connection goes on after Sync: a value shorter than its type or a length below -1 or past the end of the message is `08P01`, a value longer than its type or with a bad header (numeric sign, scale or digit, jsonb version, array flags) is `22P03`, an array of another element type is `42804`, more than 6 dimensions is `54000`. An array that claims more elements than its bytes can hold is refused before any is read. The decoders are a target of the repository's fuzzer (`npm run fuzz -- --target pgwire-binary`), and the fixed-seed smoke in `packages/server/test/fuzz.test.ts` runs it.
+Malformed binary input is answered with an error, and the connection goes on after Sync: a value shorter than its type or a length below -1 or past the end of the message is `08P01`, a value longer than its type or with a bad header (numeric sign, scale or digit, jsonb version, array flags) is `22P03`, an array of another element type is `42804`, more than 6 dimensions is `54000`. An array that claims more elements than its bytes can hold is refused before any is read.
+
+A binary value cannot grow much past what was sent, so a few small Bind messages cannot fill the server's memory (a prepared portal keeps its parameters). A numeric may have at most 1,000 digits before the point, where PostgreSQL allows 131,072: ten bytes could otherwise read as 131 KB of text. FileMaker numbers keep 400. The text that one Bind's array parameters expand to is limited to 256 KiB plus four characters per byte of the message, which every element type's text fits in. Past it the Bind is refused with `54000` and no portal is kept. The decoders are a target of the repository's fuzzer (`npm run fuzz -- --target pgwire-binary`), and the fixed-seed smoke in `packages/server/test/fuzz.test.ts` runs it.
 
 Binary results come from the same rows as text ones and go through the same checks. This connection has no field masks: SQL reads every record and field, so a privilege set that hides a field, masks one (last four characters or a placeholder), hides fields by default, limits records by a calculation or cannot view a table is refused at sign-in, and if it is narrowed to one of those while connected, the next Execute of a portal that already holds rows, in either format, is refused with `42501` and sends none. The tests run each of those six kinds.
 

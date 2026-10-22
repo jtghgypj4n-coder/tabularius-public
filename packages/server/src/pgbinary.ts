@@ -93,16 +93,25 @@ const NUMERIC_PINF = 0xd000;
 const NUMERIC_NINF = 0xf000;
 /** numeric keeps at most this many digits after the point (its display scale field's mask). */
 const NUMERIC_MAX_DSCALE = 0x3fff;
-/** An exponent beyond this is outside numeric's range whatever the digits; checked before any digits are written out. */
-const MAX_EXPONENT = 150_000;
-const overflow = () => new BinaryFormatError('value overflows numeric format', '22003');
+/**
+ * The most digits a numeric's whole part may have here, read or written. FileMaker numbers keep 400; PostgreSQL's
+ * own limit (131,072) would let a ten-byte binary value become 131 KB of text.
+ */
+export const NUMERIC_MAX_WHOLE_DIGITS = 1000;
+/** An exponent beyond this is past the cap above (or a fraction as long); checked before any digits are written out. */
+const MAX_EXPONENT = 1000;
+const overflow = () => new BinaryFormatError(`value overflows numeric format: more than ${NUMERIC_MAX_WHOLE_DIGITS} digits before the point, or an exponent past ${MAX_EXPONENT}`, '22003');
+
+/** A number written out: sign, digits with at most one point, an optional exponent. One way to match each string, so linear time on any input. */
+const PLAIN_NUMBER = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i;
+export const isPlainNumber = (s: string): boolean => PLAIN_NUMBER.test(s);
 
 /** A plain decimal string ("-12.5", never exponent notation) for a number field's value; undefined when it holds no number. */
 export function decimalText(v: unknown): string | undefined {
   if (typeof v === 'bigint') return v.toString();
   if (typeof v === 'number') return Number.isFinite(v) ? expand(String(v)) : undefined;
   const s = String(v).trim();
-  return /^[+-]?(\d+\.?\d*|\.\d+)(e[+-]?\d+)?$/i.test(s) ? expand(s) : undefined;
+  return isPlainNumber(s) ? expand(s) : undefined;
 }
 
 /** "1.5e-7" -> "0.00000015", "1e+21" -> "1000000000000000000000". */
@@ -110,7 +119,7 @@ function expand(s: string): string {
   const m = /^([+-]?)(\d*)\.?(\d*)(?:e([+-]?\d+))?$/i.exec(s);
   if (!m) return s;
   const [, sign, int, frac, exp] = m;
-  // "1e999999999" in a number field must not become a billion zeros.
+  // "1e999999999" (or "1e150000") in a number field must not become that many zeros.
   if (Math.abs(Number(exp ?? 0)) > MAX_EXPONENT) throw overflow();
   let digits = (int || '') + (frac || '');
   let point = (int || '').length + Number(exp ?? 0);
@@ -120,6 +129,7 @@ function expand(s: string): string {
   }
   if (point > digits.length) digits += '0'.repeat(point - digits.length);
   const whole = digits.slice(0, point).replace(/^0+(?=\d)/, '') || '0';
+  if (whole.length > NUMERIC_MAX_WHOLE_DIGITS) throw overflow();
   const rest = digits.slice(point);
   return `${sign === '-' ? '-' : ''}${whole}${rest ? '.' + rest : ''}`;
 }
@@ -179,15 +189,17 @@ export function decodeNumeric(b: Buffer): string {
   if (sign === NUMERIC_NAN) return 'NaN';
   if (sign === NUMERIC_PINF) return 'Infinity';
   if (sign === NUMERIC_NINF) return '-Infinity';
+  // The text is never longer than the cap before the point and the display scale after it, whatever the weight says.
+  if (n && (weight + 1) * 4 > NUMERIC_MAX_WHOLE_DIGITS) throw overflow();
   let int = '';
-  for (let w = weight; w >= 0; w--) {
+  for (let w = n ? weight : -1; w >= 0; w--) {
     const g = groups[weight - w] ?? 0;
     int += int ? String(g).padStart(4, '0') : String(g);
   }
-  let frac = '';
-  for (let i = Math.max(0, weight + 1); i < n; i++) frac += String(groups[i]).padStart(4, '0');
-  if (weight < -1) frac = '0'.repeat((-weight - 1) * 4) + frac;
   // Digits past the display scale are cut, as PostgreSQL does; a value that is then zero has no sign.
+  const lead = weight < -1 ? (-weight - 1) * 4 : 0;
+  let frac = '0'.repeat(Math.min(lead, dscale));
+  for (let i = Math.max(0, weight + 1); i < n && frac.length < dscale; i++) frac += String(groups[i]).padStart(4, '0');
   frac = frac.padEnd(dscale, '0').slice(0, dscale);
   const zero = !/[1-9]/.test(int + frac);
   return `${sign === NUMERIC_NEG && !zero ? '-' : ''}${int || '0'}${frac ? '.' + frac : ''}`;
@@ -366,7 +378,7 @@ function floatOf(v: unknown, type: string): number {
   if (typeof v === 'number') return v;
   if (typeof v === 'bigint') return Number(v);
   const s = String(v).trim();
-  if (/^(NaN|[+-]?Infinity)$/.test(s) || /^[+-]?(\d+\.?\d*|\.\d+)(e[+-]?\d+)?$/i.test(s)) return Number(s);
+  if (/^(NaN|[+-]?Infinity)$/.test(s) || isPlainNumber(s)) return Number(s);
   throw new BinaryFormatError(`a value in a ${type} column is not a number; ask for the column in the text format`, '22P02');
 }
 
@@ -483,8 +495,18 @@ function elementText(b: Buffer, oid: number): string {
 
 const MAX_ARRAY_DIMENSIONS = 6;
 
+/** What the array parameters of one Bind may expand to, in characters: kept per message, so portals cannot hold more. */
+export interface ExpansionBudget { left: number; readonly total: number }
+const EXPANSION_BASE = 256 * 1024;
+/** Characters allowed per byte received: every element type's text fits in it (a bytea element is about two per byte), a crafted numeric does not. */
+const EXPANSION_PER_BYTE = 4;
+export function expansionBudget(bytes: number): ExpansionBudget {
+  const total = EXPANSION_BASE + EXPANSION_PER_BYTE * bytes;
+  return { left: total, total };
+}
+
 /** An array parameter as PostgreSQL's text form of it, checked as its array_recv checks it. */
-function arrayText(b: Buffer, element: number): string {
+function arrayText(b: Buffer, element: number, budget: ExpansionBudget): string {
   const r = new Reader(b);
   const ndim = r.i32();
   const flags = r.i32();
@@ -514,9 +536,14 @@ function arrayText(b: Buffer, element: number): string {
   const items: string[] = [];
   for (let i = 0; i < count; i++) {
     const len = r.i32();
-    if (len === -1) items.push('NULL');
-    else if (len < 0) throw short();
-    else items.push(quoted(elementText(r.bytes(len), element)));
+    if (len < -1) throw short();
+    const item = len === -1 ? 'NULL' : quoted(elementText(r.bytes(len), element));
+    // Each element is charged as it is read, so the text stops growing as soon as the Bind's allowance is spent.
+    budget.left -= item.length + 1;
+    if (budget.left < 0) {
+      throw new BinaryFormatError(`array parameters of one Bind may expand to at most ${budget.total} characters (${EXPANSION_BASE} plus ${EXPANSION_PER_BYTE} per byte sent); send the list in smaller parts`, '54000');
+    }
+    items.push(item);
   }
   r.end();
   let at = 0;
@@ -531,11 +558,12 @@ function arrayText(b: Buffer, element: number): string {
 
 /**
  * A parameter sent in the binary format, as the value its text format would give; undefined for a type it can't read.
- * Input that is not a value of the type (short, too long, out of range) is a BinaryFormatError.
+ * Input that is not a value of the type (short, too long, out of range) is a BinaryFormatError. An array's text is
+ * charged to `budget`, which a Bind shares among its parameters (54000 once spent).
  */
-export function binaryParam(b: Buffer, oid: number): SqlValue | undefined {
+export function binaryParam(b: Buffer, oid: number, budget: ExpansionBudget = expansionBudget(b.length)): SqlValue | undefined {
   const element = ARRAY_ELEMENT[oid];
-  if (element !== undefined) return arrayText(b, element);
+  if (element !== undefined) return arrayText(b, element, budget);
   switch (oid) {
     case BINARY_OID.bool: return fixed(b, 1)[0] ? 1 : 0;
     case BINARY_OID.int2: return fixed(b, 2).readInt16BE(0);

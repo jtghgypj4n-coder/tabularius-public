@@ -28,7 +28,7 @@ import { addressBucket, spendPasswordCheck, StoreError, writer, type Privileges,
 import { SignInFailures } from '../../store/src/sign-in-failures.ts';
 import type { SqlValue } from '../../store/src/find.ts';
 import type { Host } from './host.ts';
-import { BinaryFormatError, binaryParam, binaryValue, castParamTypes, isFalse } from './pgbinary.ts';
+import { BinaryFormatError, binaryParam, binaryValue, castParamTypes, expansionBudget, isFalse, isPlainNumber } from './pgbinary.ts';
 import { passwordLoginSecondFactor } from './password-login-policy.ts';
 import { BOOLEAN_COLUMNS, catalogFunctions, FIRST_TABLE_OID, namesCatalogRelation, pgSyntax, readsCatalog, withCatalog, type CatalogData } from './pgcatalog.ts';
 
@@ -126,7 +126,7 @@ function textValue(value: SqlValue, oid: number): Buffer | null {
     if (typeof v === 'number') return Number.isFinite(v) ? Buffer.from(String(v)) : null;
     if (typeof v === 'bigint') return Buffer.from(v.toString());
     const s = String(v).trim();
-    return /^[+-]?(\d+\.?\d*|\.\d+)(e[+-]?\d+)?$/i.test(s) ? Buffer.from(s) : null;
+    return isPlainNumber(s) ? Buffer.from(s) : null;
   }
   return Buffer.from(String(v), 'utf8');
 }
@@ -799,6 +799,8 @@ class Connection {
         if (formats.length > 1 && formats.length !== n) throw new PgError('08P01', `bind message has ${formats.length} parameter formats but ${n} parameters`);
         if (n !== st.types.length) throw new PgError('08P01', `bind message supplies ${n} parameters, but prepared statement "${name}" requires ${st.types.length}`);
         const params: SqlValue[] = [];
+        // One allowance for the text all of this Bind's binary arrays expand to, in proportion to the bytes sent.
+        const budget = expansionBudget(body.length);
         for (let i = 0; i < n; i++) {
           const len = int32();
           if (len === -1) {
@@ -813,7 +815,7 @@ class Connection {
           const format = formats.length === 1 ? formats[0] : formats[i] ?? 0;
           if (format === 1) {
             let v: SqlValue | undefined;
-            try { v = binaryParam(raw, oid); }
+            try { v = binaryParam(raw, oid, budget); }
             catch (e) { throw e instanceof BinaryFormatError ? new PgError(e.code, `${e.message} in bind parameter ${i + 1}`) : e; }
             if (v === undefined) throw new PgError('0A000', `binary parameters of type ${oid} are not supported: send this one as text`);
             params.push(v);
