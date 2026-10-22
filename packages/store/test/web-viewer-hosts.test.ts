@@ -90,3 +90,36 @@ test('a wildcard over a public suffix is refused, but a wildcard over a site and
   // A stored list from a restored file loses such an entry too.
   assert.deepEqual(trustedWebViewerHosts(['*.co.uk', 'maps.example.com', '*.example.co.uk']), ['maps.example.com', '*.example.co.uk']);
 });
+
+test('more shared hosting names are public suffixes: user content, regional storage, blog and dynamic-DNS services', () => {
+  for (const bad of [
+    '*.githubusercontent.com', '*.googleusercontent.com', '*.r2.dev', '*.deno.dev', '*.notion.site', '*.webflow.io', '*.readthedocs.io', '*.duckdns.org', '*.ddns.net',
+    '*.compute.amazonaws.com', '*.s3.us-east-1.amazonaws.com', '*.s3-website.eu-west-1.amazonaws.com', '*.us-east-1.compute.amazonaws.com', '*.blogspot.co.uk', '*.blogspot.de',
+  ]) assert.throws(() => normalizeWebViewerHost(bad), /public suffix/, bad);
+  // One bucket, one account's sites or a name under a suffix is one party's.
+  for (const ok of ['*.mybucket.s3.us-east-1.amazonaws.com', 'raw.githubusercontent.com', '*.myapp.r2.dev', '*.example.blogspot.co.uk', '*.docs.example.com']) assert.equal(normalizeWebViewerHost(ok), ok, ok);
+});
+
+test('a stored entry that is not trusted is named, not dropped silently', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'web-viewer-hosts-'));
+  const path = join(dir, 'Shop.sqlite');
+  try {
+    createStore(path);
+    const store = new Store(path, 'Shop');
+    const put = (stored: unknown) => (store as unknown as { sql: { prepare(q: string): { run(...a: unknown[]): void } } }).sql
+      .prepare(`INSERT INTO _fm_meta VALUES ('webViewerHosts', ?) ON CONFLICT(key) DO UPDATE SET json = excluded.json`).run(JSON.stringify(stored));
+    assert.deepEqual(store.webViewerHostsDropped, []);
+    put(['maps.example.com', '*.co.uk', 'evil.com *', 'Upper.Example.com', 42, 'maps.example.com', `a.example.com\r\n${'x'.repeat(300)}`]);
+    assert.deepEqual(store.webViewerHosts, ['maps.example.com']);
+    // Named once each, shown plainly and shortly, in the order stored; a repeat of a good entry is not a loss.
+    assert.deepEqual(store.webViewerHostsDropped.slice(0, 5), ['*.co.uk', 'evil.com *', 'Upper.Example.com', '42', `a.example.com??${'x'.repeat(85)}`]);
+    assert.equal(store.webViewerHostsDropped.length, 5);
+    put(Array.from({ length: 52 }, (_, i) => `h${i}.example.com`));
+    assert.deepEqual(store.webViewerHostsDropped, ['h50.example.com', 'h51.example.com'], 'past the most that can be listed');
+    put('not a list');
+    assert.deepEqual(store.webViewerHostsDropped, []);
+    store.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

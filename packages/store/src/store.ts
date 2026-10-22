@@ -2,7 +2,7 @@
 // API in FileMaker's shapes: field names, repetitions as "Field(2)", and
 // dates in US (M/D/YYYY) or ISO format.
 
-import { normalizeWebViewerHosts, trustedWebViewerHosts } from './web-viewer-hosts.ts';
+import { droppedWebViewerHosts, normalizeWebViewerHosts, trustedWebViewerHosts } from './web-viewer-hosts.ts';
 import { isCredentialName } from '../../scripts/src/credentials.ts';
 import { cleanSql, sqlName, sqlTokens } from './sql-tokens.ts';
 import { SignInFailures, LOCKOUT, noAddressBudget, sharedSource, addressBucket, accountsSharingLockout, lockoutName } from './sign-in-failures.ts';
@@ -3352,6 +3352,11 @@ export class Store {
    */
   get webViewerHosts(): string[] {
     return trustedWebViewerHosts(this.meta('webViewerHosts'));
+  }
+
+  /** What the stored list holds that is not trusted (a restored file's entries that fail the checks, or are past the most that can be listed), for the console to name. */
+  get webViewerHostsDropped(): string[] {
+    return droppedWebViewerHosts(this.meta('webViewerHosts'));
   }
 
   setWebViewerHosts(hosts: unknown, opts: { account?: string } = {}): void {

@@ -13,6 +13,7 @@ const SHARED_SUFFIXES = new Set([
   'github.io', 'gitlab.io', 'bitbucket.io', 'herokuapp.com', 'vercel.app', 'netlify.app', 'pages.dev', 'workers.dev', 'web.app', 'firebaseapp.com', 'appspot.com',
   'blogspot.com', 'wordpress.com', 'azurewebsites.net', 'azurestaticapps.net', 'cloudapp.azure.com', 'cloudfront.net', 'amazonaws.com', 's3.amazonaws.com', 'elasticbeanstalk.com',
   'onrender.com', 'fly.dev', 'glitch.me', 'repl.co', 'surge.sh', 'myshopify.com', 'wixsite.com', 'weebly.com', 'ngrok.io', 'ngrok-free.app', 'trycloudflare.com', 'run.app',
+  'githubusercontent.com', 'googleusercontent.com', 'r2.dev', 'deno.dev', 'notion.site', 'webflow.io', 'readthedocs.io', 'duckdns.org', 'ddns.net',
 ]);
 const REGISTRY_LEVEL = new Set(['co', 'com', 'org', 'net', 'gov', 'gob', 'edu', 'ac', 'ne', 'or', 'go', 'mil', 'ltd', 'plc', 'sch']);
 
@@ -20,6 +21,11 @@ const REGISTRY_LEVEL = new Set(['co', 'com', 'org', 'net', 'gov', 'gob', 'edu', 
 function isPublicSuffix(labels: string[]): boolean {
   const name = labels.join('.');
   if (SHARED_SUFFIXES.has(name)) return true;
+  // Every blog on a blog service has its own name under it, in each country's flavour (blogspot.com, blogspot.co.uk, ...).
+  if (labels[0] === 'blogspot') return true;
+  // Names under amazonaws.com are the cloud's service names (s3, compute, regional endpoints): a wildcard over one allows every customer's.
+  // Four labels reaches a service in a region (s3.us-east-1.amazonaws.com); a bucket's own name is a label more.
+  if (name.endsWith('.amazonaws.com') && labels.length <= 4) return true;
   return labels.length === 2 && labels[1].length === 2 && REGISTRY_LEVEL.has(labels[0]);
 }
 
@@ -55,17 +61,31 @@ export function normalizeWebViewerHosts(input: unknown): string[] {
   return out;
 }
 
-/** The stored list as it can be trusted: a value written by anything but setWebViewerHosts (a restored or foreign file) is dropped unless it passes the same checks. */
-export function trustedWebViewerHosts(stored: unknown): string[] {
-  if (!Array.isArray(stored)) return [];
-  const out: string[] = [];
+/** The stored list sorted into what can be trusted and what cannot: a value written by anything but setWebViewerHosts (a restored or foreign file) is dropped unless it passes the same checks. */
+function checkStored(stored: unknown): { hosts: string[]; dropped: string[] } {
+  const hosts: string[] = [];
+  const dropped: string[] = [];
+  if (!Array.isArray(stored)) return { hosts, dropped };
   for (const v of stored) {
     try {
       const host = normalizeWebViewerHost(v);
-      if (host === v && !out.includes(host)) out.push(host);
+      if (host === v) { if (!hosts.includes(host)) hosts.push(host); continue; }
     } catch { /* dropped */ }
+    // Shown to an administrator, so plainly and shortly whatever the file held.
+    dropped.push(String(typeof v === 'string' ? v : JSON.stringify(v)).replace(/[^\x20-\x7e]/g, '?').slice(0, 100));
   }
-  return out.slice(0, WEB_VIEWER_HOSTS_MAX);
+  // Only so many can be listed; the rest are dropped too.
+  return { hosts: hosts.slice(0, WEB_VIEWER_HOSTS_MAX), dropped: [...dropped, ...hosts.slice(WEB_VIEWER_HOSTS_MAX)] };
+}
+
+/** The stored list as it can be trusted. */
+export function trustedWebViewerHosts(stored: unknown): string[] {
+  return checkStored(stored).hosts;
+}
+
+/** The stored entries that are not trusted, written plainly, for the console to name. */
+export function droppedWebViewerHosts(stored: unknown): string[] {
+  return checkStored(stored).dropped;
 }
 
 /** Whether a listed entry (a stored host or `*.` wildcard) would let a web viewer load a page of the host name `name`. */
