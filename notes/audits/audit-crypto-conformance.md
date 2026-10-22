@@ -1,6 +1,6 @@
 # Tabularius crypto and protocol conformance — r22-01
 
-Date: 2026-10-17. Baseline inspected first: `main` at `46ade4661538c5bab96debce3486e8c244ae0c5c`. Working branch baseline: `9321e5f66bb2c5269c60f2013f36655d706a7162`. This is a bounded source audit and executable conformance check, not a cryptographic certification.
+Date: 2026-10-17. This is a bounded source audit and executable conformance check, not a cryptographic certification.
 
 ## Scope and work dropped
 
