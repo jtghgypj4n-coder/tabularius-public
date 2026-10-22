@@ -528,11 +528,18 @@ export interface RunOptions {
    * Show Custom Dialog waits for a person: this shows them the dialog (after
    * the client carries out `actions`) and resolves with the button they chose
    * (1-3) and what they typed into each input field, or undefined if they
-   * closed it, taken as the last button. Without it the first button is
-   * chosen, as nobody can answer. Time spent waiting doesn't count toward
-   * `timeoutMs`.
+   * closed it, taken as the last button. Without it nobody can answer: the
+   * step is error 3 (FileMaker Server and the Data API don't support it), or,
+   * in a trial run (`previewDialogs`), the first button is chosen. Time spent
+   * waiting doesn't count toward `timeoutMs`.
    */
   dialog?: (request: DialogRequest) => Promise<{ button: number; inputs?: string[] } | undefined>;
+  /**
+   * A trial run on a copy (a dry run, a test case, a comparison of two versions of a script): with no `dialog` host,
+   * Show Custom Dialog is recorded in the run's actions as what the script would show and the first button is taken,
+   * so the rest of the script can be tried. A real run with no one to answer gets error 3 instead.
+   */
+  previewDialogs?: boolean;
   /**
    * With error capture off, show a failing step's error through `dialog` (default true). Off for a menu
    * command the client runs, which tells its own result.
@@ -1768,7 +1775,7 @@ export class ScriptEngine {
     // Claris lists Show Custom Dialog as unsupported on FileMaker Server and in the Data API. With no one to answer, no
     // button is pressed and no field is filled: the step is error 3 and Get ( LastMessageChoice ) stays as it was (the
     // error code is inferred from how other unsupported steps behave; Claris does not say).
-    if (!this.opts.dialog) {
+    if (!this.opts.dialog && !this.opts.previewDialogs) {
       const message = 'Show Custom Dialog is not supported in scripts run without a person (FileMaker Server and the Data API do not support it); nothing was shown';
       const warning = `${message} (script "${f.script.name}")`;
       if (!this.warnings.includes(warning)) this.warnings.push(warning);
@@ -1784,6 +1791,11 @@ export class ScriptEngine {
       // FileMaker's Use password character option isn't decoded from files, so a label naming a password stands in for it.
       password: x.password ?? /password|passwort|mot de passe|contrase/i.test(calc(x.label)),
     }));
+    if (!this.opts.dialog) {
+      this.actions.push({ step: name, script: f.script.name, title, message, buttons });
+      this.lastMessageChoice = 1;
+      return;
+    }
     const left = this.deadline - Date.now();
     this.hold();
     let answer: { button: number; inputs?: string[] } | undefined;

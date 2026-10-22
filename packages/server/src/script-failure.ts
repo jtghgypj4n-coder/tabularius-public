@@ -154,6 +154,7 @@ export async function explainScriptFailure(store: Store, req: { script: string; 
       };
     };
     const r = await runScript(copy, script, offlineScriptOptions({
+      previewDialogs: true,
       ...(layout ? { layout } : {}), ...(req.recordId !== undefined ? { recordId: req.recordId } : {}),
       ...(req.parameter !== undefined ? { parameter: req.parameter } : {}),
       account: opts.account, executionAccount: opts.privileges ? opts.account : undefined, executionVia: opts.via, executionStore: store, ...(privileges ? { privileges } : {}),

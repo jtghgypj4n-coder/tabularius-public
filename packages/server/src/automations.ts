@@ -341,7 +341,7 @@ export async function dryRunAutomation(store: Store, spec: Omit<Automation, 'id'
     const parameter = deletedParameter ?? (spec.parameter ? copy.evaluate(info, spec.parameter, recordId, { account: spec.account, privileges }).value : undefined);
     const r = await runScript(copy, target, {
       layout: info.name, ...(spec.on === 'delete' ? { foundSet: [] } : { foundSet: [recordId], recordId }), account: spec.account, executionAccount: spec.account, executionStore: store, privileges, ...(parameter !== undefined ? { parameter } : {}),
-      network: false, documents: join(dir, 'documents'), timeoutMs: 5_000, maxSteps: 20_000, trace: true,
+      network: false, documents: join(dir, 'documents'), timeoutMs: 5_000, maxSteps: 20_000, trace: true, previewDialogs: true,
     });
     const stalled = r.actions.some((a) => a.step === 'Halt Script' && /limit reached/.test(String(a.reason)));
     refreshSecrets();

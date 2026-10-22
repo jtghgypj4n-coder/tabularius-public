@@ -351,6 +351,7 @@ async function testRun(store: Store, script: Script, layout: string | undefined,
         session,
         documents,
         ...offlineScriptOptions(),
+        previewDialogs: true,
         // Signed in as the file's own full-access account, so "creation account name" fields fill in as they would.
         ...(account(store) ? { account: account(store) } : {}),
         // CLI outbound tests may explicitly opt back into their capture configuration.

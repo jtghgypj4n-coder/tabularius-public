@@ -95,6 +95,15 @@ test('with nobody to answer, no button is pressed: error 3, the choice is left a
   assert.deepEqual((r.warnings ?? []).filter((w) => w.startsWith('Show Custom Dialog')).length, 1);
 });
 
+test('a trial run (previewDialogs) records the dialog it would show and takes the first button', async () => {
+  const r = await run(`
+    ${DIALOG}
+    Exit Script [ Text Result: Get ( LastMessageChoice ) & "/" & $account ]`, { previewDialogs: true });
+  assert.equal(r.result, '1/');
+  assert.equal(r.error, 0);
+  assert.deepEqual(r.actions[0], { step: 'Show Custom Dialog', script: 'test', title: 'Sign in', message: 'Who are you, Ada?', buttons: ['OK', 'Cancel'] });
+});
+
 test('a headless Show Custom Dialog is error 3 at that step, and the trace says why', async () => {
   const r = await run(`
     Show Custom Dialog [ "Delete everything?" ; "This cannot be undone." ; Button 1: "Delete" ; Button 2: "Cancel" ]
