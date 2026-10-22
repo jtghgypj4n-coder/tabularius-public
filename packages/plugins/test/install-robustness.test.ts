@@ -78,3 +78,20 @@ test('a torn config file is named, and the plug-in list still shows', () => {
   assert.ok(pluginStatus(data).problems.some((p) => p.includes('install.json')));
   assert.ok(existsSync(join(data, 'plugins', 'org.example.shout', 'plugin.json')));
 });
+
+test('a plug-in id that is a state file of the plug-ins folder is refused, before anything is written', () => {
+  for (const id of ['enabled.json', 'builtin-off.json', 'trusted-publishers.json', 'org.example.state.json']) {
+    const parsed = parseManifest({ id, name: 'X', version: '1.0.0', api: '^1.0', publisher: 'Example Co', main: 'main.js', functions: [{ name: 'Pk_X', min: 0 }] });
+    assert.ok(!parsed.ok && /end in \.json/.test(parsed.errors.join()), id);
+    const d = source();
+    writeFileSync(join(d, 'plugin.json'), JSON.stringify({ id, name: 'X', version: '1.0.0', api: '^1.0', publisher: 'Example Co', main: 'main.js', functions: [{ name: 'Pk_X', min: 0 }] }));
+    assert.throws(() => packPlugin(d, generateKey().privatePem), /end in \.json/, id);
+  }
+  // The admin's own file stays a file when a plug-in is installed and enabled.
+  const data = fresh();
+  mkdirSync(join(data, 'plugins'), { recursive: true });
+  writeFileSync(join(data, 'plugins', 'enabled.json'), '{}');
+  const key = generateKey();
+  installPackage(data, packPlugin(source(), key.privatePem).bytes, { trust: key.fingerprint });
+  assert.equal(readdirSync(join(data, 'plugins')).includes('enabled.json'), true);
+});

@@ -46,7 +46,8 @@ export const PluginFunctionSpec = z.object({
 
 export const PluginManifest = z.object({
   /** Reverse-DNS, unique: org.example.troi-file. */
-  id: z.string().regex(/^[a-z0-9]+(?:[.-][a-z0-9]+)+$/).max(100).refine(portableName, 'not a portable file name'),
+  id: z.string().regex(/^[a-z0-9]+(?:[.-][a-z0-9]+)+$/).max(100).refine(portableName, 'not a portable file name')
+    .refine((id) => !id.endsWith('.json'), 'a plug-in id can\'t end in .json: the plug-ins folder keeps its own state in files of that kind'),
   name: z.string().min(1),
   version: z.string().regex(SEMVER),
   /** Host API range it was written for, e.g. "^1.0". */
