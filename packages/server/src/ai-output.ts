@@ -221,9 +221,12 @@ interface RecordLike {
  */
 export function recordForModel<R extends RecordLike>(r: R, fields?: string[]): R {
   const only = fields?.length ? new Set(fields.map((f) => f.toLowerCase())) : undefined;
-  const secrets = secretValues(r.fieldData);
+  // Collect before projecting fields or truncating portals: a related secret can
+  // be copied onto the parent or a different portal row. Keep this record-local.
+  const secrets = [...new Set([...secretValues(r.fieldData),
+    ...Object.values(r.portalData ?? {}).flatMap((rows) => rows.flatMap(secretValues))])];
   const portalData = r.portalData && Object.fromEntries(Object.entries(r.portalData)
-    .map(([name, rows]) => [name, rows.map((row) => values(row, only && new Set([...only, 'recordid', 'modid']), only ? ASKED_CHARS : VALUE_CHARS, [...secrets, ...secretValues(row)]))] as const)
+    .map(([name, rows]) => [name, rows.map((row) => values(row, only && new Set([...only, 'recordid', 'modid']), only ? ASKED_CHARS : VALUE_CHARS, secrets))] as const)
     .filter(([, rows]) => !only || rows.some((row) => Object.keys(row).some((k) => k !== 'recordId' && k !== 'modId'))));
   return {
     ...r,
