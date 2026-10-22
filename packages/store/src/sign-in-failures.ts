@@ -54,7 +54,7 @@ export class SignInFailures extends Map<string, Failure> {
   private nextExpiry = Infinity;
   private windowMs = LOCKOUT.windowMs;
   private readonly onLock?: (key: string, address?: string) => void;
-  private readonly onExpire?: (key: string) => void;
+  private readonly onExpire?: (key: string, endedAt: number) => void;
   private readonly sharedKeys = new Set<string>();
   // Real accounts have at most three anonymous counters (password, TOTP, recovery).
   // Only Store can identify these: attacker-chosen names cannot spend this reserve.
@@ -69,7 +69,7 @@ export class SignInFailures extends Map<string, Failure> {
   // order. Their failures remain charged to an address counter until its window expires.
   private readonly evictable = new Set<string>();
 
-  constructor(onLock?: (key: string, address?: string) => void, onExpire?: (key: string) => void) {
+  constructor(onLock?: (key: string, address?: string) => void, onExpire?: (key: string, endedAt: number) => void) {
     super();
     this.onLock = onLock;
     this.onExpire = onExpire;
@@ -127,7 +127,8 @@ export class SignInFailures extends Map<string, Failure> {
       if (expires <= now) {
         this.delete(key);
         // Only an issued lock that ran out is reported; a counter whose window passed was never a block.
-        if (value.until !== undefined) this.onExpire?.(key);
+        // The callback may write to a busy or closed file: whatever it throws, the sweep still finishes and a sign-in check never fails on it.
+        if (value.until !== undefined) try { this.onExpire?.(key, Date.now() - (now - value.until)); } catch { /* the owner keeps what it could not record */ }
       } else this.nextExpiry = Math.min(this.nextExpiry, expires);
     }
   }

@@ -172,3 +172,44 @@ for (const scope of ['account', 'address'] as const) test(`${scope}: admin unloc
   assert.equal(events[0].changes?.via, 'timer');
   assert.equal(events[0].changes?.scope, scope);
 });
+
+test('a lock that ends while a transaction holds the file is recorded afterwards, once, with its real end time', (t) => {
+  const { store } = setup(t), from = '198.51.100.8';
+  let mono = Math.floor(performance.now()), wall = Date.now();
+  t.mock.method(performance, 'now', () => mono);
+  t.mock.method(Date, 'now', () => wall);
+  for (let i = 0; i < LOCKOUT.attempts; i++) store.verify('Alice', 'wrong', from);
+  assert.ok(store.lockedOut('Alice', from));
+  const lockedAt = wall;
+  // The sweep that notices the end runs lazily, long after it; meanwhile another session holds a transaction on the file.
+  mono += LOCKOUT.lockMs + 60_000;
+  wall += LOCKOUT.lockMs + 60_000;
+  (store as unknown as { heldBy: object }).heldBy = {};
+  try {
+    assert.doesNotThrow(() => store.lockedOut('Bob', '198.51.100.9'), 'an expiry never fails a sign-in check');
+    assert.doesNotThrow(() => store.addressLockedOut('198.51.100.9'));
+    assert.equal(store.securityEvents({ kind: 'lockout-cleared' }).length, 0, 'nothing could be written yet');
+  } finally { (store as unknown as { heldBy?: object }).heldBy = undefined; }
+  assert.equal(store.lockedOut('Alice', from), undefined, 'the entry is gone, the lock has ended');
+  const events = store.securityEvents({ kind: 'lockout-cleared' });
+  assert.equal(events.length, 1, 'recorded once the file is free');
+  assert.equal(events[0].changes?.via, 'timer');
+  assert.equal(events[0].changes?.expiredAt, new Date(lockedAt + LOCKOUT.lockMs).toISOString(), 'stamped with when the lock ended, not when it was noticed');
+  store.lockedOut('Alice', from);
+  assert.equal(store.securityEvents({ kind: 'lockout-cleared' }).length, 1, 'and not again');
+});
+
+test('a sweep whose expiry callback throws still finishes and keeps the other entries consistent', () => {
+  const f = new SignInFailures(undefined, () => { throw new Error('file is busy'); });
+  const from = '198.51.100.8';
+  let calls = 0;
+  for (const name of ['Alice', 'Bob', 'Carol']) for (let i = 0; i < LOCKOUT.attempts; i++) f.record(f.accountKey(name, from), from, false);
+  const now = performance.now();
+  const real = performance.now;
+  performance.now = () => now + LOCKOUT.lockMs + 1;
+  try {
+    assert.doesNotThrow(() => { calls++; f.blocked(f.accountKey('Alice', from)); });
+    assert.equal(f.size, 0, 'every ended lock was removed, none left half-swept');
+  } finally { performance.now = real; }
+  assert.equal(calls, 1);
+});
