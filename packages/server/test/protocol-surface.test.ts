@@ -127,7 +127,7 @@ test('a fault of the server\'s own on the XML interface and SQL over HTTP is log
   (a as unknown as { find: unknown }).find = () => { throw boom; };
   const xml = await fetch(`${url}/fmi/xml/fmresultset.xml?-db=A&-lay=Items&-findall`, { headers: alice });
   assert.match(await xml.text(), /<error code="951"/);
-  assert.ok(errors.mock.calls.some((c) => c.arguments[0] === boom), 'the XML interface logged the cause');
+  assert.ok(errors.mock.calls.some((c) => String(c.arguments[0]).includes('TypeError: boom from the store')), 'the XML interface logged the cause (as redacted text with its stack)');
   (a as unknown as { find: unknown }).find = find;
 
   errors.mock.resetCalls();
@@ -137,7 +137,7 @@ test('a fault of the server\'s own on the XML interface and SQL over HTTP is log
   const sql = await fetch(`${url}/tabularius/sql/v1/databases/A`, { method: 'POST', headers: { ...alice, 'content-type': 'application/json' }, body: JSON.stringify({ sql: 'SELECT Title FROM Items' }) });
   (a as unknown as { select: unknown }).select = select;
   assert.equal(sql.status, 500);
-  assert.ok(errors.mock.calls.some((c) => c.arguments[0] === sqlBoom), 'SQL over HTTP logged the cause');
+  assert.ok(errors.mock.calls.some((c) => String(c.arguments[0]).includes('TypeError: boom from SQL')), 'SQL over HTTP logged the cause (as redacted text with its stack)');
   assert.doesNotMatch(await sql.text(), /boom from SQL/, 'the caller is not told the fault\'s text');
   // A SQL error about the caller\'s own query is still theirs to read, and is not a fault.
   errors.mock.resetCalls();

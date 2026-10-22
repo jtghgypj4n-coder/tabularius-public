@@ -519,10 +519,10 @@ export class CredentialRedactor {
   }
   /** SQL results have their own cap so wide result sets cannot consume field-read learning. */
   rememberSql(value: string): void { this.remember(value, true); }
-  value(value: string, name?: string, suppress = false, scriptLiteral = false): string {
+  value(value: string, name?: string, suppress = false, scriptLiteral = false, textRule = true): string {
     if (name && this.sensitiveName(name)) this.remember(value);
     // Once either source exceeds its cap, unknown derived values may contain a credential.
-    if (this.rememberFull || this.sqlRememberFull || suppress || (name !== undefined && this.sensitiveName(name)) || sensitiveText(value)) return REDACTED;
+    if (this.rememberFull || this.sqlRememberFull || suppress || (name !== undefined && this.sensitiveName(name)) || (textRule && sensitiveText(value))) return REDACTED;
     const folded = value.toLowerCase();
     if (this.values.has(folded)) return REDACTED;
     if (!scriptLiteral && folded.length >= FRAGMENT_LENGTH && folded.length <= MAX_VALUE_BYTES && !/^\p{L}{1,4}$/u.test(folded)) {
@@ -541,7 +541,8 @@ export class CredentialRedactor {
     return value;
   }
   /** Preserve field types and repetitions; discover named secrets before emitting sibling aliases. */
-  data(value: unknown, name?: string): unknown {
+  /** `textRule: false` leaves a value alone just because it reads like a credential name (script text that names a field); named secrets and their copies are still hidden. */
+  data(value: unknown, name?: string, textRule = true): unknown {
     const discover = (v: unknown, key?: string): void => {
       if (key && this.sensitiveName(key)) strings(v).forEach((s) => this.remember(s));
       if (Array.isArray(v)) v.forEach((x) => discover(x, key));
@@ -552,7 +553,7 @@ export class CredentialRedactor {
       if (Array.isArray(v)) return v.map((x) => walk(x, key));
       if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, walk(x, k)]));
       if (v === null || v === undefined) return v;
-      return this.value(String(v), key) === REDACTED ? REDACTED : v;
+      return this.value(String(v), key, false, false, textRule) === REDACTED ? REDACTED : v;
     };
     return walk(value, name);
   }

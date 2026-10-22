@@ -287,7 +287,7 @@ test('a filesystem error in a per-file result does not reveal its absolute path'
     assert.equal(r.status, 200);
     assert.doesNotMatch(body, /\/var\/lib\/secret|ENOENT|Charts\.fmp12/);
     assert.match(body, /Unknown error/);
-    assert.ok(logged.mock.calls.flatMap((call) => call.arguments).some((x) => x instanceof Error && (x as NodeJS.ErrnoException).code === 'ENOENT'));
+    assert.ok(logged.mock.calls.flatMap((call) => call.arguments).some((x) => /ENOENT/.test(x instanceof Error ? x.message : String(x))), 'the cause is logged (as redacted text, not the error object, which would also print custom properties)');
   } finally {
     await new Promise<void>((r) => s.server.close(() => r()));
     rmSync(dir, { recursive: true, force: true });

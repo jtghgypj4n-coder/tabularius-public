@@ -24,8 +24,10 @@ export function sqlMayReadSecret(query: string, secretText: (text: string) => bo
 }
 
 // URL parameters and diagnostic labels need word boundaries: "secretary" is not a secret.
-// The longer names may follow other letters (PGPASSWORD, adminpassword); the short "pass" and "pw" and the end of every name keep their boundary.
-const CREDENTIAL_LABEL = new RegExp(`(?:(?:^|[^a-z0-9])(?:(?:container|plugin)[ _-]?)?(?:credentials|pass|pw)|(?:${CREDENTIAL_NAME}))(?:$|[^a-z0-9])`, 'i');
+// Every name keeps its word start, as before ("Okapi Key" and "Compass Word" are not credentials). The one exception is a single
+// unbroken word that ends in password, passwd, passphrase, pwd or secret (PGPASSWORD, adminpassword): those may follow other letters.
+// The end boundary is kept for every name, and nothing here is an unanchored repeat, so matching stays linear.
+const CREDENTIAL_LABEL = new RegExp(`(?:^|[^a-z0-9])(?:(?:container|plugin)[ _-]?)?(?:${CREDENTIAL_NAME}|credentials|pass|pw)(?:$|[^a-z0-9])|(?:password|passwd|passphrase|pwd|secret)(?:$|[^a-z0-9])`, 'i');
 /** Names are short; a longer one is judged by its first and last 128 characters, so a hostile 30,000-character name costs little. */
 const LABEL_CHARS = 128;
 const labelTest = (name: string): boolean => CREDENTIAL_LABEL.test(name.replace(/([a-z0-9])([A-Z])/g, '$1 $2'));

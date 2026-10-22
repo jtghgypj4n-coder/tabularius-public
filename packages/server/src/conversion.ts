@@ -4,7 +4,6 @@
 // that don't parse, references that were already broken in FileMaker, other
 // files that aren't hosted, and accounts that need a password.
 
-import { CredentialRedactor } from '../../scripts/src/redaction.ts';
 import { maskFormula } from '../../scripts/src/credentials.ts';
 
 import { FILEMAKER_FUNCTIONS, PLUGIN_FUNCTIONS } from '../../fmp12/src/index.ts';
@@ -163,8 +162,6 @@ export function withoutComments(text: string): string {
  */
 export function conversionReport(store: Store, hosted: string[] = [], focus?: (where: string) => boolean, opts: { designOnly?: boolean } = {}): ConversionReport {
   const s = store.schema;
-  const redactor = new CredentialRedactor();
-  redactor.inspect(s.scripts);
   const index = solutionIndex(store);
   const custom = index.catalog.customFunctions;
   const fileMaker = new Set(FILEMAKER_FUNCTIONS.map(lower));
@@ -226,7 +223,7 @@ export function conversionReport(store: Store, hosted: string[] = [], focus?: (w
       const canonical = scriptStepName(step.stepId);
       if (canonical.startsWith('Unknown step ')) addUnknown('step', String(step.stepId), canonical, `step(${step.calculations?.length ?? 0} calculations)`);
       for (const c of step.calculations ?? []) {
-        if (c.trim() && !withoutComments(c).trim()) commentedOut.push({ where, text: maskFormula(c).slice(0, 300) });
+        if (c.trim() && !withoutComments(c).trim()) commentedOut.push({ where, text: ((m) => m.length > 300 ? `${m.slice(0, 300)}…` : m)(maskFormula(c)) });
       }
       if (step.stepId === SEND_MAIL) blocked.add(step.name, where);
       else if (step.stepId === INSERT_FROM_URL || step.stepId === EXECUTE_SQL || step.stepId === PERFORM_RAG_ACTION) network.add(step.name, where);
@@ -313,11 +310,9 @@ export function conversionReport(store: Store, hosted: string[] = [], focus?: (w
     },
   };
   report.summary = summarize(report, unparsed.length, broken.length);
-  // Do not apply name-based masking to report metadata (e.g. account migration lists).
-  const scrub = (v: unknown): unknown => typeof v === 'string' ? redactor.text(v)
-    : Array.isArray(v) ? v.map(scrub)
-    : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, scrub(x)])) : v;
-  return scrub(report) as ConversionReport;
+  // Literal values in formulas are masked above (maskFormula). The report's other text is not scrubbed by remembered value: the values a
+  // script inspection learns include harmless ones ('file:', '_', '$result') that would mangle names and paths in the report.
+  return report;
 }
 
 /** A one-line account-access summary for a privilege set: "full access", "custom per-table", "view, edit", "no access". */
