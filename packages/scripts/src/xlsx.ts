@@ -359,6 +359,7 @@ const decode = (file: Uint8Array | undefined) => (file ? new TextDecoder().decod
 
 /** The parts that list a workbook's sheets: all xlsxSheetNames reads, and what readXlsx reads first. */
 const WORKBOOK_PARTS = ['xl/workbook.xml', 'xl/_rels/workbook.xml.rels'];
+const MAX_SHEETS = 256;
 
 /** The sheets of a workbook, in order: their names and the part each is stored in. */
 function workbookSheets(files: Map<string, Uint8Array>): { name: string; path: string }[] {
@@ -376,6 +377,14 @@ function workbookSheets(files: Map<string, Uint8Array>): { name: string; path: s
     const target = rel && /Target="([^"]+)"/.exec(rel)?.[1];
     return { name, path: target ? (target.startsWith('/') ? target.slice(1) : `xl/${target}`) : `xl/worksheets/sheet${n + 1}.xml` };
   });
+  // Every sheet is a part of its own. A workbook that lists thousands of sheets, or many that share one part, is
+  // not a workbook but a way to have a small upload read again and again.
+  if (sheets.length > MAX_SHEETS) throw new Error(`The workbook has ${sheets.length} sheets; more than ${MAX_SHEETS} are not read`);
+  const parts = new Set<string>();
+  for (const s of sheets) {
+    if (parts.has(s.path)) throw new Error(`The workbook is not valid: the sheet "${s.name}" is stored in the same part as another sheet`);
+    parts.add(s.path);
+  }
   return sheets.length ? sheets : [{ name: 'Sheet1', path: 'xl/worksheets/sheet1.xml' }];
 }
 

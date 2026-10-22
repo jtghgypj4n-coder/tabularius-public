@@ -19,6 +19,7 @@ export interface Picture {
 
 /** Pictures bigger than this many pixels (decoded) are not thumbnailed. */
 const MAX_PIXELS = 60_000_000;
+const MAX_SCANS = 64;
 const MAX_GIF_DECODED_BYTES = MAX_PIXELS * 4;
 
 /** A picture decoded from PNG, GIF or JPEG bytes; undefined for other formats. */
@@ -422,6 +423,7 @@ export function decodeJpeg(d: Uint8Array): Picture | undefined {
   let comps: Component[] = [];
   let width = 0, height = 0, progressive = false, restart = 0, adobe = -1, orientation = 1;
   let hmax = 1, vmax = 1;
+  let scans = 0;
   let pos = 2;
   const u16 = (p: number) => (d[p] << 8) | d[p + 1];
   while (pos < d.length) {
@@ -457,6 +459,9 @@ export function decodeJpeg(d: Uint8Array): Picture | undefined {
         height = u16Of(seg, 1);
         width = u16Of(seg, 3);
         if (!width || !height || width * height > MAX_PIXELS * 4) return undefined;
+        // Only grey, colour and CMYK pictures are drawn, and each component is a plane of the picture's size:
+        // 255 of them on a large picture would take a gigabyte before anything was refused.
+        if (seg[5] !== 1 && seg[5] !== 3 && seg[5] !== 4) return undefined;
         comps = [];
         for (let i = 0; i < seg[5]; i++) {
           const o = 6 + i * 3;
@@ -478,6 +483,9 @@ export function decodeJpeg(d: Uint8Array): Picture | undefined {
       case 0xee: if (seg.length >= 12 && String.fromCharCode(...seg.subarray(0, 5)) === 'Adobe') adobe = seg[11]; break;
       case 0xe1: orientation = exifOrientation(seg) ?? orientation; break;
       case 0xda: {
+        // A picture of any size has a handful of scans (a progressive one about ten); thousands are a way to make
+        // the decoder walk the whole picture again and again.
+        if (++scans > MAX_SCANS) return undefined;
         const n = seg[0];
         const scan: Component[] = [];
         for (let i = 0; i < n; i++) {
