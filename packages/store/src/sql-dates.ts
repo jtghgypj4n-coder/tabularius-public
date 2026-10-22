@@ -643,11 +643,17 @@ function partsOf(v: SQLOutputValue): Parts | undefined {
 
 const field = (key: keyof Parts) => (v: SQLOutputValue): SQLInputValue => partsOf(v)?.[key] ?? null;
 
-const now = () => new Date();
 const localDate = (n: Date) => `${n.getFullYear()}-${two(n.getMonth() + 1)}-${two(n.getDate())}`;
 const localTime = (n: Date) => `${two(n.getHours())}:${two(n.getMinutes())}:${two(n.getSeconds())}`;
 
-const daysIn = (y: number, m: number) => new Date(Date.UTC(y, m, 0)).getUTCDate();
+// Date.UTC treats years 0–99 as 1900–1999; stored dates use their literal year.
+const utcDate = (y: number, m: number, d: number, h = 0, mi = 0, s = 0): Date => {
+  const date = new Date(0);
+  date.setUTCFullYear(y, m - 1, d);
+  date.setUTCHours(h, mi, s, 0);
+  return date;
+};
+const daysIn = (y: number, m: number) => utcDate(y, m + 1, 0).getUTCDate();
 
 /** A date, time or timestamp moved by n units; years and months stop at the end of a shorter month.
  * SQL timestamps have no zone or offset here. UTC component arithmetic avoids host-TZ normalization, so an
@@ -668,7 +674,7 @@ function addInterval(v: SQLOutputValue, n: number, unit: string): SQLInputValue 
       m = (total % 12 + 12) % 12 + 1;
       d = Math.min(d, daysIn(y, m));
     } else {
-      const t = new Date(Date.UTC(y, m - 1, d + n));
+      const t = utcDate(y, m, d + n);
       [y, m, d] = [t.getUTCFullYear(), t.getUTCMonth() + 1, t.getUTCDate()];
     }
     const date = `${String(y).padStart(4, '0')}-${two(m)}-${two(d)}`;
@@ -680,20 +686,20 @@ function addInterval(v: SQLOutputValue, n: number, unit: string): SQLInputValue 
     const t = (((p.h! * 3600 + p.mi! * 60 + p.s! + secs) % 86400) + 86400) % 86400;
     return `${two(Math.floor(t / 3600))}:${two(Math.floor(t / 60) % 60)}:${two(t % 60)}`;
   }
-  const t = new Date(Date.UTC(p.y!, p.m! - 1, p.d!, p.h!, p.mi!, p.s! + secs));
+  const t = utcDate(p.y!, p.m!, p.d!, p.h!, p.mi!, p.s! + secs);
   return `${String(t.getUTCFullYear()).padStart(4, '0')}-${two(t.getUTCMonth() + 1)}-${two(t.getUTCDate())}T${two(t.getUTCHours())}:${two(t.getUTCMinutes())}:${two(t.getUTCSeconds())}`;
 }
 
 /** The date, time, string and number functions of FileMaker SQL (and ODBC), for SQLite functions of the same names. */
-export const SQL_DATE_FUNCTIONS: Record<string, (...args: SQLOutputValue[]) => SQLInputValue> = {
+export const sqlDateFunctions = (now: () => Date = () => new Date()): Record<string, (...args: SQLOutputValue[]) => SQLInputValue> => ({
   YEAR: field('y'), MONTH: field('m'), DAY: field('d'), HOUR: field('h'), MINUTE: field('mi'), SECOND: field('s'),
   DAYOFWEEK: (v) => {
     const p = partsOf(v);
-    return p?.y === undefined ? null : new Date(Date.UTC(p.y, p.m! - 1, p.d!)).getUTCDay() + 1;
+    return p?.y === undefined ? null : utcDate(p.y, p.m!, p.d!).getUTCDay() + 1;
   },
   DAYNAME: (v) => {
     const p = partsOf(v);
-    return p?.y === undefined ? null : NAMES_OF_DAYS[new Date(Date.UTC(p.y, p.m! - 1, p.d!)).getUTCDay()];
+    return p?.y === undefined ? null : NAMES_OF_DAYS[utcDate(p.y, p.m!, p.d!).getUTCDay()];
   },
   MONTHNAME: (v) => {
     const p = partsOf(v);
@@ -756,7 +762,7 @@ export const SQL_DATE_FUNCTIONS: Record<string, (...args: SQLOutputValue[]) => S
   fm_dateadd: (a, b, sign) => {
     if (a === null || b === null) return null;
     const day = (v: SQLOutputValue) => typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v);
-    const days = (v: string) => Date.UTC(+v.slice(0, 4), +v.slice(5, 7) - 1, +v.slice(8, 10)) / 86_400_000;
+    const days = (v: string) => utcDate(+v.slice(0, 4), +v.slice(5, 7), +v.slice(8, 10)).getTime() / 86_400_000;
     const s = Number(sign);
     if (day(a) && day(b)) return s < 0 ? days(a as string) - days(b as string) : null;
     if (day(a)) return addInterval(a, Math.trunc(Number(b)) * s, 'DAY');
@@ -772,7 +778,9 @@ export const SQL_DATE_FUNCTIONS: Record<string, (...args: SQLOutputValue[]) => S
   // https://help.claris.com/en/sql-reference/content/functions-that-return-character-strings.html
   LOWER: (v) => (v === null ? null : String(v).toLowerCase()),
   UPPER: (v) => (v === null ? null : String(v).toUpperCase()),
-};
+});
+
+export const SQL_DATE_FUNCTIONS = sqlDateFunctions();
 
 /** How many positional slots SQLite allocates, outside strings, names and comments. */
 export function placeholders(sql: string): number {

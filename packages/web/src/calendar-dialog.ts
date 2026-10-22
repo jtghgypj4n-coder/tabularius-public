@@ -33,7 +33,8 @@ export function importSummary(r: { imported: number; skipped: number; notes: str
   return `Imported ${r.imported} event${r.imported === 1 ? '' : 's'}${r.skipped ? `, skipped ${r.skipped}` : ''}.${r.notes.length ? ` ${r.notes.join(' ')}` : ''}`;
 }
 
-const when = (iso?: string) => (iso ? new Date(iso).toLocaleString() : '');
+/** Feed metadata is an instant; show the zone so a repeated local hour is unambiguous. */
+export const calendarWhen = (iso?: string, locale?: string) => (iso ? new Date(iso).toLocaleString(locale, { timeZoneName: 'short' }) : '');
 
 export async function calendarDialog(api: Api, mode: 'feeds' | 'import', current?: string): Promise<void> {
   if (document.querySelector('dialog.calendar-dialog')) return;
@@ -103,7 +104,7 @@ export async function calendarDialog(api: Api, mode: 'feeds' | 'import', current
         ? h('table', { class: 'calendar-feeds' },
           h('thead', {}, h('tr', {}, ...['Name', 'Layout', 'Shows records as', 'Made', 'Last opened', ''].map((t) => h('th', { scope: 'col' }, t)))),
           h('tbody', {}, ...feeds.map((f) => h('tr', {},
-            h('td', {}, f.label || '(no name)'), h('td', {}, f.layout), h('td', {}, f.account), h('td', {}, when(f.created)), h('td', {}, f.lastUsed ? when(f.lastUsed) : 'never'),
+            h('td', {}, f.label || '(no name)'), h('td', {}, f.layout), h('td', {}, f.account), h('td', {}, calendarWhen(f.created)), h('td', {}, f.lastUsed ? calendarWhen(f.lastUsed) : 'never'),
             h('td', {}, button('Revoke', () => void revoke(f), { 'aria-label': `Revoke ${f.label || 'feed'} on ${f.layout}` }))))))
         : h('p', { class: 'calendar-none' }, 'No calendar feeds yet.'));
     };
