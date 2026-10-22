@@ -200,5 +200,5 @@ test('a session cleanup that throws at shutdown is logged and every file still c
   assert.deepEqual(seen.sort(), ['A', 'A (second)', 'B', 'B (second)'], 'a failing callback does not stop the others, nor the other file');
   assert.ok(lines.some((l) => /closing A: session cleanup failed: cleanup refused/.test(l)), lines.join('\n'));
   assert.ok(lines.some((l) => /closing B: session cleanup failed: cleanup refused/.test(l)));
-  for (const store of stores) assert.throws(() => store.select('SELECT 1'), undefined, `${store.name} is closed`);
+  for (const store of stores) assert.throws(() => store.select('SELECT 1'), /./, `${store.name} is closed`);
 });
