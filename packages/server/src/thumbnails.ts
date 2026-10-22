@@ -455,6 +455,8 @@ export function decodeJpeg(d: Uint8Array): Picture | undefined {
         break;
       }
       case 0xc0: case 0xc1: case 0xc2: {
+        // One frame per picture: a second header would allocate the planes again.
+        if (comps.length) return undefined;
         progressive = marker === 0xc2;
         height = u16Of(seg, 1);
         width = u16Of(seg, 3);
@@ -557,13 +559,14 @@ function decodeScan(d: Uint8Array, start: number, scan: Component[], o: {
   progressive: boolean; ss: number; se: number; ah: number; al: number; restart: number;
   dcTables: Huffman[]; acTables: Huffman[]; mcusX: number; hmax: number; vmax: number; width: number; height: number;
 }): number {
-  // Bits wait in `acc` (the low `bits` of it); past the scan's end they read as zeros.
-  let pos = start, acc = 0, bits = 0, ended = false;
+  // Bits wait in `acc` (the low `bits` of it); past the scan's end they read as zeros, the lowest `fake` of them.
+  let pos = start, acc = 0, bits = 0, ended = false, fake = 0;
   const fill = () => {
     while (bits <= 24) {
-      let byte = 0;
+      let byte = 0, real = false;
       if (!ended && pos < d.length) {
         byte = d[pos++];
+        real = true;
         if (byte === 0xff) {
           if (d[pos] === 0) pos++;
           else {
@@ -571,9 +574,11 @@ function decodeScan(d: Uint8Array, start: number, scan: Component[], o: {
             pos--;
             ended = true;
             byte = 0;
+            real = false;
           }
         }
       }
+      if (!real) fake += 8;
       acc = ((acc << 8) | byte) >>> 0;
       bits += 8;
     }
@@ -637,10 +642,18 @@ function decodeScan(d: Uint8Array, start: number, scan: Component[], o: {
       if (o.restart && m && m % o.restart === 0) {
         // Restart: realign to the RSTn marker and reset predictions.
         bits = 0;
+        fake = 0;
         ended = false;
         while (pos < d.length - 1 && !(d[pos] === 0xff && d[pos + 1] >= 0xd0 && d[pos + 1] <= 0xd7)) pos++;
         pos += 2;
         for (const c of scan) c.pred = 0;
+      }
+      if (bits < fake) {
+        // The data ran out: the rest of the scan would be read from zeros, which is a walk over the whole picture
+        // for a few bytes. Its blocks stay as they are, and a picture with restarts goes on at the next interval.
+        if (!o.restart) break;
+        m += o.restart - (m % o.restart) - 1;
+        continue;
       }
       const row = Math.floor(m / perRow), col = m % perRow;
       if (single) block(scan[0], row, col);

@@ -44,7 +44,7 @@ import { ftpTransfer } from './ftp.ts';
 import { guardedFetcher, networkProblem, outboundContext, outboundDeadline, parseAllowList } from './net-guard.ts';
 import { addresses, captureOnly, curlAddressAllowed, hostAllowed, hostOf, OUTBOX_ATTACHMENT_LIMIT, redactUrl, redirectedText, TEST_SUBJECT_PREFIX, REFUSED_CALL_LIMIT, type OutboundTest, type OutboxEntry, type OutgoingMail, type OutboxMail, type OutboxRequest, type OutsideCalls } from './outbound.ts';
 import { digestAuthorization, parseDigestChallenge } from './digest-auth.ts';
-import { MissingSheetError, readXlsx, SheetLimitError, unxml, xmlElements, xmlTags, xmlText } from './xlsx.ts';
+import { MissingSheetError, openXlsx, SheetLimitError, unxml, xmlElements, xmlTags, xmlText, type XlsxWorkbook } from './xlsx.ts';
 import { applyXslt, XsltError } from '../../calc/src/xslt.ts';
 import { stepLocates } from './location-use.ts';
 import { localeElements } from './locale.ts';
@@ -9439,8 +9439,9 @@ function transformXml(xml: string, stylesheet: string): string {
  * `stylesheet` (the text of an XSLT style sheet) is applied to an XML source first; its result must be FMPXMLRESULT.
  * `worksheet` names the sheet of an Excel workbook to read (the first when left out); a text file that holds a
  * quote it never closes adds a sentence to `notices` saying where, since everything after it is read as one value.
+ * `workbook` is an Excel workbook already opened from `data`, for reading several of its sheets.
  */
-export function* importFileRowIterator(name: string, data: Uint8Array, importFormat?: string, stylesheet?: string, options: { worksheet?: string; notices?: string[] } = {}): Generator<(string | number)[]> {
+export function* importFileRowIterator(name: string, data: Uint8Array, importFormat?: string, stylesheet?: string, options: { worksheet?: string; notices?: string[]; workbook?: XlsxWorkbook } = {}): Generator<(string | number)[]> {
   if (stylesheet !== undefined) {
     if (/\.xlsx$/i.test(name) || importFormat?.startsWith('XLX')) throw new ScriptError(ERROR.unavailable, 'An XSLT style sheet applies to an XML source, not an Excel workbook');
     yield* fmpXmlRowIterator(transformXml(decodeText(data), stylesheet), ERROR.xmlGrammar);
@@ -9448,7 +9449,7 @@ export function* importFileRowIterator(name: string, data: Uint8Array, importFor
   }
   if (/\.xlsx$/i.test(name) || importFormat?.startsWith('XLX')) {
     try {
-      yield* readXlsx(Buffer.from(data), options.worksheet || undefined);
+      yield* (options.workbook ?? openXlsx(Buffer.from(data))).read(options.worksheet || undefined);
       return;
     } catch (e) {
       if (e instanceof MissingSheetError) throw new ScriptError(ERROR.missingWorksheet, `The Excel worksheet is missing: ${e.message}`);

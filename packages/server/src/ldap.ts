@@ -216,9 +216,16 @@ class LdapConnection {
   }
 
   private onData(chunk: Buffer): void {
+    if (this.fatal) return; // nothing more is read from a connection that has failed
     this.buffer = this.buffer.length ? Buffer.concat([this.buffer, chunk]) : chunk;
     for (;;) {
-      const total = messageLength(this.buffer);
+      let total: number | undefined;
+      try {
+        total = messageLength(this.buffer);
+      } catch (e) {
+        this.fail(e instanceof Error ? e : new LdapError('ldap: a malformed message'));
+        return;
+      }
       if (total !== undefined && total > MAX_MESSAGE) {
         this.fail(new LdapError('ldap: the directory sent a message too large to read'));
         return;
@@ -256,6 +263,8 @@ class LdapConnection {
   private fail(e: Error): void {
     if (this.fatal) return;
     this.fatal = e;
+    this.buffer = Buffer.alloc(0);
+    this.socket.destroy();
     for (const w of this.waiting.values()) w.reject(e);
     this.waiting.clear();
   }
@@ -324,7 +333,7 @@ function messageLength(buf: Buffer): number | undefined {
   let len = buf[i++];
   if (len & 0x80) {
     const count = len & 0x7f;
-    if (count === 0 || count > 4) return undefined; // indefinite/absurd length: LDAP doesn't use it
+    if (count === 0 || count > 4) throw new LdapError('ldap: the reply has a length LDAP does not use'); // indefinite or absurd
     if (buf.length < i + count) return undefined;
     len = 0;
     for (let j = 0; j < count; j++) len = len * 256 + buf[i++];

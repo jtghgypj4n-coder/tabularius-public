@@ -5,7 +5,7 @@
 
 import { notionMarkdownSheet, MAX_IMPORT_ROWS, type SheetInput } from '../../store/src/index.ts';
 import { importFileRowIterator } from '../../scripts/src/index.ts';
-import { xlsxSheetNames, zipReader } from '../../scripts/src/xlsx.ts';
+import { openXlsx, type XlsxWorkbook, zipReader } from '../../scripts/src/xlsx.ts';
 
 /** A file that cannot be read as sheets: the message says why, without the file's name. */
 export class ImportSheetsError extends Error {}
@@ -76,10 +76,10 @@ function sheetsFromZip(name: string, data: Uint8Array, allowance: ZipAllowance):
 
 /** The sheets one file holds. `allowance` is shared by the files of one request (a fresh one is for a single file). `name` decides how it is read: .xlsx has several, .md is a Notion page, anything else is text rows. */
 export function sheetsFromFile(name: string, data: Uint8Array, allowance: ZipAllowance = zipAllowance()): SheetInput[] {
-  const rowsOf = (worksheet?: string) => {
+  const rowsOf = (worksheet?: string, workbook?: XlsxWorkbook) => {
     const rows: (string | number)[][] = [];
     try {
-      for (const row of importFileRowIterator(name, data, undefined, undefined, { worksheet })) {
+      for (const row of importFileRowIterator(name, data, undefined, undefined, { worksheet, workbook })) {
         if (rows.length > MAX_IMPORT_ROWS + 1) throw new ImportSheetsError(`more than ${MAX_IMPORT_ROWS} rows`);
         rows.push(row);
       }
@@ -91,7 +91,9 @@ export function sheetsFromFile(name: string, data: Uint8Array, allowance: ZipAll
   if (/\.zip$/i.test(name)) return sheetsFromZip(name, data, allowance);
   if (/\.xlsx$/i.test(name)) {
     try {
-      return xlsxSheetNames(data).map((sheet) => ({ name: sheet, rows: rowsOf(sheet) }));
+      // One opening for every sheet: the archive, the shared strings and the budgets are the workbook's, not each sheet's.
+      const book = openXlsx(data);
+      return book.sheetNames.map((sheet) => ({ name: sheet, rows: rowsOf(sheet, book) }));
     } catch (e) {
       throw e instanceof ImportSheetsError ? e : new ImportSheetsError(e instanceof Error ? e.message : String(e));
     }

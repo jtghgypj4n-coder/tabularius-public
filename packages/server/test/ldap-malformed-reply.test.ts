@@ -43,3 +43,12 @@ test('an integer too long to read, and a message too large to wait for, are refu
   const big = await against(Buffer.from([0x30, 0x84, 0x7f, 0xff, 0xff, 0xff, 0x02, 0x01]));
   assert.match(big.error, /too large to read/);
 });
+
+test('an indefinite length, and one of more than four bytes, are refused as soon as they are read', async () => {
+  const indefinite = await against(Buffer.from([0x30, 0x80, 0x02, 0x01, 0x01]));
+  assert.match(indefinite.error, /^ldap: the reply has a length LDAP does not use/);
+  assert.ok(indefinite.ms < 1500, `took ${indefinite.ms} ms`);
+  const wide = await against(Buffer.from([0x30, 0x85, 0x01, 0x00, 0x00, 0x00, 0x00, 0x02, 0x01]));
+  assert.match(wide.error, /^ldap: the reply has a length LDAP does not use/);
+  assert.ok(wide.ms < 1500, `took ${wide.ms} ms`);
+});
