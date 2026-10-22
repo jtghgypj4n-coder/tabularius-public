@@ -52,3 +52,42 @@ test('an indefinite length, and one of more than four bytes, are refused as soon
   assert.match(wide.error, /^ldap: the reply has a length LDAP does not use/);
   assert.ok(wide.ms < 1500, `took ${wide.ms} ms`);
 });
+
+// A search asks for one entry (sizeLimit 1), but a directory (or someone on a plain ldap:// link) can answer with as many
+// as it likes. Only the first is used, so the rest must not be kept until the search is done.
+test('entries after the first are not kept: 60 entries of 4 MiB do not grow the process by a quarter of a gigabyte', async () => {
+  const ber = (tag: number, body: Buffer) => {
+    const n = body.length;
+    const len = n < 0x80 ? Buffer.from([n]) : n < 0x10000 ? Buffer.from([0x82, n >> 8, n & 255]) : Buffer.from([0x84, n >>> 24, (n >> 16) & 255, (n >> 8) & 255, n & 255]);
+    return Buffer.concat([Buffer.from([tag]), len, body]);
+  };
+  const id = (n: number) => ber(0x02, Buffer.from([n]));
+  const text = (s: Buffer | string) => ber(0x04, Buffer.from(s));
+  const done = (tag: number, n: number) => ber(0x30, Buffer.concat([id(n), ber(tag, Buffer.concat([ber(0x0a, Buffer.from([0])), text(''), text('')]))]));
+  const big = ber(0x30, Buffer.concat([id(2), ber(0x64, Buffer.concat([text('uid=x'), ber(0x30, ber(0x30, Buffer.concat([text('mail'), ber(0x31, text('a'.repeat(4 * 1024 * 1024)))])))]))]));
+  const srv = createServer((s) => {
+    let step = 0;
+    s.on('error', () => {});
+    s.on('data', () => {
+      step++;
+      if (step === 1) s.write(done(0x61, 1)); // the bind
+      else if (step === 2) {
+        for (let i = 0; i < 60; i++) s.write(big);
+        s.write(done(0x65, 2));
+      }
+    });
+  });
+  await new Promise<void>((r) => srv.listen(0, '127.0.0.1', r));
+  const url = `ldap://127.0.0.1:${(srv.address() as { port: number }).port}`;
+  let peak = 0;
+  const watch = setInterval(() => { peak = Math.max(peak, process.memoryUsage().heapUsed); }, 10);
+  const before = process.memoryUsage().heapUsed;
+  try {
+    await ldapAuthenticate({ name: 't', url, baseDn: 'dc=x', timeout: 20 }, 'alice', 'pw').catch(() => undefined);
+    peak = Math.max(peak, process.memoryUsage().heapUsed);
+  } finally {
+    clearInterval(watch);
+    srv.close();
+  }
+  assert.ok(peak - before < 100 * 1024 * 1024, `the heap grew by ${Math.round((peak - before) / 1048576)} MiB`);
+});
