@@ -177,6 +177,13 @@ test('a takeover ends the API tokens the standby cannot show are still valid, un
       assert.equal(s.host.get('Charts')!.apiToken(token), undefined, 'a token the primary may have revoked in its last seconds is not honoured');
       assert.equal(s.host.get('Charts')!.apiTokens().length, 0);
       assert.ok(lines.some((m) => /ended 1 API token/.test(m) && /--keep-api-tokens/.test(m)), lines.join('\n'));
+      // The file's own security trail says it was taken over, and when its copy was last brought up to date, so the accounts can be reviewed.
+      const trail = s.host.get('Charts')!.securityEvents({ category: 'Standby takeover' });
+      assert.equal(trail.length, 1, JSON.stringify(trail));
+      assert.match(trail[0].description, /standby of http:\/\/primary\.invalid:8080/);
+      assert.match(trail[0].description, /last updated 20\d\d-/);
+      assert.match(trail[0].description, /1 API token ended/);
+      assert.match(trail[0].description, /review/i);
     } finally {
       await new Promise<void>((resolve) => s.server.close(() => resolve()));
     }

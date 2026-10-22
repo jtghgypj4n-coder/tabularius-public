@@ -69,7 +69,9 @@ To take over, stop the standby and run `tabularius serve <standby folder>`.
   After a planned switch, when the standby had caught up before the primary was stopped, `serve --keep-api-tokens-on-takeover`
   keeps them. Passwords, accounts and privilege sets are not touched, and the same staleness applies to them: an account disabled, a
   password changed or a privilege removed on the primary in its last moments is back as the standby had it. Review the accounts
-  in Manage Security after a takeover.
+  in Manage Security after a takeover. To help with that, each taken-over file's security log gets a "Standby takeover" entry saying
+  which server it was a standby of, when its copy was last brought up to date, and how many tokens were ended; the serve log
+  repeats the time. Nothing is done about sessions: they live in the memory of the old server and are not in the copy.
 - The promoted server accepts writes at once. Nothing stops the old primary if it is still running (no fencing, no witness):
   stop it first.
 
