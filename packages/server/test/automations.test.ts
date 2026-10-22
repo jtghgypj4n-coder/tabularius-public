@@ -40,7 +40,7 @@ before(async () => {
   if (skip) return;
   dir = mkdtempSync(join(tmpdir(), 'tabularius-automations-'));
   copyFileSync(fixture, join(dir, 'Charts.fmp12'));
-  const s = await serve({ dir, port: 0, log: () => {} });
+  const s = await serve({ mcpToken: 'test-admin-token', dir, port: 0, log: () => {} });
   server = s.server;
   base = s.url;
   host = s.host;
@@ -64,7 +64,7 @@ let id = 0;
 async function mcp(name: string, args: Record<string, unknown>): Promise<{ isError: boolean; text: string; value: any }> {
   const r = await fetch(`${base}/mcp`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-protocol-version': '2025-06-18' },
+    headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-protocol-version': '2025-06-18', authorization: 'Bearer test-admin-token' },
     body: JSON.stringify({ jsonrpc: '2.0', id: ++id, method: 'tools/call', params: { name, arguments: { database: 'Charts', ...args } } }),
   });
   const result = (await r.json()).result;

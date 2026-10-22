@@ -57,7 +57,7 @@ before(async () => {
   await new Promise<void>((r) => model.listen(0, '127.0.0.1', r));
   dir = mkdtempSync(join(tmpdir(), 'tabularius-import-mapping-'));
   copyFileSync(fixture, join(dir, 'Charts.fmp12'));
-  const s = await serve({ dir, port: 0, log: () => {}, ai: { apiKey: 'test-key', baseUrl: `http://127.0.0.1:${(model.address() as { port: number }).port}` } });
+  const s = await serve({ mcpToken: 'test-admin-token', dir, port: 0, log: () => {}, ai: { apiKey: 'test-key', baseUrl: `http://127.0.0.1:${(model.address() as { port: number }).port}` } });
   server = s.server;
   base = s.url;
   store = s.host.get('Charts')!;
@@ -192,7 +192,7 @@ test('MCP clients plan, import and undo', { skip }, async () => {
   const rpc = async (name: string, args: Record<string, unknown>) => {
     const res = await (await fetch(`${base}/mcp`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-protocol-version': '2025-06-18' },
+      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-protocol-version': '2025-06-18', authorization: 'Bearer test-admin-token' },
       body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }),
     })).json();
     assert.ok(!res.result.isError, res.result.content[0].text);
@@ -214,7 +214,7 @@ test('plan_import reads semicolon and pipe files, by name or from the first line
   const rpc = async (args: Record<string, unknown>) => {
     const res = await (await fetch(`${base}/mcp`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-protocol-version': '2025-06-18' },
+      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-protocol-version': '2025-06-18', authorization: 'Bearer test-admin-token' },
       body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'plan_import', arguments: { database: 'Charts', layout: 'Members', ...args } } }),
     })).json();
     assert.ok(!res.result.isError, res.result.content[0].text);

@@ -1,7 +1,10 @@
 import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { openIsolation, rest, basic, type Isolation } from './cross-file-matrix.ts';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { runScript } from '../../scripts/src/index.ts';
+import { MCP_LOCAL_TOKEN_FILE } from '../src/index.ts';
 
 let m: Isolation;
 before(async () => { m = await openIsolation(); });
@@ -45,7 +48,7 @@ test('fmDataSource binds the authenticated destination account generation', asyn
   assert.equal(racing.status, 401, 'a replacement during password verification is not the authenticated account');
 });
 
-test('MCP never promotes unsupported file session credentials to loopback administrator', async () => {
+test('MCP never promotes unsupported file session credentials to administrator', async () => {
   for (const from of [0, 1]) for (const auth of [m.tokens[from], m.sessions[from], 'Bearer unsupported-credential']) {
     for (const [method, params] of [
       ['tools/call', { name: 'get_record', arguments: { database: m.stores[1 - from].name, layout: 'Items', recordId: 1 } }],
@@ -58,9 +61,11 @@ test('MCP never promotes unsupported file session credentials to loopback admini
       assert.doesNotMatch(JSON.stringify(body), /SENTINEL_|CONTAINER_/);
     }
   }
-  const local = await fetch(m.url + '/mcp', { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-protocol-version': '2025-06-18' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'get_record', arguments: { database: m.stores[1].name, layout: 'Items', recordId: 1 } } }), signal: AbortSignal.timeout(5000) });
+  const adminCall = (authorization?: string) => fetch(m.url + '/mcp', { method: 'POST', headers: { ...(authorization ? { authorization } : {}), 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-protocol-version': '2025-06-18' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'get_record', arguments: { database: m.stores[1].name, layout: 'Items', recordId: 1 } } }), signal: AbortSignal.timeout(5000) });
+  assert.equal((await adminCall()).status, 401, 'no credential, no administrator: not even from this computer');
+  const local = await adminCall(`Bearer ${readFileSync(join(m.dir, MCP_LOCAL_TOKEN_FILE), 'utf8').trim()}`);
   assert.equal(local.status, 200);
-  assert.match(await local.text(), /SENTINEL_1/, 'credential-free local administration remains explicit server authority');
+  assert.match(await local.text(), /SENTINEL_1/, 'the folder\'s own token is explicit server authority');
 });
 
 test('logout cannot end another file session through the wrong database path', async () => {

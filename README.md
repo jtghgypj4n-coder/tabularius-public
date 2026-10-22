@@ -748,13 +748,17 @@ Add `"--account", "AI Helper"` to the args (and `"env": {"TABULARIUS_PASSWORD":
 "..."}`) to have the AI work within that account's privilege set; without one
 it acts as the server administrator.
 
-Or connect over HTTP at `http://127.0.0.1:8080/mcp`: with HTTP Basic auth
-(an account and password) the AI gets that account's privileges; local
-clients without auth, or with the `--mcp-token` bearer token, are the
-administrator. "Local" means a direct request from this computer: not one a
-proxy on it passed on, and not one addressed to any name but `localhost`,
-`127.0.0.1` or `[::1]` (so a web page can't reach it by pointing its own name
-at this computer); give anything else a token or an account.
+Or connect over HTTP at `http://127.0.0.1:8080/mcp`, which answers no one
+without a credential, programs on this computer included. With HTTP Basic auth
+(an account and password) the AI gets that account's privileges. The
+administrator's way in is a bearer token: the one in `--mcp-token`, or else the
+one the server made on first start and keeps in `.openhbam-mcp-token` in the
+hosted folder, readable only by the account that runs the server. Print it with
+`tabularius mcp-token <folder>` and give it to the app as
+`Authorization: Bearer <token>`. Delete the file and restart to make a new one. A cluster or a standby pair should be given the same `--mcp-token`, so every
+process, and a server that takes over, accepts the same token.
+Prefer a token made for one account in the admin console (**Connect an AI app**)
+over handing an app the administrator's.
 Every tool, with its parameters, permissions and an example, is in
 [docs/reference/mcp.md](docs/reference/mcp.md); every REST route in
 [docs/reference/rest.md](docs/reference/rest.md).

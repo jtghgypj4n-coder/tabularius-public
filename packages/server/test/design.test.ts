@@ -13,7 +13,7 @@ let host: Host;
 
 before(async () => {
   dir = mkdtempSync(join(tmpdir(), 'tabularius-design-'));
-  const s = await serve({ dir, port: 0, log: () => {} });
+  const s = await serve({ dir, port: 0, log: () => {}, mcpToken: 'design-test-admin' });
   server = s.server;
   base = s.url;
   host = s.host;
@@ -31,7 +31,7 @@ const json = (path: string, init: RequestInit = {}) =>
 const rpc = async (id: number, name: string, args: unknown) => {
   const res = await fetch(`${base}/mcp`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-protocol-version': '2025-06-18' },
+    headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-protocol-version': '2025-06-18', authorization: 'Bearer design-test-admin' },
     body: JSON.stringify({ jsonrpc: '2.0', id, method: 'tools/call', params: { name, arguments: args } }),
   });
   const body = await res.json();

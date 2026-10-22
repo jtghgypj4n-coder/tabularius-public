@@ -18,8 +18,7 @@ At `/mcp` the `Authorization` header decides (packages/server/src/index.ts):
 | `Basic` account and password | That account, in every file it names, within its privilege set. The password is checked in each file (and counts toward sign-in lockout). |
 | `Bearer ohbt_…` (a file's API token) | One account of that file, its privilege set narrowed to the token's scope (read-only, some layouts). A token limited to some surfaces must include AI apps (`fmmcp`), and the account's sign-in location rules apply. |
 | `Bearer ohm_…` (made in the admin console's Connect an AI app) | The account it was made for, in the one file it was made for, until it expires. |
-| `Bearer` the server's `--mcp-token` | The server administrator. |
-| none, from the server itself (loopback), when no `--mcp-token` is set | The server administrator. |
+| `Bearer` the server's `--mcp-token`, or the token in the hosted folder's `.openhbam-mcp-token` when none is given (`tabularius mcp-token <folder>` prints it) | The server administrator. |
 
 Anything else gets `401` with `{"error":"unauthorized"}`.
 
@@ -6051,7 +6050,7 @@ A privilege set's table entry can mark a field masked (fields: {Field: "masked"}
 
 Start a new, empty database on this server (no FileMaker file needed), then build it with change_design. Set a password for its first account with `tabularius passwd` before people log in.
 
-**Permissions:** The server administrator only (the --mcp-token bearer, a loopback client when no token is set, or stdio); every account and API token is refused.
+**Permissions:** The server administrator only (the --mcp-token bearer, the server's MCP token, or stdio); every account and API token is refused.
 
 **Parameters:**
 
@@ -6088,7 +6087,7 @@ Where syncing hosted files with FileMaker Server stands: for each file with a sy
 
 **Hints:** read-only
 
-**Permissions:** Only the administrator's own client (this computer, or the server's MCP token); never an account. Read-only: an administrator settles conflicts and starts writes in the admin console's Sync page. Shows only files with AI turned on. Record values, passwords and password file paths are never shown.
+**Permissions:** Only the administrator's own client (the server's MCP token); never an account. Read-only: an administrator settles conflicts and starts writes in the admin console's Sync page. Shows only files with AI turned on. Record values, passwords and password file paths are never shown.
 
 **Parameters:**
 

@@ -1,11 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { EventEmitter } from 'node:events';
 import { request, type IncomingMessage, type ServerResponse } from 'node:http';
-import { serve, setAdminPassword } from '../src/index.ts';
+import { serve, setAdminPassword, MCP_LOCAL_TOKEN_FILE } from '../src/index.ts';
 import { Admin, ADMIN_LIMIT } from '../src/admin.ts';
 import { Host } from '../src/host.ts';
 import type { DataApi } from '../src/dataapi.ts';
@@ -708,7 +708,7 @@ test('a new admin password ends every console sign-in made with the old one', ()
   assert.equal(await status(old), 401);
 }));
 
-test('/mcp without a token is the administrator only to a direct request from this computer', () => withServer(undefined, async (s) => {
+test('/mcp answers no one without a credential, this computer included; the folder\'s own token is the administrator\'s', () => withServer(undefined, async (s, dir) => {
   const call = (headers: Record<string, string>) => new Promise<number>((resolve, reject) => {
     const req = request(`${s.url}/mcp`, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', ...headers } }, (res) => {
       res.resume();
@@ -717,8 +717,21 @@ test('/mcp without a token is the administrator only to a direct request from th
     req.on('error', reject);
     req.end(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }));
   });
-  assert.equal(await call({}), 200, 'this computer');
-  assert.equal(await call({ host: 'localhost:8080' }), 200);
-  assert.equal(await call({ host: 'evil.example' }), 401, 'a page whose name points at 127.0.0.1');
-  assert.equal(await call({ 'x-forwarded-for': '203.0.113.9' }), 401, 'passed on by a proxy nobody configured: an unknown visitor, answered by authentication');
+  assert.equal(await call({}), 401, 'this computer, with nothing to show');
+  assert.equal(await call({ host: 'localhost:8080' }), 401);
+  assert.equal(await call({ host: 'evil.example' }), 401);
+  assert.equal(await call({ 'x-forwarded-for': '203.0.113.9' }), 401);
+  // The server made a token of its own on first start, in a file only its owner can read.
+  const file = join(dir, MCP_LOCAL_TOKEN_FILE);
+  const token = readFileSync(file, 'utf8').trim();
+  assert.match(token, /^tbmcp_[A-Za-z0-9_-]{43}$/);
+  if (process.platform !== 'win32') assert.equal(statSync(file).mode & 0o777, 0o600);
+  assert.equal(await call({ authorization: `Bearer ${token}` }), 200);
+  assert.equal(await call({ authorization: `Bearer ${token}x` }), 401, 'a near miss is not the token');
+  assert.equal(await call({ authorization: 'Bearer ' + 'tbmcp_' + 'a'.repeat(43) }), 401);
+  // Same number of characters as the token but more bytes (a header is read as latin1): refused, not a server error.
+  assert.equal(await call({ authorization: `Bearer ${'\u00e9'.repeat(token.length)}` }), 401);
+  // A second start in the same folder keeps the token, so an app set up once keeps working.
+  const again = await serve({ dir, port: 0, log: () => {} });
+  try { assert.equal(readFileSync(file, 'utf8').trim(), token); } finally { await new Promise<void>((r) => again.server.close(() => r())); }
 }));

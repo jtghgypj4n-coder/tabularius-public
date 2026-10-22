@@ -47,7 +47,7 @@ before(async () => {
   await new Promise<void>((r) => model.listen(0, '127.0.0.1', r));
   dir = mkdtempSync(join(tmpdir(), 'tabularius-conversion-guide-'));
   copyFileSync(fixture, join(dir, 'Charts.fmp12'));
-  const s = await serve({ dir, port: 0, log: () => {}, ai: { apiKey: 'test-key', baseUrl: `http://127.0.0.1:${(model.address() as { port: number }).port}` } });
+  const s = await serve({ mcpToken: 'test-admin-token', dir, port: 0, log: () => {}, ai: { apiKey: 'test-key', baseUrl: `http://127.0.0.1:${(model.address() as { port: number }).port}` } });
   server = s.server;
   base = s.url;
   store = s.host.get('Charts')!;
@@ -105,7 +105,7 @@ test('web viewers that load internet pages are named, with the data: URL way ins
 test('kept with the file for its conversion, with the assistant\'s overview, and given to MCP clients', { skip }, async () => {
   const res = await (await fetch(`${base}/mcp`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-protocol-version': '2025-06-18' },
+    headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-protocol-version': '2025-06-18', authorization: 'Bearer test-admin-token' },
     body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'conversion_guide', arguments: { database: 'Charts' } } }),
   })).json();
   const text = res.result.content[0].text as string;
@@ -230,7 +230,7 @@ test('MCP clients get the guide without container file names from the records', 
   try {
     const res = await (await fetch(`${base}/mcp`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-protocol-version': '2025-06-18' },
+      headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-protocol-version': '2025-06-18', authorization: 'Bearer test-admin-token' },
       body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'conversion_guide', arguments: { database: 'Charts' } } }),
     })).json();
     const text = res.result.content[0].text as string;

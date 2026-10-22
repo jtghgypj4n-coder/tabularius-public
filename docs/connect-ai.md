@@ -30,6 +30,10 @@ The app then works as that account, with its privilege set, in that file only. I
 
 claude.ai reaches your server from the internet, so the server needs an address the internet can reach and a real certificate (`--https your.domain`, or a TLS proxy in front with `--public-url`). A server only on your own network, or using `--https local`, can't be added this way: use a token with Claude Code or Claude Desktop's config below instead. Behind a proxy on the same computer, give `--public-url` and an MCP token (`--mcp-token`), so requests the proxy passes on are never taken for this computer. Only accounts kept in the file sign in here for now, not ones from a directory or an identity provider.
 
+## Programs on this computer, as the administrator
+
+`/mcp` answers no one without a credential, a program on the same computer included. To let a local program work as the administrator (not as one account), give it the server's own token: `tabularius mcp-token <folder>` prints it (the server made it on first start, in `.openhbam-mcp-token` in the hosted folder, readable only by the account that runs the server; `--mcp-token` sets another). Send it as `Authorization: Bearer <token>`. A token made for one account, above, is the better choice for an AI app.
+
 ## Claude Code
 
 Run this in a terminal, with your server's address and the token:

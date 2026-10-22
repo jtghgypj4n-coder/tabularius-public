@@ -18,7 +18,7 @@ before(async () => {
   if (skip) return;
   dir = mkdtempSync(join(tmpdir(), 'tabularius-'));
   copyFileSync(fixture, join(dir, 'Charts.fmp12'));
-  const s = await serve({ dir, port: 0, log: () => {} });
+  const s = await serve({ mcpToken: 'test-admin-token', dir, port: 0, log: () => {} });
   server = s.server;
   base = s.url;
   const store = s.host.get('Charts')!;
@@ -66,7 +66,7 @@ test('Data API: login, find, logout', { skip }, async () => {
 test('MCP: tools are listed and callable', { skip }, async () => {
   const rpc = async (body: unknown) => (await fetch(`${base}/mcp`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-protocol-version': '2025-06-18' },
+    headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-protocol-version': '2025-06-18', authorization: 'Bearer test-admin-token' },
     body: JSON.stringify(body),
   })).json();
   const tools = await rpc({ jsonrpc: '2.0', id: 1, method: 'tools/list' });
@@ -100,7 +100,7 @@ test('Data API: scripts run by name and as find triggers', { skip }, async () =>
 test('MCP: run_script returns the result and found count', { skip }, async () => {
   const res = await (await fetch(`${base}/mcp`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-protocol-version': '2025-06-18' },
+    headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-protocol-version': '2025-06-18', authorization: 'Bearer test-admin-token' },
     body: JSON.stringify({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'run_script', arguments: { database: 'Charts', script: 'Show Senate', layout: 'Congress' } } }),
   })).json();
   const out = JSON.parse(res.result.content[0].text);
