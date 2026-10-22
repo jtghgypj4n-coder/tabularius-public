@@ -361,7 +361,9 @@ General properties:
   looks like a browser's, because a rebound page can send a plain same-origin
   GET with no `Origin`, `Referer` or Fetch Metadata and set `Authorization`
   itself. The 403 says to set `--public-url` or `--https` for the name, and the
-  server logs each such name once (at most 16). Upgrade note: a script, driver
+  server logs the first 16 such names of every ten minutes, and then one line
+  with the names it left out, most asked first, so made-up names cannot hide a
+  real one. Upgrade note: a script, driver
   or proxy that reaches the server by a DNS name now needs `--public-url` (or
   `--https` for the name), or a connection by IP address or `localhost`.
   Forwarded headers cannot nominate an allowed origin. Native clients may
