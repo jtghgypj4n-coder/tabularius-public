@@ -32,6 +32,15 @@ test('the calc-reads-hidden check sees a hidden table named after and, or, not o
     GetF: 'GetField ( "Secrets::Amount" )',
     Sql: 'ExecuteSQL ( "SELECT Amount FROM Secrets" ; "" ; "" )',
     Dollar: 'Let ( x = "1" ; x & Secrets::Amount )',
+    // A calculation that uses a calculation the set can't see (Inner reads Secrets), directly and through another.
+    Inner: 'Secrets::Amount',
+    Chain: 'Inner + 0',
+    Chain2: 'Chain * 2',
+    // A custom function that calls Evaluate, one that reads a table, and one that calls another.
+    ViaEval: 'EvalOf ( "Secrets::Amount" )',
+    ViaDeep: 'Wrapper ( 1 )',
+    Loop: 'LoopA ( 1 )',
+    Harmless: 'Double ( Id )',
   };
   store.applyDesign([
     { op: 'createTable', name: 'Customers', fields: [{ name: 'Id', type: 'number' }, { name: 'Name' }] },
@@ -46,6 +55,11 @@ test('the calc-reads-hidden check sees a hidden table named after and, or, not o
     { op: 'createRelationship', left: 'Customers', right: 'Terms and Conditions', predicates: [{ left: 'Id', right: 'CustomerId' }] },
     { op: 'createRelationship', left: 'Customers', right: 'A B C D E F G H I J', predicates: [{ left: 'Id', right: 'CustomerId' }] },
     { op: 'createRelationship', left: 'Customers', right: '1 and Secrets', predicates: [{ left: 'Id', right: 'CustomerId' }] },
+    { op: 'createCustomFunction', name: 'EvalOf', parameters: ['x'], formula: 'Evaluate ( x )' },
+    { op: 'createCustomFunction', name: 'Wrapper', parameters: ['x'], formula: 'EvalOf ( "Secrets::Amount" ) + x' },
+    { op: 'createCustomFunction', name: 'LoopA', parameters: ['x'], formula: 'LoopB ( x )' },
+    { op: 'createCustomFunction', name: 'LoopB', parameters: ['x'], formula: 'LoopA ( x )' },
+    { op: 'createCustomFunction', name: 'Double', parameters: ['n'], formula: 'n * 2' },
     ...Object.entries(calcs).map(([name, calculation]) => ({ op: 'createField', table: 'Customers', name, type: 'number', kind: 'calculation', calculation, options: { unstored: true } })),
   ] as never);
   const none = { view: false, edit: false, create: false, delete: false };
@@ -58,5 +72,5 @@ test('the calc-reads-hidden check sees a hidden table named after and, or, not o
   } as never);
   const found = reviewPrivileges(store).findings.filter((f) => f.kind === 'calc-reads-hidden').map((f) => f.field).sort();
   // Own reads its own table; InText only has the words in a text; Dollar's `x & Secrets::Amount` reads Secrets.
-  assert.deepEqual(found, ['AndRead', 'Comment', 'Decoy', 'Dollar', 'Eval', 'GetF', 'LongName', 'NotRead', 'NumberAnd', 'OrRead', 'Plain', 'Spaced', 'Sql']);
+  assert.deepEqual(found, ['AndRead', 'Chain', 'Chain2', 'Comment', 'Decoy', 'Dollar', 'Eval', 'GetF', 'Inner', 'LongName', 'NotRead', 'NumberAnd', 'OrRead', 'Plain', 'Spaced', 'Sql', 'ViaDeep', 'ViaEval']);
 });
