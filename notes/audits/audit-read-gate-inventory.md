@@ -310,11 +310,11 @@ The following reasons apply to the exact enumerated expressions in each named fu
 | [packages/server/src/find-advice.ts:99](../../packages/server/src/find-advice.ts#L99) `findAdvice` | `Store.recordCount` (99) | DESIGN |
 | [packages/server/src/formula-preview.ts:30](../../packages/server/src/formula-preview.ts#L30) `previewFormula` | `Store.findIds` (30); `Store.evaluate` (41) | DESIGN |
 | [packages/server/src/import-mapping.ts:497](../../packages/server/src/import-mapping.ts#L497) `existingKeys` | `Store.viewableIds` (497); `Store.query` (499) | IMPORT |
-| [packages/server/src/import-mapping.ts:755](../../packages/server/src/import-mapping.ts#L755) `applyImportRun` | `SQLite.prepare` (755); `Store.sql` (755) | IMPORT |
-| [packages/server/src/import-mapping.ts:772](../../packages/server/src/import-mapping.ts#L772) `targetKeys` | `SQLite.all` (772); `SQLite.prepare` (772); `Store.sql` (772) | IMPORT |
-| [packages/server/src/import-mapping.ts:784](../../packages/server/src/import-mapping.ts#L784) `journal` | `Store.sql` (784, 787, 787); `SQLite.all` (787); `SQLite.prepare` (787) | IMPORT |
-| [packages/server/src/import-mapping.ts:829](../../packages/server/src/import-mapping.ts#L829) `importHistory` | `SQLite.all` (829); `SQLite.prepare` (829); `Store.sql` (829) | IMPORT |
-| [packages/server/src/import-mapping.ts:836](../../packages/server/src/import-mapping.ts#L836) `undoImportRun` | `SQLite.get` (836, 859); `SQLite.prepare` (836, 859, 873); `Store.sql` (836, 859, 873) | IMPORT |
+| [packages/server/src/import-mapping.ts:773](../../packages/server/src/import-mapping.ts#L773) `applyImportRun` | `SQLite.prepare` (773); `Store.sql` (773) | IMPORT |
+| [packages/server/src/import-mapping.ts:791](../../packages/server/src/import-mapping.ts#L791) `targetKeys` | `SQLite.all` (791); `SQLite.prepare` (791); `Store.sql` (791) | IMPORT |
+| [packages/server/src/import-mapping.ts:803](../../packages/server/src/import-mapping.ts#L803) `journal` | `Store.sql` (803, 806, 806); `SQLite.all` (806); `SQLite.prepare` (806) | IMPORT |
+| [packages/server/src/import-mapping.ts:849](../../packages/server/src/import-mapping.ts#L849) `importHistory` | `SQLite.all` (849); `SQLite.prepare` (849); `Store.sql` (849) | IMPORT |
+| [packages/server/src/import-mapping.ts:856](../../packages/server/src/import-mapping.ts#L856) `undoImportRun` | `SQLite.get` (856, 879); `SQLite.prepare` (856, 879, 893); `Store.sql` (856, 879, 893) | IMPORT |
 | [packages/server/src/insight.ts:316](../../packages/server/src/insight.ts#L316) `webViewerScripts` | `Store.query` (316) | DESIGN |
 | [packages/server/src/insight.ts:757](../../packages/server/src/insight.ts#L757) `layoutProfile/viewableIds` | `Store.viewableIds` (757) | PROFILE |
 | [packages/server/src/insight.ts:761](../../packages/server/src/insight.ts#L761) `layoutProfile` | `Store.query` (761) | PROFILE |
