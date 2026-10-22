@@ -37,6 +37,7 @@
         "docs/local-embeddings.md",
         "docs/writing-a-plugin.md",
         "docs/native-field-types.md",
+        "docs/native-compat.md",
         "docs/check-solution.md",
         "docs/calendar-feeds.md",
         "docs/audits/r19-07-language-sort.md"

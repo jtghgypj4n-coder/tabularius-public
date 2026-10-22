@@ -29,6 +29,7 @@ To read these pages offline with search, build the site: `npm run docs:build` wr
 - [Local embeddings](local-embeddings.md) — Set up semantic search and retrieval with an embedding model on your computer.
 - [Writing a plug-in](writing-a-plugin.md) — Add calculation functions in JavaScript or WebAssembly.
 - [Native field types](native-field-types.md) — Use boolean, integer, decimal, JSON and UUID fields in native files.
+- [Native compatibility check and upgrade](native-compat.md) — Check native-only features and preview a one-way compat-to-native upgrade.
 - [Checking a solution](check-solution.md) — Find missing references, unavailable steps and empty privilege sets before they fail.
 - [Calendar feeds](calendar-feeds.md) — Subscribe to a layout's dates in a calendar app, and import events from an .ics file.
 
