@@ -3366,8 +3366,11 @@ export class Store {
   private webViewerChecked(): { hosts: string[]; dropped: string[] } {
     const row = this.sql.prepare('SELECT json FROM _fm_meta WHERE key = ?').get('webViewerHosts') as { json: string } | undefined;
     if (row?.json !== this.webViewerRaw) {
+      // Text that is not JSON (another connection wrote it) allows nothing, and is remembered as the text it is: never the previous list.
+      let result: { hosts: string[]; dropped: string[] };
+      try { result = checkStoredWebViewerHosts(row ? JSON.parse(row.json) : undefined); } catch { result = { hosts: [], dropped: ['the stored list could not be read'] }; }
+      this.webViewerResult = result;
       this.webViewerRaw = row?.json;
-      this.webViewerResult = checkStoredWebViewerHosts(row ? JSON.parse(row.json) : undefined);
     }
     return this.webViewerResult;
   }
