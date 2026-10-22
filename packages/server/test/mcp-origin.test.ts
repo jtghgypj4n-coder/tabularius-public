@@ -281,9 +281,13 @@ test('the OAuth sign-in page keeps its own address as the referrer, so a browser
   const form = await fetch(`${base}/oauth/authorize?${new URLSearchParams(params)}`);
   assert.equal(form.status, 200);
   assert.equal(form.headers.get('referrer-policy'), 'same-origin');
-  await form.text();
+  // The anti-forgery value the page carries, in its hidden field and its cookie.
+  const csrf = /name="csrf" value="([^"]+)"/.exec(await form.text())?.[1] ?? '';
+  const cookie = form.headers.get('set-cookie')?.split(';')[0] ?? '';
+  assert.ok(csrf && cookie, 'the page carries the anti-forgery pair');
   const post = (headers: Record<string, string>) => fetch(`${base}/oauth/authorize`, {
-    method: 'POST', redirect: 'manual', headers, body: new URLSearchParams({ ...params, database: 'Local', account: 'Ann', password: 'secret' }),
+    method: 'POST', redirect: 'manual', headers: { ...headers, cookie, 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ ...params, database: 'Local', account: 'Ann', password: 'secret', csrf }),
   });
   const own = await post({ origin: base, referer: `${base}/oauth/authorize` });
   assert.equal(own.status, 302);
