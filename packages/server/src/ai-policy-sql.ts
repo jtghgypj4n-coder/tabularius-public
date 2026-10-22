@@ -6,13 +6,30 @@ type Ref = { table: number; field: number };
 type Instruction = { opcode: string; p1: number; p2: number; p3: number };
 const quote = (name: string) => `"${name.replace(/"/g, '""')}"`;
 
+/** The first word after any white space and comments, found by one scan (a pattern for this backtracks exponentially on a run of spaces). */
+function firstWord(text: string): string | undefined {
+  let i = 0;
+  for (;;) {
+    while (i < text.length && /\s/.test(text[i])) i++;
+    if (text.startsWith('--', i)) {
+      const end = text.indexOf('\n', i);
+      i = end < 0 ? text.length : end + 1;
+    } else if (text.startsWith('/*', i)) {
+      const end = text.indexOf('*/', i + 2);
+      if (end < 0) return undefined;
+      i = end + 2;
+    } else break;
+  }
+  return /^\w+/.exec(text.slice(i, i + 64))?.[0];
+}
+
 /** Compile against schema only, including an uncommitted design preview. SQLite
  * resolves quoting, aliases, stars, joins, expressions, CTEs and parameters. No
  * records, store functions, indexes or views enter this connection. Inspecting
  * base-table Column instructions also covers predicates and computed results,
  * whose result-column metadata alone would not identify their dependencies. */
 export function sqlFieldRefs(schema: Schema, text: string): Ref[] | undefined {
-  const first = /^(?:\s+|--[^\n]*(?:\n|$)|\/\*[\s\S]*?\*\/)*(\w+)/.exec(text)?.[1]?.toUpperCase();
+  const first = firstWord(text)?.toUpperCase();
   if (!oneStatement(text) || !['SELECT', 'WITH', 'VALUES'].includes(first ?? '')) return undefined;
   // ExecuteSQL rewrites occurrence names before SQLite sees the query. A
   // nonidentity rewrite (including a foreign source or a shadowed CTE) cannot
