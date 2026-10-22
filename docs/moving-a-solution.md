@@ -1019,6 +1019,8 @@ name until the copy is complete and its hashes check out. To abandon an
 unfinished copy, use `--discard` or the console's "Discard an unfinished copy",
 which remove the snapshot.
 
+**Load and secrets in scripts.** The copy is made inside the server process, so a very large file slows every user until it finishes: run it at a quiet time. Layout and script text in `design/` is written as stored, so a script that holds a pasted password or key leaves with it.
+
 **Not carried.** Summary fields and unstored calculations have no stored value.
 Layout themes, live sessions, schedules, plug-in binaries and credentials are not
 included. Files that a container field stores outside the database are copied

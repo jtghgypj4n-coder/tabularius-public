@@ -442,6 +442,7 @@ function notes(missing: number[]): string {
     '  Files that a container field stores outside the stored schema are unverified beyond their size and SHA-256.',
     '  Global container fields keep their value in globals.json only as a container id; the file is not copied.',
     '  Container files no record points at are not copied.',
+    '  Layout and script text in design/ is written as it is stored: a script that holds a pasted credential leaves with it.',
     '  Field values a file treats as sensitive ARE included, because a Full Access account can read them.',
     '',
     'Good to know',
