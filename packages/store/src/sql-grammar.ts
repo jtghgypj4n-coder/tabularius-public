@@ -19,7 +19,6 @@ export function blanked(sql: string, top = false): string {
   }).join('');
 }
 
-/** FileMaker's CAST(container AS VARCHAR) returns an embedded file's name, not its internal container id. */
 /** The word that ends `text` (after any blanks): `/(\w+)\s*$/`, found by a scan from the end, not by trying every start. */
 export function trailingWord(text: string): string | undefined {
   let end = text.length;
@@ -41,6 +40,7 @@ export function orderKeyParts(key: string): { expression: string; direction?: st
   return { expression: text.slice(0, start).trim(), direction: text.slice(start) };
 }
 
+/** FileMaker's CAST(container AS VARCHAR) returns an embedded file's name, not its internal container id. */
 export function containerCastsToName(sql: string, isContainer: (name: string) => boolean): string {
   if (!/\bCAST\b/i.test(sql)) return sql;
   const plain = blanked(sql);
