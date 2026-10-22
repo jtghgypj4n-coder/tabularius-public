@@ -21,7 +21,7 @@ const names = ['alice', 'bob'];
 const addresses = ['192.0.2.10', '192.0.2.11']; // Proxy identities; every socket connects to 127.0.0.1.
 const REST = '/fmi/data/vLatest/databases/Sequence';
 const secret = 'GENERATED_HIDDEN_SECRET';
-type Credential = { token: string; account: number; kind: 'rest' | 'token' | 'oauth'; valid: boolean; writer: boolean; until: number; refresh?: string; refreshValid?: boolean };
+type Credential = { token: string; account: number; kind: 'rest' | 'token' | 'oauth'; valid: boolean; writer: boolean; until: number; refresh?: string; refreshValid?: boolean; replacement?: Credential; rotatedAt?: number; used?: boolean };
 export const op = (kind: Kind, account: 0 | 1 = 0, address: 0 | 1 = 0): Op => ({ kind, account, address });
 
 export function generate(seed: number): Op[] {
@@ -126,18 +126,21 @@ export async function runSequence(t: TestContext, sequence: Op[], options: { che
     const registered = await request('/oauth/register', 'POST', { client_name: 'Sequence', redirect_uris: [`${url}/callback`] });
     assert.equal(registered.status, 201);
     const client = registered.data.client_id;
-    const bearer = (c: Credential) => `Bearer ${c.token}`;
+    const bearer = (c: Credential) => { c.used = true; return `Bearer ${c.token}`; };
     const basic = (account: number, password = accounts[account].password) => `Basic ${Buffer.from(`${names[account]}:${password}`).toString('base64')}`;
     const add = (token: string, account: number, kind: Credential['kind'], refresh?: string) => {
       secrets.add(token);
       if (refresh) secrets.add(refresh);
-      credentials.push({ token, account, kind, valid: true, writer: accounts[account].writer, until: kind === 'rest' ? mono + idleMinutes * 60_000 : now + (kind === 'oauth' ? 3600_000 : 120_000), refresh, refreshValid: !!refresh });
+      const credential: Credential = { token, account, kind, valid: true, writer: accounts[account].writer, until: kind === 'rest' ? mono + idleMinutes * 60_000 : now + (kind === 'oauth' ? 3600_000 : 120_000), refresh, refreshValid: !!refresh };
+      credentials.push(credential);
+      return credential;
     };
     const mcp = (c: Credential, id: number, address: number) => request('/mcp', 'POST', { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'get_record', arguments: { database: 'Sequence', layout: 'Items', recordId: id } } }, bearer(c), address);
     const invalidate = (account: number, includeService: boolean) => {
       for (const c of credentials) if (c.account === account && (includeService || c.kind !== 'token')) { c.valid = false; c.refreshValid = false; }
       for (const code of codes) if (code.account === account) code.valid = false;
     };
+    const accountActive = (account: number) => accounts[account].active;
     const check = async () => {
       let active = 0;
       for (const c of credentials) {
@@ -160,7 +163,21 @@ export async function runSequence(t: TestContext, sequence: Op[], options: { che
           }
         }
         if (c.refresh && !c.refreshValid) {
-          assert.equal((await request('/oauth/token', 'POST', { grant_type: 'refresh_token', refresh_token: c.refresh, client_id: client }, undefined, 1, true)).status, 400, 'invalid refresh replay accepted');
+          // A retired refresh token. Inside the 45-second window, and while neither replacement token has been used, it gets the
+          // same replacement pair back; otherwise it is a replay: refused, and the whole family is revoked.
+          const next = c.replacement;
+          const retry = !!next && next.refreshValid === true && next.valid && !next.used && accountActive(next.account) && now - (c.rotatedAt ?? 0) < 45_000;
+          if (retry) { secrets.delete(next!.token); secrets.delete(next!.refresh!); }
+          const replay = await request('/oauth/token', 'POST', { grant_type: 'refresh_token', refresh_token: c.refresh, client_id: client }, undefined, 1, true);
+          if (retry) {
+            secrets.add(next!.token); secrets.add(next!.refresh!);
+            assert.equal(replay.status, 200, 'the retry inside the window was refused');
+            assert.equal(replay.data.access_token, next!.token, 'the retry returned another access token');
+            assert.equal(replay.data.refresh_token, next!.refresh, 'the retry returned another refresh token');
+          } else {
+            assert.equal(replay.status, 400, 'invalid refresh replay accepted');
+            for (let family = next; family; family = family.replacement) { family.valid = false; family.refreshValid = false; }
+          }
         }
         if (c.kind !== 'oauth') {
           const lockId = 100 + credentials.indexOf(c);
@@ -251,7 +268,7 @@ export async function runSequence(t: TestContext, sequence: Op[], options: { che
           const r = await request('/oauth/token', 'POST', { grant_type: 'refresh_token', refresh_token: c.refresh!, client_id: client }, undefined, address, true);
           assert.equal(r.status, c.refreshValid ? 200 : 400, 'refresh eligibility');
           c.valid = false; c.refreshValid = false;
-          if (r.status === 200) add(r.data.access_token, account, 'oauth', r.data.refresh_token);
+          if (r.status === 200) { c.replacement = add(r.data.access_token, account, 'oauth', r.data.refresh_token); c.rotatedAt = now; }
           break;
         }
         case 'logout': case 'raceLogout': {

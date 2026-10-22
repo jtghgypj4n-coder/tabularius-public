@@ -50,7 +50,7 @@ before(async () => {
     if (!item || createHash('sha256').update(form.get('code_verifier') ?? '').digest('base64url') !== item.challenge) return send({ error: 'invalid_grant' }, 400);
     const now = Math.floor(Date.now() / 1000);
     const claims = { iss: item.bad === 'issuer' ? `${issuer}/other` : issuer, aud: item.bad === 'audience' ? 'other-client' : 'tabularius',
-      sub: 'generated-subject', exp: item.bad === 'expired' ? now - 3600 : now + 300, nonce: item.bad === 'nonce' ? 'other-nonce' : item.nonce, ...item.claims };
+      sub: 'generated-subject', iat: now, exp: item.bad === 'expired' ? now - 3600 : now + 300, nonce: item.bad === 'nonce' ? 'other-nonce' : item.nonce, ...item.claims };
     const head = `${b64({ alg: matrix.common.jwks.keys[0].alg, kid: matrix.common.jwks.keys[0].kid, typ: 'JWT' })}.${b64(claims)}`;
     const signature = sign('sha256', Buffer.from(head), privateKey);
     if (item.bad === 'signature') signature[0] ^= 1;

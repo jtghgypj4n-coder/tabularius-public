@@ -213,23 +213,22 @@ test('the sealed retry pair is cleared when its window closes, without another t
   } finally { f.close(); }
 });
 
-test('inactive accounts keep both normal refresh and retry state, and recover after reactivation', (t) => {
+test('a deactivated account loses its OAuth sign-in with its tokens, and reactivation does not bring it back', (t) => {
   const f = refreshFixture();
   f.store.setPassword('Recovery', 'generated-recovery-password', '[Full Access]');
   t.mock.method(expiryClock, 'now', () => 2000000000000);
   try {
     const first = f.issue(), next = f.rotate(first);
-    const state = () => ({ refresh: f.core.db.prepare('SELECT * FROM refresh').all(), history: f.core.db.prepare('SELECT * FROM refresh_history').all(), access: f.store.apiTokens() });
     f.store.setAccountActive('Admin', false);
-    const before = state();
-    for (const pair of [first, next, first]) {
-      assert.throws(() => f.rotate(pair), /no longer eligible/);
-      assert.deepEqual(state(), before, 'inactivity neither rotates nor revokes nor extends the retry deadline');
+    assert.equal(f.store.apiToken(next.access_token), undefined, 'turning the account off deletes its tokens');
+    for (const pair of [first, next]) {
+      assert.throws(() => f.rotate(pair), /not valid|revoked/);
       assert.equal(f.core.db.isTransaction, false);
     }
+    assert.equal(f.core.db.prepare('SELECT * FROM refresh').all().length, 0);
+    assert.equal(f.core.db.prepare('SELECT * FROM refresh_history').all().length, 0);
     f.store.setAccountActive('Admin', true);
-    assert.deepEqual(f.rotate(first), next, 'the original response remains recoverable');
-    assert.notEqual(f.rotate(next).refresh_token, next.refresh_token, 'normal refresh resumes');
+    for (const pair of [first, next]) assert.throws(() => f.rotate(pair), /not valid/, 'reactivation does not resurrect it');
   } finally { f.close(); }
 });
 
@@ -300,7 +299,7 @@ test('a password change revokes the family and its history without rolling the c
   try {
     const next = f.rotate(f.issue());
     f.store.setPassword('Admin', 'changed-password', '[Full Access]');
-    assert.throws(() => f.rotate(next), /password or access changed/);
+    assert.throws(() => f.rotate(next), /password or access changed|was revoked/);
     assert.equal(f.core.db.prepare('SELECT * FROM refresh').all().length, 0);
     assert.equal(f.core.db.prepare('SELECT * FROM refresh_history').all().length, 0);
     assert.equal(f.store.apiToken(next.access_token), undefined);
