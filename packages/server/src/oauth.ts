@@ -44,14 +44,27 @@ const REFRESH_MS = 30 * 24 * 60 * 60 * 1000;
 const REFRESH_EXTERNAL_MS = 24 * 60 * 60 * 1000;
 const CODE_MS = 60 * 1000;
 const MAX_CLIENTS = 500;
+const MAX_SPENT_REFRESH = 100_000;
+/** Spent refresh tokens remembered per sign-in: older ones go, so one busy (or abusive) sign-in cannot fill the list for everyone. */
+const SPENT_PER_FAMILY = 20;
+/** A refresh token used again this soon after it was spent is two requests racing, not a stolen token: refused, but the sign-in is kept. */
+const REPLAY_GRACE_MS = 10_000;
 /** Registrations from one address in an hour; a registration needs no sign-in, so it is kept from filling the list. */
 const REGISTER_PER_HOUR = 30;
 const MAX_BODY = 64 * 1024;
 
+/** The first four groups (the /64) of an IPv6 address written in full, so `2001:db8::5` and `2001:db8::6` are one machine. */
+export function ipv6Prefix(address: string): string {
+  const [head, tail] = address.split('%')[0].split('::');
+  const a = head ? head.split(':') : [];
+  const b = tail === undefined ? [] : tail ? tail.split(':') : [];
+  const groups = tail === undefined ? a : [...a, ...Array(Math.max(0, 8 - a.length - b.length)).fill('0'), ...b];
+  return groups.slice(0, 4).map((g) => (parseInt(g || '0', 16) || 0).toString(16)).join(':');
+}
 const hash = (s: string) => createHash('sha256').update(s).digest('hex');
 const token = (prefix: string) => `${prefix}${randomBytes(32).toString('base64url')}`;
 /** Text for a log line or a label: no line breaks or control characters, so a name can't forge another entry. */
-const plain = (s: string) => s.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]+/g, ' ').trim();
+const plain = (s: string) => s.replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]+/g, ' ').trim();
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const sameSecret = (a: string, b: string) => a.length === b.length && timingSafeEqual(Buffer.from(a), Buffer.from(b));
 /** The account's name as the file keeps it, matched as sign-in matches it; undefined when there is no such account. */
@@ -79,7 +92,7 @@ function markCurrent(store: Store, account: string, stored: string | null): bool
 const BLOCKED = 'The server isn\'t accepting new users right now; try again later.';
 const LOOPBACK = new Set(['localhost', '127.0.0.1', '[::1]']);
 
-interface Client { id: string; secret_hash: string | null; name: string; redirect_uris: string }
+interface Client { id: string; secret_hash: string | null; auth_method: string | null; name: string; redirect_uris: string }
 
 class OAuthError extends Error {
   readonly code: string;
@@ -93,7 +106,7 @@ class OAuthError extends Error {
 
 /** A redirect URI an app may register: https anywhere, or http back to this computer (RFC 8252); no fragment. */
 function redirectAllowed(uri: string): boolean {
-  if (uri.length > 2000) return false;
+  if (uri.length > 2000 || /[#\\\u0000-\u001f\u007f]/.test(uri)) return false;
   try {
     const u = new URL(uri);
     if (u.hash || u.username || u.password) return false;
@@ -111,11 +124,18 @@ function redirectMatches(registered: string[], got: string): boolean {
     if (g.protocol !== 'http:' || !LOOPBACK.has(g.hostname)) return false;
     return registered.some((r) => {
       const u = new URL(r);
-      return u.protocol === 'http:' && u.hostname === g.hostname && u.pathname === g.pathname && u.search === g.search;
+      // Compare the original strings, not URL's decoded/normalised path and query.
+      const stripPort = (s: string) => s.replace(/^(http:\/\/)(localhost|127\.0\.0\.1|\[::1\]):\d+(?=\/|\?|$)/, '$1$2');
+      return u.protocol === 'http:' && u.hostname === g.hostname && stripPort(r) === stripPort(got);
     });
   } catch {
     return false;
   }
+}
+
+function csrfFrom(req: IncomingMessage, name: string): string {
+  const cookie = req.headers.cookie?.split(';').map((part) => part.trim()).find((part) => part.startsWith(`${name}=`));
+  return cookie?.slice(name.length + 1) ?? '';
 }
 
 async function readBody(req: IncomingMessage): Promise<string> {
@@ -170,6 +190,14 @@ export class OAuthServer {
           const present = (this.db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).some((c) => c.name === 'identity');
           if (!present) this.db.exec(`ALTER TABLE ${table} ADD COLUMN identity TEXT`);
         }
+        for (const table of ['consents', 'codes', 'refresh']) {
+          if (!cols(table).includes('resource')) this.db.exec(`ALTER TABLE ${table} ADD COLUMN resource TEXT`);
+        }
+        if (!cols('refresh').includes('family')) this.db.exec('ALTER TABLE refresh ADD COLUMN family TEXT');
+        if (!cols('clients').includes('auth_method')) this.db.exec('ALTER TABLE clients ADD COLUMN auth_method TEXT');
+        this.db.exec('CREATE TABLE IF NOT EXISTS spent_refresh (hash TEXT PRIMARY KEY, client_id TEXT NOT NULL, family TEXT NOT NULL, expires INTEGER NOT NULL, at INTEGER)');
+        if (!cols('spent_refresh').includes('at')) this.db.exec('ALTER TABLE spent_refresh ADD COLUMN at INTEGER');
+        this.db.exec('CREATE INDEX IF NOT EXISTS refresh_family ON refresh(family)');
         break;
       } catch (e) {
         if (tries >= 50 || !/locked|busy/i.test((e as Error).message)) throw e;
@@ -206,7 +234,14 @@ export class OAuthServer {
     if (this.opts.publicUrl) return new URL(this.opts.publicUrl).origin;
     const host = String(req.headers.host ?? '');
     const safe = /^[A-Za-z0-9.-]+(?::\d+)?$|^\[[0-9A-Fa-f:.]+\](?::\d+)?$/.test(host) ? host : 'localhost';
-    return `${(req.socket as { encrypted?: boolean }).encrypted ? 'https' : 'http'}://${safe}`;
+    return new URL(`${(req.socket as { encrypted?: boolean }).encrypted ? 'https' : 'http'}://${safe}`).origin;
+  }
+
+  private csrfCookie(req?: IncomingMessage): { name: string; attributes: string } {
+    const secure = (this.opts.publicUrl ? new URL(this.opts.publicUrl).protocol === 'https:' : false) || (req?.socket as { encrypted?: boolean } | undefined)?.encrypted;
+    return secure
+      ? { name: '__Host-tabularius_oauth_csrf', attributes: 'Path=/; HttpOnly; SameSite=Strict; Max-Age=600; Secure' }
+      : { name: 'tabularius_oauth_csrf', attributes: 'Path=/oauth/authorize; HttpOnly; SameSite=Strict; Max-Age=600' };
   }
 
   /** The WWW-Authenticate challenge /mcp answers 401 with, pointing apps at the sign-in (RFC 9728 5.1). */
@@ -237,14 +272,14 @@ export class OAuthServer {
     } catch (e) {
       if (e instanceof OAuthError) {
         const headers = e.status === 401 ? { 'www-authenticate': 'Basic realm="tabularius"' } : undefined;
-        return this.json(res, e.status, { error: e.code, error_description: e.message }, headers);
+        return this.json(res, e.status, { error: e.code }, headers);
       }
       throw e;
     }
   }
 
   private json(res: ServerResponse, status: number, body: unknown, headers: Record<string, string> = {}): true {
-    res.writeHead(status, { 'content-type': 'application/json', 'access-control-allow-origin': '*', ...headers }).end(JSON.stringify(body));
+    res.writeHead(status, { 'content-type': 'application/json', 'access-control-allow-origin': '*', 'cache-control': 'no-store', ...headers }).end(JSON.stringify(body));
     return true;
   }
 
@@ -268,6 +303,7 @@ export class OAuthServer {
       revocation_endpoint_auth_methods_supported: ['none', 'client_secret_post', 'client_secret_basic'],
       scopes_supported: ['mcp'],
       authorization_response_iss_parameter_supported: true,
+      resource_indicators_supported: true,
     };
   }
 
@@ -284,7 +320,8 @@ export class OAuthServer {
     // Counted per address, and per /64 for IPv6 (one machine usually has a whole /64).
     const from = addressBucket(clientAddress(req));
     const now = performance.now();
-    if (this.registered.size > 1000) for (const [k, ts] of this.registered) if (ts.every((t) => now - t >= 3600_000)) this.registered.delete(k);
+    for (const [k, ts] of this.registered) if (ts.every((t) => now - t >= 3600_000)) this.registered.delete(k);
+    if (!this.registered.has(from) && this.registered.size >= 1000) throw new OAuthError('invalid_client_metadata', 'Too many apps are registering; try again later', 429);
     const recent = (this.registered.get(from) ?? []).filter((t) => now - t < 3600_000);
     if (recent.length >= REGISTER_PER_HOUR) throw new OAuthError('invalid_client_metadata', 'Too many apps registered from this address; try again later', 429);
     const uris = body.redirect_uris;
@@ -294,19 +331,32 @@ export class OAuthServer {
     const method = body.token_endpoint_auth_method === undefined ? 'none' : String(body.token_endpoint_auth_method);
     if (!['none', 'client_secret_post', 'client_secret_basic'].includes(method)) throw new OAuthError('invalid_client_metadata', `token_endpoint_auth_method "${method}" is not supported`);
     const grants = body.grant_types === undefined ? ['authorization_code', 'refresh_token'] : body.grant_types;
-    if (!Array.isArray(grants) || grants.some((g) => g !== 'authorization_code' && g !== 'refresh_token')) throw new OAuthError('invalid_client_metadata', 'Only the authorization_code and refresh_token grants are supported');
-    if (body.response_types !== undefined && (!Array.isArray(body.response_types) || body.response_types.some((t) => t !== 'code'))) throw new OAuthError('invalid_client_metadata', 'Only the code response type is supported');
-    const name = typeof body.client_name === 'string' && body.client_name.trim() ? body.client_name.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 80) : 'An AI app';
+    // A client may ask for the code grant alone; the server grants both and says so in its answer (RFC 7591 section 3.2.1).
+    if (!Array.isArray(grants) || !grants.includes('authorization_code') || !grants.every((g) => g === 'authorization_code' || g === 'refresh_token')) throw new OAuthError('invalid_client_metadata', 'The authorization_code grant is required, and only it and refresh_token are supported');
+    if (body.response_types !== undefined && (!Array.isArray(body.response_types) || body.response_types.length !== 1 || body.response_types[0] !== 'code')) throw new OAuthError('invalid_client_metadata', 'Only the code response type is supported');
+    // Keys that carry a key set or a request address would have to be fetched, which registration never does, so they are refused.
+    // The display addresses (client_uri, logo_uri, tos_uri, policy_uri) are ignored: never fetched, never shown, never stored.
+    for (const key of ['jwks_uri', 'jwks', 'sector_identifier_uri', 'request_uris']) {
+      if (body[key] !== undefined) throw new OAuthError('invalid_client_metadata', `${key} is not supported`);
+    }
+    const name = typeof body.client_name === 'string' && plain(body.client_name) ? plain(body.client_name).slice(0, 80) : 'An AI app';
     const wall = Date.now();
     // Apps registered and never used for a day go, and the oldest never-used ones when the list is full. An app someone
     // signed in with is never pushed out by new registrations: when only those are left, no more can register.
-    this.db.prepare('DELETE FROM clients WHERE used IS NULL AND created < ?').run(wall - 24 * 3600_000);
-    const count = (this.db.prepare('SELECT COUNT(*) AS n FROM clients').get() as { n: number }).n;
-    if (count >= MAX_CLIENTS) this.db.prepare('DELETE FROM clients WHERE id IN (SELECT id FROM clients WHERE used IS NULL ORDER BY created, rowid LIMIT ?)').run(count - MAX_CLIENTS + 1);
-    if ((this.db.prepare('SELECT COUNT(*) AS n FROM clients').get() as { n: number }).n >= MAX_CLIENTS) throw new OAuthError('invalid_client_metadata', 'Too many apps are registered with this server; try again later', 429);
     const id = `ohc_${randomBytes(16).toString('hex')}`;
     const secret = method === 'none' ? undefined : token('ohcs_');
-    this.db.prepare('INSERT INTO clients (id, secret_hash, name, redirect_uris, created) VALUES (?, ?, ?, ?, ?)').run(id, secret ? hash(secret) : null, name, JSON.stringify(uris), wall);
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      this.db.prepare('DELETE FROM clients WHERE used IS NULL AND created < ?').run(wall - 24 * 3600_000);
+      const count = (this.db.prepare('SELECT COUNT(*) AS n FROM clients').get() as { n: number }).n;
+      if (count >= MAX_CLIENTS) this.db.prepare('DELETE FROM clients WHERE id IN (SELECT id FROM clients WHERE used IS NULL ORDER BY created, rowid LIMIT ?)').run(count - MAX_CLIENTS + 1);
+      if ((this.db.prepare('SELECT COUNT(*) AS n FROM clients').get() as { n: number }).n >= MAX_CLIENTS) throw new OAuthError('invalid_client_metadata', 'Too many apps are registered with this server; try again later', 429);
+      this.db.prepare('INSERT INTO clients (id, secret_hash, auth_method, name, redirect_uris, created) VALUES (?, ?, ?, ?, ?, ?)').run(id, secret ? hash(secret) : null, method, name, JSON.stringify(uris), wall);
+      this.db.exec('COMMIT');
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
     recent.push(now);
     this.registered.set(from, recent);
     return {
@@ -317,7 +367,7 @@ export class OAuthServer {
   }
 
   private client(id: string | null): Client | undefined {
-    return id ? this.db.prepare('SELECT id, secret_hash, name, redirect_uris FROM clients WHERE id = ?').get(id) as Client | undefined : undefined;
+    return id ? this.db.prepare('SELECT id, secret_hash, auth_method, name, redirect_uris FROM clients WHERE id = ?').get(id) as Client | undefined : undefined;
   }
 
   /** The app calling the token or revoke endpoint, with its secret checked when it has one. */
@@ -326,16 +376,23 @@ export class OAuthServer {
     let id = form.get('client_id');
     let secret = form.get('client_secret');
     if (basic) {
+      if (secret) throw new OAuthError('invalid_client', 'Use one client authentication method', 401);
       const [u, ...rest] = Buffer.from(basic, 'base64').toString('utf8').split(':');
       try {
-        id = decodeURIComponent(u);
+        const named = decodeURIComponent(u);
+        // Some libraries send the client_id in the body as well as in the header: fine when they agree.
+        if (id !== null && id !== named) throw new OAuthError('invalid_client', 'Use one client authentication method', 401);
+        id = named;
         secret = decodeURIComponent(rest.join(':'));
-      } catch {
+      } catch (error) {
+        if (error instanceof OAuthError) throw error;
         throw new OAuthError('invalid_client', 'The app\'s credentials are malformed', 401);
       }
     }
     const client = this.client(id);
     if (!client) throw new OAuthError('invalid_client', 'Unknown app; register it again', 401);
+    if (!client.secret_hash && (basic || form.get('client_secret'))) throw new OAuthError('invalid_client', 'This app is public', 401);
+    if (client.auth_method === 'client_secret_basic' && !basic || client.auth_method === 'client_secret_post' && !!basic) throw new OAuthError('invalid_client', 'Wrong app authentication method', 401);
     if (client.secret_hash && !(secret && sameSecret(hash(secret), client.secret_hash))) throw new OAuthError('invalid_client', 'Wrong app secret', 401);
     return client;
   }
@@ -360,7 +417,7 @@ export class OAuthServer {
       return u.toString();
     };
     const back = (params: Record<string, string>) => {
-      res.writeHead(302, { location: location(params), 'cache-control': 'no-store' }).end();
+      res.writeHead(302, { location: location(params), 'cache-control': 'no-store', 'referrer-policy': 'no-referrer' }).end();
       return true as const;
     };
     // A bad request is shown here rather than sent back: anyone can register an app, so sending every error to its
@@ -369,8 +426,12 @@ export class OAuthServer {
     if (form.get('response_type') !== 'code') return bad('Only response_type=code is supported.');
     const challenge = form.get('code_challenge') ?? '';
     if (form.get('code_challenge_method') !== 'S256' || !/^[A-Za-z0-9_-]{43}$/.test(challenge)) return bad('PKCE with code_challenge_method=S256 is required.');
-    const resource = form.get('resource');
-    if (resource && !this.resourceOk(req, resource)) return bad(`This server signs in for ${this.base(req)}/mcp only.`);
+    const requestedResource = form.get('resource');
+    const resource = requestedResource === null ? null : this.canonicalResource(req, requestedResource);
+    if (form.getAll('resource').length > 1 || (requestedResource !== null && !resource)) return bad(`This server signs in for ${this.base(req)}/mcp only.`);
+    if (form.get('scope') && form.get('scope') !== 'mcp') return bad('Only the mcp scope is supported.');
+    const csrf = csrfFrom(req, this.csrfCookie(req).name);
+    if (req.method === 'POST' && (!/^[A-Za-z0-9_-]{43}$/.test(csrf) || !sameSecret(form.get('csrf') ?? '', csrf))) return bad('This approval page has expired.');
     if (req.method === 'POST' && form.get('cancel') !== null) return back({ error: 'access_denied', error_description: 'Signing in was cancelled' });
 
     const files = this.files();
@@ -383,10 +444,10 @@ export class OAuthServer {
       const typed = (form.get('database') ?? '').trim();
       const name = files.find((f) => f.toLowerCase() === typed.toLowerCase());
       // Without a public file list, a name that isn't hosted goes to the identity provider like a real one, and is refused after the person has signed in there.
-      if (!name && (this.host.listFilesPublicly || !typed)) return this.signInPage(res, client, target, hidden, files, { error: 'Choose a hosted file.' }, 400);
+      if (!name && (this.host.listFilesPublicly || !typed)) return this.signInPage(res, client, target, hidden, files, { error: 'Choose a hosted file.' }, 400, req);
       const database = name ?? typed;
       await this.oidc.begin(provider, database, req, res, {
-        fail: (r, message) => { this.signInPage(r, client, target, hidden, files, { database, error: message }, 401); },
+        fail: (r, message) => { this.signInPage(r, client, target, hidden, files, { database, error: message }, 401, req); },
         done: (r, { store: st, via, email, issuer, sub, provider: pname, from }) => {
           const identity = { issuer, sub, person: email, mapping: via };
           const who = email ?? via;
@@ -408,31 +469,32 @@ export class OAuthServer {
           // could hand an app their access unseen.
           const consent = token('ohcs_');
           this.db.prepare('DELETE FROM consents WHERE expires < ?').run(expiryClock.now());
-          this.db.prepare('INSERT INTO consents (hash, client_id, redirect_uri, challenge, database, account, who, provider, expires, identity) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-            .run(hash(consent), client.id, target, challenge, st.name, via, email ?? null, pname, expiryClock.now() + 5 * 60_000, JSON.stringify(identity));
-          const fields = Object.entries({ ...hidden, consent }).map(([k, v]) => `<input type="hidden" name="${esc(k)}" value="${esc(v)}">`).join('');
+          this.db.prepare('INSERT INTO consents (hash, client_id, redirect_uri, challenge, database, account, who, provider, expires, identity, resource) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+            .run(hash(consent), client.id, target, challenge, st.name, via, email ?? null, pname, expiryClock.now() + 5 * 60_000, JSON.stringify(identity), resource ?? `${this.base(req)}/mcp`);
+          const csrf = token('').slice(0, 43);
+          const fields = Object.entries({ ...hidden, consent, csrf }).map(([k, v]) => `<input type="hidden" name="${esc(k)}" value="${esc(v)}">`).join('');
           this.page(r, 200, `Allow ${client.name}?`, `
 <p><strong>${esc(client.name)}</strong> wants to use ${PRODUCT_NAME} as <strong>${esc(who)}</strong>${email ? ` (the account <strong>${esc(via)}</strong>)` : ''} in <strong>${esc(st.name)}</strong>, after you signed in through ${esc(pname)}. It can see and change what that account can, in that file, and nothing else. You'll be sent back to <strong>${esc(returnHost)}</strong>.</p>
 <form method="post" action="/oauth/authorize">${fields}
 <div class="actions"><button class="primary" type="submit">Allow</button><button type="submit" name="cancel" value="1" formnovalidate>Cancel</button></div>
-</form>`);
+</form>`, csrf, req);
         },
       });
       return true;
     }
-    if (req.method === 'GET') return this.signInPage(res, client, target, hidden, files, {});
+    if (req.method === 'GET') return this.signInPage(res, client, target, hidden, files, {}, 200, req);
 
     // The person's "Allow" after signing in through an identity provider: the page's single-use token, for this app only.
     const consentToken = form.get('consent');
     if (consentToken) {
-      const row = this.db.prepare('DELETE FROM consents WHERE hash = ? AND client_id = ? RETURNING redirect_uri, challenge, database, account, who, provider, expires, identity').get(hash(consentToken), client.id) as
-        { redirect_uri: string; challenge: string; database: string; account: string; who: string | null; provider: string; expires: number; identity: string | null } | undefined;
-      if (!row || row.expires <= expiryClock.now() || row.redirect_uri !== target || row.challenge !== challenge) return bad('This approval has expired or was already used.');
+      const row = this.db.prepare('DELETE FROM consents WHERE hash = ? AND client_id = ? RETURNING redirect_uri, challenge, database, account, who, provider, expires, identity, resource').get(hash(consentToken), client.id) as
+        { redirect_uri: string; challenge: string; database: string; account: string; who: string | null; provider: string; expires: number; identity: string | null; resource: string | null } | undefined;
+      if (!row || row.expires <= expiryClock.now() || row.redirect_uri !== target || row.challenge !== challenge || (resource ?? `${this.base(req)}/mcp`) !== row.resource) return bad('This approval has expired or was already used.');
       const code = token('ohac_');
       this.db.prepare('DELETE FROM codes WHERE expires < ?').run(expiryClock.now());
       const st = this.host.get(row.database);
-      this.db.prepare('INSERT INTO codes (hash, client_id, redirect_uri, challenge, database, account, expires, who, identity, mark) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-        .run(hash(code), client.id, target, challenge, row.database, row.account, expiryClock.now() + CODE_MS, row.who, row.identity, st ? passwordMark(st, row.account) : null);
+      this.db.prepare('INSERT INTO codes (hash, client_id, redirect_uri, challenge, database, account, expires, who, identity, mark, resource) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+        .run(hash(code), client.id, target, challenge, row.database, row.account, expiryClock.now() + CODE_MS, row.who, row.identity, st ? passwordMark(st, row.account) : null, row.resource);
       const from = clientAddress(req);
       // Checked again as the person says yes: the account may have been turned off in the minutes between.
       const binding = row.identity ? JSON.parse(row.identity) as { issuer: string; sub: string; person?: string; mapping: string } : undefined;
@@ -448,7 +510,7 @@ export class OAuthServer {
     const database = (form.get('database') ?? '').trim();
     const account = (form.get('account') ?? '').trim();
     const from = clientAddress(req);
-    const again = (error: string, status = 401) => this.signInPage(res, client, target, hidden, files, { database, account: error === PASSWORD_REFUSAL ? '' : account, error }, status);
+    const again = (error: string, status = 401) => this.signInPage(res, client, target, hidden, files, { database, account: error === PASSWORD_REFUSAL ? '' : account, error }, status, req);
     const file = files.find((f) => f.toLowerCase() === database.toLowerCase());
     const store = file ? this.host.get(file) : undefined;
     // The account is asked for first, so the order of the checks doesn't tell a hosted file from one that isn't.
@@ -462,15 +524,22 @@ export class OAuthServer {
     if (refused) return again(refused);
     const code = token('ohac_');
     this.db.prepare('DELETE FROM codes WHERE expires < ?').run(expiryClock.now());
-    this.db.prepare('INSERT INTO codes (hash, client_id, redirect_uri, challenge, database, account, expires, mark) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(hash(code), client.id, target, challenge, store.name, name, expiryClock.now() + CODE_MS, passwordMark(store, name));
+    this.db.prepare('INSERT INTO codes (hash, client_id, redirect_uri, challenge, database, account, expires, mark, resource) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(hash(code), client.id, target, challenge, store.name, name, expiryClock.now() + CODE_MS, passwordMark(store, name), resource ?? `${this.base(req)}/mcp`);
     this.host.logs?.write('Access', 'Information', from, `${account} signed in to ${store.name} for the AI app "${plain(client.name)}" (returning to ${new URL(target).host})`);
     return back({ code });
   }
 
-  private resourceOk(req: IncomingMessage, resource: string): boolean {
-    const base = this.base(req);
-    return [`${base}/mcp`, base, `${base}/`].includes(resource);
+  private canonicalResource(req: IncomingMessage, resource: string): string | undefined {
+    const canonical = `${this.base(req)}/mcp`;
+    if (resource === canonical || resource === `${this.base(req)}` || resource === `${this.base(req)}/` || resource === `${canonical}/`) return canonical;
+    if (/[\\\u0000-\u001f\u007f]/.test(resource)) return undefined;
+    try {
+      const url = new URL(resource);
+      return url.origin === this.base(req) && url.origin + url.pathname === canonical && !url.search && !url.hash && !url.username && !url.password ? canonical : undefined;
+    } catch {
+      return undefined;
+    }
   }
 
   /** Hosted files an AI app may be signed in to: AI isn't turned off for them. */
@@ -537,9 +606,10 @@ export class OAuthServer {
     return undefined;
   }
 
-  private signInPage(res: ServerResponse, client: Client, target: string, hidden: Record<string, string>, files: string[], now: { database?: string; account?: string; error?: string }, status = 200): true {
+  private signInPage(res: ServerResponse, client: Client, target: string, hidden: Record<string, string>, files: string[], now: { database?: string; account?: string; error?: string }, status = 200, req?: IncomingMessage): true {
     const returnHost = new URL(target).host;
-    const fields = Object.entries(hidden).map(([k, v]) => `<input type="hidden" name="${esc(k)}" value="${esc(v)}">`).join('');
+    const csrf = token('').slice(0, 43);
+    const fields = Object.entries({ ...hidden, csrf }).map(([k, v]) => `<input type="hidden" name="${esc(k)}" value="${esc(v)}">`).join('');
     const body = files.length ? `
 <p><strong>${esc(client.name)}</strong> wants to use ${PRODUCT_NAME} as one of your accounts. It can see and change what that account can, in that file, and nothing else. You'll be sent back to <strong>${esc(returnHost)}</strong>.</p>
 ${now.error ? `<p class="error" role="alert">${esc(now.error)}</p>` : ''}
@@ -551,7 +621,7 @@ ${this.fileField(files, now.database)}
 <label>One-time code <span class="hint">(if your account has a second factor)</span><input name="otp" inputmode="numeric" autocomplete="one-time-code"></label>
 <div class="actions"><button class="primary" type="submit">Allow</button><button type="submit" name="cancel" value="1" formnovalidate>Cancel</button></div>
 </form>` : '<p>No hosted file can be used by AI apps right now: AI is turned off for every one.</p>';
-    return this.page(res, status, `Sign in for ${client.name}`, body);
+    return this.page(res, status, `Sign in for ${client.name}`, body, csrf, req);
   }
 
   /** The file to sign in to: a list to choose from, or on a server that doesn't list its files (no --list-files-publicly) a name to type, so this page names none to a stranger. */
@@ -572,7 +642,7 @@ ${this.fileField(files, database)}
 <p class="hint">Or with an account name and password:</p>`;
   }
 
-  private page(res: ServerResponse, status: number, title: string, body: string): true {
+  private page(res: ServerResponse, status: number, title: string, body: string, csrf?: string, req?: IncomingMessage): true {
     const css = pageCss() + `
 form { display: grid; gap: var(--s3, 12px); margin-top: var(--s4, 16px); }
 label { display: grid; gap: 4px; font-weight: 500; }
@@ -587,6 +657,7 @@ p strong { color: var(--text); }
 @media (forced-colors: active) { input:focus-visible, select:focus-visible, button:focus-visible { outline: 2px solid CanvasText; } }`;
     res.writeHead(status, {
       'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', 'x-frame-options': 'DENY', 'referrer-policy': 'no-referrer',
+      ...(csrf ? { 'set-cookie': `${this.csrfCookie(req).name}=${csrf}; ${this.csrfCookie(req).attributes}` } : {}),
       // No form-action: browsers apply it to the redirect back to the app after signing in.
       'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; img-src data:; frame-ancestors 'none'; base-uri 'none'",
     }).end(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light dark">
@@ -600,16 +671,23 @@ p strong { color: var(--text); }
   private token(req: IncomingMessage, form: URLSearchParams): Record<string, unknown> {
     const client = this.callingClient(req, form);
     const grant = form.get('grant_type');
-    const resource = form.get('resource');
-    if (resource && !this.resourceOk(req, resource)) throw new OAuthError('invalid_target', `This server issues tokens for ${this.base(req)}/mcp only`);
+    const requestedResource = form.get('resource');
+    const resource = requestedResource === null ? null : this.canonicalResource(req, requestedResource);
+    if (form.getAll('resource').length > 1 || (requestedResource !== null && !resource)) throw new OAuthError('invalid_target', `This server issues tokens for ${this.base(req)}/mcp only`);
+    if (form.get('scope') && form.get('scope') !== 'mcp') throw new OAuthError('invalid_scope', 'Only the mcp scope is supported');
     this.sweep();
     if (grant === 'authorization_code') {
       const code = form.get('code') ?? '';
       // Taken out as it is used (by the app it was given to only), so a code works once even with two workers asked at the same moment.
-      const row = this.db.prepare('DELETE FROM codes WHERE hash = ? AND client_id = ? RETURNING client_id, redirect_uri, challenge, database, account, expires, who, identity, mark').get(hash(code), client.id) as
-        { client_id: string; redirect_uri: string; challenge: string; database: string; account: string; expires: number; who: string | null; identity: string | null; mark: string | null } | undefined;
+      const row = this.db.prepare('DELETE FROM codes WHERE hash = ? AND client_id = ? RETURNING client_id, redirect_uri, challenge, database, account, expires, who, identity, mark, resource').get(hash(code), client.id) as
+        { client_id: string; redirect_uri: string; challenge: string; database: string; account: string; expires: number; who: string | null; identity: string | null; mark: string | null; resource: string | null } | undefined;
       if (!row || row.expires <= expiryClock.now() || row.client_id !== client.id) throw new OAuthError('invalid_grant', 'The sign-in code is not valid or has expired; sign in again');
-      if (form.get('redirect_uri') !== null && form.get('redirect_uri') !== row.redirect_uri) throw new OAuthError('invalid_grant', 'redirect_uri doesn\'t match the sign-in');
+      const sent = form.get('redirect_uri');
+      const only = JSON.parse(client.redirect_uris) as string[];
+      // Required when the sign-in named one; an app with a single registered address may leave both out.
+      if (sent !== row.redirect_uri && !(sent === null && only.length === 1 && only[0] === row.redirect_uri)) throw new OAuthError('invalid_grant', 'redirect_uri doesn\'t match the sign-in');
+      const audience = row.resource ?? `${this.base(req)}/mcp`;
+      if (resource && resource !== audience) throw new OAuthError('invalid_target', 'The resource does not match the sign-in');
       const verifier = form.get('code_verifier') ?? '';
       if (!/^[A-Za-z0-9._~-]{43,128}$/.test(verifier) || createHash('sha256').update(verifier).digest('base64url') !== row.challenge) throw new OAuthError('invalid_grant', 'The PKCE code_verifier doesn\'t match');
       const identity = row.identity ? JSON.parse(row.identity) as { issuer: string; sub: string; person?: string; mapping: string } : undefined;
@@ -624,32 +702,67 @@ p strong { color: var(--text); }
       }
       // A code given out just before new users were blocked doesn't become a grant after.
       if (this.host.config.blockNewUsers()) throw new OAuthError('invalid_grant', BLOCKED);
-      return this.issue(client, row.database, row.account, clientAddress(req), row.who ? `${plain(row.who)} via AI app: ${plain(client.name)}` : undefined, undefined, identity);
+      return this.issue(client, row.database, row.account, clientAddress(req), audience, row.who ? `${plain(row.who)} via AI app: ${plain(client.name)}` : undefined, undefined, identity);
     }
     if (grant === 'refresh_token') {
-      const row = this.db.prepare('DELETE FROM refresh WHERE hash = ? AND client_id = ? RETURNING client_id, database, account, access_id, expires, password, identity').get(hash(form.get('refresh_token') ?? ''), client.id) as
-        { client_id: string; database: string; account: string; access_id: string; expires: number; password: string; identity: string | null } | undefined;
-      if (!row || row.expires <= expiryClock.now() || row.client_id !== client.id) throw new OAuthError('invalid_grant', 'The refresh token is not valid; sign in again');
-      const store = this.host.get(row.database);
-      const identity = row.identity ? JSON.parse(row.identity) as { issuer: string; sub: string; person?: string; mapping: string } : undefined;
-      if (!store || (this.host.get(row.database)?.isExternalAccount(row.account) && (!identity || identity.mapping !== row.account)) || (identity?.person && store.accountInactive(identity.person)) || (identity && !store.isExternalAccount(identity.mapping))) throw new OAuthError('invalid_grant', 'This federated sign-in is no longer valid; sign in again');
-      // Revoked in Manage Security (only a refresh ever removes it otherwise): the app is signed out.
-      if (!store || !store.apiTokens().some((t) => t.id === row.access_id)) throw new OAuthError('invalid_grant', 'This sign-in was revoked; sign in again');
-      // An account turned off keeps its sign-in as it is: nothing is rotated or revoked for it.
-      if (store.accountInactive(row.account)) throw new OAuthError('invalid_grant', 'This account is no longer eligible; sign in again');
-      const label = store.apiTokens().find((t) => t.id === row.access_id)?.label;
-      store.revokeApiToken(row.access_id);
-      // As at sign-in: still allowed (a second factor now required, a password to change, AI access taken away), and
-      // with the same password: a password changed since signs the app out.
-      if (!markCurrent(store, row.account, row.password) || this.allowed(store, row.account, clientAddress(req), false, false)) {
-        throw new OAuthError('invalid_grant', 'This account\'s password or access changed since it signed in; sign in again');
+      const refreshHash = hash(form.get('refresh_token') ?? '');
+      // A second worker must see either the live token or its spent record, never the gap between them.
+      this.db.exec('BEGIN IMMEDIATE');
+      let open = true;
+      let issuedAccessId: string | undefined;
+      let issuedStoreName: string | undefined;
+      try {
+        const current = this.db.prepare('SELECT resource FROM refresh WHERE hash = ? AND client_id = ?').get(refreshHash, client.id) as { resource: string | null } | undefined;
+        if (current && resource && resource !== (current.resource ?? `${this.base(req)}/mcp`)) throw new OAuthError('invalid_target', 'The resource does not match the sign-in');
+        const row = this.db.prepare('DELETE FROM refresh WHERE hash = ? AND client_id = ? RETURNING client_id, database, account, access_id, expires, password, identity, resource, family').get(refreshHash, client.id) as
+          { client_id: string; database: string; account: string; access_id: string; expires: number; password: string; identity: string | null; resource: string | null; family: string | null } | undefined;
+        if (!row) {
+          const spent = this.db.prepare('SELECT family, at FROM spent_refresh WHERE hash = ? AND client_id = ? AND expires > ?').get(refreshHash, client.id, expiryClock.now()) as { family: string; at: number | null } | undefined;
+          this.db.exec('COMMIT'); open = false;
+          if (spent && !(spent.at && expiryClock.now() - spent.at < REPLAY_GRACE_MS)) this.revokeFamily(spent.family);
+          throw new OAuthError('invalid_grant', 'The refresh token is not valid; sign in again');
+        }
+        if (row.expires <= expiryClock.now()) { this.host.get(row.database)?.revokeApiToken(row.access_id); throw new OAuthError('invalid_grant', 'The refresh token is not valid; sign in again'); }
+        const audience = row.resource ?? `${this.base(req)}/mcp`;
+        if (resource && resource !== audience) { this.host.get(row.database)?.revokeApiToken(row.access_id); throw new OAuthError('invalid_target', 'The resource does not match the sign-in'); }
+        const family = row.family ?? refreshHash;
+        this.db.prepare('INSERT INTO spent_refresh (hash, client_id, family, expires, at) VALUES (?, ?, ?, ?, ?)').run(refreshHash, client.id, family, row.expires, expiryClock.now());
+        // Only the newest few per sign-in, and the oldest overall when the list is full: replay of a long-spent token goes
+        // unnoticed rather than refresh failing for everyone.
+        this.db.prepare('DELETE FROM spent_refresh WHERE family = ? AND rowid NOT IN (SELECT rowid FROM spent_refresh WHERE family = ? ORDER BY rowid DESC LIMIT ?)').run(family, family, SPENT_PER_FAMILY);
+        if ((this.db.prepare('SELECT COUNT(*) AS n FROM spent_refresh').get() as { n: number }).n > MAX_SPENT_REFRESH) this.db.prepare('DELETE FROM spent_refresh WHERE rowid IN (SELECT rowid FROM spent_refresh ORDER BY rowid LIMIT ?)').run(MAX_SPENT_REFRESH / 100);
+        const store = this.host.get(row.database);
+        const identity = row.identity ? JSON.parse(row.identity) as { issuer: string; sub: string; person?: string; mapping: string } : undefined;
+        if (!store || (this.host.get(row.database)?.isExternalAccount(row.account) && (!identity || identity.mapping !== row.account)) || (identity?.person && store.accountInactive(identity.person)) || (identity && !store.isExternalAccount(identity.mapping))) { store?.revokeApiToken(row.access_id); throw new OAuthError('invalid_grant', 'This federated sign-in is no longer valid; sign in again'); }
+        // Revoked in Manage Security (only a refresh ever removes it otherwise): the app is signed out.
+        if (!store || !store.apiTokens().some((t) => t.id === row.access_id)) throw new OAuthError('invalid_grant', 'This sign-in was revoked; sign in again');
+        // An account turned off loses the old access token as well as its refresh grant.
+        if (store.accountInactive(row.account)) { store.revokeApiToken(row.access_id); throw new OAuthError('invalid_grant', 'This account is no longer eligible; sign in again'); }
+        const label = store.apiTokens().find((t) => t.id === row.access_id)?.label;
+        store.revokeApiToken(row.access_id);
+        // As at sign-in: still allowed (a second factor now required, a password to change, AI access taken away), and
+        // with the same password: a password changed since signs the app out.
+        if (!markCurrent(store, row.account, row.password) || this.allowed(store, row.account, clientAddress(req), false, false)) {
+          throw new OAuthError('invalid_grant', 'This account\'s password or access changed since it signed in; sign in again');
+        }
+        const issued = this.issue(client, row.database, row.account, clientAddress(req), audience, label, identity ? row.expires : undefined, identity, true, family);
+        issuedAccessId = /^ohbt_([0-9a-f]+)\./.exec(issued.access_token as string)?.[1];
+        issuedStoreName = row.database;
+        this.db.exec('COMMIT'); open = false;
+        return issued;
+      } catch (error) {
+        // A refused refresh still consumes the old token; unexpected storage failures roll back the grant record.
+        if (open) {
+          this.db.exec(error instanceof OAuthError ? 'COMMIT' : 'ROLLBACK');
+          if (issuedAccessId && issuedStoreName) this.host.get(issuedStoreName)?.revokeApiToken(issuedAccessId);
+        }
+        throw error;
       }
-      return this.issue(client, row.database, row.account, clientAddress(req), label, identity ? row.expires : undefined, identity, true);
     }
     throw new OAuthError('unsupported_grant_type', 'Only authorization_code and refresh_token are supported');
   }
 
-  private issue(client: Client, database: string, account: string, from: string, label?: string, keepExpiry?: number, identity?: { issuer: string; sub: string; person?: string; mapping: string }, refreshing = false): Record<string, unknown> {
+  private issue(client: Client, database: string, account: string, from: string, audience: string, label?: string, keepExpiry?: number, identity?: { issuer: string; sub: string; person?: string; mapping: string }, refreshing = false, family = token('ohf_')): Record<string, unknown> {
     const store = this.host.get(database);
     if (!store) throw new OAuthError('invalid_grant', `${database} is no longer hosted`);
     if (identity && (identity.mapping !== account || !store.canonicalAccount(identity.mapping) || !store.isExternalAccount(identity.mapping) || (identity.person && store.accountInactive(identity.person)))) throw new OAuthError('invalid_grant', 'This federated sign-in is no longer valid; sign in again');
@@ -657,8 +770,17 @@ p strong { color: var(--text); }
     const access = store.createApiToken(account, { label: (label ?? `AI app: ${plain(client.name)}`).slice(0, 80), surfaces: ['fmmcp'], provenance: 'delegated', expires: new Date(expiryClock.now() + ACCESS_SECONDS * 1000), ...(identity ? { identity } : {}) });
     const accessId = /^ohbt_([0-9a-f]+)\./.exec(access)![1];
     const refresh = token('ohrt_');
-    this.db.prepare('INSERT INTO refresh (hash, client_id, database, account, access_id, expires, password, identity) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(hash(refresh), client.id, store.name, account, accessId, keepExpiry ?? expiryClock.now() + (identity ? REFRESH_EXTERNAL_MS : REFRESH_MS), passwordMark(store, account), identity ? JSON.stringify(identity) : null);
-    this.db.prepare('UPDATE clients SET used = ? WHERE id = ?').run(Date.now(), client.id);
+    let ownTransaction = false;
+    try {
+      if (!refreshing) { this.db.exec('BEGIN IMMEDIATE'); ownTransaction = true; }
+      this.db.prepare('INSERT INTO refresh (hash, client_id, database, account, access_id, expires, password, identity, resource, family) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(hash(refresh), client.id, store.name, account, accessId, keepExpiry ?? expiryClock.now() + (identity ? REFRESH_EXTERNAL_MS : REFRESH_MS), passwordMark(store, account), identity ? JSON.stringify(identity) : null, audience, family);
+      this.db.prepare('UPDATE clients SET used = ? WHERE id = ?').run(Date.now(), client.id);
+      if (ownTransaction) { this.db.exec('COMMIT'); ownTransaction = false; }
+    } catch (error) {
+      if (ownTransaction) this.db.exec('ROLLBACK');
+      store.revokeApiToken(accessId);
+      throw error;
+    }
     return { access_token: access, token_type: 'Bearer', expires_in: ACCESS_SECONDS, refresh_token: refresh, scope: 'mcp' };
   }
 
@@ -667,6 +789,30 @@ p strong { color: var(--text); }
     const old = this.db.prepare('DELETE FROM refresh WHERE expires < ? RETURNING database, access_id').all(expiryClock.now()) as { database: string; access_id: string }[];
     for (const r of old) this.host.get(r.database)?.revokeApiToken(r.access_id);
     this.db.prepare('DELETE FROM codes WHERE expires < ?').run(expiryClock.now());
+    this.db.prepare('DELETE FROM spent_refresh WHERE expires < ?').run(expiryClock.now());
+  }
+
+  private revokeFamily(family: string): void {
+    this.db.exec('BEGIN IMMEDIATE');
+    let active: { database: string; access_id: string }[];
+    try {
+      active = this.db.prepare('DELETE FROM refresh WHERE family = ? RETURNING database, access_id').all(family) as { database: string; access_id: string }[];
+      this.db.exec('COMMIT');
+    } catch (error) {
+      this.db.exec('ROLLBACK');
+      throw error;
+    }
+    for (const row of active) this.host.get(row.database)?.revokeApiToken(row.access_id);
+  }
+
+  /** OAuth tokens carry their audience and account mark in the grant record; check both on every MCP request. */
+  managedAccess(id: string): boolean {
+    return !!this.db.prepare('SELECT 1 FROM refresh WHERE access_id = ?').get(id);
+  }
+
+  accessAllowed(id: string, req: IncomingMessage, store: Store, account: string): boolean {
+    const row = this.db.prepare('SELECT resource, password, account FROM refresh WHERE access_id = ? AND database = ?').get(id, store.name) as { resource: string | null; password: string; account: string } | undefined;
+    return !!row && row.account === account && row.resource === `${this.base(req)}/mcp` && markCurrent(store, account, row.password);
   }
 
   private revoke(req: IncomingMessage, form: URLSearchParams): void {

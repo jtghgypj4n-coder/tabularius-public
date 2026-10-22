@@ -62,7 +62,8 @@ after(async () => {
 });
 
 const form = (o: Record<string, string>) => new URLSearchParams(o).toString();
-const post = (path: string, body: string) => fetch(base + path, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body, redirect: 'manual' });
+let approvalCookie = '';
+const post = (path: string, body: string) => fetch(base + path, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', ...(path === '/oauth/authorize' ? { cookie: approvalCookie } : {}) }, body, redirect: 'manual' });
 
 async function appStart() {
   const reg = await fetch(`${base}/oauth/register`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ client_name: 'Claude', redirect_uris: [REDIRECT] }) });
@@ -80,7 +81,9 @@ async function throughProvider(params: Record<string, string>, extra: Record<str
   assert.equal(auth.origin + auth.pathname, `${issuer}/authorize`);
   const code = randomBytes(8).toString('hex');
   codes.set(code, { nonce: auth.searchParams.get('nonce')!, challenge: auth.searchParams.get('code_challenge')! });
-  return fetch(`${base}/tabularius/auth/v1/oidc/callback?code=${code}&state=${auth.searchParams.get('state')}`, { redirect: 'manual' });
+  const response = await fetch(`${base}/tabularius/auth/v1/oidc/callback?code=${code}&state=${auth.searchParams.get('state')}`, { redirect: 'manual' });
+  approvalCookie = response.headers.get('set-cookie')?.split(';')[0] ?? '';
+  return response;
 }
 
 /** The consent page's hidden fields, as the browser would post them. */

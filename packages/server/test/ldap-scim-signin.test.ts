@@ -1,3 +1,4 @@
+import { signInForm } from './oauth-form.ts';
 import { test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -154,12 +155,13 @@ async function directorySignInFixture(t: TestContext) {
     const headers = { authorization: 'Basic ' + Buffer.from(`${name}:${password}`).toString('base64') };
     const paths = { sql: '/tabularius/sql/v1/databases/A/tables', odata: '/fmi/odata/v4/A', xml: '/fmi/xml/fmresultset.xml?-db=A&-layoutnames' };
     if (surface !== 'data') {
-      const res = surface === 'oauth' ? await fetch(`${base}/oauth/authorize`, {
-        method: 'POST', body: new URLSearchParams({ client_id, redirect_uri: 'http://127.0.0.1:50000/callback',
-          response_type: 'code', code_challenge: 'a'.repeat(43), code_challenge_method: 'S256', database: 'A', account: name, password }),
-      }) : surface === 'passkey-2fa' ? await fetch(`${base}/fmi/data/vLatest/databases/A/sessions/passkey-2fa`, { method: 'POST', headers, body: '{}' })
+      const res = surface === 'oauth' ? await signInForm(base, { client_id, redirect_uri: 'http://127.0.0.1:50000/callback',
+        response_type: 'code', code_challenge: 'a'.repeat(43), code_challenge_method: 'S256', database: 'A', account: name, password }) : surface === 'passkey-2fa' ? await fetch(`${base}/fmi/data/vLatest/databases/A/sessions/passkey-2fa`, { method: 'POST', headers, body: '{}' })
         : await fetch(base + paths[surface], { headers });
-      return { status: res.status, headers: Object.fromEntries(res.headers), body: await res.text() };
+      // A sign-in page carries a fresh anti-forgery value each time, in its form and its cookie; it is not what is compared.
+      const seen = Object.fromEntries(res.headers);
+      if (seen['set-cookie']) seen['set-cookie'] = seen['set-cookie'].replace(/(csrf=)[^;]*/, '$1x');
+      return { status: res.status, headers: seen, body: (await res.text()).replace(/(name="csrf" value=")[^"]*/, '$1x') };
     }
     const res = await fetch(`${base}/fmi/data/vLatest/databases/A/sessions`, {
       method: 'POST', headers: { authorization: 'Basic ' + Buffer.from(`${name}:${password}`).toString('base64') }, body: '{}',

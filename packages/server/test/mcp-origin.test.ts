@@ -144,14 +144,20 @@ test('/mcp rejects foreign origins for valid Basic, scoped and OAuth credentials
   const post = (path: string, fields: Record<string, string>) => fetch(`${base}${path}`, {
     method: 'POST', redirect: 'manual', body: new URLSearchParams(fields),
   });
-  const signIn = await post('/oauth/authorize', {
-    client_id, redirect_uri: redirect, response_type: 'code', resource: `${publicUrl}/mcp`,
+  const authorization = {
+    client_id, redirect_uri: redirect, response_type: 'code', resource: 'HTTPS://FILES.EXAMPLE/mcp',
     code_challenge: createHash('sha256').update(verifier).digest('base64url'), code_challenge_method: 'S256',
-    database: 'Local', account: 'Ann', password: 'secret',
+  };
+  const page = await fetch(`${base}/oauth/authorize?${new URLSearchParams(authorization)}`);
+  assert.match(page.headers.get('set-cookie') ?? '', /^__Host-tabularius_oauth_csrf=.*; Path=\/; HttpOnly; SameSite=Strict; Max-Age=600; Secure$/);
+  const csrf = /name="csrf" value="([^"]+)"/.exec(await page.text())?.[1] ?? '';
+  const signIn = await fetch(`${base}/oauth/authorize`, {
+    method: 'POST', redirect: 'manual', headers: { cookie: page.headers.get('set-cookie')?.split(';')[0] ?? '' },
+    body: new URLSearchParams({ ...authorization, csrf, database: 'Local', account: 'Ann', password: 'secret' }),
   });
   assert.equal(signIn.status, 302, await signIn.text());
   const code = new URL(signIn.headers.get('location')!).searchParams.get('code')!;
-  const tokens = await post('/oauth/token', { grant_type: 'authorization_code', client_id, code, code_verifier: verifier, redirect_uri: redirect });
+  const tokens = await post('/oauth/token', { grant_type: 'authorization_code', client_id, code, code_verifier: verifier, redirect_uri: redirect, resource: 'HTTPS://FILES.EXAMPLE/mcp' });
   assert.equal(tokens.status, 200);
   credentials.push(`Bearer ${(await tokens.json()).access_token}`);
   for (const authorization of credentials) {

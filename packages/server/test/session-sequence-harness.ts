@@ -1,4 +1,5 @@
 // Generated stores only. The model deliberately does not use the server's authorization decisions.
+import { signInForm } from './oauth-form.ts';
 import assert from 'node:assert/strict';
 import type { TestContext } from 'node:test';
 import type { IncomingMessage } from 'node:http';
@@ -221,7 +222,9 @@ export async function runSequence(t: TestContext, sequence: Op[], options: { che
           break;
         case 'oauth': case 'oauthCode': {
           const verifier = 'sequence-verifier-'.repeat(4);
-          const signed = await request('/oauth/authorize', 'POST', { client_id: client, redirect_uri: `${url}/callback`, response_type: 'code', code_challenge: createHash('sha256').update(verifier).digest('base64url'), code_challenge_method: 'S256', resource: `${url}/mcp`, database: 'Sequence', account: a.name, password: a.password }, undefined, address, true);
+          const signedIn = await signInForm(url, { client_id: client, redirect_uri: `${url}/callback`, response_type: 'code', code_challenge: createHash('sha256').update(verifier).digest('base64url'), code_challenge_method: 'S256', resource: `${url}/mcp`, database: 'Sequence', account: a.name, password: a.password }, { 'x-forwarded-for': addresses[address] });
+          const signed = { status: signedIn.status, text: await signedIn.text(), headers: signedIn.headers };
+          for (const value of secrets) assert.ok(!signed.text.includes(value) && !JSON.stringify([...signed.headers]).includes(value), 'secret leaked');
           if (a.active && !blocked(account, address)) {
             assert.equal(signed.status, 302, `OAuth sign-in eligibility: ${/<p class="error"[^>]*>(.*?)<\/p>/.exec(signed.text)?.[1] ?? 'no error text'}`);
             a.failures[address] = 0;
