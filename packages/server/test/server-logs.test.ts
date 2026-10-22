@@ -202,3 +202,13 @@ test('--log-limit takes a size, and the log is turned over at it', async () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('redactPath does not spend event-loop time on a hostile parameter name (the edge allows 32 KiB request lines)', () => {
+  for (const name of ['a'.repeat(30_000), 'pass '.repeat(6_000), 'x-'.repeat(15_000), 'password'.repeat(3_700)]) {
+    const started = performance.now();
+    redactPath(`/fmi/data/vLatest/databases/X/records?${name}=1&${name}x=2`);
+    const elapsed = performance.now() - started;
+    assert.ok(elapsed < 500, `${name.slice(0, 12)}... took ${elapsed.toFixed(0)} ms`);
+  }
+  assert.equal(redactPath('/x?PGPASSWORD=hunter2&adminpassword=x&compass=north'), '/x?PGPASSWORD=…&adminpassword=…&compass=north');
+});
