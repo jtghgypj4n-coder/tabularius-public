@@ -491,7 +491,8 @@ export function notionMarkdownSheet(name: string, pages: { file: string; text: s
     const lines = page.text.replace(/^﻿/, '').replace(/\r\n?/g, '\n').split('\n');
     let i = 0;
     while (i < lines.length && !lines[i].trim()) i++;
-    const row: Record<string, string> = {};
+    // No prototype: a property called __proto__, constructor or toString is a column like any other.
+    const row: Record<string, string> = Object.create(null);
     const heading = /^#\s+(.*)$/.exec(lines[i] ?? '');
     row.Title = heading ? heading[1].trim() : page.file.replace(/\.md$/i, '').replace(/\s[0-9a-f]{32}$/, '');
     if (heading) i++;
@@ -506,7 +507,7 @@ export function notionMarkdownSheet(name: string, pages: { file: string; text: s
     if (body) { addColumn('Body'); row.Body = body; }
     rows.push(row);
   }
-  return { name, rows: [columns, ...rows.map((r) => columns.map((c) => r[c] ?? ''))] };
+  return { name, rows: [columns, ...rows.map((r) => columns.map((c) => (Object.hasOwn(r, c) ? r[c] : '')))] };
 }
 
 /** The counts as lines for a terminal. */
