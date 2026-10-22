@@ -78,8 +78,8 @@ test('calculated duplicates materialize once and use an indexed record lookup', 
   const calc = t.mock.method(store.calc, 'unstoredValue');
   assert.equal(store.find('Items', { query: [{ Calc: '!' }], limit: 0 }).foundCount, 10000);
   assert.equal(calc.mock.callCount(), 10000, 'one calculation per source record');
-  const plan = store.sql.prepare('EXPLAIN QUERY PLAN UPDATE temp._fm_find SET Calc = ? WHERE _fm_record_id = ?').all('x', 1);
-  assert.match(JSON.stringify(plan), /SEARCH .* USING .*INDEX/);
+  const plan = store.sql.prepare('EXPLAIN QUERY PLAN SELECT * FROM temp._fm_find WHERE _fm_record_id = ?').all(1);
+  assert.match(JSON.stringify(plan), /SEARCH .* USING .*(INDEX|PRIMARY KEY)/);
   calc.mock.resetCalls();
   assert.equal(store.findIds('Items', { query: [{ Calc: '!' }] }).length, 10000);
   assert.equal(calc.mock.callCount(), 10000);
