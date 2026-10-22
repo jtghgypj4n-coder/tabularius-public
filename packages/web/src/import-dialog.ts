@@ -65,7 +65,7 @@ export interface ImportPlan {
   notices?: string[];
 }
 export interface ImportChoice { headerRow: boolean; columns: { column: number; field: string | null; transforms: string[] }[]; keys: string[] }
-export interface ImportResult { id: string; foundSet: number[]; imported: number; updated?: number; skipped: { row: number; why: string }[]; pendingApproval?: number; undoable?: false }
+export interface ImportResult { id: string; foundSet: number[]; imported: number; updated?: number; skipped: { row: number; why: string }[]; blankRows?: number; headerRows?: number; pendingApproval?: number; undoable?: false }
 /** FileMaker's import actions. */
 export type ImportAction = 'add' | 'update' | 'replace';
 /** The found set Update and Replace work on: its record ids, or the find that made it, and its sort. */
@@ -95,7 +95,7 @@ export function importDialog(fileName: string, first: ImportPlan, api: ImportDia
     const dialog = h('dialog', { class: 'replace-dialog export-dialog import-dialog', 'aria-label': 'Import Records' }) as HTMLDialogElement;
     const status = h('span', { class: 'g-status', 'aria-live': 'polite' });
     const body = h('div', { class: 'import-body' });
-    const skipDuplicates = h('input', { type: 'checkbox', 'data-fk': 'skip-duplicates', checked: '' }) as HTMLInputElement;
+    const skipDuplicates = h('input', { type: 'checkbox', 'data-fk': 'skip-duplicates' }) as HTMLInputElement;
     const skipIssues = h('input', { type: 'checkbox', 'data-fk': 'skip-issues' }) as HTMLInputElement;
     const choice = (): ImportChoice => ({ headerRow: plan.headerRow, columns: plan.columns.map((c) => ({ column: c.column, field: c.field, transforms: c.transforms })), keys: plan.keys });
     let pending = 0;
@@ -194,6 +194,13 @@ export function importDialog(fileName: string, first: ImportPlan, api: ImportDia
       const header = h('input', { type: 'checkbox', 'data-fk': 'header', ...(plan.headerRow ? { checked: '' } : {}) }) as HTMLInputElement;
       header.addEventListener('change', () => void refresh({ ...choice(), headerRow: header.checked }));
       const s = plan.summary;
+      const duplicateNote = plan.keys.length
+        ? `${s.duplicatesExisting} ${s.duplicatesExisting === 1 ? 'row has' : 'rows have'} the same ${plan.keys.join(', ')} as ${s.duplicatesExisting === 1 ? 'a record' : 'records'} already in the file; ${s.duplicatesInFile} ${s.duplicatesInFile === 1 ? 'repeats' : 'repeat'} an earlier row of this file. ${skipDuplicates.checked ? 'They will be left out.' : 'They will be added unless you tick the box below.'}`
+        : '';
+      skipDuplicates.onchange = () => {
+        const line = body.querySelector<HTMLElement>('[data-fk="duplicate-summary"]');
+        if (line) line.textContent = duplicateNote.replace(/They will be (?:added unless you tick the box below|left out)\.$/, skipDuplicates.checked ? 'They will be left out.' : 'They will be added unless you tick the box below.');
+      };
       const cols = mappedFields;
       const found = `${opts.foundCount} record${opts.foundCount === 1 ? '' : 's'}`;
       const radio = (value: ImportAction, label: string, note: string) => {
@@ -238,8 +245,9 @@ export function importDialog(fileName: string, first: ImportPlan, api: ImportDia
         sheetPick,
         ...(plan.notices ?? []).map((n) => h('p', { class: 'import-why', role: 'status' }, n)),
         h('p', {}, action === 'add'
-          ? `${fileName}: ${plan.rows} row(s) into ${plan.table}. ${s.ready} ready${s.withIssues ? `, ${s.withIssues} with a value that couldn't be fixed` : ''}${s.duplicatesExisting ? `, ${s.duplicatesExisting} already in the file` : ''}${s.duplicatesInFile ? `, ${s.duplicatesInFile} repeated in the file` : ''}.`
+          ? `${fileName}: ${plan.rows} row(s) into ${plan.table}. ${s.ready} ready${s.withIssues ? `, ${s.withIssues} with a value that couldn't be fixed` : ''}.${plan.keys.length ? '' : ' No repeat check applies.'}`
           : `${fileName}: ${plan.rows} row(s) into ${plan.table}. ${outcome}${s.withIssues ? ` ${s.withIssues} with a value that couldn't be fixed.` : ''}`),
+        action === 'add' && duplicateNote ? h('p', { class: 'import-why', 'data-fk': 'duplicate-summary' }, duplicateNote) : '',
         h('table', { class: 'import-map import-columns' },
           h('thead', {}, h('tr', {}, h('th', {}, 'Column'), h('th', {}, 'Into field'), h('th', {}, 'Fixes'))),
           h('tbody', {}, ...rows)),
@@ -247,7 +255,9 @@ export function importDialog(fileName: string, first: ImportPlan, api: ImportDia
         actions,
         matchable.length && action !== 'replace' ? h('label', { class: 'row' }, action === 'update' ? 'Match records on ' : 'Same record when these match ', keys) : '',
         h('h3', {}, 'Preview'), preview,
-        action === 'add' ? h('label', { class: 'row' }, skipDuplicates, ' Leave out rows already in the file or repeated') : '',
+        action === 'add' && plan.keys.length ? h('div', {},
+          h('label', { class: 'row' }, skipDuplicates, ` Leave out rows that repeat an earlier row or a record already in the file, judged on: ${plan.keys.join(', ')}`),
+          h('p', { class: 'import-why' }, 'Tick to leave those rows out; the result will list their row numbers and reasons.')) : '',
         s.withIssues ? h('label', { class: 'row' }, skipIssues, ' Leave out rows with a value that couldn’t be fixed') : '');
       if (focused) {
         const at = (key: string) => body.querySelector<HTMLElement>(`[data-fk="${key}"]`);
