@@ -219,6 +219,10 @@ class LdapConnection {
     this.buffer = this.buffer.length ? Buffer.concat([this.buffer, chunk]) : chunk;
     for (;;) {
       const total = messageLength(this.buffer);
+      if (total !== undefined && total > MAX_MESSAGE) {
+        this.fail(new LdapError('ldap: the directory sent a message too large to read'));
+        return;
+      }
       if (total === undefined || this.buffer.length < total) return;
       const message = this.buffer.subarray(0, total);
       this.buffer = this.buffer.subarray(total);
@@ -260,6 +264,8 @@ class LdapConnection {
 interface Response { resultCode: number; message: string; entries: Entry[]; }
 
 export class LdapError extends Error {}
+/** The most one reply may hold; a directory's answer to a search is far below it. */
+const MAX_MESSAGE = 16 * 1024 * 1024;
 
 // --- BER encoding ----------------------------------------------------------
 
@@ -341,9 +347,13 @@ class Reader {
     let len = this.buf[this.pos++];
     if (len & 0x80) {
       const count = len & 0x7f;
+      // A length of more than four bytes is past anything a reply holds, and a length that reaches past the bytes
+      // left cannot be read: either would otherwise be a loop of billions or a read of nothing.
+      if (count > 4 || this.pos + count > this.buf.length) throw new LdapError('ldap: the reply has a length it cannot hold');
       len = 0;
       for (let j = 0; j < count; j++) len = len * 256 + this.buf[this.pos++];
     }
+    if (!(len <= this.buf.length - this.pos)) throw new LdapError('ldap: the reply has a length past its end');
     return len;
   }
 
@@ -362,6 +372,7 @@ class Reader {
 
   int(): number {
     const len = this.expect(TAG.int);
+    if (len > 8) throw new LdapError('ldap: the reply has an integer too long to read');
     let n = 0;
     for (let j = 0; j < len; j++) n = n * 256 + this.buf[this.pos++];
     return n;
@@ -369,6 +380,7 @@ class Reader {
 
   enumerated(): number {
     const len = this.expect(TAG.enumerated);
+    if (len > 8) throw new LdapError('ldap: the reply has an integer too long to read');
     let n = 0;
     for (let j = 0; j < len; j++) n = n * 256 + this.buf[this.pos++];
     return n;
