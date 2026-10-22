@@ -7,7 +7,7 @@ missing from it. `npm run docs:known-differences` rewrites it, and a test fails 
 marker (`<!-- known-difference: area ;; what ;; how it shows ;; what would settle it -->`). Internal working notes are not
 part of it.
 
-**81 entries in 17 areas.** Waiting on: 21 on a sample file, 45 on a FileMaker run or Design Report, 10 on a Claris answer, 16 on a decision by the owner (an entry can wait on more than one).
+**82 entries in 17 areas.** Waiting on: 21 on a sample file, 45 on a FileMaker run or Design Report, 11 on a Claris answer, 16 on a decision by the owner (an entry can wait on more than one).
 
 ## Data API
 
@@ -98,6 +98,7 @@ part of it.
 | What differs or is unknown | How it shows | What would settle it | Where it is written |
 | --- | --- | --- | --- |
 | The mutation audit tests this repository's implemented contracts, not Claris behaviour checked against a Claris instance | Nothing shows; where a Claris product answers differently the audit would not notice | A run of the same cases against a Claris instance | [docs/audit-mutation.md › Baseline and scope](audit-mutation.md) — “…guard was changed. No Claris-specific value was inferred: this audit tests the repository's implemented…” |
+| Round two of the mutation audit also tests this repository's implemented outbound and forwarded-address contracts, not Claris behaviour | Nothing shows; where a Claris product answers differently the audit would not notice | A run of the same cases against a Claris instance | [docs/audit-mutation.md › Round two: outbound and forwarded-address decisions](audit-mutation.md) — “…the implemented repository contracts remains unverified.” |
 
 ## Server operation
 

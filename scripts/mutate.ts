@@ -45,7 +45,7 @@ function templateEnd(source: string, start: number): number {
 // This is not a complete JS parser: unsupported syntax is excluded or reported invalid, never counted killed.
 export function tokens(source: string): Token[] {
   const out: Token[] = [];
-  const pattern = /\s+|\/\/[^\n]*|\/\*[\s\S]*?\*\/|"(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'|`(?:\\[\s\S]|[^`\\])*`|[A-Za-z_$][\w$]*|\d+(?:\.\d+)?|===|!==|==|!=|<=|>=|&&|\|\||\?\?|=>|\+\+|--|\?\.|\S/g;
+  const pattern = /\s+|\/\/[^\n]*|\/\*[\s\S]*?\*\/|"(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'|`(?:\\[\s\S]|[^`\\])*`|[A-Za-z_$][\w$]*|\d+(?:\.\d+)?|>>>=|>>=|<<=|>>>|>>|<<|===|!==|==|!=|<=|>=|&&|\|\||\?\?|=>|\+\+|--|\?\.|\S/g;
   let match: RegExpExecArray | null;
   while ((match = pattern.exec(source))) {
     const text = match[0], start = match.index;
@@ -147,7 +147,7 @@ export function importingTests(root: string, file: string): string[] {
   for (const f of files) for (const spec of imports(readFileSync(f, 'utf8'))) {
     let dep: string;
     if (spec.startsWith('.')) dep = resolve(dirname(f), spec).replace(/\.js$/, '.ts');
-    else if (/^@openhbam\/[\w-]+$/.test(spec)) dep = join(root, 'packages', spec.split('/')[1], 'src/index.ts');
+    else if (/^@(?:tabularius|openhbam)\/[\w-]+$/.test(spec)) dep = join(root, 'packages', spec.split('/')[1], 'src/index.ts');
     else continue;
     if (known.has(dep)) reverse.set(dep, [...(reverse.get(dep) ?? []), f]);
   }
