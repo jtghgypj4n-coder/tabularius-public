@@ -1014,8 +1014,8 @@ Records in any script reads only from `<folder>/Documents`.
 functions natively and never load a plug-in:
 - **JSON, regex and stacks:** `BE_JSONPath`, `BE_RegularExpression` (options i, m, s, x, g, v) and the `BE_Stack…` functions.
 - **Text files:** `BE_FileReadText`, `BE_FileWriteText`, `BE_FileExists` and `BE_FileSize` only touch `<folder>/Documents` and a run's temporary folder, as the file script steps do. Any other path counts only by its file name. `BE_GetLastError` reports a missing file as 2.
-- **Network and mail:** `BE_HTTP_…` (GET, POST, PUT, PATCH, DELETE, and the file variants that save to or send from `<folder>/Documents`), `BE_SMTPSend` and `BE_FTP_…` (FTP and FTPS uploads and deletes) work once Script network is turned on for the file, through the same guarded transport and host limits as Insert from URL; with it off they give "?" and error 3. SFTP is not built.
-- **Refused:** shell commands, the clipboard and folder pickers give "?" and error 3, whatever the network setting.
+- **Network and mail:** `BE_HTTP_…` (GET, POST, PUT, PATCH, DELETE, and the file variants that save to or send from `<folder>/Documents`), `BE_SMTPSend` and `BE_FTP_…` (FTP and FTPS uploads and deletes) work once Script network is turned on for the file, through the same guarded transport and host limits as Insert from URL; with it off they give "?" and error 3. SFTP is not built. `BE_FileMove`, `BE_FileCopy`, `BE_FileDelete` and `BE_FolderCreate` run against the script's documents and temporary folders.
+- **Refused:** shell commands, the clipboard, folder pickers and file dialogs give "?" and error 3, whatever the network setting.
 - **MBS:** text, path and container helpers and the Hash functions (digests, HMACs, CRCs; not PBKDF2 or files) are covered; every other MBS call answers with an MBS error.
 
 **Perform Script on Server** works as on FileMaker Server:
