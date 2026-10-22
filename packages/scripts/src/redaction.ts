@@ -596,23 +596,31 @@ export function redactDiagnosticText(text: string, options: { labels?: boolean |
   // ("credentials.ts:41:5"), not an assignment label; never treat a whole frame as a value.
   const spans: { start: number; end: number; replacement: string }[] = [];
   // 'assignments': only name=value and "name": value, so readable prose such as "Invalid token: signature mismatch" stays readable.
+  // Sticky patterns read from the separator without copying the rest of the text, and a separator inside a value already hidden is skipped,
+  // so a long text with many separators costs time in proportion to its length.
+  const authScheme = /[ \t]*(?:Bearer|Basic)[ \t]+/iy, expectedType = /[ \t]*expected\b/iy;
+  const valuePattern = /[ \t]*("(?:[^"\\\r\n]|\\.)*"|'[^'\r\n]*'|[^\s,;&}\])"']+)/y;
+  let covered = 0;
   for (const match of options.labels === false ? [] : safe.matchAll(/[:=]/g)) {
+    if (match.index < covered) continue;
     if (options.labels === 'assignments' && match[0] === ':' && !/["']\s*$/.test(safe.slice(Math.max(0, match.index - 80), match.index))) continue;
     const left = safe.slice(Math.max(0, match.index - 80), match.index);
     const label = /([\w$-]+(?:[ \t]+[\w$-]+){0,2})["']?[ \t]*$/.exec(left)?.[1];
     if (!label || !isCredentialLabelName(label)) continue;
-    const rest = safe.slice(match.index + 1);
+    const at = match.index + 1;
+    const sticky = (pattern: RegExp) => { pattern.lastIndex = at; return pattern.exec(safe); };
     // Authentication schemes are useful labels; their payload was already masked above.
-    if (/\bauthorization$/i.test(label) && /^[ \t]*(?:Bearer|Basic)[ \t]+/i.test(rest)) continue;
+    if (/\bauthorization$/i.test(label) && sticky(authScheme)) continue;
     // This names the invalid field and the expected type; it does not supply a credential.
-    if (/\bfield[ \t]+[\w$-]+["']?[ \t]*$/i.test(left) && /^[ \t]*expected\b/i.test(rest)) continue;
-    const value = /^[ \t]*("(?:[^"\\\r\n]|\\.)*"|'[^'\r\n]*'|[^\s,;&}\])"']+)/.exec(rest);
+    if (/\bfield[ \t]+[\w$-]+["']?[ \t]*$/i.test(left) && sticky(expectedType)) continue;
+    const value = sticky(valuePattern);
     if (!value) continue;
     const raw = value[1];
     const quoted = raw.startsWith('"') || raw.startsWith("'");
     const content = quoted ? raw.slice(1, -1) : raw;
-    spans.push({ start: match.index + 1 + value[0].length - raw.length, end: match.index + 1 + value[0].length,
+    spans.push({ start: at + value[0].length - raw.length, end: at + value[0].length,
       replacement: quoted ? raw[0] + hide(content) + raw[0] : hide(content) });
+    covered = at + value[0].length;
   }
   let end = 0;
   const parts: string[] = [];
