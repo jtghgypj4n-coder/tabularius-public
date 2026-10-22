@@ -124,8 +124,14 @@ export const removeAccents = (s: string) =>
 
 /** Trim: characters up to space, DEL and the no-break space ("alt-space"), and nothing else. */
 const SPACE = '[\\u0000-\\u0020\\u007f\\u00a0]';
+const isSpace = (c: number) => c <= 0x20 || c === 0x7f || c === 0xa0;
 const leftTrim = (s: string) => s.replace(new RegExp(`^${SPACE}+`), '');
-const rightTrim = (s: string) => s.replace(new RegExp(`${SPACE}+$`), '');
+// A scan from the end: an end-anchored pattern is quadratic on a long run of spaces followed by another character.
+const rightTrim = (s: string) => {
+  let end = s.length;
+  while (end > 0 && isSpace(s.charCodeAt(end - 1))) end--;
+  return s.slice(0, end);
+};
 /** Words: runs of letters and digits (with their combining marks); everything else separates them. */
 const words = (s: string) => s.match(/[\p{L}\p{N}][\p{L}\p{N}\p{M}]*/gu) ?? [];
 // Lower case one character at a time, keeping any character whose lower case is longer (such as "İ"),

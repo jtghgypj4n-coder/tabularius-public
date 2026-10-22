@@ -694,7 +694,7 @@ const FUNCTIONS: Record<string, Fn> = {
   to_number: { params: [ANY], run([a]) {
     const j = asJson(a);
     if (j.t === 'num') return j;
-    if (j.t === 'str' && /^\s*-?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?\s*$/.test(j.v)) {
+    if (j.t === 'str' && /^\s*-?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?\s*$/.test(j.v)) {
       const n = Number(j.v);
       return Number.isFinite(n) ? num(n) : NULL;
     }
