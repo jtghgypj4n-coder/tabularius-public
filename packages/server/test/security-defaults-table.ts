@@ -177,9 +177,9 @@ export const ROWS: Row[] = [
   },
   {
     id: 'anonymous', section: 'Sign-in and accounts', setting: 'Anonymous access',
-    default: 'None for a file made here: every Data API, web client and SQL route needs an account. A converted FileMaker file keeps its built-in [Guest] account, which has no password by design (the conversion does not say whether FileMaker had it on)',
-    changedBy: 'Switch [Guest] off in Manage Security; the privilege review in the console reports an active one as "anyone can open the file without an account". Accounts with no password are the other way in (above)',
-    risk: 'An active [Guest] opens the file to anyone who can reach the server, with its privilege set. A file that grants a privilege set to a blank-password account is open to this computer\'s users',
+    default: 'None: every Data API, web client and SQL route needs an account. A file converted by this version keeps its built-in [Guest] account switched off, even if the FileMaker file had it on (the conversion report says so); switched on, it still signs nobody in until it is given a password',
+    changedBy: 'Nothing needed. [Guest] can be switched on in Manage Security, and the privilege review then lists it; giving it a password makes it a shared account. Accounts with no password are the other way in (above)',
+    risk: 'A shared account is only as private as its password. A file that grants a privilege set to a blank-password account is open to this computer\'s users',
     how: 'probed', expect: 'none',
     observe: async (c) => {
       const layouts = await c.request('/fmi/data/vLatest/databases/Shop/layouts');
