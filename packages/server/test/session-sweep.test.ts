@@ -185,3 +185,20 @@ test('a web-client session is not kept alive for Full Access, a disabled account
   now += 24 * 60 * 60_000;
   assert.ok(!api.alive(c), 'a kept session still ends after a day idle');
 });
+
+test('a session cleanup that throws at shutdown is logged and every file still closes', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'tabularius-close-cleanup-'));
+  t.after(() => rmSync(dir, { recursive: true }));
+  for (const file of ['A', 'B']) createStore(join(dir, `${file}.openhbam.sqlite`));
+  const lines: string[] = [];
+  const host = new Host(dir, (m) => lines.push(m));
+  const stores = [host.get('A')!, host.get('B')!];
+  const seen: string[] = [];
+  host.onClose.push((store) => { seen.push(store.name); throw new Error('cleanup refused'); });
+  host.onClose.push((store) => { seen.push(`${store.name} (second)`); });
+  await host.close();
+  assert.deepEqual(seen.sort(), ['A', 'A (second)', 'B', 'B (second)'], 'a failing callback does not stop the others, nor the other file');
+  assert.ok(lines.some((l) => /closing A: session cleanup failed: cleanup refused/.test(l)), lines.join('\n'));
+  assert.ok(lines.some((l) => /closing B: session cleanup failed: cleanup refused/.test(l)));
+  for (const store of stores) assert.throws(() => store.select('SELECT 1'), undefined, `${store.name} is closed`);
+});
