@@ -1,5 +1,15 @@
 # Native field types (N2)
 
+## Record identity (N3)
+
+Each native table stores a UUIDv7 in `_fm_uuid` and keeps `_fm_record_id` as its integer alias. The UUID is unique in its table and is the stable identity for native sync and merge; the integer alias still addresses records in Data API routes, relationships, portals, and record locks. Newly created and duplicated records get distinct UUIDs. Native Data API, OData, MCP record responses, and web record payloads expose `id` beside the existing numeric `recordId` (or OData `ROWID`). Compat files keep their existing storage and response shapes.
+
+Opening a native file made before this column existed creates a SQLite backup beside it named `<store>.before-native-uuid-<time>-<suffix>`, then fills missing UUIDs in one transaction. Reopening it retains those UUIDs and does not make another migration backup. The backup contains the pre-migration native file; keep it until the migrated file has been checked. Record exports continue to export the selected fields, using the integer alias where an export format needs a record number.
+
+For native sync, `uuidField` names the remote layout's UUID field; local matching uses `_fm_uuid` automatically. A native table does not need a separate local UUID field. Both files may have a record with integer alias `1`: their UUIDs keep those records distinct. Sync against an external .fmp12 host, including its handling of UUIDv7 values, is **unverified** offline. <!-- known-difference: Reading .fmp12 files ;; Sync against an external .fmp12 host, including its handling of UUIDv7 values, is unverified ;; A sync against a FileMaker host may match or order records differently ;; A sync run against a FileMaker host with UUID fields -->
+
+## Field types (N2)
+
 These five types are available only in native files. Compat definitions and stored values keep their existing behavior. `NATIVE_FIELD_TYPES` in `packages/store/src/design.ts` identifies fields that cannot be exported to a compat file.
 
 | Type | Stored form | Write and read behavior |

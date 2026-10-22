@@ -106,6 +106,7 @@ function redactScriptValues(value: unknown, secrets: readonly string[]): unknown
 
 /** The shape of a record in find_records and get_record answers; other keys (a stale-value list, portal totals) pass through. */
 const recordOut = z.looseObject({
+  id: z.string().optional(),
   recordId: z.number().int(),
   modId: z.number().int(),
   fieldData: z.record(z.string(), z.unknown()),

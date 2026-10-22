@@ -508,6 +508,8 @@ async function applySyncRun(store: SyncLocal & Partial<Pick<Store, 'present' | '
         const s = sendable(store, v, fieldTypes.get(n)?.type);
         if (s !== undefined) out[n] = s;
       }
+      // The external host's acceptance of UUIDv7 in its configured field is unverified offline.
+      if (!remoteRec && store.fileMode === 'native') out[d.config.uuidField] = local.uuid;
       return out;
     };
 
@@ -627,6 +629,7 @@ async function applySyncRun(store: SyncLocal & Partial<Pick<Store, 'present' | '
           // The record and its files go in together: a file that can't be stored leaves no half-made record to be adopted later.
           atomically(store, () => {
             const m = ls.create(table, fieldData, { performAutoEnter: false });
+            if (store.fileMode === 'native') store.sql.prepare(`UPDATE ${q(table)} SET _fm_uuid = ? WHERE _fm_record_id = ?`).run(item.uuid, m.recordId);
             const modId = setContainers(table, m.recordId, files, m.modId);
             crashPoint('sync-apply:after-data');
             upsertMap(store, key, { uuid: item.uuid, localRecordId: m.recordId, lastLocalModId: modId, remoteRecordId: rem.recordId, lastRemoteModId: rem.modId, lastRemoteModTs: rem.modTimestamp ?? null });
