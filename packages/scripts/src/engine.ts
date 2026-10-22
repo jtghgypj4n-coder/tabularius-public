@@ -5040,6 +5040,10 @@ export class ScriptEngine {
         // The person's browser windows and where they stand in them belong to the caller's run, not the server's.
         startWindow: undefined, openWindows: undefined, variables: undefined, startedBy: undefined, activeObjectId: undefined,
         activeObject: undefined, activeRow: undefined, lastVisited: undefined, requests: undefined, view: undefined,
+        // Nor the person's device and screen: their window size, location, clipboard, camera and dialogs, the browser that
+        // downloads their exports, and their Stop button.
+        window: undefined, location: undefined, device: undefined, clipboard: undefined, checkpoint: undefined,
+        sortDialog: undefined, indexDialog: undefined, clientFieldExports: undefined, downloads: undefined, userStop: undefined,
         // Scripts it calls on the server run at once, so waiting on each other can't fill the queue.
         serverQueue: undefined,
         onAccessDenial: p.wait === false && !p.callback ? undefined : this.opts.onAccessDenial,
