@@ -1,4 +1,4 @@
-# Secret-surface audit (r17g-04)
+# Secret-surface audit
 
 The regression matrix uses seven distinct synthetic credentials: password, API key,
 token, container password, plug-in secret, SMTP credential, and S3 credential.
@@ -6,9 +6,8 @@ token, container password, plug-in secret, SMTP credential, and S3 credential.
 exercised with every seed; assertions inspect actual serialized output, persisted
 rows, file bytes, or rendered page state, rather than only the masking helper.
 
-This audit extends `CredentialRedactor`, `REDACTED`, and `isCredentialName` from
-PR #1207 (`claude/project-thread-mzj8h2-redaction-diagnostics`). That branch's helpers
-were inspected with `git show`. Debugger and recording coverage belongs to that PR;
+This audit extends `CredentialRedactor`, `REDACTED` and `isCredentialName` from the earlier
+redaction and diagnostics work. Debugger and recording coverage belongs to that work;
 this change adds structured-output discovery and diagnostic-boundary coverage.
 There is no process-wide registry of plaintext secrets.
 

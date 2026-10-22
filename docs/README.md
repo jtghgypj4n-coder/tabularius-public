@@ -84,6 +84,7 @@ To read these pages offline with search, build the site: `npm run docs:build` wr
 - [Security mutation audit](audit-mutation.md) — Which security checks were mutated, how many mutants the tests killed, and the six exclusions.
 - [Privilege matrix audit](audit-privilege-matrix.md) — What each privilege shape can do through the Data API, OData, web client, MCP, SQL, pgwire, Admin API and scripts, and the gaps it found.
 - [Token file-scope audit](token-file-scope-audit.md) — Review how request handlers enforce token scope and per-file privileges.
+- [Secret-surface audit](audit-secret-sinks.md) — A seeded-secret check for every place a secret could be written out (logs, errors, exports, backups, pages), and what each one hides.
 - [Execution-refusal catches](execution-refusal-catches.md) — Review fixes and validation for execution refusals caught by the calculation and store layers.
 - [Versions](versioning.md) — What a version number means, what stays put between versions, which platforms are tested, and how release notes are made.
 - [Release builds](release-builds.md) — Rebuild a release and get the same bytes, read its bill of materials, and check a stored copy against its checksums.
