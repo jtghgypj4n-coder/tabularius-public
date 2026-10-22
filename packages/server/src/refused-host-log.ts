@@ -9,12 +9,15 @@ export const REFUSED_HOST_WINDOW_MS = 10 * 60_000;
 export const REFUSED_HOST_LINES = 16;
 /** The most distinct names counted in a window; more are counted together as "others". */
 export const REFUSED_HOST_TABLE = 1000;
+/** The longest a host name can be; a longer one is not a name to configure and is counted, never written. */
+export const REFUSED_HOST_NAME_MAX = 253;
 const TOP = 5;
 
 export class RefusedHostLog {
   private readonly counts = new Map<string, number>();
   private readonly logged = new Set<string>();
   private others = 0;
+  private tooLong = 0;
   private windowStart?: number;
 
   private readonly write: (line: string) => void;
@@ -30,6 +33,7 @@ export class RefusedHostLog {
       this.summarise();
       this.windowStart = now;
     }
+    if (name.length > REFUSED_HOST_NAME_MAX) { this.tooLong++; return; }
     const seen = this.counts.get(name);
     if (seen !== undefined) this.counts.set(name, seen + 1);
     else if (this.counts.size < REFUSED_HOST_TABLE) this.counts.set(name, 1);
@@ -44,12 +48,18 @@ export class RefusedHostLog {
   private summarise(): void {
     const left = [...this.counts].filter(([name]) => !this.logged.has(name)).sort((a, b) => b[1] - a[1]);
     const total = left.length + this.others;
+    const others = this.others;
+    const tooLong = this.tooLong;
     this.counts.clear();
     this.logged.clear();
-    const others = this.others;
     this.others = 0;
-    if (!total) return;
+    this.tooLong = 0;
+    if (!total && !tooLong) return;
     const top = left.slice(0, TOP).map(([name, n]) => `${name} (${n} ${n === 1 ? 'time' : 'times'})`).join(', ');
-    this.write(`${total} more host names were refused in the last ${REFUSED_HOST_WINDOW_MS / 60_000} minutes and not logged one by one${top ? `; asked for most often: ${top}` : ''}${others ? `; ${others} more requests came for names beyond the ${REFUSED_HOST_TABLE} counted` : ''}. A name that is yours needs --public-url or --https.`);
+    const parts = [
+      total ? `${total} more host names were refused in the last ${REFUSED_HOST_WINDOW_MS / 60_000} minutes and not logged one by one${top ? `; asked for most often: ${top}` : ''}${others ? `; ${others} more requests came for names beyond the ${REFUSED_HOST_TABLE} counted` : ''}` : '',
+      tooLong ? `${tooLong} requests named a host longer than a host name can be (over ${REFUSED_HOST_NAME_MAX} characters) and were refused` : '',
+    ].filter(Boolean);
+    this.write(`${parts.join('; ')}. ${total ? 'A name that is yours needs --public-url or --https.' : 'Nothing to configure for those.'}`);
   }
 }

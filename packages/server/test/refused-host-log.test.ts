@@ -46,3 +46,32 @@ test('refused host names: a quiet server logs each name when it first comes and 
   log.note('a.example', 20 * 60_000);
   assert.equal(lines.length, 3, 'a new window logs the name again, and no summary since nothing was left out');
 });
+
+test('refused host names: a name longer than any host name is counted, never written, so the log grows by a bounded amount', () => {
+  const lines: string[] = [];
+  const log = new RefusedHostLog((line) => lines.push(line));
+  let now = 0;
+  // A client sends a 5,000-character name each time, and some ordinary made-up names among them.
+  for (let i = 0; i < 5000; i++) log.note(`${'a'.repeat(4990)}${String(i).padStart(10, '0')}`, now++);
+  for (let i = 0; i < 100; i++) log.note(`junk${i}.example`, now++);
+  assert.equal(lines.length, 16, 'only the ordinary names are logged one by one');
+  assert.ok(lines.join('').length < 5000, `${lines.join('').length} bytes in the first window`);
+  assert.ok(log.size <= 100, String(log.size));
+
+  now += 11 * 60_000;
+  log.note('real.example', now++);
+  assert.equal(lines.length, 18);
+  assert.match(lines[16], /5000 requests named a host longer than a host name can be/);
+  assert.ok(lines[16].length < 1000, `${lines[16].length} bytes in the summary`);
+  assert.ok(lines.join('').length < 8000, `${lines.join('').length} bytes in two windows`);
+
+  // Only long names in a window: still one line, and no name in it.
+  const quiet: string[] = [];
+  const only = new RefusedHostLog((line) => quiet.push(line));
+  for (let i = 0; i < 10; i++) only.note('b'.repeat(300) + i, 0);
+  assert.deepEqual(quiet, []);
+  only.note('c'.repeat(300), 20 * 60_000);
+  assert.equal(quiet.length, 1);
+  assert.match(quiet[0], /^10 requests named a host longer than a host name can be/);
+  assert.ok(!quiet[0].includes('bbbb'));
+});
