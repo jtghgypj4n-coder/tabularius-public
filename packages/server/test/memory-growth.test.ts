@@ -174,16 +174,14 @@ test('MCP script globals are discarded when their file closes', (t) => {
 });
 
 test('server script queue bounds waiting jobs without abandoning admitted work', async () => {
+  // Main's queue already refuses past `pendingLimit` waiting jobs (and `perProducerLimit` per file) when it is full; this checks it holds and recovers.
   const queue = new ScriptQueue(1);
   let release!: () => void;
   const first = queue.run(() => new Promise<void>((ok) => { release = ok; }));
-  const waiting = Array.from({ length: 1024 }, () => queue.run(async () => 1));
-  const extra = queue.run(async () => 2);
-  // Release before awaiting the rejection so the unfixed implementation cannot hang the test.
-  const rejected = assert.rejects(extra, /queue|busy|many/i);
+  const waiting = Array.from({ length: queue.pendingLimit }, (_, i) => queue.run(async () => 1, { file: `File${i}` }));
+  assert.throws(() => queue.run(async () => 2, { file: 'Extra' }), /queue is full/);
   release();
   await Promise.all([first, ...waiting]);
-  await rejected;
   assert.equal(queue.queued, 0);
   assert.equal(queue.running, 0);
 });

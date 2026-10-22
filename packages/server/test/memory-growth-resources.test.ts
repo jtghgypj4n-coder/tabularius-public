@@ -195,7 +195,7 @@ test('debugger runs evict and halt the oldest continuation', (t) => {
   const debug = new DebugApi(host, api);
   t.after(() => debug.stop());
   let halted = 0;
-  const run = () => ({ debugger: { running: true, resume: async () => { halted++; } } });
+  const run = () => ({ stop: new AbortController(), debugger: { running: true, state: () => ({ paused: true }), resume: async () => { halted++; }, whenFinished: async () => {} } });
   for (let i = 0; i < 130; i++) inside(debug).runs.set(String(i), run());
   assert.equal(inside(debug).runs.size, 128);
   assert.equal(halted, 2);
@@ -284,16 +284,17 @@ test('live presence has a file-wide cap and expires the oldest view', async (t) 
   const host = hostFor(t);
   const store = host.create('Growth');
   store.applyDesign([{ op: 'createTable', name: 'People', fields: [{ name: 'Name', type: 'text' }] }]);
+  const { recordId } = store.create('People', { Name: 'Ann' }); // the view route refuses a record that does not exist
   const api = new DataApi(host);
   const token = api.open(store, 'Admin', 'web');
   const live = new Live(host, api);
-  for (let i = 0; i < 4096; i++) store.locks.view('People', i, token, 'Admin');
+  for (let i = 0; i < 4096; i++) store.locks.view('People', 100_000 + i, token, 'Admin');
   const r = new Reply();
   const request = req('{}', { authorization: `Bearer ${token}` });
-  await live.handle(request, response(r), new URL('http://localhost/tabularius/live/v1/databases/Growth/layouts/People/records/5000/view'));
+  await live.handle(request, response(r), new URL(`http://localhost/tabularius/live/v1/databases/Growth/layouts/People/records/${recordId}/view`));
   assert.equal(r.statusCode, 200, r.body);
   assert.equal(store.locks.viewers().length, 4096);
-  assert.equal(store.locks.viewers().some((v) => v.recordId === 0), false);
+  assert.equal(store.locks.viewers().some((v) => v.recordId === 100_000), false);
   api.end(token);
   assert.equal(store.locks.viewers().length, 0);
 });
