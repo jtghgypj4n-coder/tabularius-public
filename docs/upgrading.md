@@ -53,6 +53,14 @@ A **second** signal while this is going on stops the process at once with exit c
 
 What a restart does not keep: Data API and web client sessions (people sign in again; API tokens last), and scripts that were running. While a single process starts nothing listens on the port, so a proxy in front sees a refused connection until the files are open; with `--workers` the front process answers `503` with `Retry-After` while a worker starts.
 
+## Sign-in checks this version applies more strictly
+
+These follow the published rules (OAuth 2.0, OpenID Connect, WebAuthn) more closely than earlier builds did. Each can refuse something that used to be let through, so check them before you upgrade a server people sign in to.
+
+- **OpenID Connect issuer.** The issuer you configured must equal the issuer the provider publishes in its discovery document and puts in its tokens. A trailing slash on either side is ignored; any other difference is refused. A provider you configured with a different form of the address (an Entra domain tenant instead of the tenant ID form the provider publishes, say) must be configured with the published issuer. Tokens are also checked for the configured client as audience, and for the authorized party when there is more than one audience.
+- **Refresh tokens used twice.** An AI app or web client that presents the same refresh token a second time after it has been replaced signs itself out: the replacement refresh token and its access token are revoked, and the person signs in again. A short retry window is kept for a lost response: for 45 seconds the old token gets the same replacement back, until that replacement has been used. After the upgrade, a token that was already replaced earlier is not remembered, so the first replay of it is not detected.
+- **Passkeys.** A passkey's public key must be a P-256 key with integer algorithm and key-type identifiers and 32-byte coordinates, and its data must be well-formed CBOR with nothing after it. Passkeys registered before still work if they meet this; an authenticator that strips leading zeros from a coordinate is refused (not tested with real hardware).
+
 ## Rolling back
 
 1. Stop the server (Ctrl+C, or stop the service with your service manager).
