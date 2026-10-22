@@ -253,7 +253,7 @@ test('modernize: the pages of a small table keep their bytes in every mode and v
     }
   }
   // Pins the pages as the restyle (pills, initials badges, floating panels) made them; re-pin when the templates change on purpose.
-  assert.equal(createHash('sha256').update(JSON.stringify(pages)).digest('hex'), '9920e3a20995b9836e5179f32d23bd699afb45a334d8c41c4cba3000b531c9e8');
+  assert.equal(createHash('sha256').update(JSON.stringify(pages)).digest('hex'), 'eeac299b45f19537fcc7b6530bcdcfc52c349ffd849168dd705e9c43ff913ad1');
 });
 
 for (const native of [true, false]) for (const type of ['date', 'timestamp'] as const) {
@@ -382,26 +382,32 @@ test('modernize: the status pill, the initials badge and the record title read t
   for (const v of ['constructor', '__proto__', 'toString', 'hasOwnProperty']) assert.equal(h.pill(v).class, 'pill ', v);
   assert.equal(h.pill('Paid').class, 'pill ok');
   assert.equal(h.pill('In Progress').class, 'pill info');
-  for (const name of ['Status', 'stage', 'Order_Status', 'OrderStatus', 'Order Status', 'Status_Code', 'Priority', 'State']) assert.ok(h.isState(col(name)), name);
+  for (const name of ['Status', 'stage', 'Order_Status', 'OrderStatus', 'Order Status', 'Status_Code', 'StatusCode', 'Order_Status_Code', 'OrderStatusCode', 'Priority', 'State']) assert.ok(h.isState(col(name)), name);
   for (const name of ['Hostage', 'Statement', 'Balance']) assert.ok(!h.isState(col(name)), name);
   assert.ok(!h.isState(col('Status', 'number')) && !h.isState(col('Stage', 'longtext')));
   const names = make({ columns: [col('Full_Name')] });
   assert.ok(!names.nameCol(col('Company')), 'only the first column is a name');
   const first = (name: string, control = 'text') => { const c = col(name, control); return make({ columns: [c] }).nameCol(c); };
   assert.ok(first('Full_Name') && first('Company'));
-  for (const name of ['ID', 'CustomerID', 'Customer_ID', 'Customer ID', 'Order No', '#']) assert.ok(!first(name), name);
+  for (const name of ['ID', 'CustomerID', 'Customer_ID', 'Customer ID', 'Order No', 'OrderNo', 'OrderNumber', 'Order_Number', 'SKU', 'ProductCode', '#']) assert.ok(!first(name), name);
   assert.ok(!first('Joined', 'date') && !first('Total', 'number'));
   assert.equal(h.avatar('Ada Lovelace')['data-i'], 'AL');
   assert.equal(h.avatar('ada lovelace')['data-i'], 'AL');
   assert.equal(h.avatar('Prince')['data-i'], 'P');
   assert.equal(h.avatar('  ')['data-i'], '?');
+  assert.equal(h.avatar('')['data-i'], '?');
   // A first letter outside the basic plane is one character, not half a surrogate pair.
-  assert.equal(Array.from(h.avatar('\u{1D4D0}da Lovelace')['data-i']).length, 2);
+  assert.equal(h.avatar('\u{1D4D0}da Lovelace')['data-i'], '\u{1D4D0}L');
   // The form's title: the name with its badge, "New" and the singular on a new record, the plain title when the name is blank.
   assert.equal(h.recHead({ fieldData: { Full_Name: 'Ada Lovelace' } }, false)[0].kids[0]['data-i'], 'AL');
   assert.equal(h.recHead({ fieldData: {} }, true)[0].kids[0].text, 'New Business Status');
   assert.equal(h.recHead({ fieldData: {} }, false)[0].kids[0].text, 'Business Status');
   assert.equal(make({ title: 'Customers', columns: [col('Name')] }).recHead({ fieldData: {} }, true)[0].kids[0].text, 'New Customer');
+  // A plural that is not made by dropping the s ("Companies") falls back to "New record" instead of a cut-off word.
+  assert.equal(make({ title: 'Companies', columns: [col('Name')] }).recHead({ fieldData: {} }, true)[0].kids[0].text, 'New record');
+  // A value with a number of three digits or more is a code, not a person: no badge.
+  const code = h.recHead({ fieldData: { Full_Name: 'Unit 101' } }, false)[0].kids[0];
+  assert.deepEqual([code.text, code['data-i']], ['Unit 101', undefined]);
   // A table whose list has no columns (only a container field on the layout) still opens a record.
   assert.deepEqual(make({ title: 'Pictures', columns: [] }).recHead({ fieldData: {} }, true), []);
 });
