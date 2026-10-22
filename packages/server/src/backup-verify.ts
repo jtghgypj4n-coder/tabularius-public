@@ -20,7 +20,8 @@
 import { readBackupInfo, updateBackupInfo } from './backup-info.ts';
 import { DatabaseSync } from 'node:sqlite';
 import { createHash } from 'node:crypto';
-import { copyFileSync, createReadStream, existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { copyFileSync, createReadStream } from '../../store/src/fs-boundary.ts';
+import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { backupInventory, checkedBackupCopies } from './backup-inventory.ts';

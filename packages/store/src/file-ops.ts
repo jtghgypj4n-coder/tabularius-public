@@ -1,6 +1,7 @@
 import { renameSync, rmSync } from 'node:fs';
 import { rename } from 'node:fs/promises';
 import { setTimeout as delay } from 'node:timers/promises';
+import { renameSync as renameChecked } from './fs-boundary.ts';
 
 const retryable = (e: unknown, platform: NodeJS.Platform, attempt: number) =>
   platform === 'win32' && attempt < 3 && ['EPERM', 'EBUSY', 'EACCES'].includes((e as NodeJS.ErrnoException).code ?? '');
@@ -29,4 +30,13 @@ export async function renameFile(from: string, to: string, platform: NodeJS.Plat
     try { await move(from, to); return; }
     catch (e) { if (!retryable(e, platform, attempt)) throw e; await wait(25 * (attempt + 1)); }
   }
+}
+
+/** Shipped code renames through the filesystem boundary (both entries checked again at the moment of use), with the same bounded retries. */
+export function renameCheckedSync(from: string, to: string, platform: NodeJS.Platform = process.platform, wait?: (ms: number) => void): void {
+  retryFileSync(() => renameChecked(from, to), platform, wait);
+}
+
+export function renameCheckedFile(from: string, to: string, platform: NodeJS.Platform = process.platform, wait?: (ms: number) => Promise<unknown>): Promise<void> {
+  return renameFile(from, to, platform, async (a, b) => renameChecked(a, b), wait);
 }

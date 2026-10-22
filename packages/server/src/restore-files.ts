@@ -1,6 +1,7 @@
 import { removeFileSync as rmSync } from '../../store/src/file-ops.ts';
 import { crashPoint } from '../../store/src/crash-point.ts';
-import { existsSync, lstatSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, lstatSync, readdirSync } from 'node:fs';
+import { readFileSync } from '../../store/src/fs-boundary.ts';
 import { randomUUID } from 'node:crypto';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { atomicWrite, syncPath, writeDurable } from '../../store/src/durable.ts';

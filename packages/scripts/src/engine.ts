@@ -7,7 +7,8 @@ import { documentNamePart, checkPathLength } from '../../store/src/portable-path
 
 import { cancellationScope, untilCanceled } from './cancellation.ts';
 import { createHash, randomUUID } from 'node:crypto';
-import { appendFileSync, closeSync, constants as fsConstants, cpSync, existsSync, fstatSync, lstatSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, readSync, realpathSync, statfsSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync, writeSync } from 'node:fs';
+import { closeSync, constants as fsConstants, cpSync, existsSync, fstatSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readSync, realpathSync, statfsSync, rmSync, statSync, unlinkSync } from 'node:fs';
+import { checkedFile, cleanupPath, removeEntrySync, renameEntrySync, openSync, readFileSync, writeFileSync, appendFileSync, renameSync, writeSync } from '../../store/src/fs-boundary.ts';
 import { hostname, tmpdir } from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
 import { renewTransactionLocks } from '../../store/src/activity.ts';
@@ -6946,14 +6947,14 @@ export class ScriptEngine {
    * Entries may be variables ("$path"), and the first that names a file is
    * used; `existing` prefers one that exists.
    */
-  private filePath(f: Frame, p: StepParams, step: string, existing = false): { path: string; shown: string } {
+  private filePath(f: Frame, p: StepParams, step: string, existing = false, entry = false): { path: string; shown: string } {
     if (!this.opts.documents) throw new ScriptError(ERROR.missingFile, `${step} works only in the server's documents folder, and none is set`);
     const entries = (p.filePaths ?? []).flatMap((x) => {
       const v = x.replace(/\$\$?[\p{L}\p{N}_.]+/gu, (name) => asText(this.getVariable(f, name, 1) ?? text('')));
       return v.split(/\r\n|[\r\n]/).map((y) => y.trim()).filter(Boolean);
     });
     const mapped = entries.map((raw) => {
-      const path = this.sandboxPath(raw);
+      const path = this.sandboxPath(raw, entry);
       if (!path && this.documentsLink(raw)) throw new ScriptError(ERROR.missingFile, `${raw} is a link`);
       return path && { path, shown: raw };
     }).filter((x): x is { path: string; shown: string } => !!x);
@@ -6988,7 +6989,7 @@ export class ScriptEngine {
    * never outside them: Get ( DocumentsPath ) and Get ( TemporaryPath ) keep
    * their subfolders, and any other path counts only by its file name.
    */
-  private sandboxPath(raw: string): string | undefined {
+  private sandboxPath(raw: string, entry = false): string | undefined {
     if (!this.opts.documents) return undefined;
     const s = raw.replace(/^(?:file|filemac|filewin|image|imagemac|imagewin|movie|moviemac|moviewin)?:/i, '').replace(/\\/g, '/');
     const temp = s.indexOf(TEMPORARY);
@@ -7015,12 +7016,17 @@ export class ScriptEngine {
           if (there || at === dirname(at)) return join(realpathSync(at), relative(at, target));
         }
       };
-      const inside = relative(resolve(base), resolve(path));
+      const canonical = resolve(path);
+      const inside = relative(resolve(base), canonical);
       if (inside.startsWith('..') || isAbsolute(inside)) return undefined;
+      if (!entry) return canonical;
+      const parent = resolve(dirname(path));
+      const parentInside = relative(resolve(base), parent);
+      if (parentInside.startsWith('..') || isAbsolute(parentInside)) return undefined;
+      return join(parent, basename(path));
     } catch {
       return undefined;
     }
-    return path;
   }
 
   /** Whether an otherwise refused Documents path crosses a link. */
@@ -7061,16 +7067,16 @@ export class ScriptEngine {
     },
     makeFolder: (raw) => this.fsCode(() => mkdirSync(this.sandboxed(raw.replace(/[/\\]+$/, '')), { recursive: true })),
     remove: (raw) => this.fsCode(() => {
-      const path = this.sandboxed(raw);
+      const path = this.sandboxed(raw, true);
       if (!existsSync(path)) throw Object.assign(new Error('missing'), { errno: -2 });
-      rmSync(path, { recursive: true });
+      removeEntrySync(path, { recursive: true });
     }),
     move: (from, to, overwrite) => this.fsCode(() => {
-      const target = this.sandboxed(to);
+      const target = this.sandboxed(to, true);
       if (!overwrite && existsSync(target)) throw Object.assign(new Error('exists'), { errno: -17 });
-      renameSync(this.sandboxed(from), target);
+      renameEntrySync(this.sandboxed(from, true), target);
     }),
-    copy: (from, to, overwrite) => this.fsCode(() => cpSync(this.sandboxed(from), this.sandboxed(to), { recursive: true, force: overwrite, errorOnExist: !overwrite })),
+    copy: (from, to, overwrite) => this.fsCode(() => cpSync(this.sandboxed(from, true), this.sandboxed(to, true), { recursive: true, force: overwrite, errorOnExist: !overwrite })),
     list: (raw, recurse) => {
       const path = this.sandboxPath(raw.replace(/[/\\]+$/, ''));
       if (!path || !existsSync(path) || !statSync(path).isDirectory()) return undefined;
@@ -7091,8 +7097,8 @@ export class ScriptEngine {
   };
 
   /** A sandboxed path, or an error that reads as a missing file. */
-  private sandboxed(raw: string): string {
-    const path = this.sandboxPath(raw);
+  private sandboxed(raw: string, entry = false): string {
+    const path = this.sandboxPath(raw, entry);
     if (!path) throw Object.assign(new Error('outside the allowed folders'), { errno: -2 });
     return path;
   }
@@ -7221,21 +7227,21 @@ export class ScriptEngine {
         return;
       }
       case 197: { // Delete File
-        const { path } = this.filePath(f, p, 'Delete File', true);
+        const { path } = this.filePath(f, p, 'Delete File', true, true);
         if (!existsSync(path) || !statSync(path).isFile()) throw new ScriptError(ERROR.missingFile, 'The file is missing');
         if (isOpen(path)) throw new ScriptError(ERROR.fileInUse, 'The file is open');
-        unlinkSync(path);
+        removeEntrySync(path);
         return;
       }
       case 199: { // Rename File: a new name in the same folder
-        const { path } = this.filePath(f, p, 'Rename File', true);
+        const { path } = this.filePath(f, p, 'Rename File', true, true);
         if (!existsSync(path) || !statSync(path).isFile()) throw new ScriptError(ERROR.missingFile, 'The file is missing');
         if (isOpen(path)) throw new ScriptError(ERROR.fileInUse, 'The file is open');
         const name = asText(this.eval(f, p.newName ?? '')).trim();
         if (!documentNamePart(name) || (process.platform !== 'win32' && /[/\\:]/.test(name)) || name.startsWith('.')) throw new ScriptError(ERROR.missingFile, `"${name}" is not a file name`);
         const to = join(dirname(path), name);
         if (existsSync(to)) throw new ScriptError(ERROR.fileInUse, `A file named "${name}" exists`);
-        renameSync(path, to);
+        renameEntrySync(path, to);
         return;
       }
     }
@@ -7255,8 +7261,11 @@ export class ScriptEngine {
     const fallback = ({ XLXE: 'Untitled.xlsx', TABS: 'Untitled.tab', MRGE: 'Untitled.mer', XML: 'Untitled.xml' } as Record<string, string>)[p.exportFormat ?? ''] ?? 'Untitled.csv';
     const target = this.outputPath(f, p, p.exportFormat === 'XLXE' ? 'Save Records as Excel' : 'Export Records', fallback);
     const path = `${target}.${randomUUID()}.partial`;
+    let cleanup = () => {};
+    let checkStaging = () => {};
     const complete = (step: string) => {
       this.canceled(f.script.name);
+      checkStaging();
       renameSync(path, target);
       this.deliver(f, step, target);
     };
@@ -7277,6 +7286,9 @@ export class ScriptEngine {
         if (dirname(path) !== this.opts.documents) throw new ScriptError(ERROR.missingFile, 'The folder is missing (Create folders is off)');
         mkdirSync(dirname(path), { recursive: true });
       }
+      closeSync(openSync(path, 'wx', 0o600));
+      cleanup = cleanupPath(path);
+      checkStaging = checkedFile(path);
       // A repeating field named whole (not one repetition of it) exports every repetition, to the last one with a value.
       const named = p.exportFields?.length ? p.exportFields.map((x) => x.repetition === undefined) : refs.map(() => true);
       const repetitions = refs.map((r, i) => {
@@ -7328,6 +7340,7 @@ export class ScriptEngine {
         }
         await new Promise<void>((resolve) => setImmediate(resolve));
         this.canceled(f.script.name);
+        checkStaging();
         writeFileSync(path, workbook);
         complete('Save Records as Excel');
         return;
@@ -7360,12 +7373,14 @@ export class ScriptEngine {
         const grammar = p.xmlGrammar === 'FMPDSORESULT'
           ? fmpDsoResult(win.store.name, win.layoutName ?? '', fields.map((x) => ({ name: x.name, repeating: (x.maxRepeat ?? 1) > 1 })), out)
           : fmpXmlResult(win.store.name, fields, out);
+        checkStaging();
         writeFileSync(path, sheet === undefined ? grammar : transformXml(grammar, sheet));
         complete('Export Records');
         return;
       }
       if (format === 'HTML') {
         const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/\r\n|[\r\n]/g, '<br>');
+        checkStaging();
         const fd = openSync(path, 'w');
         try {
           const put = (t: string) => writeSync(fd, t);
@@ -7391,6 +7406,7 @@ export class ScriptEngine {
       const sep = format === 'TABS' ? '\t' : ',';
       const encoding = p.encoding === 'utf-16' ? 'utf-16' : 'utf-8';
       // Written a record at a time, so a big found set never sits in memory.
+      checkStaging();
       const fd = openSync(path, 'w');
       try {
         // UTF-16 text starts with a byte order mark, so a program that opens the file (this one's Import Records too) knows its byte order.
@@ -7406,7 +7422,7 @@ export class ScriptEngine {
         closeSync(fd);
       }
       complete('Export Records');
-    } finally { rmSync(path, { force: true }); }
+    } finally { cleanup(); }
   }
 
   /**
@@ -8146,6 +8162,7 @@ export class ScriptEngine {
     const accepted = kind === 'text' ? /\.(csv|json|log|mer|tab|tsv|txt|xml|xsl|xslt)$/i : /\.(jpe?g|png|gif|tiff?|bmp|heic|webp|pdf|mov|mp4|m4v|avi|mpe?g)$/i;
     const home = realpathSync(base);
     const found: string[] = [];
+    const targets = new Map<string, string>();
     const walk = (dir: string, level: number) => {
       for (const entry of readdirSync(dir, { withFileTypes: true })) {
         if (entry.name.startsWith('.')) continue;
@@ -8156,7 +8173,8 @@ export class ScriptEngine {
           try {
             const real = realpathSync(path);
             if (relative(home, real).startsWith('..') || isAbsolute(relative(home, real))) continue;
-            info = statSync(path);
+            info = statSync(real);
+            targets.set(path, real);
           } catch { continue; }
         }
         if (info.isDirectory()) {
@@ -8169,8 +8187,8 @@ export class ScriptEngine {
     const files = new Map<string, { filename: string; data: Uint8Array }>();
     const rows = found.map((path) => {
       this.poll(f);
-      const shown = relative(base, path).split(sep).join('/');
-      const data = new Uint8Array(readFileSync(path));
+      const shown = relative(home, path).split(sep).join('/');
+      const data = new Uint8Array(readFileSync(targets.get(path) ?? path));
       if (kind === 'picture') {
         files.set(shown, { filename: basename(path), data });
         return [shown, basename(path), shown, ''];

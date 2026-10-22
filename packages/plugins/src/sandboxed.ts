@@ -10,7 +10,8 @@
 // when it runs twice; the same request twice in one call is made once. The realm can be dropped
 // at any time (a time-out, the sandbox restarting), so kept state is a cache, never a store.
 
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
+import { readFileSync } from '../../store/src/fs-boundary.ts';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { CalcError, ERR, type Env } from '../../calc/src/index.ts';
@@ -119,14 +120,19 @@ function pluginHost(manifest: PluginManifest, fn: string, env: Env, secrets: () 
 /** Reads a plug-in folder (plugin.json and its main file), with its secrets from the data folder when given. Only
  * JavaScript plug-ins run so far. */
 export function readPlugin(dir: string, dataDir?: string): { manifest: PluginManifest; calls: Record<string, PluginCall> } {
-  const parsed = parseManifest(JSON.parse(readFileSync(join(dir, 'plugin.json'), 'utf8')));
+  const manifestBytes = readFileSync(join(dir, 'plugin.json'));
+  const parsed = parseManifest(JSON.parse(manifestBytes.toString('utf8')));
   if (!parsed.ok) throw new Error(`${dir}/plugin.json: ${parsed.errors.join('; ')}`);
   const { manifest } = parsed;
   if (manifest.runtime === 'wasm' && !/\.wasm$/.test(manifest.main)) throw new Error(`${manifest.id}: a wasm plug-in's main is a .wasm file`);
   if (manifest.runtime === 'js' && /\.wasm$/.test(manifest.main)) throw new Error(`${manifest.id}: a .wasm main needs "runtime": "wasm"`);
   // Read at each use, so a secret the admin sets takes effect without a restart.
   const secrets = () => (dataDir ? readPluginSecrets(dataDir, manifest.id) : {});
-  return { manifest, calls: sandboxedCalls(manifest, readFileSync(join(dir, manifest.main), manifest.runtime === 'wasm' ? 'base64' : 'utf8'), secrets) };
+  const source = readFileSync(join(dir, manifest.main));
+  // Verify the exact buffers that will be executed, rather than reopening a
+  // checked filename after integrity verification.
+  checkInstalled(dir, new Map([['plugin.json', manifestBytes], [manifest.main, source]]));
+  return { manifest, calls: sandboxedCalls(manifest, source.toString(manifest.runtime === 'wasm' ? 'base64' : 'utf8'), secrets) };
 }
 
 /**
@@ -140,7 +146,6 @@ export function loadPlugins(registry: PluginRegistry, dataDir: string, log: (msg
   for (const e of readdirSync(root, { withFileTypes: true })) {
     if (!e.isDirectory() || !existsSync(join(root, e.name, 'plugin.json'))) continue;
     try {
-      checkInstalled(join(root, e.name));
       const { manifest, calls } = readPlugin(join(root, e.name), dataDir);
       registry.install(manifest, calls);
       log(`Plug-in ${manifest.name} ${manifest.version} (${manifest.id}) installed`);

@@ -36,7 +36,8 @@ import { validatePublicUrl, urlHostname } from '../../server/src/public-origin.t
 import { plainHttpRefusal } from './loopback.ts';
 import { crashPoint } from '../../store/src/crash-point.ts';
 import { spawnSync } from 'node:child_process';
-import { closeSync, cpSync, existsSync, fchmodSync, mkdirSync, openSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { closeSync, cpSync, existsSync, fchmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { cleanupPath, openSync, writeFileSync } from '../../store/src/fs-boundary.ts';
 import { homedir, networkInterfaces, tmpdir, userInfo } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { request as httpsRequest } from 'node:https';
@@ -274,7 +275,7 @@ function run(cmd: string, args: string[], opts: { ok?: boolean; cwd?: string } =
 const say = (m: string) => process.stderr.write(`==> ${m}\n`);
 
 /** Writes a file, with sudo when it belongs to the system. */
-function place(path: string, text: string, system: boolean, owner?: string): void {
+export function placeServiceFile(path: string, text: string, system: boolean, owner?: string): void {
   if (!system) {
     mkdirSync(dirname(path), { recursive: true });
     const fd = openSync(path, 'w', 0o600);
@@ -284,12 +285,14 @@ function place(path: string, text: string, system: boolean, owner?: string): voi
     } finally { closeSync(fd); }
     return;
   }
-  const tmp = join(tmpdir(), `tabularius-${process.pid}-${Date.now()}`);
-  writeFileSync(tmp, text, { flag: 'wx', mode: 0o600 });
+  const dir = mkdtempSync(join(tmpdir(), 'tabularius-service-'));
+  const tmp = join(dir, 'service');
+  const cleanup = cleanupPath(dir, { recursive: true, force: true });
   try {
+    writeFileSync(tmp, text, { flag: 'wx', mode: 0o600 });
     run('sudo', ['install', '-m', '600', ...(owner ? ['-o', owner.split(':')[0], '-g', owner.split(':')[1]] : []), tmp, path]);
   } finally {
-    rmSync(tmp, { force: true });
+    cleanup();
   }
 }
 
@@ -324,13 +327,13 @@ export function installService(o: ServiceOptions): void {
   if (o.platform === 'darwin') {
     mkdirSync(join(o.home, 'logs'), { recursive: true });
     const sudo = o.system ? ['sudo'] : [];
-    place(f.path, f.text, o.system, 'root:wheel');
+    placeServiceFile(f.path, f.text, o.system, 'root:wheel');
     const [cmd, ...pre] = [...sudo, 'launchctl'];
     run(cmd, [...pre, 'unload', f.path], { ok: true });
     run(cmd, [...pre, 'load', '-w', f.path]);
     say(o.system ? `Running at boot, as ${o.user}, whether or not anyone is logged in (console output: ${join(o.home, 'logs', 'server.log')})` : 'Running while you are logged in. Add --system to run at boot without logging in.');
   } else if (o.platform === 'linux') {
-    place(f.path, f.text, o.system);
+    placeServiceFile(f.path, f.text, o.system);
     const ctl = o.system ? ['sudo', 'systemctl'] : ['systemctl', '--user'];
     const [cmd, ...pre] = ctl;
     run(cmd, [...pre, 'daemon-reload']);
