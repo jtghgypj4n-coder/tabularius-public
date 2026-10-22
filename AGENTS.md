@@ -33,6 +33,7 @@ npm run precheck        # type check, repo gates and the tests for what you chan
 ```
 
 - One test file: `node --no-warnings --test packages/server/test/some.test.ts`.
+- CI splits `test:ci` into four shards plus a gates job: `npm run test:ci -- --shard=2/4` runs one shard, `npm run gates` runs the repo-wide scans (docs, release audit, banned names, error text) once. Every test file is in exactly one of them. A new file needs no registration; run `npm run test:weights` now and then to rebalance the shards (see `scripts/test-plan.ts`).
 - Browser tests need Chromium and are not part of `test:ci`: `npm run smoke:web`, `npm run a11y:web`, `npm run test:e2e` (they run in the `browser-tests` workflow for changes under `packages/web` and the server pages; `scripts/require-browser.ts` checks a browser is found).
 - After adding, renaming or describing an MCP tool, a route or a setting, run `npm run docs:reference` (and `npm run docs:plugins` for the plug-in page) and commit the result. The suite fails on a stale generated page.
 - A new guide page must be listed in `docs/contents.json`; a guide needs a `#` title and no skipped heading level.
