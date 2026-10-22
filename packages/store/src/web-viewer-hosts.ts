@@ -13,6 +13,8 @@ const SHARED_SUFFIXES = new Set([
   'github.io', 'gitlab.io', 'bitbucket.io', 'herokuapp.com', 'vercel.app', 'netlify.app', 'pages.dev', 'workers.dev', 'web.app', 'firebaseapp.com', 'appspot.com',
   'blogspot.com', 'wordpress.com', 'azurewebsites.net', 'azurestaticapps.net', 'cloudapp.azure.com', 'cloudfront.net', 'amazonaws.com', 's3.amazonaws.com', 'elasticbeanstalk.com',
   'onrender.com', 'fly.dev', 'glitch.me', 'repl.co', 'surge.sh', 'myshopify.com', 'wixsite.com', 'weebly.com', 'ngrok.io', 'ngrok-free.app', 'trycloudflare.com', 'run.app',
+  'blob.core.windows.net', 'web.core.windows.net', 'file.core.windows.net', 'queue.core.windows.net', 'table.core.windows.net', 'dfs.core.windows.net', 'storage.googleapis.com',
+  'firebaseio.com', 'amplifyapp.com', 'azureedge.net', 'sharepoint.com', 'railway.app', 'up.railway.app', 'ondigitalocean.app',
   'githubusercontent.com', 'googleusercontent.com', 'r2.dev', 'deno.dev', 'notion.site', 'webflow.io', 'readthedocs.io', 'duckdns.org', 'ddns.net',
 ]);
 const REGISTRY_LEVEL = new Set(['co', 'com', 'org', 'net', 'gov', 'gob', 'edu', 'ac', 'ne', 'or', 'go', 'mil', 'ltd', 'plc', 'sch']);
@@ -23,9 +25,11 @@ function isPublicSuffix(labels: string[]): boolean {
   if (SHARED_SUFFIXES.has(name)) return true;
   // Every blog on a blog service has its own name under it, in each country's flavour (blogspot.com, blogspot.co.uk, ...).
   if (labels[0] === 'blogspot') return true;
-  // Names under amazonaws.com are the cloud's service names (s3, compute, regional endpoints): a wildcard over one allows every customer's.
-  // Four labels reaches a service in a region (s3.us-east-1.amazonaws.com); a bucket's own name is a label more.
-  if (name.endsWith('.amazonaws.com') && labels.length <= 4) return true;
+  // Names under amazonaws.com (or its China twin) are the cloud's service names (s3, compute, regional endpoints): a wildcard over one allows every
+  // customer's. Service and region is two labels (s3.us-east-1) and a bucket's own name is a label more; the dual-stack and FIPS endpoints add a label
+  // of their own, so they are told by it.
+  const aws = name.endsWith('.amazonaws.com') ? 2 : name.endsWith('.amazonaws.com.cn') ? 3 : 0;
+  if (aws && (labels.length - aws <= 2 || labels.some((l) => l === 'dualstack' || l.endsWith('-fips') || l === 'fips') && labels.length - aws <= 3)) return true;
   return labels.length === 2 && labels[1].length === 2 && REGISTRY_LEVEL.has(labels[0]);
 }
 
