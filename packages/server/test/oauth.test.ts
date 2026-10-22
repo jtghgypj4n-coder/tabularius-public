@@ -533,3 +533,19 @@ test('signing out with an access token made while another worker is rotating its
   assert.equal((await r.json()).error, 'invalid_grant');
   assert.equal(store.apiTokens().filter((k) => k.account === 'walt').length, 0);
 });
+
+test('a sign-out made after the new access token exists and before the new refresh token is written is not lost', { skip }, async (t) => {
+  store.setPassword('xena', 'xena-pw', 'Bot');
+  const c = await connect('xena', 'xena-pw', await sharedClient());
+  // Later than the other worker's sign-out above: the new access token is made, the old one is already replaced, and only the
+  // sign-in's record (not yet written) can tell this rotation that it has been ended.
+  const real = store.createApiToken.bind(store);
+  t.mock.method(store, 'createApiToken', (...args: Parameters<Store['createApiToken']>) => {
+    const made = real(...args);
+    signOutFromAnotherWorker(c.refresh_token, c.client_id);
+    return made;
+  });
+  const r = await post('/oauth/token', form({ grant_type: 'refresh_token', refresh_token: c.refresh_token, client_id: c.client_id }));
+  assert.equal((await r.json()).error, 'invalid_grant');
+  assert.equal(store.apiTokens().filter((k) => k.account === 'xena').length, 0, 'no token of the signed-out app is left');
+});
