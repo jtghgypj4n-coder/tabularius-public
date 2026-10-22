@@ -253,3 +253,33 @@ test('the domains --https gets a certificate for are origins the console may cal
   assert.equal(mcpOriginAllowed(req('files.example.com:8443', 'https://files.example.com:8443'), undefined, allowed), false);
   assert.equal(mcpOriginAllowed(req('files.example.com', 'http://files.example.com'), undefined, allowed), false);
 });
+
+test('the OAuth sign-in page keeps its own address as the referrer, so a browser can post the form back', async (t) => {
+  // A page sent with Referrer-Policy: no-referrer makes the browser post its form with `Origin: null`, which the same-origin guard refuses.
+  const base = await start(t, {}, (host) => {
+    const store = host.create('Local');
+    store.savePrivilegeSet({ name: 'Bot', records: { view: true, edit: false, create: false, delete: false }, layouts: 'viewOnly', valueLists: 'viewOnly', scripts: 'none', extendedPrivileges: ['fmmcp'] });
+    store.setPassword('Ann', 'secret', 'Bot');
+  });
+  const redirect = 'https://app.example/callback';
+  const registration = await fetch(`${base}/oauth/register`, {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ client_name: 'Origin test', redirect_uris: [redirect] }),
+  });
+  const { client_id } = await registration.json();
+  const verifier = 'a'.repeat(43);
+  const params = {
+    client_id, redirect_uri: redirect, response_type: 'code', resource: `${base}/mcp`,
+    code_challenge: createHash('sha256').update(verifier).digest('base64url'), code_challenge_method: 'S256',
+  };
+  const form = await fetch(`${base}/oauth/authorize?${new URLSearchParams(params)}`);
+  assert.equal(form.status, 200);
+  assert.equal(form.headers.get('referrer-policy'), 'same-origin');
+  await form.text();
+  const post = (headers: Record<string, string>) => fetch(`${base}/oauth/authorize`, {
+    method: 'POST', redirect: 'manual', headers, body: new URLSearchParams({ ...params, database: 'Local', account: 'Ann', password: 'secret' }),
+  });
+  const own = await post({ origin: base, referer: `${base}/oauth/authorize` });
+  assert.equal(own.status, 302);
+  assert.equal((await post({ origin: 'https://other.example' })).status, 403);
+});
