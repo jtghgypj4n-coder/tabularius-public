@@ -1840,6 +1840,8 @@ export class Assistant {
       // ceiling, before dispatching accumulated data or running another tool.
       const accessRefusal = (): string | undefined => {
         try {
+          // A deactivated or replaced account (or a revoked mapping) ends the question even when its privilege set is unchanged.
+          if (!store.identityAllowed(account, via)) return 'Your access changed; start a new question';
           const current = store.privileges(account, via);
           const fresh = privileges.ceiling ? privileges.ceiling(current) : narrowPrivileges(store, current, scope);
           // Keep the session's cross-file bindings as an independent boundary;
@@ -1849,8 +1851,10 @@ export class Assistant {
             ?? (fresh.fingerprint !== privileges.fingerprint ? 'Your access changed; start a new question' : undefined);
         } catch (e) { return callerText(e); }
       };
-      const stopped = (reason: string) => ({ reply: `I stopped there: ${reason}.`, proposals, foundSets, drafts, charts, dashboards, cleanups, automations,
-        ...(connectionCards.length ? { connections: connectionCards } : {}), ...(plans.length ? { plans } : {}), tools: used, usage });
+      // Access is gone: nothing gathered under the old access goes back to the person, so no found sets, charts, drafts,
+      // dashboards, cleanups, automations, plans or connection cards.
+      const stopped = (reason: string) => ({ reply: `I stopped there: ${reason}.`, proposals: [] as Proposal[], foundSets: [] as FoundSet[], drafts: [] as Draft[],
+        charts: [] as ChartOut[], dashboards: [] as DashboardOut[], cleanups: [] as CleanupOut[], automations: [] as AutomationOut[], tools: used, usage });
       for (let turn = 0; turn < (this.opts.maxTurns ?? 12); turn++) {
         progress.signal?.throwIfAborted();
         // AI turned off for the file (or one it uses) mid-question: nothing more of it goes to the model, not even
