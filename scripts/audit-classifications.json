@@ -38,6 +38,8 @@
   "route POST /tabularius/admin/v1/backup": "admin-gap",
   "route POST /tabularius/admin/v1/backup-folder": "admin-gap",
   "route POST /tabularius/admin/v1/backup/stop": "admin-gap",
+  "route POST /tabularius/admin/v1/exit-bundle": "security-partial",
+  "route POST /tabularius/admin/v1/exit-bundle/discard": "security-partial",
   "route POST /tabularius/admin/v1/backups/{set}/verify": "admin-gap",
   "route POST /tabularius/admin/v1/backups/{set}/test-restore": "admin-gap",
   "route GET /tabularius/admin/v1/restore": "admin-gap",
