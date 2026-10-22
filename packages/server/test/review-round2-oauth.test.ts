@@ -8,6 +8,7 @@ import { createServer } from 'node:http';
 import { Host } from '../src/host.ts';
 import { OAuthServer } from '../src/oauth.ts';
 import { expiryClock, ExpiryClock } from '../../store/src/clock.ts';
+import { signInForm } from './oauth-form.ts';
 
 async function fixture() {
   const dir = mkdtempSync(join(tmpdir(), 'tabularius-review-oauth-'));
@@ -31,7 +32,7 @@ async function fixture() {
   };
   const authorize = async (client_id: string) => {
     const verifier = randomBytes(32).toString('base64url');
-    const r = await post('/oauth/authorize', { client_id, redirect_uri: redirect, response_type: 'code', code_challenge: createHash('sha256').update(verifier).digest('base64url'), code_challenge_method: 'S256', database: 'Review', account: 'réviewer', password: 'synthetic-passphrase', resource: base + '/mcp' });
+    const r = await signInForm(base, { client_id, redirect_uri: redirect, response_type: 'code', code_challenge: createHash('sha256').update(verifier).digest('base64url'), code_challenge_method: 'S256', database: 'Review', account: 'réviewer', password: 'synthetic-passphrase', resource: base + '/mcp' });
     assert.equal(r.status, 302);
     return { client_id, grant_type: 'authorization_code', code: new URL(r.headers.get('location')!).searchParams.get('code')!, code_verifier: verifier, redirect_uri: redirect };
   };
