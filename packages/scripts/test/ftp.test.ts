@@ -256,3 +256,60 @@ test('an upload the server does not confirm at the end is a failure, not a succe
     assert.match(r.error!, /did not finish: 552/);
   } finally { await f.close(); }
 });
+
+test('ftps: a server that starts the data connection\'s TLS only after STOR is answered (vsftpd, ProFTPD) gets the upload', { skip: openssl ? false : 'openssl is not installed' }, async () => {
+  const { createServer: tlsServer, TLSSocket } = await import('node:tls');
+  const dir = mkdtempSync(join(tmpdir(), 'ftps-late-'));
+  const servers: ReturnType<typeof createServer>[] = [];
+  try {
+    spawnSync('openssl', ['req', '-x509', '-newkey', 'ec', '-pkeyopt', 'ec_paramgen_curve:P-256', '-nodes', '-keyout', 'key.pem', '-out', 'cert.pem', '-subj', '/CN=127.0.0.1', '-addext', 'subjectAltName=IP:127.0.0.1', '-days', '1'], { cwd: dir });
+    const tls = { key: readFileSync(join(dir, 'key.pem'), 'utf8'), cert: readFileSync(join(dir, 'cert.pem'), 'utf8') };
+    const commands: string[] = [];
+    let received: Buffer | undefined;
+    const control = tlsServer(tls, (c) => {
+      c.on('error', () => {});
+      c.setEncoding('utf8');
+      const say = (line: string) => c.write(line + '\r\n');
+      say('220 ready');
+      let accepted: Promise<Socket> | undefined;
+      let buffer = '';
+      c.on('data', async (chunk: string) => {
+        buffer += chunk;
+        for (let i = buffer.indexOf('\n'); i >= 0; i = buffer.indexOf('\n')) {
+          const line = buffer.slice(0, i).replace(/\r$/, '');
+          buffer = buffer.slice(i + 1);
+          commands.push(line);
+          const verb = line.split(' ')[0];
+          if (verb === 'USER') say('331 password please');
+          else if (verb === 'PASS') say('230 welcome');
+          else if (verb === 'PBSZ' || verb === 'PROT' || verb === 'TYPE') say('200 ok');
+          else if (verb === 'EPSV') {
+            // The data port takes plain TCP: TLS starts on it only once the transfer has been started.
+            const data = createServer();
+            servers.push(data);
+            accepted = new Promise((resolve) => data.once('connection', resolve));
+            await new Promise<void>((r) => data.listen(0, '127.0.0.1', r));
+            say(`229 Entering Extended Passive Mode (|||${(data.address() as AddressInfo).port}|)`);
+          } else if (verb === 'STOR') {
+            say('150 ok to send');
+            const secured = new TLSSocket(await accepted!, { isServer: true, ...tls });
+            const parts: Buffer[] = [];
+            secured.on('data', (b: Buffer) => parts.push(b));
+            secured.on('error', () => {});
+            secured.on('end', () => { received = Buffer.concat(parts); say('226 transfer complete'); secured.end(); });
+          } else if (verb === 'QUIT') { say('221 bye'); c.end(); } else say('502 not implemented');
+        }
+      });
+    });
+    servers.push(control as unknown as ReturnType<typeof createServer>);
+    await new Promise<void>((r) => control.listen(0, '127.0.0.1', r));
+    const port = (control.address() as AddressInfo).port;
+    const result = await ftpTransfer({ op: 'put', url: `ftps://127.0.0.1:${port}/late.bin`, user: 'ann', password: 'pw', bytes: Uint8Array.from([1, 2, 3, 0, 255]) }, { policy, timeoutMs: 5000, ca: tls.cert });
+    assert.deepEqual(result, { status: 226 });
+    assert.deepEqual([...received!], [1, 2, 3, 0, 255]);
+    assert.ok(commands.includes('STOR /late.bin'));
+  } finally {
+    servers.forEach((s) => s.close());
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

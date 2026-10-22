@@ -243,16 +243,22 @@ export async function ftpTransfer(request: FtpRequest, options: FtpOptions = {})
     const peer = control.socket.remoteAddress;
     if (!peer) throw new FtpFailure('the connection was lost', 7);
     const session = where.secure ? (control.socket as TLSSocket).getSession() : undefined;
-    const data = await connection(peer, port, where.host, session);
+    // The data connection is opened, and its TLS handshake started, without waiting for it: many servers (vsftpd,
+    // ProFTPD) begin the handshake only once STOR has been sent and answered with "150", so waiting first never ends.
+    const opening = connection(peer, port, where.host, session);
+    opening.catch(() => {});
+    const failedToOpen = opening.then(() => new Promise<never>(() => {}));
+    // The server's "150" comes as it opens the data connection; the upload is complete at "226".
+    const start = await Promise.race([ask(control, `STOR ${where.path}`), failedToOpen]);
+    if (start.code !== 125 && start.code !== 150) throw new FtpFailure(`the server would not take the file: ${start.code}`, 25);
+    // Nothing is sent before the data connection is up, and for ftps trusted.
+    const data = await opening;
     const sent = new Promise<void>((resolve, reject) => {
       data.on('error', (e) => reject(new FtpFailure(e.message, 25)));
       data.end(request.bytes ?? new Uint8Array(0), () => resolve());
     });
     // Settled before it is awaited, below, so a failure in between is not an unhandled one.
     sent.catch(() => {});
-    // The server's "150" comes as it opens the data connection; the upload is complete at "226".
-    const start = await ask(control, `STOR ${where.path}`);
-    if (start.code !== 125 && start.code !== 150) { data.destroy(); throw new FtpFailure(`the server would not take the file: ${start.code}`, 25); }
     await Promise.race([sent, control.failed]);
     const done = await control.reply();
     if (done.code !== 226 && done.code !== 250) throw new FtpFailure(`the upload did not finish: ${done.code}`, 25);
