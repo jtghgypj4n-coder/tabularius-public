@@ -92,7 +92,8 @@ export async function exercise(target: Target, data: Buffer): Promise<{ accepted
       checks.push(() => binaryParam(data, oid));
       if (ARRAY_ELEMENT[oid] !== undefined && data.length >= 12) checks.push(() => { const b = Buffer.from(data); b.writeUInt32BE(ARRAY_ELEMENT[oid], 8); return binaryParam(b, oid); });
     }
-    checks.push(() => decodeNumeric(data)); break;
+    // A small expansion allowance, so the cap on what a Bind's arrays expand to is reached and must refuse cleanly.
+    checks.push(() => decodeNumeric(data), () => binaryParam(data, 1231, { left: 2048, total: 2048 }), () => binaryParam(data, 1009, { left: 64, total: 64 })); break;
   }
   let accepted = 0, rejected = 0;
   for (const check of checks) {

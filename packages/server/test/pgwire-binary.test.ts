@@ -209,6 +209,38 @@ test('Describe of a prepared statement before Bind: parameter types from casts, 
   assert.deepEqual(statement.paramTypes, [OID.numeric, 1009, 1007]);
 });
 
+test('a small Bind that would expand to megabytes is refused, keeps no portal, and the connection carries on', { timeout: 30_000 }, async (t) => {
+  const c = await open();
+  t.after(() => c.close());
+  const numericArray = (count: number, weight: number) => {
+    const value = Buffer.concat([be(8, (b) => { b.writeUInt16BE(1, 0); b.writeInt16BE(weight, 2); }), be(2, (b) => b.writeInt16BE(1))]);
+    const element = Buffer.concat([i32(value.length), value]);
+    return Buffer.concat([i32(1), i32(0), i32(OID.numeric), i32(count), i32(1), ...Array.from({ length: count }, () => element)]);
+  };
+  const reviewer = numericArray(707, 0x7fff);
+  assert.equal(reviewer.length, 9918);
+  ok(await c.simple('BEGIN'));
+  // Named portals inside a transaction outlive Sync, so before the cap each of these kept about 92 MB.
+  for (let i = 0; i < 60; i++) {
+    const [value, expected] = i % 2 ? [numericArray(707, 249), '54000'] : [reviewer, '22003'];
+    c.send('P', Buffer.concat([Buffer.from(`s${i}\0SELECT $1::text AS v\0`), be(2, (b) => b.writeInt16BE(1)), i32(1231)]));
+    c.send('B', bindBody({ portal: `p${i}`, statement: `s${i}`, paramFormats: [1], values: [value] }));
+    c.send('S');
+    const r = await c.untilReady();
+    assert.equal(r.error?.code, expected, `Bind ${i}: ${r.error?.message}`);
+    c.send('E', Buffer.from(`p${i}\0\0\0\0\0`));
+    c.send('S');
+    assert.equal((await c.untilReady()).error?.code, '34000', 'no portal was kept');
+    ok(await c.simple('ROLLBACK'));
+    ok(await c.simple('BEGIN'));
+  }
+  ok(await c.simple('ROLLBACK'));
+  // The largest numeric[] of whole numbers that is read: what comes back is what was sent, no larger.
+  const fits = await c.formats('SELECT $1::text AS v', { types: [1231], values: [numericArray(200, 249)], paramFormats: [1] });
+  assert.equal(ok(fits).rows[0][0]!.length, 200 * 997 + 201);
+  assert.deepEqual(ok(await c.simple('SELECT 1 AS one')).rows, [['1']]);
+});
+
 test('malformed binary parameters are answered with an error and the connection carries on', async (t) => {
   const c = await open();
   t.after(() => c.close());

@@ -64,6 +64,10 @@ export function seeds(target: Target): Buffer[] {
       encodeInterval({ micros: 14_706_500_000n, days: -3, months: 14 }), binaryValue('0123abcd-4567-89ef-0123-456789abcdef', BINARY_OID.uuid)!,
       binaryValue('{"synthetic":[1,null]}', BINARY_OID.jsonb)!, encodeArray([1, -2, null], BINARY_OID.int4), encodeArray(['synthetic', 'a b', null], BINARY_OID.text),
       encodeArray(['-1.5'], BINARY_OID.numeric), encodeArray([16, 17], BINARY_OID.oid),
+      // Numerics whose weight or scale claims far more digits than they carry, alone and as array elements.
+      Buffer.from([0, 1, 0x7f, 0xff, 0, 0, 0, 0, 0, 1]), Buffer.from([0, 1, 0x80, 0, 0, 0, 0x3f, 0xff, 0, 1]),
+      Buffer.concat([Buffer.from([0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0x06, 0xa4, 0, 0, 0, 64, 0, 0, 0, 1]),
+        ...Array.from({ length: 64 }, () => Buffer.from([0, 0, 0, 10, 0, 1, 0, 249, 0, 0, 0, 0, 0, 1]))]),
     ];
   }
 }
@@ -75,7 +79,7 @@ function binaryMutation(input: Buffer, r: Random): Buffer {
     case 0: {
       const at = r(Math.max(1, out.length - 3)) & ~1;
       if (at + 4 <= out.length) out.writeInt32BE([0, -1, -2, 1, 6, 7, 0x7fffffff, -0x80000000, r(65536)][r(9)], at);
-      else if (at + 2 <= out.length) out.writeUInt16BE([0, 0xffff, 0x4000, 0xc000, 0xd000, 0x3fff, 10000][r(7)], at);
+      else if (at + 2 <= out.length) out.writeUInt16BE([0, 0xffff, 0x4000, 0xc000, 0xd000, 0x3fff, 10000, 0x7fff, 0x8000, 249, 250][r(11)], at);
       return out;
     }
     case 1: return out.subarray(0, r(out.length + 1));

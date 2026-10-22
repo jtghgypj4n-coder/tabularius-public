@@ -382,7 +382,7 @@ The following reasons apply to the exact enumerated expressions in each named fu
 | [packages/server/src/pgwire.ts:678](../../packages/server/src/pgwire.ts#L678) `Connection/catalog` | `Store.describe` (678) | SQL |
 | [packages/server/src/pgwire.ts:688](../../packages/server/src/pgwire.ts#L688) `Connection/run` | `Store.select` (688) | SQL |
 | [packages/server/src/pgwire.ts:738](../../packages/server/src/pgwire.ts#L738) `Connection/validateSyntax` | `SQLite.prepare` (738); `Store.sql` (738) | SQL |
-| [packages/server/src/pgwire.ts:933](../../packages/server/src/pgwire.ts#L933) `Connection/describe` | `Store.describe` (933) | SQL |
+| [packages/server/src/pgwire.ts:935](../../packages/server/src/pgwire.ts#L935) `Connection/describe` | `Store.describe` (935) | SQL |
 | [packages/server/src/pii.ts:121](../../packages/server/src/pii.ts#L121) `holdsOnlyUuids` | `Store.query` (121) | REDACTION |
 | [packages/server/src/pii.ts:133](../../packages/server/src/pii.ts#L133) `sampledValues` | `Store.query` (133) | REDACTION |
 | [packages/server/src/pii.ts:300](../../packages/server/src/pii.ts#L300) `vaultTable` | `Store.sql` (300, 303) | REDACTION |
