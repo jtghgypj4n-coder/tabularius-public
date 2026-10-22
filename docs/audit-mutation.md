@@ -1,6 +1,6 @@
 # Security mutation audit
 
-Completed 2026-10-16: **599 valid mutants, 593 killed, 6 equivalent exclusions, 0 unresolved survivors, 0 unresolved timeouts.** These counts cover the explicit scopes below, not all security behavior.
+Updated 2026-10-21: **1,070 valid mutants, 1,055 killed, 15 equivalent exclusions, 0 unresolved survivors, 0 unresolved timeouts** in the completed scopes. Round one (2026-10-16) contributed 599 valid mutants, 593 killed and 6 equivalents. Round two contributed 471 valid mutants, 462 killed and 9 equivalents. These counts cover only the explicit scopes below; round-two targets 3–7 remain unaudited.
 
 ## Baseline and scope
 
@@ -45,7 +45,7 @@ The runner has focused tests for all mutation classes, exact edit round trips (i
 
 ## Final kill counts
 
-Each candidate is counted once, using its final observed outcome after targeted reruns. Equivalent exclusions remain reported as survivors by the runner; they are reviewed here, never silently counted as kills. All 593 non-equivalent candidates were killed by test failures. No final invalid, unrun, or deadline-only result is included in that number.
+Each candidate is counted once, using its final observed outcome after targeted reruns. Equivalent exclusions remain reported as survivors by the runner; they are reviewed here, never silently counted as kills. All 1,055 non-equivalent candidates were killed by test failures. No final invalid, unrun, or deadline-only result is included in that number.
 
 | Target | Audited lines | Valid mutants | Killed | Equivalent |
 | --- | --- | ---: | ---: | ---: |
@@ -60,7 +60,9 @@ Each candidate is counted once, using its final observed outcome after targeted 
 | `packages/server/src/adminapi.ts` | 288–300 | 17 | 17 | 0 |
 | `packages/calc/src/javascript.ts` | CHILD raw program, 78–130 | 6 | 6 | 0 |
 | `packages/plugins/src/sandboxed.ts` | 40–107 | 41 | 41 | 0 |
-| **Total** | | **599** | **593** | **6** |
+| `packages/scripts/src/net-guard.ts` | 49–269; 578–644 | 340 | 334 | 6 |
+| `packages/server/src/client-address.ts` | Whole module | 131 | 128 | 3 |
+| **Total** | | **1,070** | **1,055** | **15** |
 
 The three `store.ts` scopes are password hashing (20/20 killed), API-token verification (41/41), and sign-in/lockout policy (84/84). The other large modules are explicitly scoped as shown. This is a conservative mutation-operator audit, not a claim of complete branch coverage or Claris compatibility. Claris behavior beyond the repository's established fixtures remains unknown; no undocumented verifier bytes or response values were invented.
 
@@ -80,6 +82,15 @@ These are the complete final survivor list. Each exclusion is limited to the cur
 | `packages/store/src/safe-path.ts` | `27:return:1247` | The final missing-link sentinel has the same private falsy-only consumers; no exported return value or access decision changes. |
 | `packages/store/src/privileges.ts` | `380:branch:18107` | Without this early full-access branch, fieldAccess calls table(), whose full-access branch returns ALL. ALL has view=true and no field restrictions, so the result remains modifiable. |
 | `packages/store/src/privileges.ts` | `442:operator:21966` | Changing the OR between the nonobject/null guards to AND lets null and primitive file values reach WeakMap.get. That returns undefined for them, so the optional usage callback still cannot run. Object file values behave identically. |
+| `packages/scripts/src/net-guard.ts` | `69:branch:4200` | ipv6Groups has already required isIP(h) === 6. A valid IPv6 address without :: has exactly eight groups after dotted-tail expansion, so this early return is unreachable. |
+| `packages/scripts/src/net-guard.ts` | `69:return:4249` | The same validated, uncompressed IPv6 invariant makes this undefined-to-false return replacement unreachable. |
+| `packages/scripts/src/net-guard.ts` | `72:operator:4454` | Changing the conjunction between group count and group validity to OR preserves the result: isIP validation and zero filling guarantee both predicates for every input reaching this line. |
+| `packages/scripts/src/net-guard.ts` | `72:operator:4484` | Each parsed group of an already validated IPv6 address is between 0 and 65535. Replacing the conjunction of those bounds with OR still yields true for every reachable group. |
+| `packages/scripts/src/net-guard.ts` | `98:return:6221` | embeddedV4 is private. All callers test its result for truthiness before using the address; false and undefined both mean no embedded address and preserve every public decision. |
+| `packages/scripts/src/net-guard.ts` | `204:return:12073` | entryMatches is private and used only as the predicate of Array.some. Its family-mismatch result is falsy whether false or undefined, so neither grants an allow-list match. |
+| `packages/server/src/client-address.ts` | `39:branch:1742` | Removing the early non-ASCII/control-character refusal cannot admit an identifier: the complete bracket/port patterns require decimal ports, and their address captures and the bare-address fallback all pass through isIP/canonicalIP, which reject these characters. |
+| `packages/server/src/client-address.ts` | `76:branch:3267` | Without this early invalid-address return, forwardedList can append undefined. Its only consumer rejects the entire list with nodes.some(ip => !ip); later parse failure also produces the same fallback. No attribution or rejection decision changes. |
+| `packages/server/src/client-address.ts` | `81:branch:3401` | After the last comma and optional whitespace, at === value.length makes the enclosing while condition false. Removing the explicit empty return still returns undefined implicitly, rejecting the trailing empty element. |
 
 A separate apparent redundancy in `safe-path.ts` (`17:branch:716`) was **not** discarded: a deterministic replacement/inode-reuse snapshot test demonstrates why the early non-link refusal matters and kills its removal.
 
@@ -89,7 +100,7 @@ The new tests cover both password verification paths, dummy-hash work and post-a
 
 Existing tests were retained without weakening or deletion. The Admin API test file only gained an authentication-syntax case. Production guard sources and the normal npm test command are unchanged. The mutator's focused unit tests run normally; mutation campaigns require the separate npm command.
 
-Final validation: **83 tests passed, 0 failed, 0 skipped**, across all 14 changed test files at concurrency 2 in **9.10 seconds total**. This also bounds every individual file well below 60 seconds. The focused strict TypeScript check of the runner and changed tests passed. The npm entry point's `--list` selection was checked. Mutations ran sequentially under niceness 19; high-load pauses occurred, but none lasted twenty continuous minutes.
+Round-one validation: **83 tests passed, 0 failed, 0 skipped**, across all 14 changed test files at concurrency 2 in **9.10 seconds total**. This also bounds every individual file well below 60 seconds. The focused strict TypeScript check of the runner and changed tests passed. The npm entry point's `--list` selection was checked. Mutations ran sequentially under niceness 19; high-load pauses occurred, but none lasted twenty continuous minutes.
 
 ```sh
 nice -n 19 node --no-warnings --test --test-concurrency=2 --test-timeout=60000 \
@@ -101,9 +112,58 @@ nice -n 19 node --no-warnings --test --test-concurrency=2 --test-timeout=60000 \
 
 The typecheck used the existing TypeScript installation with `--noEmit --target es2023 --module nodenext --moduleResolution nodenext --allowImportingTsExtensions --erasableSyntaxOnly --verbatimModuleSyntax --strict --skipLibCheck --types node`, passing `scripts/mutate.ts` and those same test files. No dependency was installed.
 
-## Resolved survivor inventory
+## Round two: outbound and forwarded-address decisions
 
-Every ID below survived at least one selected-test pass and was subsequently killed. Initial survival means the selected tests missed the mutation, not that every test elsewhere in the repository would miss it. The origin pilot is included. The six final equivalents appear only in the table above. IDs refer to the unchanged source at starting commit `b3aaf352`; use `--list` to see each exact edit, and `--ids=` to reproduce a subset.
+This pass reused the existing runner and client-address tests. No production guard changed and no existing test was weakened or removed. The new tests use synthetic addresses and generated response streams; the redirect transport and DNS resolver are in-memory doubles. No sockets, external network, sample files or customer data are needed. Compatibility behavior beyond the implemented repository contracts remains **unverified**. <!-- known-difference: Security checks ;; Round two of the mutation audit also tests this repository's implemented outbound and forwarded-address contracts, not Claris behaviour ;; Nothing shows; where a Claris product answers differently the audit would not notice ;; A run of the same cases against a Claris instance -->
+
+The large outbound module was explicitly scoped to address parsing/classification, allow lists and socket lookup (49–269: **296 valid, 290 killed, 6 equivalent**), plus fetch admission/redirect decisions and the configured fetch wrapper (578–644: **44 valid, 44 killed**). Deadline internals, socket-pool internals, decompression, response caps and diagnostics outside these ranges were not campaigned. Client-address coverage is the whole module: **131 valid, 128 killed, 3 equivalent**.
+
+Address assertions cover range neighbors, embedded IPv4, exact hosts and suffixes, CIDR families, DNS family filtering and refusal before filtering. Redirect assertions cover all five redirect statuses, method/body conversion, cross-origin credential removal, each hop's scheme/credentials/address checks, exact hop limits, cancellation and script-versus-operator transfer policy. Forwarding assertions cover trust chains, configured-proxy refusal before authentication, local-only authority, request snapshots, CIDR syntax, whitespace/port bounds and refusal-log throttling. The equivalents above are the complete final survivor list for these scopes.
+
+Two runner defects were reproduced with failing tests before fixing them: dependency selection missed renamed `@tabularius/*` workspace barrels, and the lexer split bit shifts into comparisons. Selection now recognizes both the current namespace and the retained legacy namespace; shifts and shift assignments stay intact. The first outbound pass generated 12 invalid shift edits, all excluded from the totals and no longer generated. Existing valid mutant IDs and source offsets are unchanged.
+
+Three redirect mutants initially hit a 3-second campaign deadline. A bounded outgoing-request assertion then killed all three; timeouts were not credited as kills. Two whitespace-loop mutants initially hit a 5-second deadline. A dedicated child-process test now fails its own 3-second liveness assertion and terminates the child, killing both under the runner's normal 60-second deadline. The child explicitly inherits mutation preloads and receives a stub-only PATH. The runner subprocess tests also use stubs for launchctl, systemctl, sc, git, npm, curl and sudo; any invocation leaves a marker and fails the test. Campaigns ran sequentially under niceness 19 and the existing real load gate.
+
+Reproduce the full scopes with these selections (JSON reports are local diagnostics, not committed artifacts):
+
+```sh
+npm run mutate -- packages/scripts/src/net-guard.ts --lines=49:269 \
+  --tests=packages/scripts/test/net-guard-mutation.test.ts --report=net-address.json
+npm run mutate -- packages/scripts/src/net-guard.ts --lines=578:644 \
+  --tests=packages/scripts/test/net-redirect-mutation.test.ts --report=net-redirect.json
+npm run mutate -- packages/server/src/client-address.ts \
+  --tests=packages/server/test/client-address.test.ts,packages/server/test/client-address-mutation.test.ts \
+  --report=client-address.json
+npm run mutate -- packages/server/src/client-address.ts \
+  --ids=57:operator:2562,57:operator:2583 \
+  --tests=packages/server/test/client-address-liveness-mutation.test.ts --report=client-liveness.json
+```
+
+The whole-module client campaign's two loop mutations need the separate liveness selection above: running synchronous parser assertions first can hang that test process. Final counts take each candidate's last observed result, including this targeted rerun. Equivalent-only campaign exits are nonzero by design.
+
+Validation: `npm run typecheck` **passed**. The command below passed **42 tests, 0 failed, 0 skipped**, in **0.80 seconds total** at concurrency 2; every file is below one minute, and the unmodified liveness child is comfortably below one second. Both runner fixes were first observed failing their regression tests. No timing assertion was tightened.
+
+```sh
+node --no-warnings --test --test-concurrency=2 \
+  packages/scripts/test/net-guard-mutation.test.ts \
+  packages/scripts/test/net-redirect-mutation.test.ts \
+  packages/server/test/client-address-mutation.test.ts \
+  packages/server/test/client-address-liveness-mutation.test.ts \
+  packages/server/test/mutation-runner.test.ts \
+  packages/server/test/client-address.test.ts
+```
+
+This pass stopped after the first two requested targets. **Not covered in round two:** MCP tokens and token-scope consumers; AI policy and AI SQL policy; redaction and PII; request-body, multipart and edge caps; audit anchors. No additional coverage is claimed for those modules. `precheck` was not run because it invokes git, prohibited for this worktree task. The full suite was not run; no fixture-dependent tests were needed. A different-model security review remains a handoff requirement before merge.
+
+Resolved round-two survivors and initial timeouts (all subsequently killed):
+
+- Address scope: `63:branch:3806`, `81:operator:4937`, `81:operator:4950`, `116:operator:7181`, `138:operator:8354`, `140:operator:8492`, `140:operator:8532`, `199:operator:11870`, `204:branch:12037`, `204:operator:12040`, `237:return:13983`, `251:operator:14911`.
+- Redirect scope: `587:operator:31945`, `609:boolean:33404`, `609:boolean:33405`, `618:branch:33845`, `618:operator:33849`, `618:throw:33881`, `641:return:34761`.
+- Client-address scope: `13:operator:631`, `27:operator:1251`, `57:operator:2562`, `57:operator:2583`, `95:return:4007`, `101:boolean:4404`, `101:boolean:4405`, `106:operator:4931`, `134:branch:6507`, `150:return:7284`, `154:operator:7478`, `154:boolean:7481`, `156:return:7604`, `156:operator:7609`, `156:operator:7616`, `156:operator:7624`, `156:operator:7640`, `156:operator:7648`, `156:operator:7664`, `156:operator:7672`, `156:operator:7684`, `165:branch:8325`, `165:operator:8343`.
+
+## Resolved survivor inventory (round one)
+
+Every ID below survived at least one selected-test pass and was subsequently killed. Initial survival means the selected tests missed the mutation, not that every test elsewhere in the repository would miss it. The origin pilot is included. The six round-one final equivalents appear only in the table above. IDs refer to the unchanged source at starting commit `b3aaf352`; use `--list` to see each exact edit, and `--ids=` to reproduce a subset.
 
 <details>
 <summary>Resolved IDs and importing test selections</summary>

@@ -1,9 +1,27 @@
-import { test } from 'node:test';
+import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { mutations, applyMutation, rawTemplate, syntaxSource, imports, importingTests, waitForLoad, command } from '../../../scripts/mutate.ts';
+
+// Subprocess tests may launch Node only; accidental operational commands fail closed.
+const stubPath = mkdtempSync(join(tmpdir(), 'mutation-command-stubs-'));
+const marker = join(stubPath, 'called');
+const previousPath = process.env.PATH;
+before(() => {
+  for (const name of ['launchctl', 'systemctl', 'sc', 'git', 'npm', 'curl', 'sudo']) {
+    writeFileSync(join(stubPath, name), '#!/bin/sh\n: > "' + marker + '"\nexit 99\n', { mode: 0o755 });
+  }
+  process.env.PATH = stubPath;
+});
+after(() => {
+  if (previousPath === undefined) delete process.env.PATH;
+  else process.env.PATH = previousPath;
+  const called = existsSync(marker);
+  rmSync(stubPath, { recursive: true, force: true });
+  assert.equal(called, false, 'no service, install, upgrade or network command ran');
+});
 
 test('mutations preserve surrounding source and cover all five transformations', () => {
   const source = `// if (a === b) return false;\nexport function guard<T>(a: T, b: T, yes: boolean): boolean {\n if (a === b && !yes) throw new Error('no');\n return yes;\n}\n`;
@@ -29,6 +47,15 @@ test('literals, regexes, comments, and type assertions do not become mutants', (
   assert.deepEqual(imports(`import type { A } from './a.ts'; export { b } from './b.ts'; import './c.ts'; const d = import('./d.ts'); const e = require('./e.ts'); // import './no.ts'`), ['./a.ts', './b.ts', './c.ts', './d.ts', './e.ts']);
 });
 
+test('bit shifts are not split into comparison operators', () => {
+  assert.deepEqual(mutations('let bits = (1 << 8) | (256 >> 8) | (-1 >>> 0); bits <<= 1; bits >>= 1; bits >>>= 1;'), []);
+  const source = 'const allowed = (bits >> shift) === (network >> shift);';
+  const ms = mutations(source);
+  assert.equal(ms.length, 1);
+  assert.equal(ms[0].before, '===');
+  assert.equal(applyMutation(source, ms[0]), source.replace('===', '!=='));
+});
+
 test('dependency selection follows barrels and cycles, excludes unrelated tests', () => {
   const root = mkdtempSync(join(tmpdir(), 'mutator-graph-'));
   try {
@@ -37,8 +64,9 @@ test('dependency selection follows barrels and cycles, excludes unrelated tests'
     writeFileSync(join(dir, 'src', 'index.ts'), "export { guard } from './guard.ts'; export * from './cycle.ts';");
     writeFileSync(join(dir, 'src', 'cycle.ts'), "export * from './index.ts';");
     writeFileSync(join(dir, 'test', 'guard.test.ts'), "import { guard } from '@openhbam/demo';");
+    writeFileSync(join(dir, 'test', 'renamed.test.ts'), "import { guard } from '@tabularius/demo';");
     writeFileSync(join(dir, 'test', 'other.test.ts'), 'export {};');
-    assert.deepEqual(importingTests(root, join(dir, 'src', 'guard.ts')), [join(dir, 'test', 'guard.test.ts')]);
+    assert.deepEqual(importingTests(root, join(dir, 'src', 'guard.ts')), [join(dir, 'test', 'guard.test.ts'), join(dir, 'test', 'renamed.test.ts')]);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
