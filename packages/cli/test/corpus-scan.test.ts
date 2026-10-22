@@ -223,3 +223,28 @@ test('corpus-scan --list scans the listed files, each once, across folders', { s
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('what a scan child leaves in its temporary folder is removed with it, killed at the timeout or crashed', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'corpus-leftovers-'));
+  const kept = process.env.TMPDIR;
+  try {
+    // Every temporary folder the parent and the child make lands in `scratch`.
+    const scratch = join(dir, 'scratch');
+    mkdirSync(scratch);
+    process.env.TMPDIR = scratch;
+    const entry = join(dir, 'child.mjs');
+    // Plays a conversion: a copy of the records in a temporary folder, then a long wait (timeout) or a crash.
+    writeFileSync(entry, `import { mkdtempSync, writeFileSync } from 'node:fs'; import { tmpdir } from 'node:os'; import { join } from 'node:path';
+      writeFileSync(join(mkdtempSync(join(tmpdir(), 'tabularius-corpus-')), 'converted.sqlite'), 'records');
+      if (process.env.CRASH) process.exit(9); else setInterval(() => {}, 1000);`);
+    assert.equal((await scanInChild(entry, join(dir, 'nothing.fmp12'), true, 400)).status, 'timeout');
+    assert.deepEqual(readdirSync(scratch), []);
+    process.env.CRASH = '1';
+    assert.equal((await scanInChild(entry, join(dir, 'nothing.fmp12'), true, 5000)).status, 'failed');
+    assert.deepEqual(readdirSync(scratch), []);
+  } finally {
+    delete process.env.CRASH;
+    if (kept === undefined) delete process.env.TMPDIR; else process.env.TMPDIR = kept;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

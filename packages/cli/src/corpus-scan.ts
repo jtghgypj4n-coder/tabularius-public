@@ -415,7 +415,18 @@ export async function dedupe(paths: string[]): Promise<{ groups: Map<string, { p
 
 export function scanInChild(entry: string, path: string, convert: boolean, timeoutMs: number): Promise<FileScan> {
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, [...process.execArgv, entry, 'corpus-scan', '--one', path, ...(convert ? ['--convert'] : [])], { stdio: ['ignore', 'pipe', 'pipe'] });
+    // The child's own temporary folder, made and removed here: a converted copy (the file's records) it leaves when it is
+    // killed at the timeout or crashes goes with the folder, however it ended.
+    const scratch = mkdtempSync(join(tmpdir(), 'tabularius-corpus-child-'));
+    const cleanup = () => rmSync(scratch, { recursive: true, force: true });
+    const child = spawn(process.execPath, [...process.execArgv, entry, 'corpus-scan', '--one', path, ...(convert ? ['--convert'] : [])], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: { ...process.env, TMPDIR: scratch, TEMP: scratch, TMP: scratch },
+    });
+    child.on('error', () => {
+      cleanup();
+      resolve({ status: 'failed', error: 'process did not start' });
+    });
     let out = '';
     let err = '';
     let progress: ScanProgress | undefined;
@@ -436,6 +447,7 @@ export function scanInChild(entry: string, path: string, convert: boolean, timeo
     const timer = setTimeout(() => { timedOut = true; child.kill('SIGKILL'); }, timeoutMs);
     child.on('close', (code, signal) => {
       clearTimeout(timer);
+      cleanup();
       if (timedOut) {
         progress ??= { stage: 'read blocks', bytesRead: 0, tablesConverted: 0, recordsConverted: 0, peakHeapBytes: 0, stageMs: {} };
         progress.stageMs[progress.stage] = (progress.stageMs[progress.stage] ?? 0) + Math.round(progressReceivedAt ? performance.now() - progressReceivedAt : timeoutMs);
