@@ -44,7 +44,10 @@ test('minimum rate accepts the exact boundary and resets bytes for the next wind
 test('an early burst cannot subsidise a trickling tail in later windows', async (t) => {
   const { reader, upstream, tick } = await response(t);
   upstream.write(Buffer.alloc(30 * 1024));
-  assert.equal((await reader.read()).value?.length, 30 * 1024);
+  // One write may reach the reader in several chunks (macOS loopback splits it near 16 KiB), so count bytes.
+  let burst = 0;
+  while (burst < 30 * 1024) burst += (await reader.read()).value!.length;
+  assert.equal(burst, 30 * 1024);
   tick();
   upstream.write('x');
   assert.equal((await reader.read()).value?.length, 1);
