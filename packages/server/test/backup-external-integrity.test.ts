@@ -103,3 +103,16 @@ test('container restore refuses a missing backup.json and preserves live data', 
   await assert.rejects(restoreExternal(first, live, ['A']), /unreadable manifest.*backup.json/);
   assert.equal(fs.readFileSync(join(live, rel), 'utf8'), 'original');
 });
+
+for (const key of ['', 'key']) test(`a set made before entries said whether they were sealed still checks and restores${key ? ' encrypted' : ''}`, async (t) => {
+  const { live, first, rel } = setup(t);
+  await backupExternal(live, ['A'], first, undefined, key);
+  const infoPath = join(first, 'backup.json');
+  const info = JSON.parse(fs.readFileSync(infoPath, 'utf8'));
+  for (const entry of Object.values(info.external) as { encrypted?: boolean }[]) delete entry.encrypted;
+  fs.writeFileSync(infoPath, JSON.stringify(info));
+  assert.deepEqual(await verifyExternal(first, key || undefined), {});
+  fs.writeFileSync(join(live, rel), 'changed since');
+  assert.equal(await restoreExternal(first, live, ['A'], key || undefined), 1);
+  assert.equal(fs.readFileSync(join(live, rel), 'utf8'), 'original');
+});
