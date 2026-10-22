@@ -3557,7 +3557,7 @@ export class ScriptEngine {
     blockCache.set(script, b);
     const steps = script.steps;
     const outer = this.frame;
-    const revertOnError = this.revertOnError;
+    const { revertOnError, errorCapture, allowAbort } = this;
     this.frame = frame;
     this.stack.push({ frame, pc: 0 });
     if (frame.limits) this.limitedFrames.push(frame);
@@ -3571,8 +3571,10 @@ export class ScriptEngine {
       this.frame = outer;
       this.stack.pop();
       if (frame.limits) this.limitedFrames.splice(this.limitedFrames.lastIndexOf(frame), 1);
-      // Set Revert Transaction on Error lasts while this script and its subscripts run.
+      // Set Revert Transaction on Error, Set Error Capture and Allow User Abort last while this script and its subscripts run.
       this.revertOnError = revertOnError;
+      this.errorCapture = errorCapture;
+      this.allowAbort = allowAbort;
       // A script that ends (or halts) without reaching its Commit Transaction keeps none of the transaction's changes.
       if (this.tx?.frame === frame) this.revertTransaction();
       if (this.unwinding?.frame === frame) this.unwinding = undefined;

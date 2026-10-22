@@ -69,10 +69,10 @@ test('Pause/Resume Script without a responder or with a duration leaves record e
   assert.equal(timed.result, '2', 'Pause/Resume Script without a responder or with a duration leaves record edits pending');
 });
 
-test('Set Error Capture and Allow User Abort changes made by a subscript remain set for its caller', async () => {
+test('Set Error Capture and Allow User Abort changes made by a subscript end when it returns', async () => {
   store.applyDesign([{ op: 'createScript', name: 'state-child-settings', text: 'Set Error Capture [ Off ]\nAllow User Abort [ Off ]' }]);
   const r = await run('Set Error Capture [ On ]\nAllow User Abort [ On ]\nPerform Script [ “state-child-settings” ]\nExit Script [ Text Result: Get ( ErrorCaptureState ) & Get ( AllowAbortState ) ]');
-  assert.equal(r.result, '00', 'Set Error Capture and Allow User Abort changes made by a subscript remain set for its caller');
+  assert.equal(r.result, '00', 'Set Error Capture and Allow User Abort changes made by a subscript end when it returns');
 });
 
 test('Revert Transaction drops pending field edits but keeps variables and queued client actions', async () => {
