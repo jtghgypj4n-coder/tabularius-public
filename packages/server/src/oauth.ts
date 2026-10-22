@@ -638,18 +638,24 @@ p strong { color: var(--text); }
       // An account turned off keeps its sign-in as it is: nothing is rotated or revoked for it.
       if (store.accountInactive(row.account)) throw new OAuthError('invalid_grant', 'This account is no longer eligible; sign in again');
       const label = store.apiTokens().find((t) => t.id === row.access_id)?.label;
-      store.revokeApiToken(row.access_id);
       // As at sign-in: still allowed (a second factor now required, a password to change, AI access taken away), and
       // with the same password: a password changed since signs the app out.
       if (!markCurrent(store, row.account, row.password) || this.allowed(store, row.account, clientAddress(req), false, false)) {
+        store.revokeApiToken(row.access_id);
         throw new OAuthError('invalid_grant', 'This account\'s password or access changed since it signed in; sign in again');
       }
-      return this.issue(client, row.database, row.account, clientAddress(req), label, identity ? row.expires : undefined, identity, true, row.password);
+      try {
+        return this.issue(client, row.database, row.account, clientAddress(req), label, identity ? row.expires : undefined, identity, true, row.password, row.access_id);
+      } catch (e) {
+        // Whatever stopped the refresh, the access token it was renewing does not stay in use.
+        if (e instanceof OAuthError) store.revokeApiToken(row.access_id);
+        throw e;
+      }
     }
     throw new OAuthError('unsupported_grant_type', 'Only authorization_code and refresh_token are supported');
   }
 
-  private issue(client: Client, database: string, account: string, from: string, label?: string, keepExpiry?: number, identity?: { issuer: string; sub: string; person?: string; mapping: string }, refreshing = false, signedInMark: string | null = null): Record<string, unknown> {
+  private issue(client: Client, database: string, account: string, from: string, label?: string, keepExpiry?: number, identity?: { issuer: string; sub: string; person?: string; mapping: string }, refreshing = false, signedInMark: string | null = null, replacing?: string): Record<string, unknown> {
     const store = this.host.get(database);
     if (!store) throw new OAuthError('invalid_grant', `${database} is no longer hosted`);
     if (identity && (identity.mapping !== account || !store.canonicalAccount(identity.mapping) || !store.isExternalAccount(identity.mapping) || (identity.person && store.accountInactive(identity.person)))) throw new OAuthError('invalid_grant', 'This federated sign-in is no longer valid; sign in again');
@@ -660,6 +666,9 @@ p strong { color: var(--text); }
     const access = store.createApiToken(account, {
       label: (label ?? `AI app: ${plain(client.name)}`).slice(0, 80), surfaces: ['fmmcp'], provenance: 'delegated', expires: new Date(expiryClock.now() + ACCESS_SECONDS * 1000), ...(identity ? { identity } : {}),
       guard: () => {
+        // A refresh takes the access token it renews out in the same change that writes the next one, and refuses when it is already gone:
+        // revoked in Manage Security (by another worker, say) between the check and now, the sign-in is over.
+        if (replacing && !store.revokeApiToken(replacing)) throw new OAuthError('invalid_grant', 'This sign-in was revoked; sign in again');
         if (!markCurrent(store, account, signedInMark)) throw new OAuthError('invalid_grant', 'This account\'s password or access changed since it signed in; sign in again');
         mark = passwordMark(store, account);
       },

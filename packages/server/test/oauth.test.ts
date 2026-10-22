@@ -443,3 +443,20 @@ test('a password reset made while a sign-in code is being exchanged does not lea
   assert.equal((await tr.json()).error, 'invalid_grant');
   assert.equal(store.apiTokens().filter((k) => k.account === 'rhea').length, 0);
 });
+
+test('revoking a sign-in in Manage Security while it is being refreshed does not leave a new access token alive', { skip }, async (t) => {
+  store.setPassword('sam', 'sam-pw', 'Bot');
+  const c = await connect('sam', 'sam-pw');
+  const id = /^ohbt_([0-9a-f]+)\./.exec(c.access_token)![1];
+  // The revoke lands after the refresh has seen the access token and before it writes the next one, as it can when
+  // another worker handles it.
+  const real = store.createApiToken.bind(store);
+  t.mock.method(store, 'createApiToken', (...args: Parameters<Store['createApiToken']>) => {
+    store.revokeApiToken(id);
+    return real(...args);
+  });
+  const r = await post('/oauth/token', form({ grant_type: 'refresh_token', refresh_token: c.refresh_token, client_id: c.client_id }));
+  const body = await r.json();
+  assert.equal(body.error, 'invalid_grant', JSON.stringify(body));
+  assert.equal(store.apiTokens().filter((k) => k.account === 'sam').length, 0, 'the revoked sign-in has no token left');
+});
