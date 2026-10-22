@@ -13,6 +13,8 @@ Sources checked 2026-10-15. Regression probes are in
 | A4-04: invalid audit retention | Fixed: 960 (invalid parameter), instead of a date-field validation error. |
 | A4-05: SQL refusal | Retained 8310 and documented its existing SQL/OData uses in the shared catalog; FileMaker also returns this code in practice despite its absence from Claris's published list. |
 
+Functions over whole numbers longer than 15 digits keep every digit up to 400 digits. Which functions the other product computes exactly is **unverified**; formulas relying on rounding at 15 digits may show more digits here. <!-- known-difference: SQL and calculations ;; Functions over whole numbers longer than 15 digits keep every digit up to 400 digits; which functions the other product computes exactly is unverified ;; A formula that relies on rounding at 15 digits shows more digits here ;; Compare against the other product with a real file -->
+
 ## Unverified behavior left unchanged <!-- known-difference-ok: heading of the list below, whose items carry the markers -->
 
 The following original probes retain their assertions with `{ todo }` and a
