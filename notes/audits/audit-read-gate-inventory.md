@@ -172,9 +172,9 @@ The following reasons apply to the exact enumerated expressions in each named fu
 | [packages/cli/src/diagnostics.ts:202](../../packages/cli/src/diagnostics.ts#L202) `designCopy` | `SQLite.all` (202); `SQLite.prepare` (202, 205) | OPERATOR |
 | [packages/cli/src/diagnostics.ts:441](../../packages/cli/src/diagnostics.ts#L441) `diagnostics` | `SQLite.get` (441); `SQLite.prepare` (441, 445); `SQLite.all` (445) | OPERATOR |
 | [packages/cli/src/doctor.ts:139](../../packages/cli/src/doctor.ts#L139) `accountChecks` | `SQLite.all` (139); `SQLite.prepare` (139) | OPERATOR |
-| [packages/cli/src/main.ts:669](../../packages/cli/src/main.ts#L669) `accountsWithPasswordOff` | `SQLite.all` (669); `SQLite.prepare` (669) | OPERATOR |
-| [packages/cli/src/main.ts:698](../../packages/cli/src/main.ts#L698) `hostedRead` | `SQLite.all` (698, 701); `SQLite.prepare` (698, 701); `Store.sql` (698, 701) | OPERATOR |
-| [packages/cli/src/main.ts:2288](../../packages/cli/src/main.ts#L2288) `main` | `Store.orphanContainerReport` (2288); `Store.auditLog` (2751); `SQLite.get` (2967); `SQLite.prepare` (2967) | OPERATOR |
+| [packages/cli/src/main.ts:677](../../packages/cli/src/main.ts#L677) `accountsWithPasswordOff` | `SQLite.all` (677); `SQLite.prepare` (677) | OPERATOR |
+| [packages/cli/src/main.ts:706](../../packages/cli/src/main.ts#L706) `hostedRead` | `SQLite.all` (706, 709); `SQLite.prepare` (706, 709); `Store.sql` (706, 709) | OPERATOR |
+| [packages/cli/src/main.ts:2296](../../packages/cli/src/main.ts#L2296) `main` | `Store.orphanContainerReport` (2296); `Store.auditLog` (2759); `SQLite.get` (3018); `SQLite.prepare` (3018) | OPERATOR |
 | [packages/scripts/src/data-api-step.ts:103](../../packages/scripts/src/data-api-step.ts#L103) `respond` | `Store.get` (103, 130, 139); `Store.find` (104, 116) | SCRIPT |
 | [packages/scripts/src/engine.ts:1936](../../packages/scripts/src/engine.ts#L1936) `ScriptEngine/goToLayout` | `Store.findIds` (1936) | SCRIPT |
 | [packages/scripts/src/engine.ts:2273](../../packages/scripts/src/engine.ts#L2273) `ScriptEngine/foundSet` | `Store.findIds` (2273) | SCRIPT |
@@ -890,4 +890,8 @@ The following reasons apply to the exact enumerated expressions in each named fu
 | [packages/store/src/words.ts:85](../../packages/store/src/words.ts#L85) `WordIndexes/ensure/covers` | `SQLite.get` (85, 89); `SQLite.all` (86); `SQLite.prepare` (86, 89) | CORE |
 | [packages/store/src/words.ts:155](../../packages/store/src/words.ts#L155) `WordIndexes/dropAll` | `SQLite.all` (155); `SQLite.prepare` (155) | CORE |
 | [packages/server/src/oauth.ts:734](../../packages/server/src/oauth.ts#L734) `OAuthServer/endGrant` | `SQLite.prepare` (734, 735); `SQLite.all` (735) | AUTH |
+| [packages/store/src/native-compat.ts:61](../../packages/store/src/native-compat.ts#L61) `storedState/meta` | `SQLite.get` (61); `SQLite.prepare` (61) | OPERATOR |
+| [packages/store/src/native-compat.ts:91](../../packages/store/src/native-compat.ts#L91) `dateFields` | `SQLite.all` (91); `SQLite.prepare` (91) | OPERATOR |
+| [packages/store/src/native-compat.ts:115](../../packages/store/src/native-compat.ts#L115) `inspectUpgrade` | `SQLite.get` (115); `SQLite.prepare` (115, 123); `SQLite.iterate` (123) | OPERATOR |
+| [packages/store/src/native-compat.ts:157](../../packages/store/src/native-compat.ts#L157) `upgradeNativeFile` | `SQLite.iterate` (157); `SQLite.prepare` (157, 158, 164) | OPERATOR |
 <!-- end generated read-gate inventory -->

@@ -7,7 +7,7 @@ missing from it. `npm run docs:known-differences` rewrites it, and a test fails 
 marker (`<!-- known-difference: area ;; what ;; how it shows ;; what would settle it -->`). Internal working notes are not
 part of it.
 
-**83 entries in 17 areas.** Waiting on: 22 on a sample file, 46 on a FileMaker run or Design Report, 10 on a Claris answer, 16 on a decision by the owner (an entry can wait on more than one).
+**84 entries in 17 areas.** Waiting on: 22 on a sample file, 47 on a FileMaker run or Design Report, 10 on a Claris answer, 16 on a decision by the owner (an entry can wait on more than one).
 
 ## Data API
 
@@ -133,6 +133,7 @@ part of it.
 | Whether SQL equality should fold accents the way a find does is not established; Tabularius keeps binary comparison | A SQL query for e does not match É though a find does | A FileMaker run of ExecuteSQL equality on accented text | [docs/consistency.md › Unverified behavior left unchanged <!-- known-difference-ok: heading of the list below, whose items carry the markers -->](consistency.md) — “A4-08: accent-folded SQL equality. Claris documents [Unicode binary SQL…” |
 | How DATEVAL parses an overflowing date (February 31) is not specified | The date normalises as GetAsDate does here, which may differ from FileMaker | A FileMaker run of DATEVAL and GetAsDate on February 31 | [docs/consistency.md › Unverified behavior left unchanged <!-- known-difference-ok: heading of the list below, whose items carry the markers -->](consistency.md) — “A4-09: overflowing DATEVAL. [SQL date…” |
 | How a SQL time literal with overflowing minutes (minute 90) is parsed is not specified | The literal normalises as GetAsTime does here | A FileMaker run of a SQL time literal with minute 90 | [docs/consistency.md › Unverified behavior left unchanged <!-- known-difference-ok: heading of the list below, whose items carry the markers -->](consistency.md) — “A4-10: overflowing minutes in a SQL time literal. [SQL…” |
+| Whether a native file's SQL expressions survive an export to .fmp12 is unverified, and UUID record IDs and foreign keys are not yet in the compatibility check | The check cannot confirm SQL expressions or UUID keys survive | A native file with those features and a FileMaker run of the export | [docs/native-compat.md › Native compatibility check and one-way upgrade](native-compat.md) — “…storage lands. SQL expression export behavior is unverified; no SQL-specific feature is identified by the…” |
 | What FileMaker's own binary function, design-function, Get-option and step IDs that the reader cannot yet name do is unverified; Tabularius gives ? (or error 3 for a step) and names none of them | A calculation using one of these returns ? where FileMaker computes a value | A clipboard XML of the same calculations paired with the file by tabularius pair-tokens, or a FileMaker run | [docs/unknown-token-ground-truth.md › Behavior and public documentation](unknown-token-ground-truth.md) — “…binary IDs. Their identities/behavior remain unverified; ? is the requested conservative fallback, not a claim…” |
 
 ## SQL grammar
