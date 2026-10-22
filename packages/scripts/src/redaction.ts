@@ -575,7 +575,7 @@ export function diagnosticEndpoint(value: string): string {
 }
 
 /** Mask values rather than entire diagnostics, so stack locations and cause chains remain useful. */
-export function redactDiagnosticText(text: string): string {
+export function redactDiagnosticText(text: string, options: { labels?: boolean | 'assignments' } = {}): string {
   const values = new CredentialRedactor();
   const hide = (value: string) => { if (value !== REDACTED && value.length >= 4) values.remember(value); return REDACTED; };
   let safe = text
@@ -589,11 +589,15 @@ export function redactDiagnosticText(text: string): string {
     })
     .replace(/(\b(?:Bearer|Basic)[ \t]+)([^\s,;"']+)/gi, (_all, prefix: string, value: string) => prefix + hide(value))
     .replace(/(^|[ \t])((?:--(?:user|proxy-user|oauth2-bearer)[= \t]+|-u[ \t]*))((?:"(?:[^"\\]|\\.)*"|'[^']*'|[^\s;]+))/gm,
-      (_all, space: string, option: string, value: string) => space + option + hide(value));
+      (_all, space: string, option: string, value: string) => space + option + hide(value))
+    // A Cookie or Set-Cookie header is all session material: keep the header name, hide what follows.
+    .replace(/(\b(?:Set-)?Cookie[ \t]*:[ \t]*)([^\r\n]+)/gi, (_all, prefix: string, value: string) => prefix + hide(value));
   // Scan separators once and bound label inspection. File locations end in an extension
   // ("credentials.ts:41:5"), not an assignment label; never treat a whole frame as a value.
   const spans: { start: number; end: number; replacement: string }[] = [];
-  for (const match of safe.matchAll(/[:=]/g)) {
+  // 'assignments': only name=value and "name": value, so readable prose such as "Invalid token: signature mismatch" stays readable.
+  for (const match of options.labels === false ? [] : safe.matchAll(/[:=]/g)) {
+    if (options.labels === 'assignments' && match[0] === ':' && !/["']\s*$/.test(safe.slice(Math.max(0, match.index - 80), match.index))) continue;
     const left = safe.slice(Math.max(0, match.index - 80), match.index);
     const label = /([\w$-]+(?:[ \t]+[\w$-]+){0,2})["']?[ \t]*$/.exec(left)?.[1];
     if (!label || !isCredentialLabelName(label)) continue;

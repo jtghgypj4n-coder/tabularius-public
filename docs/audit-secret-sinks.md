@@ -65,6 +65,14 @@ its input context. The run-local redactor handles known values and copies; corpu
 errors and secret-file parse failures avoid arbitrary text entirely. Derived,
 encoded or transformed application data is not a general information-flow proof.
 
+Known gap: a credential inside JSON that is itself a string inside JSON (for example
+`{"body":"{\"password\":\"x\"}"}`) is not recognised as a labelled value, because the label is
+escaped. The value is masked only if it is a known value of the run, a known key shape or
+a bearer, cookie or URL form. Names with a credential word after other letters (`PGPASSWORD`,
+`adminpassword`) and `Cookie` / `Set-Cookie` headers are masked. Error text returned to a caller
+(`callerText`) is masked for `name=value` and `"name": value` only, so a readable message such as
+"Invalid token: signature mismatch" is not changed.
+
 ## Validation
 
 Run the new matrix with a light process limit:
