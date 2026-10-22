@@ -341,6 +341,7 @@
         "docs/audits/audit-review-round2-ai-policy.md",
         "docs/audits/r25-08-csrf-cors-matrix.md",
         "docs/audits/r25-08-cross-origin-routes.md",
+        "docs/audits/audit-review-round2-backup.md",
         "docs/service-files.md",
         "docs/dynapdf-stage2.md",
         "docs/contributing.md"
