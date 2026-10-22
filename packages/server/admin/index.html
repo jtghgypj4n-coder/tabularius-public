@@ -413,6 +413,8 @@
     <h2>Hosted files <span class="count" id="dbs-count"></span> <span class="spacer"></span><button id="reconvert-all" hidden>Convert all again…</button></h2>
     <p class="note" id="script-network-note" hidden></p>
     <div id="dbs"></div>
+    <p class="note" id="web-hosts-note" hidden></p>
+    <div id="web-hosts"></div>
     <div id="reconvert-panel"></div>
     <div id="externals"></div>
     <div id="guide" class="guide" role="region" tabindex="-1" aria-label="Conversion guide"></div>
@@ -1907,6 +1909,13 @@ async function refresh() {
   const networkOff = s.databases.filter((d) => d.scriptNetwork && !d.scriptNetwork.on).map((d) => d.name);
   $('script-network-note').hidden = !networkOff.length;
   $('script-network-note').textContent = networkOff.length ? `Scripts can't reach the network yet${s.databases.length > 1 ? ` in ${networkOff.join(', ')}` : ''}. Turn on Script network in the table below when this copy is the live one. Until then Insert from URL and the other web calls give error 3.` : '';
+  const noWebHosts = s.databases.filter((d) => !d.webViewerHosts?.length).map((d) => d.name);
+  $('web-hosts-note').hidden = !noWebHosts.length;
+  $('web-hosts-note').textContent = noWebHosts.length ? `Web viewers show only their own content${s.databases.length > 1 ? ` in ${noWebHosts.join(', ')}` : ''}. List the web hosts a file's web viewers may load below; until then an address on the web shows as text.` : '';
+  render($('web-hosts'), table(s.databases, [
+    { label: 'File', get: (d) => d.name },
+    { label: 'Web viewers may load', wrap: true, html: (d) => `${d.webViewerHosts?.length ? d.webViewerHosts.map((h) => `<code>https://${esc(h)}</code>`).join(' ') : '<span class="meta">Nothing (their own content only)</span>'} <button data-web-hosts="${esc(d.name)}" aria-label="Change the web hosts ${esc(d.name)}'s web viewers may load">Change</button>` },
+  ], ''));
   $('reconvert-all').hidden = s.databases.filter((d) => d.reconvert).length < 2;
   render($('dbs'), table(s.databases, [
     { label: 'File', get: (d) => d.name },
@@ -2170,6 +2179,18 @@ document.addEventListener('click', async (e) => {
     v.textContent = 'Checking…';
     await call('POST', `/tabularius/admin/v1/backups/${encodeURIComponent(v.dataset.verify)}/verify`).catch((err) => say(plainMessage(err)));
     refresh();
+  }
+  const webHosts = e.target.closest('[data-web-hosts]');
+  if (webHosts) {
+    const name = webHosts.dataset.webHosts;
+    const current = (await call('GET', `/tabularius/admin/v1/web-viewer-hosts/${encodeURIComponent(name)}`).catch((err) => say(plainMessage(err))))?.hosts;
+    if (current) {
+      const text = prompt(`Web hosts ${name}'s web viewers may load, separated by commas. Each is a host name like maps.example.com, or *.example.com for any subdomain; pages load over https only. Leave empty to allow none. The host sees the address of whoever opens the page, so list only sites you trust.`, current.join(', '));
+      if (text !== null) {
+        await call('POST', `/tabularius/admin/v1/web-viewer-hosts/${encodeURIComponent(name)}`, { hosts: text.split(/[\s,]+/).filter(Boolean) }).catch((err) => say(plainMessage(err)));
+        refresh();
+      }
+    }
   }
   const network = e.target.closest('[data-script-network]');
   if (network) {

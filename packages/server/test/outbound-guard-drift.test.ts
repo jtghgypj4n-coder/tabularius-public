@@ -28,6 +28,7 @@ interface Allowed {
 
 const ALLOWED: Record<string, Allowed> = {
   'packages/scripts/src/net-guard.ts': { reason: 'the guard itself: the one place that makes a connection to a checked address' },
+  'packages/scripts/src/ftp.ts': { reason: 'BaseElements\' FTP functions: an FTP conversation, not HTTP. The control and data sockets\' lookup is the guard\'s, a host written as an address is checked with hostRefusal, and the data connection goes only to the address the control connection reached', guardedBy: /socketLookup\(/ },
   'packages/server/src/smtp.ts': { reason: 'Send Mail: an SMTP conversation, not HTTP. The server is the administrator\'s; the socket\'s lookup is the guard\'s', guardedBy: /socketLookup\(/ },
   'packages/server/src/ldap.ts': { reason: 'LDAP sign-in: the directory is the administrator\'s; the socket\'s lookup is the guard\'s', guardedBy: /socketLookup\(/ },
   'packages/server/src/fms-sync.ts': { reason: 'sync with a FileMaker Server the administrator named (also checked in sync-console.ts); the request\'s lookup is the guard\'s', guardedBy: /socketLookup\(/ },

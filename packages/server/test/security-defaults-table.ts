@@ -316,6 +316,14 @@ export const ROWS: Row[] = [
     },
   },
   {
+    id: 'web-viewer-hosts', section: 'What can reach outside', setting: 'Web hosts a web viewer may load',
+    default: 'None for every file, including a new or converted one and the demo: a web viewer shows only its own content (HTML a solution builds), and an address on the web shows as text. A listed host loads over https only, in a frame with no access to the app',
+    changedBy: 'The admin console\'s Web viewers may load list for one file (Hosted files)',
+    risk: 'A host on the list sees the address of whoever opens the page, and can show them anything, including a page that looks like the app\'s own',
+    how: 'probed', expect: 'none',
+    observe: async (c) => ((await c.status()).databases.every((d: { webViewerHosts?: string[] }) => !d.webViewerHosts?.length) ? 'none' : 'some'),
+  },
+  {
     id: 'script-install', section: 'What can reach outside', setting: 'Scripts installing plug-ins (Install Plug-In File)',
     default: 'Off',
     changedBy: 'Admin console setting (`scriptPluginInstall` in the folder\'s settings file)',

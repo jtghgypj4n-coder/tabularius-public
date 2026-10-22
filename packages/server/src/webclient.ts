@@ -536,7 +536,8 @@ export class WebClient {
       'content-type': TYPES[ext], 'cache-control': 'no-cache', 'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer',
       // Web viewers draw a solution's HTML in frames; a frame can't navigate itself out to the network.
       // No other site may frame the app (clickjacking).
-      ...(ext === '.html' ? { 'x-frame-options': 'DENY', 'content-security-policy': "frame-src 'self' about: data: blob:; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'" } : {}),
+      // frame-src also names the https hosts an administrator let web viewers load (any file's; the client frames only its own file's).
+      ...(ext === '.html' ? { 'x-frame-options': 'DENY', 'content-security-policy': `frame-src 'self' about: data: blob:${this.host.webViewerHostsAll().map((h) => ` https://${h}`).join('')}; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'` } : {}),
     }, asset);
   }
 
@@ -779,6 +780,8 @@ export class WebClient {
       layout: { name, id: design.id, occurrence: info.occurrence, table: info.table, file: info.owner.name },
       fileMode: store.fileMode,
       scriptNetwork: this.host.scriptNetworkOn(store.name),
+      // The https hosts this file's web viewers may load (the page's frame policy has them too).
+      webViewerHosts: store.webViewerHosts,
       design: this.resolveDesign(store, design),
       // The width below which a layout with no breakpoint of its own stacks in one column (0: never).
       stackBelowDefault: this.host.config.responsiveStackBelow(),

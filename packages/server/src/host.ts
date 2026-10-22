@@ -52,6 +52,11 @@ const UPLOAD_CONVERT_LIMITS = {
 /** The account row a container link is tied to. */
 export interface LinkAccount { name: string; identity: string }
 
+/** The most web hosts the app page's frame policy names, across all files. */
+export const WEB_VIEWER_HOSTS_ALL_MAX = 200;
+/** And the most the names take in the header, with their `https://` and space. */
+export const WEB_VIEWER_HOSTS_ALL_BYTES = 8000;
+
 export class Host {
   readonly dir: string;
   private readonly stores = new Map<string, Store>();
@@ -256,6 +261,19 @@ export class Host {
 
   /** Tabularius's AI for FileMaker's AI script steps, set when the server runs with --ai (scripts/src/ai.ts). */
   scriptAi?: ScriptAi;
+
+  /** Every web host any hosted file lets its web viewers load, for the web app's frame policy (each file's own list still decides what its viewers load). */
+  webViewerHostsAll(): string[] {
+    // Bounded by count and by size, so the policy header stays well under what proxies accept; a host past the bound is simply not framed.
+    const out: string[] = [];
+    let bytes = 0;
+    for (const h of [...new Set([...this.stores.values()].flatMap((s) => s.webViewerHosts))].sort()) {
+      bytes += h.length + 10;
+      if (out.length >= WEB_VIEWER_HOSTS_ALL_MAX || bytes > WEB_VIEWER_HOSTS_ALL_BYTES) break;
+      out.push(h);
+    }
+    return out;
+  }
 
   /** Whether scripts may reach the network in a hosted file: the server's flag allows every file, else the file's own switch. */
   scriptNetworkOn(file: string): boolean {

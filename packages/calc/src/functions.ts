@@ -1815,7 +1815,14 @@ const recorded = (name: string, env: Env, v: Value[]): Value | undefined => {
   const out = env.ctx.outbound;
   if (!out) return undefined;
   if (HTTP_METHODS[name]) {
-    out.request(name, HTTP_METHODS[name], T(v[0], env), Buffer.byteLength(T(v[1], env)));
+    const at = HTTP_BODY_AT[name];
+    const sent = at?.read !== undefined ? env.ctx.files?.size(T(v[at.read], env)) ?? 0 : at?.save !== undefined || v.length < 2 ? 0 : Buffer.byteLength(T(v[1], env));
+    out.request(name, HTTP_METHODS[name], T(v[0], env), sent);
+    return beResult(env, 0, text(''));
+  }
+  if (FTP_NAMES[name]) {
+    const file = FTP_NAMES[name].file;
+    out.request(name, file ? 'STOR' : 'DELE', T(v[0], env), file === 'path' ? env.ctx.files?.size(T(v[1], env)) ?? 0 : file ? (v[1]?.type === 'container' ? v[1].data?.length ?? 0 : 0) : 0);
     return beResult(env, 0, text(''));
   }
   if (SMTP_NAMES[name] === 'server') return beResult(env, 0, text('')); // the server and account are never used
@@ -1837,18 +1844,181 @@ const recorded = (name: string, env: Env, v: Value[]): Value | undefined => {
   }
   return undefined;
 };
-for (const name of [...Object.keys(HTTP_METHODS), ...Object.keys(SMTP_NAMES)]) {
-  eager(name, 0, undefined, (v, env) => recorded(name, env, v) ?? (beErrors.set(env.ctx, `${name} is not available in Tabularius`), beResult(env, 3, text('?'))));
+// Where scripts may reach the network (the file's Script network switch), BE_HTTP_GET, POST, PUTData, PATCH and DELETE make
+// real requests through the same guarded transport as Insert from URL and answer with the body as text (BaseElements answers
+// with a container); GET_File saves the answer to a path in the allowed folders (the Documents folder) and PUTFile sends a file
+// from there; BE_SMTPSend sends through the server's mail account, where mail is set up. Only http and https addresses are
+// built in: BaseElements also takes ftp, ftps and sftp ones, which give "?" and error 3 here. Argument order follows
+// BaseElements' source; the error numbers a failed request sets are inferred (7 for a request that got no answer; 2 for a
+// path that is missing or outside the allowed folders).
+const HTTP_BODY_AT: Record<string, { body?: number; /** The argument holding the path of a file to send. */ read?: number; /** The argument holding the path to save the answer to. */ save?: number; user: number; password: number }> = {
+  BE_HTTP_GET: { user: 2, password: 3 }, BE_HTTP_POST: { body: 1, user: 2, password: 3 }, BE_HTTP_PUTData: { body: 1, user: 2, password: 3 },
+  BE_HTTP_PUT_Data: { body: 1, user: 2, password: 3 }, BE_HTTP_PATCH: { body: 1, user: 2, password: 3 }, BE_HTTP_DELETE: { user: 1, password: 2 },
+  BE_HTTP_GET_File: { save: 1, user: 2, password: 3 }, BE_HTTP_GETFile: { save: 1, user: 2, password: 3 }, BE_SaveURLToFile: { save: 1, user: 2, password: 3 },
+  BE_HTTP_PUTFile: { read: 1, user: 2, password: 3 }, BE_HTTP_PUT_File: { read: 1, user: 2, password: 3 },
+};
+const BE_MAX_UPLOAD = 10 * 1024 * 1024;
+interface BeWebState { headers: Map<string, string>; code: number; responseHeaders: string }
+const beWeb = new WeakMap<object, BeWebState>();
+const beWebState = (env: Env): BeWebState => {
+  const scope = env.ctx.curlScope ?? env.ctx;
+  let state = beWeb.get(scope);
+  if (!state) beWeb.set(scope, state = { headers: new Map(), code: 0, responseHeaders: '' });
+  return state;
+};
+const beRequest = (name: string, v: Value[], env: Env): Value | undefined => {
+  const at = HTTP_BODY_AT[name];
+  const curl = env.ctx.curlFetch;
+  if (!at || !curl) return undefined;
+  const state = beWebState(env);
+  const headers: Record<string, string> = Object.fromEntries(state.headers);
+  const user = at.user < v.length ? T(v[at.user], env) : '';
+  if (user) headers.authorization = `Basic ${Buffer.from(`${user}:${at.password < v.length ? T(v[at.password], env) : ''}`).toString('base64')}`;
+  const method = HTTP_METHODS[name];
+  const url = T(v[0], env);
+  if (!/^https?:\/\//i.test(url)) {
+    beErrors.set(env.ctx, `${name}: only http and https addresses are built in (FTP has BE_FTP_Upload and BE_FTP_Delete; SFTP is not built)`);
+    return beResult(env, 3, text('?'));
+  }
+  const body = at.body !== undefined && at.body < v.length ? T(v[at.body], env) : undefined;
+  const path = at.read ?? at.save;
+  const file = path !== undefined && path < v.length ? T(v[path], env) : '';
+  let bodyBytes: Uint8Array | undefined;
+  if (path !== undefined) {
+    if (!file) {
+      beErrors.set(env.ctx, `${name} needs the path of a file`);
+      return beResult(env, BE_NO_FILE, num(BE_NO_FILE));
+    }
+    if (at.read !== undefined) {
+      // The size is asked first, so a file over the limit is never read into memory.
+      const size = env.ctx.files?.size(file);
+      if (size !== undefined && size > BE_MAX_UPLOAD) {
+        beErrors.set(env.ctx, `${name}: ${file} is over ${BE_MAX_UPLOAD / 1024 / 1024} MB`);
+        return beResult(env, 7, num(7));
+      }
+      bodyBytes = env.ctx.files?.read(file);
+      if (!bodyBytes) {
+        beErrors.set(env.ctx, `${name}: no file at ${file} (paths are inside the Documents folder)`);
+        return beResult(env, BE_NO_FILE, num(BE_NO_FILE));
+      }
+      if (bodyBytes.length > BE_MAX_UPLOAD) { // grew since the size was asked
+        beErrors.set(env.ctx, `${name}: ${file} is over ${BE_MAX_UPLOAD / 1024 / 1024} MB`);
+        return beResult(env, 7, num(7));
+      }
+    }
+  }
+  if (method === 'POST' && body !== undefined && !('content-type' in headers)) headers['content-type'] = 'application/x-www-form-urlencoded';
+  const r = curl({ method, url, headers, ...(body !== undefined ? { body } : {}), ...(bodyBytes ? { bodyBytes } : {}), ...(at.save !== undefined ? { wantBytes: true } : {}), follow: true, maxRedirs: 5, via: name });
+  if (r.error || !r.status) {
+    state.code = 0;
+    state.responseHeaders = '';
+    beErrors.set(env.ctx, `${name}: ${r.error ?? 'the request got no answer'}`);
+    return beResult(env, 7, num(7));
+  }
+  state.code = r.status;
+  state.responseHeaders = r.headerText ?? Object.entries(r.headers).map(([k, x]) => `${k}: ${x}`).join('\r');
+  if (at.save !== undefined) {
+    if (!env.ctx.files?.write(file, r.bytes ?? new Uint8Array(0), false)) {
+      beErrors.set(env.ctx, `${name}: ${file} can't be written`);
+      return beResult(env, BE_NO_FILE, num(BE_NO_FILE));
+    }
+    return beResult(env, 0, text(''));
+  }
+  return beResult(env, 0, text(r.body));
+};
+const beMail = (name: string, v: Value[], env: Env): Value | undefined => {
+  const mailer = env.ctx.builtinMailer;
+  if (!mailer || SMTP_NAMES[name] !== 'send') return undefined;
+  const extra = T(v[8], env).split(/\r\n|[\r\n]/).filter(Boolean);
+  mailer.send(name, {
+    from: T(v[0], env), to: T(v[1], env), subject: T(v[2], env), body: T(v[3], env) || T(v[7], env),
+    cc: T(v[4], env), bcc: T(v[5], env), attachments: [...(smtpAttachments.get(env.ctx) ?? []), ...extra],
+  });
+  smtpAttachments.delete(env.ctx);
+  return beResult(env, 0, text(''));
+};
+// BE_FTP_Upload ( url ; container {; user ; password } ), BE_FTP_UploadFile ( url ; path {; user ; password } ) and
+// BE_FTP_Delete ( url {; user ; password } ) go over ftp:// and ftps:// (implicit TLS) through the same guarded transport; sftp://
+// is another protocol and is not built (a call gives "?" and error 3). As BaseElements documents, an upload's path is the one
+// the server sees from its root and a delete's is relative to the login folder. The error numbers are curl's, as BaseElements
+// passes them on, inferred here: 7 no connection, 35 TLS, 67 login refused, 25 upload failed, 21 delete failed.
+const FTP_NAMES: Record<string, { file?: 'container' | 'path'; user: number }> = {
+  BE_FTP_Upload: { file: 'container', user: 2 }, BE_FTP_UploadFile: { file: 'path', user: 2 }, BE_FTP_Delete: { user: 1 },
+};
+const beFtp = (name: string, v: Value[], env: Env): Value | undefined => {
+  const at = FTP_NAMES[name];
+  const ftp = env.ctx.ftpFetch;
+  if (!at || !ftp) return undefined;
+  const url = T(v[0], env);
+  if (!/^ftps?:\/\//i.test(url)) {
+    beErrors.set(env.ctx, `${name}: only ftp and ftps addresses are built in (SFTP, which runs over SSH, is not)`);
+    return beResult(env, 3, text('?'));
+  }
+  let bytes: Uint8Array | undefined;
+  if (at.file) {
+    const given = v[1];
+    if (at.file !== 'container') {
+      // The size is asked first, so a file over the limit is never read into memory.
+      const size = env.ctx.files?.size(T(given, env));
+      if (size !== undefined && size > BE_MAX_UPLOAD) {
+        beErrors.set(env.ctx, `${name}: the file is over ${BE_MAX_UPLOAD / 1024 / 1024} MB`);
+        return beResult(env, 25, num(25));
+      }
+    }
+    bytes = at.file === 'container' ? (given?.type === 'container' ? given.data : undefined) : env.ctx.files?.read(T(given, env));
+    if (!bytes) {
+      beErrors.set(env.ctx, at.file === 'container' ? `${name} needs a container field with a file in it` : `${name}: no file at ${T(given, env)} (paths are inside the Documents folder)`);
+      return beResult(env, BE_NO_FILE, num(BE_NO_FILE));
+    }
+    if (bytes.length > BE_MAX_UPLOAD) {
+      beErrors.set(env.ctx, `${name}: the file is over ${BE_MAX_UPLOAD / 1024 / 1024} MB`);
+      return beResult(env, 25, num(25));
+    }
+  }
+  const user = at.user < v.length ? T(v[at.user], env) : '';
+  const password = at.user + 1 < v.length ? T(v[at.user + 1], env) : '';
+  const r = ftp({ op: at.file ? 'put' : 'delete', url, user, password, ...(bytes ? { bytes } : {}), via: name });
+  if (r.error || !r.status) {
+    beErrors.set(env.ctx, `${name}: ${r.error ?? 'the server gave no answer'}`);
+    const code = r.code ?? 7;
+    return beResult(env, code, code === 3 ? text('?') : num(code));
+  }
+  return beResult(env, 0, text(''));
+};
+const BE_OFF = (name: string, env: Env): Value => {
+  beErrors.set(env.ctx, `${name} is not available in Tabularius${BE_HTTP_NAMES.has(name) || SMTP_NAMES[name] || FTP_NAMES[name] ? ': network access is off for this file\'s scripts (turn on Script network in the admin console)' : ''}`);
+  return beResult(env, 3, text('?'));
+};
+const BE_HTTP_NAMES = new Set(Object.keys(HTTP_BODY_AT));
+for (const name of [...Object.keys(HTTP_METHODS), ...Object.keys(SMTP_NAMES), ...Object.keys(FTP_NAMES)]) {
+  eager(name, 0, undefined, (v, env) => recorded(name, env, v) ?? beRequest(name, v, env) ?? beMail(name, v, env) ?? beFtp(name, v, env) ?? BE_OFF(name, env));
 }
 // BE_SMTPSetHeader ( {header ; value} ) is the same for mail: where mail is only captured it answers empty text and the header is not kept.
-// BE_HTTP_SetCustomHeader ( header ; value ), BE_HTTP_SetProxy ( proxy {; port ; userName ; password } ) prepare the next curl call, and
-// BE_HTTP_ResponseCode and BE_HTTP_ResponseHeaders ( {header} ) read the previous one. Where web calls are only recorded (outbound
-// test mode) nothing is sent, so there are no headers to keep and no response to read: they answer "" with error 0. Elsewhere
-// the web calls give "?", and so do these.
+// BE_HTTP_SetCustomHeader ( header ; value ) prepares the next web call (an empty header clears them), BE_HTTP_SetProxy ( proxy {; port ;
+// userName ; password } ) is not used (requests go through the server's own guarded transport), and BE_HTTP_ResponseCode and
+// BE_HTTP_ResponseHeaders ( {header} ) read the previous call. Where web calls are only recorded (outbound test mode) nothing is
+// sent, so there are no headers to keep and no response to read: they answer "" with error 0. Where scripts may not reach the
+// network the web calls give "?", and so do these.
 const BE_WEB_COMPANIONS = ['BE_HTTP_SetCustomHeader', 'BE_HTTP_SetProxy', 'BE_SMTPSetHeader', 'BE_HTTP_ResponseCode', 'BE_HTTP_ResponseHeaders'];
 for (const name of BE_WEB_COMPANIONS) {
-  eager(name, 0, 4, (_v, env) => {
+  eager(name, 0, 4, (v, env) => {
     if (env.ctx.outbound) return beResult(env, 0, text(''));
+    if (env.ctx.curlFetch) {
+      const state = beWebState(env);
+      if (name === 'BE_HTTP_SetCustomHeader') {
+        const header = v.length ? T(v[0], env).trim().toLowerCase() : '';
+        if (!header) state.headers.clear();
+        else state.headers.set(header, v.length > 1 ? T(v[1], env) : '');
+        return beResult(env, 0, num(beLastError.get(env.ctx) ?? 0));
+      }
+      if (name === 'BE_HTTP_ResponseCode') return beResult(env, 0, num(state.code));
+      if (name === 'BE_HTTP_ResponseHeaders') {
+        if (!v.length || !T(v[0], env)) return beResult(env, 0, text(state.responseHeaders));
+        const want = T(v[0], env).toLowerCase();
+        return beResult(env, 0, num(state.responseHeaders.split(/\r\n|[\r\n]/).some((l) => l.toLowerCase().startsWith(`${want}:`)) ? 1 : 0));
+      }
+      if (name === 'BE_HTTP_SetProxy') return beResult(env, 0, text(''));
+    }
     beErrors.set(env.ctx, `${name} is not available in Tabularius`);
     return beResult(env, 3, text('?'));
   });
@@ -1857,8 +2027,7 @@ for (const name of BE_WEB_COMPANIONS) {
 // network or sends mail: "?" with an error.
 const BE_REFUSED = ['BE_ClipboardFormats', 'BE_ClipboardGetText', 'BE_ClipboardSetText', 'BE_SelectFolder', 'BE_SelectFile', 'BE_ExecuteSystemCommand',
   'BE_FolderSelectDialog', 'BE_FileSelectDialog', 'BE_FileOpen',
-  'BE_OpenURL', 'BE_OpenFile',
-  'BE_FTP_Upload', 'BE_FTP_UploadFile', 'BE_FTP_Delete'];
+  'BE_OpenURL', 'BE_OpenFile'];
 def(BE_REFUSED, 0, undefined, (_a, env, name) => {
   beErrors.set(env.ctx, `${name} is not available in Tabularius`);
   beLastError.set(env.ctx, 3);
@@ -1873,7 +2042,7 @@ def(BE_REFUSED, 0, undefined, (_a, env, name) => {
  * cannot be found", rather than "?". An MBS name is judged by mbsSupports instead.
  */
 export type PluginBehaviour = 'runs' | 'outbox' | 'refused' | 'unavailable' | 'unrecognised';
-const OUTBOX_ONLY = new Set([...Object.keys(HTTP_METHODS), ...Object.keys(SMTP_NAMES), ...BE_WEB_COMPANIONS].map((n) => n.toLowerCase()));
+const OUTBOX_ONLY = new Set([...Object.keys(HTTP_METHODS), ...Object.keys(SMTP_NAMES), ...Object.keys(FTP_NAMES), ...BE_WEB_COMPANIONS].map((n) => n.toLowerCase()));
 const ALWAYS_REFUSED = new Set(BE_REFUSED.map((n) => n.toLowerCase()));
 export function pluginCallBehaviour(name: string): PluginBehaviour {
   const lower = name.toLowerCase();

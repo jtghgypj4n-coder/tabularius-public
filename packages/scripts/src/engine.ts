@@ -5,7 +5,7 @@
 // client actions so a web client can carry them out.
 
 import { cancellationScope, untilCanceled } from './cancellation.ts';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { appendFileSync, closeSync, constants as fsConstants, cpSync, existsSync, fstatSync, lstatSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, readSync, realpathSync, statfsSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync, writeSync } from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
@@ -29,7 +29,7 @@ import { basename, dirname, isAbsolute, join, relative, sep } from 'node:path';
 import { foldCase } from '../../calc/src/collation.ts';
 import {
   CalcError, CalcNestingError, ERR, NameTable, pdfText, asBoolean, asNumber, asText, compile, cosineSimilarity, embeddingFile, embeddingOf, evaluate, fromStored, num, text, toStored, dayNumber,
-  type CalcContext, type DeviceLocation, type PluginFiles, type PluginOutbound, type PluginNetwork, type PluginMailer, type PluginResponse, type MbsCurlRequest, type FieldRef as CalcFieldRef, type Value, type ValueType,
+  type CalcContext, type DeviceLocation, type PluginFiles, type PluginOutbound, type PluginNetwork, type PluginMailer, type PluginResponse, type MbsCurlRequest, type PluginFtpRequest, type PluginFtpResponse, type FieldRef as CalcFieldRef, type Value, type ValueType,
   HostWait, markExecutionRefusal, rethrowExecutionRefusal,
   beginMbsReplay, rewindMbsReplay, endMbsReplay,
 } from '../../calc/src/index.ts';
@@ -38,6 +38,7 @@ import { scriptStepName } from '../../fmp12/src/script-steps.ts';
 import { chunkText, findPrompt, parseFindAnswer, parseSqlAnswer, readMessages, sqlAnswerPrompt, sqlPrompt, type AiMessage, type AiSessionState, type RagBackend, type ScriptAi } from './ai.ts';
 import { signSigV4 } from './sigv4.ts';
 import { parseConnectionUrl, type ScriptConnections } from './connections.ts';
+import { ftpTransfer } from './ftp.ts';
 import { guardedFetcher, networkProblem, outboundContext, outboundDeadline, parseAllowList } from './net-guard.ts';
 import { addresses, captureOnly, curlAddressAllowed, hostAllowed, hostOf, OUTBOX_ATTACHMENT_LIMIT, redactUrl, redirectedText, TEST_SUBJECT_PREFIX, REFUSED_CALL_LIMIT, type OutboundTest, type OutboxEntry, type OutgoingMail, type OutboxMail, type OutboxRequest, type OutsideCalls } from './outbound.ts';
 import { digestAuthorization, parseDigestChallenge } from './digest-auth.ts';
@@ -934,7 +935,7 @@ class NeedEmbedding extends HostWait {
     this.asks = asks;
   }
 }
-interface PluginFetchAsk { key: string; via: string; method: string; url: string; headers: Record<string, string>; body: string; allows(url: string): boolean; curl?: MbsCurlRequest }
+interface PluginFetchAsk { key: string; via: string; method: string; url: string; headers: Record<string, string>; body: string; allows(url: string): boolean; curl?: MbsCurlRequest; ftp?: PluginFtpRequest }
 /** A plug-in asked for a web request not made yet: the step runs again once it has been. */
 class NeedFetch extends HostWait {
   readonly ask: PluginFetchAsk;
@@ -958,7 +959,7 @@ const PLUGIN_FETCH_MS = 30_000;
 const FORBIDDEN_HEADERS = new Set(['host', 'content-length', 'connection', 'transfer-encoding', 'upgrade']);
 /** Formulas that may call GetEmbedding (or build a call with Evaluate): their step's variables are kept to put back. */
 const EMBEDS = /GetEmbedding\s*\(|Evaluate\s*\(/i;
-const CURL_PERFORM = /CURL\.Perform/i;
+const CURL_PERFORM = /CURL\.Perform|BE_HTTP_|BE_SMTPSend|BE_SMTP_Send|BE_FTP_|BE_SaveURLToFile/i;
 const filesEmbedding = new WeakMap<object, boolean>();
 /** Whether any of a file's custom functions may call GetEmbedding. */
 function functionsEmbed(store: Store): boolean {
@@ -969,7 +970,7 @@ function functionsEmbed(store: Store): boolean {
 }
 const callsEmbedding = new WeakMap<ScriptStep, boolean>();
 const CANT_EMBED_HERE = 'GetEmbedding was reached where this step can\'t safely run again; work the embedding out in a Set Variable step first';
-const CANT_FETCH_HERE = 'A web request (such as CURL.Perform) was reached where this step can\'t safely run again; make the request in a Set Variable step first';
+const CANT_FETCH_HERE = 'A web request (such as CURL.Perform or BE_HTTP_GET) was reached where this step can\'t safely run again; make the request in a Set Variable step first';
 const cantRunAgain = (e: unknown) => (e instanceof NeedFetch ? CANT_FETCH_HERE : CANT_EMBED_HERE);
 /** Embeddings a run keeps for GetEmbedding, by account, model and text. */
 const EMBEDDINGS_KEPT = 500;
@@ -2749,15 +2750,33 @@ export class ScriptEngine {
   /** MBS CURL uses the same offline switch and bounded host fetch as script URL steps. */
   private curlFetch(f: Frame, request: MbsCurlRequest): PluginResponse {
     const refused = this.networkRefusal(f);
-    if (refused) throw new CalcError(ERR.calculation, `CURL.Perform can't reach the web: ${refused}`);
+    if (refused) throw new CalcError(ERR.calculation, `${request.via ?? 'CURL.Perform'} can't reach the web: ${refused}`);
     const held = this.callStackFiles(f).find((x) => captureOnly(x));
-    if (held !== undefined) throw new CalcError(ERR.calculation, `CURL.Perform can't reach the web: "${held}" is a capture-only file`);
-    const key = JSON.stringify(['CURL.Perform', request]);
+    if (held !== undefined) throw new CalcError(ERR.calculation, `${request.via ?? 'CURL.Perform'} can't reach the web: "${held}" is a capture-only file`);
+    // A file to send is part of the request by its hash, not its bytes.
+    const { bodyBytes, ...plain } = request;
+    const key = JSON.stringify([request.via ?? 'CURL.Perform', plain, bodyBytes ? createHash('sha256').update(bodyBytes).digest('hex') : undefined]);
     const done = this.pluginFetched.get(key);
     if (done) return done;
     // Only an explicitly authorized test fetch may serve local addresses. Real requests use the strict guard and pinned transport.
-    throw new NeedFetch({ key, via: 'CURL.Perform', method: request.method, url: request.url, headers: request.headers,
+    throw new NeedFetch({ key, via: request.via ?? 'CURL.Perform', method: request.method, url: request.url, headers: request.headers,
       body: request.body ?? '', allows: (url) => curlAddressAllowed(url, typeof this.opts.network === 'function' && this.opts[TEST_ONLY_CUSTOM_FETCH] === true), curl: request });
+  }
+
+  /** BaseElements' FTP functions: the same switch, call-stack check and replay as MBS CURL, over the guarded FTP client. */
+  private ftpFetch(f: Frame, request: PluginFtpRequest): PluginFtpResponse {
+    const refused = this.networkRefusal(f);
+    if (refused) throw new CalcError(ERR.calculation, `${request.via} can't reach the network: ${refused}`);
+    const held = this.callStackFiles(f).find((x) => captureOnly(x));
+    if (held !== undefined) throw new CalcError(ERR.calculation, `${request.via} can't reach the network: "${held}" is a capture-only file`);
+    // A file to send is part of the request by its hash, not its bytes.
+    const { bytes, ...plain } = request;
+    const key = JSON.stringify(['ftp', plain, bytes ? createHash('sha256').update(bytes).digest('hex') : undefined]);
+    const done = this.pluginFetched.get(key) as PluginFtpResponse | undefined;
+    if (done) return done;
+    const test = typeof this.opts.network === 'function' && this.opts[TEST_ONLY_CUSTOM_FETCH] === true;
+    throw new NeedFetch({ key, via: request.via, method: request.op === 'put' ? 'STOR' : 'DELE', url: request.url, headers: {}, body: '',
+      allows: (url) => curlAddressAllowed(url.replace(/^ftps?:/i, 'http:'), test), ftp: request });
   }
 
   /** What became of the messages plug-ins sent during the step that is running, by message: '' sent, else why not. */
@@ -2768,9 +2787,14 @@ export class ScriptEngine {
     return !this.opts.outbound && !!this.opts.mail && f.store.pluginsUseMail();
   }
 
+  /** Whether a built-in function (BE_SMTPSend) could send real mail here: sending is set up, and every file on the call stack may use the network. */
+  private mayMailBuiltin(f: Frame): boolean {
+    return !this.opts.outbound && !!this.opts.mail && !!this.opts.network && this.networkBlocker(f) === undefined;
+  }
+
   /** Plug-ins' mail where sending is on: a message not sent yet ends the step's run (NeedMail) and is sent before it runs again. */
-  private pluginMailer(f: Frame): PluginMailer | undefined {
-    if (!this.mayMail(f)) return undefined;
+  private pluginMailer(f: Frame, builtin = false): PluginMailer | undefined {
+    if (!(builtin ? this.mayMailBuiltin(f) : this.mayMail(f))) return undefined;
     return {
       send: (via, m) => {
         // The same message twice in one step is sent once.
@@ -2780,6 +2804,9 @@ export class ScriptEngine {
         if (done !== undefined) throw new CalcError(ERR.calculation, `${via}: the message wasn't sent (${done})`);
         const held = this.callStackFiles(f).find((x) => captureOnly(x));
         if (held !== undefined) throw new CalcError(ERR.calculation, `${via} can't send mail: "${held}" is a capture-only file, and its scripts never send email`);
+        // A built-in function's mail follows the network switch, checked at every message (this closure outlives the step that made it).
+        const refused = builtin ? this.networkRefusal(f) : undefined;
+        if (refused) throw new CalcError(ERR.calculation, `${via} can't send mail: ${refused}`);
         // "Name <address>" gives the address; the operator's account is always the sender.
         const bare = (list: string) => addresses(list).map((a) => /<([^<>]*)>\s*$/.exec(a)?.[1].trim() ?? a);
         const from = addresses(m.from)[0] ?? '';
@@ -2832,6 +2859,12 @@ export class ScriptEngine {
       return (input, init) => this.scriptOutbound(() => custom(input, init));
     }
     // Test mode's allowed hosts are reached on the own network only by exact name: a wildcard (any subdomain of a domain whose users point names anywhere) is not.
+    const guarded = guardedFetcher({ policy: this.networkPolicy(allowedHosts), maxBytes: 1024 ** 3 });
+    return (input, init) => this.scriptOutbound(() => guarded(input, init));
+  }
+
+  /** What the outbound guard lets a script reach on the server's own network: the hosts and ranges an administrator listed (and test mode's, by exact name). */
+  private networkPolicy(allowedHosts: readonly string[] = []): { private: string[] } {
     const entries = [...allowedHosts.filter((h) => !h.includes('*')), ...(this.opts.networkAllow ?? [])].filter((e) => {
       try {
         parseAllowList([e]);
@@ -2840,8 +2873,7 @@ export class ScriptEngine {
         return false;
       }
     });
-    const guarded = guardedFetcher({ policy: { private: entries }, maxBytes: 1024 ** 3 });
-    return (input, init) => this.scriptOutbound(() => guarded(input, init));
+    return { private: entries };
   }
 
   /** Makes a plug-in's web request, following redirects by hand so each hop is one the plug-in may reach. */
@@ -2854,19 +2886,23 @@ export class ScriptEngine {
     const answer = async (): Promise<PluginResponse> => {
       try {
         if (!ask.allows(ask.url)) throw new Error('the address is not allowed');
+        if (ask.ftp) {
+          const r = await this.scriptOutbound(() => ftpTransfer(ask.ftp!, { policy: this.networkPolicy(), signal, timeoutMs: PLUGIN_FETCH_MS }));
+          return { status: r.status, body: '', headers: {}, ...(r.error ? { error: r.error } : {}), ...(r.code ? { code: r.code } : {}) } as PluginFtpResponse;
+        }
         if (ask.curl) {
           const request = ask.curl;
           let at = request.url;
           let method = request.method;
-          let body = request.body;
+          let body: string | Uint8Array | undefined = request.bodyBytes ?? request.body;
           let sentHeaders = { ...headers };
           if (request.aws) {
             if (request.follow) throw new Error('CURL.SetupAWS cannot follow redirects without signing each destination');
-            sentHeaders = signSigV4({ method, url: at, headers: sentHeaders, body }, request.aws, new Date());
+            sentHeaders = signSigV4({ method, url: at, headers: sentHeaders, body: request.body }, request.aws, new Date());
           }
-          const curlHop = async (url: string, hopMethod: string, hopHeaders: Record<string, string>, hopBody: string | undefined) => {
+          const curlHop = async (url: string, hopMethod: string, hopHeaders: Record<string, string>, hopBody: string | Uint8Array | undefined) => {
             if (!ask.allows(url)) throw new Error('the address is not allowed');
-            const init = { method: hopMethod, headers: hopHeaders, body: hopBody, redirect: 'manual' as const, signal };
+            const init = { method: hopMethod, headers: hopHeaders, body: hopBody as string | Uint8Array<ArrayBuffer> | undefined, redirect: 'manual' as const, signal };
             return doFetch(url, init);
           };
           let res = await curlHop(at, method, sentHeaders, body);
@@ -2888,7 +2924,7 @@ export class ScriptEngine {
           }
           // A script run keeps up to 16 handles, each holding its response: a smaller cap than Insert from URL's.
           const bytes = await readCapped(res, CURL_RESPONSE_MAX);
-          return { status: res.status, body: new TextDecoder().decode(bytes), headers: Object.fromEntries(res.headers),
+          return { status: res.status, body: request.wantBytes ? '' : new TextDecoder().decode(bytes), ...(request.wantBytes ? { bytes } : {}), headers: Object.fromEntries(res.headers),
             headerText: `HTTP/1.1 ${res.status} ${res.statusText}\r\n${[...res.headers].map(([k, v]) => `${k}: ${v}\r\n`).join('')}\r\n` };
         }
         const body = ask.method === 'GET' || ask.method === 'HEAD' ? undefined : ask.body;
@@ -5144,7 +5180,7 @@ export class ScriptEngine {
       pluginSession: this.session,
       mbsCall: (name, args) => dynapdfCall(name, args, this.session, this.opts.documents, (path, bytes) => this.pluginFiles.write(path, bytes, false)),
       curlScope: this,
-      ...(!this.opts.outbound && this.opts.network ? { curlFetch: (request: MbsCurlRequest) => this.curlFetch(f, request) } : {}),
+      ...(!this.opts.outbound && this.opts.network ? { curlFetch: (request: MbsCurlRequest) => this.curlFetch(f, request), ftpFetch: (request: PluginFtpRequest) => this.ftpFetch(f, request) } : {}),
       pluginAccount: this.pluginAccount,
       location: () => this.where,
       repetitions: (ref) => this.schemaField(win, ref.occurrence, ref.field)?.options?.repetitions ?? 1,
@@ -5173,6 +5209,7 @@ export class ScriptEngine {
       ...(this.opts.outbound ? { outbound: this.pluginOutbound(f, this.opts.outbound) } : {}),
       ...(this.mayFetch(f) ? { network: this.pluginNetwork(f) } : {}),
       ...(this.mayMail(f) ? { mailer: this.pluginMailer(f) } : {}),
+      ...(this.mayMailBuiltin(f) ? { builtinMailer: this.pluginMailer(f, true) } : {}),
     };
   }
 

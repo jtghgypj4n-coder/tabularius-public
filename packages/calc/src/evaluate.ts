@@ -140,10 +140,14 @@ export interface CalcContext {
   network?: PluginNetwork;
   /** Synchronous bridge to the script engine's guarded URL transport. */
   curlFetch?(request: MbsCurlRequest): PluginResponse;
+  /** Synchronous bridge to the script engine's guarded FTP client (BE_FTP_*). */
+  ftpFetch?(request: PluginFtpRequest): PluginFtpResponse;
   /** CURL handles last for one script run, including calls to child scripts. */
   curlScope?: object;
   /** Real mail for plug-in functions, where the operator switched sending on (see PluginMailer). Outbound test mode takes its place when set. */
   mailer?: PluginMailer;
+  /** Mail for the built-in BaseElements functions (BE_SMTPSend), where the operator set up sending and scripts may use the network. Outbound test mode takes its place when set. */
+  builtinMailer?: PluginMailer;
   /**
    * Called after each part of the formula is worked out, innermost first,
    * with its nesting depth (1 for the whole formula): the result, or the
@@ -169,6 +173,8 @@ export interface PluginResponse {
   /** 0 when the request didn't get an answer (see error). */
   status: number;
   body: string;
+  /** The body as it came, where the request asked for it (wantBytes); body is then empty. */
+  bytes?: Uint8Array;
   /** Lowercase names. */
   headers: Record<string, string>;
   error?: string;
@@ -180,9 +186,31 @@ export interface MbsCurlRequest {
   url: string;
   headers: Record<string, string>;
   body?: string;
+  /** The body as bytes (a file to send); body is then absent. */
+  bodyBytes?: Uint8Array;
+  /** Answer with the body's bytes (PluginResponse.bytes), for a file to save. */
+  wantBytes?: boolean;
   follow: boolean;
   maxRedirs: number;
   aws?: { spec: string; user: string };
+  /** The function asking, for messages (CURL.Perform when absent). */
+  via?: string;
+}
+
+/** An FTP upload or delete for BaseElements' FTP functions (see packages/scripts/src/ftp.ts). */
+export interface PluginFtpRequest {
+  op: 'put' | 'delete';
+  url: string;
+  user: string;
+  password: string;
+  bytes?: Uint8Array;
+  /** The function asking, for messages. */
+  via: string;
+}
+
+/** How an FTP request went: PluginResponse's status is the server's final reply code, and error says why not, with curl's number for it in `code`. */
+export interface PluginFtpResponse extends PluginResponse {
+  code?: number;
 }
 
 /**

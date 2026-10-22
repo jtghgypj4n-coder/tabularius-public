@@ -2,6 +2,7 @@
 // API in FileMaker's shapes: field names, repetitions as "Field(2)", and
 // dates in US (M/D/YYYY) or ISO format.
 
+import { normalizeWebViewerHosts, trustedWebViewerHosts } from './web-viewer-hosts.ts';
 import { cleanSql, sqlName, sqlTokens } from './sql-tokens.ts';
 import { SignInFailures, LOCKOUT, NO_ADDRESS_BUDGET, addressBucket, accountsSharingLockout, lockoutName } from './sign-in-failures.ts';
 import { expiryClock } from './clock.ts';
@@ -3168,6 +3169,26 @@ export class Store {
       if (on === this.scriptNetwork) return;
       this.sql.prepare(`INSERT INTO _fm_meta VALUES ('scriptNetwork', ?) ON CONFLICT(key) DO UPDATE SET json = excluded.json`).run(JSON.stringify(on));
       this.logSecurity(on ? 'script-network-on' : 'script-network-off', { account: opts.account ?? null });
+    });
+  }
+
+  /**
+   * The web hosts this file's web viewers may load (https only). Empty unless an administrator listed some; a converted
+   * or new file starts with none, and a web viewer then shows only its own content. Kept in the file, and in its security log.
+   */
+  get webViewerHosts(): string[] {
+    return trustedWebViewerHosts(this.meta('webViewerHosts'));
+  }
+
+  setWebViewerHosts(hosts: unknown, opts: { account?: string } = {}): void {
+    const next = normalizeWebViewerHosts(hosts);
+    this.securityChange(() => {
+      const before = this.webViewerHosts;
+      const added = next.filter((h) => !before.includes(h));
+      const removed = before.filter((h) => !next.includes(h));
+      if (!added.length && !removed.length) return;
+      this.sql.prepare(`INSERT INTO _fm_meta VALUES ('webViewerHosts', ?) ON CONFLICT(key) DO UPDATE SET json = excluded.json`).run(JSON.stringify(next));
+      this.logSecurity('web-viewer-hosts-changed', { account: opts.account ?? null, detail: { added, removed, count: next.length } });
     });
   }
 

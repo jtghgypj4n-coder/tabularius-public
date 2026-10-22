@@ -10,7 +10,7 @@ import { Env, type CalcContext } from './evaluate.ts';
 import { NameTable, parse, fieldRefs, type CalcNames, type Node } from './parser.ts';
 import { asText, coerce, type ValueType, type Value } from './values.ts';
 
-export { Env, compare, type CalcContext, type CustomFunctionDef, type DeviceLocation, type FieldRef, type PluginFiles, type PluginFunction, type InstalledPlugin, type PluginOutbound, type PluginNetwork, type PluginMailer, type PluginMail, type PluginResponse, type MbsCurlRequest } from './evaluate.ts';
+export { Env, compare, type CalcContext, type CustomFunctionDef, type DeviceLocation, type FieldRef, type PluginFiles, type PluginFunction, type InstalledPlugin, type PluginOutbound, type PluginNetwork, type PluginMailer, type PluginMail, type PluginResponse, type MbsCurlRequest, type PluginFtpRequest, type PluginFtpResponse } from './evaluate.ts';
 export { snapshotMbsCurl, restoreMbsCurl } from './mbs-curl.ts';
 export { beginMbsReplay, rewindMbsReplay, endMbsReplay } from './mbs-replay.ts';
 export { NameTable, parse, fieldRefs, fieldSpans, type CalcNames, type Node } from './parser.ts';
