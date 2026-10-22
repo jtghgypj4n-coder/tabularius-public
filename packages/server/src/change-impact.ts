@@ -14,7 +14,7 @@ import { isFullAccess, type Store } from '../../store/src/index.ts';
 import { dataSourceFile } from '../../store/src/import.ts';
 import type { LayoutObject } from '../../fmp12/src/index.ts';
 import type { ServerLogs } from './server-logs.ts';
-import { resolveTargets, solutionIndex, whereUsed, type Target, type TargetKind } from './insight.ts';
+import { resolveTargets, solutionIndex, SQL_TEXT, whereUsed, type Refs, type Target, type TargetKind } from './insight.ts';
 
 export type ImpactKind = Extract<TargetKind, 'field' | 'table' | 'layout' | 'script' | 'valueList'>;
 export type ChangeKind = 'rename' | 'delete';
@@ -72,22 +72,28 @@ export interface ChangeImpact {
   summary: string[];
 }
 
-/** Calculation text that names things in strings: a rename doesn't reach inside the quotes. */
-const BY_NAME = /\b(ExecuteSQL|GetField|GetFieldName|Evaluate|GetNthRecord|ValueListItems|FieldNames|FieldType|FieldStyle|FieldRepetitions|FieldBounds|FieldComment|LayoutObjectNames|GetLayoutObjectAttribute|ScriptNames|LayoutNames|ValueListNames)\b|\bby name\b|\bby calculation\b/i;
-const SQL = /\bSELECT\b[\s\S]*\bFROM\b/i;
-
 const lower = (s: string) => s.toLowerCase();
 const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /** A use that names the target inside a string (or a SQL query), which a rename won't change. */
-function namesInText(text: string, target: Target): boolean {
-  if (!BY_NAME.test(text) && !SQL.test(text)) return false;
+function namesInText(refs: Refs | undefined, target: Target): 'yes' | 'may' | undefined {
+  const reads = refs?.byName;
+  if (!reads) return undefined;
+  if (reads.fromText || (reads.incomplete && (reads.calls.size || reads.byConstruction))) return 'may';
   const bare = target.name.replace(/^.*::/, '');
   const names = target.kind === 'field' ? [target.name, bare] : [target.name];
-  // Inside double quotes, or (for SQL) as a word anywhere in the query.
-  const quoted = [...text.matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((m) => m[1]);
-  if (names.some((n) => quoted.some((q) => new RegExp(`(^|[^\\w])${esc(n)}($|[^\\w])`, 'i').test(q)))) return true;
-  return SQL.test(text) && names.some((n) => new RegExp(`(^|[^\\w])"?${esc(n)}"?($|[^\\w])`, 'i').test(text));
+  const patterns = names.map((n) => new RegExp(`(^|[^\\w])${esc(n)}($|[^\\w])`, 'i'));
+  if (patterns.some((pattern) => reads.texts.some((text) => pattern.test(text)))) return 'yes';
+  // SQL word matching is confined to query literals, never the whole formula.
+  const sqlPatterns = names.map((n) => new RegExp(`(^|[^\\w])"?${esc(n)}"?($|[^\\w])`, 'i'));
+  if (reads.texts.some((text) => SQL_TEXT.test(text) && sqlPatterns.some((pattern) => pattern.test(text)))) return 'yes';
+  return undefined;
+}
+
+function uncertainNameWhy(refs: Refs | undefined): string {
+  return refs?.byName?.fromText
+    ? 'It may name it in text: a formula could not be parsed, so the fallback text scan cannot prove this use safe.'
+    : 'It may name it in text: a name is computed or exceeds the static analysis limit.';
 }
 
 function privilegeEntries(store: Store, target: Target, change: ChangeKind): ImpactPrivilege[] {
@@ -306,22 +312,33 @@ export async function changeImpact(store: Store, logs: ServerLogs | undefined, k
   if (!target) throw new Error(`No ${kind === 'valueList' ? 'value list' : kind} named "${name}"`);
   const days = opts.days ?? 30;
   const used = whereUsed(store, target.name, target.kind, opts.limit ?? 200)[0] ?? { count: 0, usages: [] };
+  const index = solutionIndex(store);
+  const readsByWhere = new Map<string, { refs: Refs; byName: ReturnType<typeof namesInText> }>();
+  for (const site of index.sites) {
+    const byName = namesInText(site.refs, target);
+    const previous = readsByWhere.get(site.where);
+    // A validation formula and a value-list rule can share the same location.
+    // Keep the strongest warning instead of letting the last site hide it.
+    if (!previous || byName === 'may' || (byName && !previous.byName)) readsByWhere.set(site.where, { refs: site.refs, byName });
+  }
   const uses = used.usages.map((u): ImpactUse => {
+    const { refs, byName } = readsByWhere.get(u.where) ?? {};
+    if (byName === 'may') return { where: u.where, text: u.text, breaks: true, why: uncertainNameWhy(refs) };
     if (change === 'delete') return { where: u.where, text: u.text, breaks: true, why: 'It will refer to something that no longer exists.' };
-    const byName = namesInText(u.text, target);
-    return { where: u.where, text: u.text, breaks: byName, why: byName ? 'It names it in text, which a rename doesn\'t change.' : 'It refers to it by id and follows the rename.' };
+    return { where: u.where, text: u.text, breaks: !!byName, why: byName ? 'It names it in text, which a rename doesn\'t change.' : 'It refers to it by id and follows the rename.' };
   });
-  // Names in text (GetField ( "Table::Field" ), ExecuteSQL queries, "by name" steps) aren't references the index
-  // resolves, and they are what a rename breaks: found by reading the text.
+  // Names in strings are not id references; include the parsed candidates as
+  // well as possible runtime names whose value static analysis cannot know.
   const listed = new Set(uses.map((u) => u.where));
   let extra = 0;
-  for (const site of solutionIndex(store).sites) {
-    if (listed.has(site.where) || !namesInText(site.text, target)) continue;
+  for (const site of index.sites) {
+    const byName = namesInText(site.refs, target);
+    if (listed.has(site.where) || !byName) continue;
     if (target.kind === 'field' && site.where.startsWith(`Field ${target.name} (`)) continue;
     extra++;
     if (uses.length < (opts.limit ?? 200)) {
       uses.push({ where: site.where, text: site.text.length > 300 ? `${site.text.slice(0, 299)}…` : site.text, breaks: true,
-        why: change === 'delete' ? 'It names it in text, and it will be gone.' : 'It names it in text, which a rename doesn\'t change.' });
+        why: byName === 'may' ? uncertainNameWhy(site.refs) : change === 'delete' ? 'It names it in text, and it will be gone.' : 'It names it in text, which a rename doesn\'t change.' });
     }
   }
   uses.sort((a, b) => Number(b.breaks) - Number(a.breaks));

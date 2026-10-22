@@ -72,6 +72,10 @@ Script steps that are switched off are not checked.
 
 The same check is the `check_solution` MCP tool (Full Access only, read-only): it gives the same `database`, `counts` and `findings` as `--json`, and takes an optional `account`. To check one script or one calculation use `check_script`, `lint_script` and `check_calculation`.
 
+## Change impact
+
+The change-impact check counts a use as “names it in text” when a function reads or builds names and its strings contain the name, written out or joined from literal pieces (including Let bindings). Script-step slots that take names and SQL query strings also count. A comment or a sentence in a string that merely mentions a function does not turn this check on. A name built by a function such as `Substitute` or read from a field cannot be followed statically and is reported as “may name it in text”, with a possible break for both rename and delete. Unparseable formulas retain a text fallback and are also reported as uncertain.
+
 ## What it does not do
 
 - It reads the design, not the data: it does not run scripts or evaluate calculations on records. The one look at record data is a search of web viewer fields for the scripts they call (so that a script a web viewer runs is not reported as unused); no value from a record reaches the output.

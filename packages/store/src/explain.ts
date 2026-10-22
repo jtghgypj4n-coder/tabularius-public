@@ -249,6 +249,8 @@ export function lintFormula(store: Store, formula: string, ctx: { occurrence?: n
   const refName = (r: { occurrence?: string; name: string }) => (r.occurrence ? `${r.occurrence}::${r.name}` : r.name);
   const typeOf = (n: Node) => (n.k === 'field' ? fieldOf(store, toId, { occurrence: n.occurrence, name: n.name })?.field.type : undefined);
   const own = store.schema.tableOccurrences.find((t) => t.id === toId);
+  const emptyRuleCalls = new Set(['getfield', 'evaluate', 'getfieldname', 'executesql', 'lookup', 'lookupnext', 'getnthrecord']);
+  let readsByName = false;
   const walk = (n: Node, letNames: Map<string, number>[]) => {
     switch (n.k) {
       case 'var':
@@ -300,6 +302,7 @@ export function lintFormula(store: Store, formula: string, ctx: { occurrence?: n
         return;
       }
       case 'call':
+        if (emptyRuleCalls.has(n.name.toLowerCase())) readsByName = true;
         n.args.forEach((a) => walk(a, letNames));
         return;
       default:
@@ -320,7 +323,7 @@ export function lintFormula(store: Store, formula: string, ctx: { occurrence?: n
     if (related.length) say('stored-related', `A stored calculation reading the related ${related.join(', ')}: FileMaker makes such calculations unstored, because a stored value won't follow changes in the related records.`);
   }
   const ruleOn = f.kind === 'calculation' ? !f.options?.evaluateWhenEmpty : !!f.options?.autoEnter?.calculation && !f.options?.autoEnter?.evaluateWhenEmpty;
-  if (ruleOn && c.fields.length && !/\b(GetField|Evaluate|GetFieldName|ExecuteSQL|Lookup|LookupNext|GetNthRecord)\s*\(/i.test(c.formula)) {
+  if (ruleOn && c.fields.length && !readsByName) {
     const containers = c.fields.filter((r) => fieldOf(store, toId, r)?.field.type === 'container').map(refName);
     if (containers.length) {
       say('empty-rule-container', `"Do not evaluate if all referenced fields are empty" is on, but it never applies here: FileMaker evaluates a formula that reads a container field (${containers.join(', ')}) even when the container is empty.`);
