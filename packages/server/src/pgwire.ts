@@ -32,6 +32,13 @@ import { BinaryFormatError, binaryParam, binaryValue, castParamTypes, expansionB
 import { passwordLoginSecondFactor } from './password-login-policy.ts';
 import { BOOLEAN_COLUMNS, catalogFunctions, FIRST_TABLE_OID, namesCatalogRelation, pgSyntax, readsCatalog, withCatalog, type CatalogData } from './pgcatalog.ts';
 
+/** What a `SHOW` statement names (the statement is trimmed), or undefined when it is not a one-line SHOW. A scan, not `/^SHOW\s+(.+?)\s*$/`, which backtracks over every run of blanks. */
+export function showTarget(s: string): string | undefined {
+  if (!/^SHOW\s/i.test(s)) return undefined;
+  const target = s.slice(4).trim();
+  return target && !/[\n\r\u2028\u2029]/.test(target) ? target : undefined;
+}
+
 // Store.select buffers the whole result, including for suspended portals.
 // Measured with three text columns; see docs/pgwire-results.md.
 /** The most rows one query may return: TABULARIUS_PGWIRE_MAX_ROWS, default 100,000, 0 for no cap. Read per query. */
@@ -604,8 +611,9 @@ class Connection {
       if (execute) this.send(warningMsg('01000', `${tag} is not supported; session state was not changed`));
       return { tag };
     }
-    if ((m = /^SHOW\s+(.+?)\s*$/i.exec(s))) {
-      const name = m[1].replace(/\s+/g, ' ').toLowerCase();
+    const showing = showTarget(s);
+    if (showing !== undefined) {
+      const name = showing.replace(/\s+/g, ' ').toLowerCase();
       const known: Record<string, string> = {
         'transaction isolation level': 'read committed', server_version: '14.0 (Tabularius)', server_encoding: 'UTF8',
         standard_conforming_strings: 'on', timezone: 'UTC', datestyle: 'ISO, MDY', transaction_read_only: 'on',
@@ -614,7 +622,7 @@ class Connection {
         search_path: 'public', statement_timeout: '0',
       };
       const value = this.localSettings.get(name) ?? Object.entries(this.settings).find(([k]) => k.toLowerCase() === name)?.[1] ?? known[name];
-      if (value === undefined) throw new PgError('42704', `unrecognized configuration parameter "${m[1]}"`);
+      if (value === undefined) throw new PgError('42704', `unrecognized configuration parameter "${showing}"`);
       return { tag: 'SHOW', cols: [{ name: name.replace(/ /g, '_'), oid: OID.text }], rows: [[value]] };
     }
     if (/^(DECLARE|FETCH|MOVE|CLOSE)\b/i.test(s)) {
