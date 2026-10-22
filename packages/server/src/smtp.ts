@@ -30,7 +30,8 @@ export interface SmtpConfig {
 export function redirectTransport(config: SmtpConfig, to: string): (m: RedirectedMessage) => Promise<void> {
   const u = new URL(config.url);
   if (u.protocol !== 'smtp:' && u.protocol !== 'smtps:') throw new Error('TABULARIUS_TEST_SMTP must be an smtp:// or smtps:// URL');
-  const recipient = plainAddress(to);
+  let recipient: string;
+  try { recipient = plainAddress(to); } catch { throw new Error(`"${to}" is not one email address: use one plain email address, with no display name or list`); }
   // The copy comes from the redirect address itself: never from anyone a script names (a client's
   // staff), and with no Reply-To, Sender, CC or BCC, so it can't pose as them or reach anyone else.
   const from = recipient;
