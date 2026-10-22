@@ -2,6 +2,7 @@
 
 `tabularius compat-check <folder> <name>` reads a hosted `.openhbam.sqlite` file and lists each native feature that has no confirmed path to a compat file. It prints the table and field for field findings, with `(file)::(file)` for a file-wide finding. It exits 0 when the list is empty and 1 when there are findings. It does not change the file. A compat file has no findings. A native file reports its file mode and ISO-only date order, then any boolean, integer, decimal, JSON, UUID, ISO date or timestamp fields and JavaScript custom functions. JSON fields are the currently supported array/JSON storage; there is no separate native array field type yet.
 
+<!-- docs-example: illustrative -->
 ```sh
 tabularius compat-check hosted MyDatabase
 ```
@@ -10,6 +11,7 @@ The list comes from the registry in `packages/store/src/native-compat.ts`. UUID 
 
 `tabularius upgrade-file <folder> <name> --to native` previews a compat-to-native conversion. Add `--apply` to take a verified backup of the hosted folder first and then make the one-way change. Old backup sets are kept. Stop the server before applying so its already-open connections cannot keep using compat behavior. A second run reports that the file is already native.
 
+<!-- docs-example: illustrative -->
 ```sh
 tabularius upgrade-file hosted MyDatabase --to native
 tabularius upgrade-file hosted MyDatabase --to native --apply
