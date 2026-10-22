@@ -277,26 +277,41 @@ test('Save as XML: a file\'s own UUIDs are read and written back in place of sta
 
 test('Save as XML: reading UUIDs from FileMaker\'s UTF-16 output, fields by their table', () => {
   const xml =
-    '<?xml version="1.0" encoding="UTF-16"?><FMSaveAsXML version="2.2.0.0" UUID="FILE-1"><Structure><AddAction>' +
-    '<BaseTableCatalog><UUID>CAT</UUID><BaseTable id="129" name="T"><UUID>BT-129</UUID></BaseTable></BaseTableCatalog>' +
-    '<FieldsForTables><FieldCatalog><UUID>FC</UUID><BaseTableReference id="129" name="T" UUID="BT-129"></BaseTableReference>' +
-    '<ObjectList><Field id="3" name="a"><UUID>F-129-3</UUID></Field></ObjectList></FieldCatalog>' +
-    '<FieldCatalog><BaseTableReference id="130" name="U" UUID="BT-130"></BaseTableReference>' +
-    '<ObjectList><Field id="3" name="b"><UUID>F-130-3</UUID></Field></ObjectList></FieldCatalog></FieldsForTables>' +
-    '<ScriptCatalog><Script id="7" name="Go"><UUID>S-7</UUID></Script></ScriptCatalog>' +
-    '</AddAction><ModifyAction><FieldsForTables><FieldCatalog><BaseTableReference id="129" UUID="BT-129"></BaseTableReference>' +
-    '<ObjectList><Field><FieldReference id="3" UUID="F-129-3"></FieldReference></Field></ObjectList></FieldCatalog></FieldsForTables></ModifyAction>' +
+    '<?xml version="1.0" encoding="UTF-16"?><FMSaveAsXML version="2.2.0.0" UUID="F1F1F1F1-0000-4000-8000-000000000001"><Structure><AddAction>' +
+    '<BaseTableCatalog><UUID>C0000001-0000-4000-8000-000000000000</UUID><BaseTable id="129" name="T"><UUID>B0000129-0000-4000-8000-000000000000</UUID></BaseTable></BaseTableCatalog>' +
+    '<FieldsForTables><FieldCatalog><UUID>FC000001-0000-4000-8000-000000000000</UUID><BaseTableReference id="129" name="T" UUID="B0000129-0000-4000-8000-000000000000"></BaseTableReference>' +
+    '<ObjectList><Field id="3" name="a"><UUID>F0000129-0003-4000-8000-000000000000</UUID></Field></ObjectList></FieldCatalog>' +
+    '<FieldCatalog><BaseTableReference id="130" name="U" UUID="B0000130-0000-4000-8000-000000000000"></BaseTableReference>' +
+    '<ObjectList><Field id="3" name="b"><UUID>F0000130-0003-4000-8000-000000000000</UUID></Field></ObjectList></FieldCatalog></FieldsForTables>' +
+    '<ScriptCatalog><Script id="7" name="Go"><UUID>50000007-0000-4000-8000-000000000000</UUID></Script></ScriptCatalog>' +
+    '</AddAction><ModifyAction><FieldsForTables><FieldCatalog><BaseTableReference id="129" UUID="B0000129-0000-4000-8000-000000000000"></BaseTableReference>' +
+    '<ObjectList><Field><FieldReference id="3" UUID="F0000129-0003-4000-8000-000000000000"></FieldReference></Field></ObjectList></FieldCatalog></FieldsForTables></ModifyAction>' +
     '</Structure></FMSaveAsXML>';
   const bom = Buffer.from([0xff, 0xfe]);
   const map = uuidsFromSaveAsXml(new Uint8Array(Buffer.concat([bom, Buffer.from(xml, 'utf16le')])));
   assert.deepEqual(Object.fromEntries(map), {
-    file: 'FILE-1',
-    'basetable:129': 'BT-129',
-    'field:129:3': 'F-129-3',
-    'field:130:3': 'F-130-3',
-    'script:7': 'S-7',
+    file: 'F1F1F1F1-0000-4000-8000-000000000001',
+    'basetable:129': 'B0000129-0000-4000-8000-000000000000',
+    'field:129:3': 'F0000129-0003-4000-8000-000000000000',
+    'field:130:3': 'F0000130-0003-4000-8000-000000000000',
+    'script:7': '50000007-0000-4000-8000-000000000000',
   });
   assert.deepEqual(uuidsFromSaveAsXml(xml), map);
+});
+
+test('Save as XML: a UUID that is not a UUID is not read, and not written back into the XML', () => {
+  const evil = '"><script>alert(1)</script>';
+  const xml =
+    `<FMSaveAsXML UUID="${evil.replace(/"/g, '&quot;')}"><Structure><AddAction><BaseTableCatalog>` +
+    `<BaseTable id="129" name="T"><UUID>${evil.replace(/</g, '&lt;')}</UUID></BaseTable>` +
+    '<BaseTable id="130" name="U"><UUID>B0000130-0000-4000-8000-000000000000</UUID></BaseTable></BaseTableCatalog></AddAction></Structure></FMSaveAsXML>';
+  const map = uuidsFromSaveAsXml(xml);
+  assert.deepEqual(Object.fromEntries(map), { 'basetable:130': 'B0000130-0000-4000-8000-000000000000' });
+  // A map handed to saveAsXml directly is held to the same shape.
+  const schema = { tables: [{ id: 129, name: 'T', fields: [] }], tableOccurrences: [], relationships: [], scripts: [], customFunctions: [], valueLists: [], layouts: [], accounts: [], privilegeSets: [], extendedPrivileges: [] } as never;
+  const out = saveAsXml(schema, { uuids: new Map([['file', evil], ['basetable:129', evil]]) });
+  assert.ok(!out.includes('<script>'), 'nothing of the text reaches the XML');
+  assert.ok(!out.includes('alert(1)'));
 });
 
 test('the XML reader refuses hostile depth and out-of-range character references instead of crashing', () => {
