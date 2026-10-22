@@ -14151,7 +14151,7 @@ Source: `packages/server/src/admin.ts`
 | Method | Path | What it does |
 | --- | --- | --- |
 | GET | [`/tabularius/admin/v1/files/{name}/external-containers`](#admin-files-get-tabularius-admin-v1-files-name-external-containers) | Which container fields keep their files outside the file, and how many of those files are missing: the folder to bring over from FileMaker Server. |
-| GET | [`/tabularius/admin/v1/files/{name}/orphan-containers`](#admin-files-get-tabularius-admin-v1-files-name-orphan-containers) | Stored container data that no record refers to any more (left after records were deleted): how many, and each one's file name, external path and size. Nothing is removed. |
+| GET | [`/tabularius/admin/v1/files/{name}/orphan-containers`](#admin-files-get-tabularius-admin-v1-files-name-orphan-containers) | Stored container data with no retained reference, plus aggregate integrity counts for missing rows and external files. Nothing is removed. |
 | POST | [`/tabularius/admin/v1/files/{name}/orphan-containers`](#admin-files-post-tabularius-admin-v1-files-name-orphan-containers) | Removes the unreferenced container data the GET lists, including their files stored outside the file. Only with {"purge": true} (400 otherwise); answers what was removed and what is left. |
 | POST | [`/tabularius/admin/v1/files/{name}/reconvert-preview`](#admin-files-post-tabularius-admin-v1-files-name-reconvert-preview) | A dry run of converting a file again from its .fmp12, in a scratch folder: what would change. Nothing hosted is touched. |
 | POST | [`/tabularius/admin/v1/files/{name}/reconvert`](#admin-files-post-tabularius-admin-v1-files-name-reconvert) | Converts a hosted file again from its .fmp12, carrying over the records created, edited and deleted since; the store as it was is kept beside it. |
@@ -14216,7 +14216,7 @@ Response `200`:
 
 ### `GET /tabularius/admin/v1/files/{name}/orphan-containers`
 
-Stored container data that no record refers to any more (left after records were deleted): how many, and each one's file name, external path and size. Nothing is removed.
+Stored container data with no retained reference, plus aggregate integrity counts for missing rows and external files. Nothing is removed.
 
 **Permissions:** Admin console: a console sign-in (the tabularius_admin cookie from POST /tabularius/admin/v1/sign-in), or the admin password by HTTP Basic (any user name), or the folder's local channel token in x-tabularius-local (Tabularius commands on the server machine). With no admin password set, only requests from this machine (loopback) are let in.
 
@@ -14245,7 +14245,16 @@ Response `200`:
       "external": null,
       "size": 18233
     }
-  ]
+  ],
+  "integrity": {
+    "referenced": 12,
+    "shared": 2,
+    "orphans": 1,
+    "missingRows": 0,
+    "missingExternal": 0,
+    "changedExternal": 0,
+    "danglingChunks": 0
+  }
 }
 ```
 
@@ -14283,7 +14292,16 @@ Response `200`:
   "bytes": 18233,
   "externalFiles": 0,
   "count": 0,
-  "containers": []
+  "containers": [],
+  "integrity": {
+    "referenced": 12,
+    "shared": 2,
+    "orphans": 0,
+    "missingRows": 0,
+    "missingExternal": 0,
+    "changedExternal": 0,
+    "danglingChunks": 0
+  }
 }
 ```
 

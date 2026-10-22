@@ -74,6 +74,8 @@ test('a store from before later columns and tables were added is upgraded in pla
     const added: [string, string][] = [['_fm_accounts', 'created_by'], ['_fm_accounts', 'needs_approval'], ['_fm_api_tokens', 'surfaces'], ['_fm_api_tokens', 'layouts'], ['_fm_containers', 'external']];
     const sql = new DatabaseSync(path);
     const dropped = added.filter(([t, c]) => columns(path, t).includes(c));
+    // An older build had no index on the shared-container hash, and SQLite will not drop a column an index uses.
+    sql.exec('DROP INDEX IF EXISTS _fm_containers_hash');
     for (const [t, c] of dropped) sql.exec(`ALTER TABLE "${t}" DROP COLUMN "${c}"`);
     for (const t of ['_fm_pending', '_fm_totp', '_fm_passkeys', '_fm_webauthn_challenges', '_fm_recovery_codes', '_fm_container_chunks']) sql.exec(`DROP TABLE IF EXISTS "${t}"`);
     sql.close();

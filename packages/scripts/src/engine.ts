@@ -7782,7 +7782,8 @@ export class ScriptEngine {
     const left = this.deadline - Date.now();
     this.hold(false);
     try {
-      await f.store.backup(path);
+      if (p.copyKind === 'clone') await f.store.backup(path);
+      else await f.store.selfContainedCopy(path);
     } finally {
       this.resumeAfter(left);
     }
