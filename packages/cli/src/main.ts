@@ -2293,7 +2293,7 @@ function main(argv: string[]): number {
           const store = host.get(name);
           if (!store) throw new Error(`optimize: no database "${name}" in ${path}; hosted: ${host.names().join(', ')}`);
           const purge = bool(args, '--purge-orphans') ? store.purgeOrphanContainers() : undefined;
-          return { ...optimizationReport(store), orphanContainers: { ...store.orphanContainerReport(), ...(purge ? { purge } : {}) } };
+          return { ...optimizationReport(store), orphanContainers: { ...store.orphanContainerReport(), integrity: store.containerIntegrityReport(), ...(purge ? { purge } : {}) } };
         });
         if (bool(args, '--json')) console.log(JSON.stringify(reports.length === 1 ? reports[0] : reports, null, 2));
         else console.log(reports.map((r) => `${r.text}\n\nUnreferenced containers: ${r.orphanContainers.count}${r.orphanContainers.purge ? ` (purged ${r.orphanContainers.purge.removed}, ${r.orphanContainers.purge.bytes} bytes, ${r.orphanContainers.purge.externalFiles} external files)` : ''}`).join('\n\n'));

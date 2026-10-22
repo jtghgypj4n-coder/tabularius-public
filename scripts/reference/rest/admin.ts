@@ -341,13 +341,13 @@ export const groups: RestGroup[] = [
       {
         method: 'GET',
         path: '/tabularius/admin/v1/files/{name}/orphan-containers',
-        summary: 'Stored container data that no record refers to any more (left after records were deleted): how many, and each one\'s file name, external path and size. Nothing is removed.',
+        summary: 'Stored container data with no retained reference, plus aggregate integrity counts for missing rows and external files. Nothing is removed.',
         permissions: READ,
         params: [{ name: 'name', in: 'path', type: 'string', required: true, description: 'Hosted file (404 "<name> isn\'t hosted" when it isn\'t).' }],
         example: {
           request: `GET /tabularius/admin/v1/files/Invoices/orphan-containers\n${COOKIE}`,
           status: 200,
-          response: j({ count: 1, containers: [{ id: 42, filename: 'INV-1042.pdf', external: null, size: 18233 }] }),
+          response: j({ count: 1, containers: [{ id: 42, filename: 'INV-1042.pdf', external: null, size: 18233 }], integrity: { referenced: 12, shared: 2, orphans: 1, missingRows: 0, missingExternal: 0, changedExternal: 0, danglingChunks: 0 } }),
         },
       },
       {
@@ -362,7 +362,7 @@ export const groups: RestGroup[] = [
         example: {
           request: `POST /tabularius/admin/v1/files/Invoices/orphan-containers\n${COOKIE}\n${W}\n${CT}\n\n{"purge":true}`,
           status: 200,
-          response: j({ removed: 1, bytes: 18233, externalFiles: 0, count: 0, containers: [] }),
+          response: j({ removed: 1, bytes: 18233, externalFiles: 0, count: 0, containers: [], integrity: { referenced: 12, shared: 2, orphans: 0, missingRows: 0, missingExternal: 0, changedExternal: 0, danglingChunks: 0 } }),
         },
       },
       {

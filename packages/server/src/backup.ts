@@ -22,6 +22,7 @@ import { renameCheckedSync as renameSync, removeFileSync as rmSync } from '../..
 
 import { cancellationScope } from '../../scripts/src/cancellation.ts';
 import { crashPoint } from '../../store/src/crash-point.ts';
+import { holdContainerBackup } from '../../store/src/container-backup-lease.ts';
 import { isDamageError } from '../../store/src/damage.ts';
 import { accountKey } from '../../store/src/account-provisioning.ts';
 import { refuseNewer, storedFormat } from '../../store/src/store-format.ts';
@@ -214,6 +215,12 @@ export function backupRunning(): boolean {
 }
 
 async function backupOnce(folder: string, dest: string, keep: number, passphrase: string | undefined, now: () => number, signal?: AbortSignal, statfs?: StatFs, platform: NodeJS.Platform = process.platform): Promise<BackupResult> {
+  const releaseContainers = holdContainerBackup(folder);
+  try { return await backupOnceHeld(folder, dest, keep, passphrase, now, signal, statfs, platform); }
+  finally { releaseContainers(); }
+}
+
+async function backupOnceHeld(folder: string, dest: string, keep: number, passphrase: string | undefined, now: () => number, signal?: AbortSignal, statfs?: StatFs, platform: NodeJS.Platform = process.platform): Promise<BackupResult> {
   const check = () => {
     if (signal?.aborted) throw new BackupStopped();
   };
