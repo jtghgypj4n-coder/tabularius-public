@@ -9,7 +9,7 @@ import { IdentityInFlight, busyHeaders } from './in-flight.ts';
 import { RequestGate, requestClass, isDataApiPath, isEventStream } from './request-gate.ts';
 import { StreamSlots } from './stream-slots.ts';
 import type { SmtpConfig } from './smtp.ts';
-import type { Server } from 'node:http';
+import type { IncomingMessage, Server } from 'node:http';
 import { createEdgeServer, type EdgeLimits } from './edge-limits.ts';
 import { parseAllowList } from '../../scripts/src/net-guard.ts';
 import { trustedProxyAddresses, useForwardedFor, type ProxyHeader } from './client-address.ts';
@@ -254,11 +254,13 @@ export interface ServeOptions {
 const sameToken = (a: string, b: string) => timingSafeEqual(createHash('sha256').update(a).digest(), createHash('sha256').update(b).digest());
 
 /** The account and file an API token stands for at /mcp, with its scope; undefined when no hosted file knows it or it isn't for AI apps. */
-function apiTokenIdentity(host: Host, token: string, from: string): McpIdentity | undefined {
+function apiTokenIdentity(host: Host, oauth: OAuthServer, req: IncomingMessage, token: string, from: string): McpIdentity | undefined {
   for (const store of host.openStores()) {
     const bound = store.apiToken(token);
     if (!bound) continue;
     if (bound.surfaces && !bound.surfaces.includes('fmmcp')) return undefined;
+    const id = /^ohbt_([0-9a-f]+)\./.exec(token)?.[1];
+    if ((bound.provenance === 'delegated' || (id && oauth.managedAccess(id))) && (!id || !oauth.accessAllowed(id, req, store, bound.account))) return undefined;
     if (!store.signInLocationAllowed(bound.account, from)) return undefined;
     return { account: bound.account, database: store.name, ...(bound.readOnly || bound.layouts ? { scope: { readOnly: bound.readOnly, ...(bound.layouts ? { layouts: bound.layouts } : {}) } } : {}) };
   }
@@ -670,7 +672,7 @@ export async function serve(opts: ServeOptions): Promise<{ server: Server; host:
           } else {
             // An API token of a file (Manage Security, or the admin console's Connect an AI app): one account of that file, its
             // privilege set narrowed to the token's scope. Older admin console tokens (ohm_) sign in as their account.
-            const api = bearer?.startsWith('ohbt_') ? apiTokenIdentity(host, bearer, clientAddress(req)) : undefined;
+            const api = bearer?.startsWith('ohbt_') ? apiTokenIdentity(host, oauth, req, bearer, clientAddress(req)) : undefined;
             const scoped = api ?? (bearer ? mcpTokens.check(bearer) : undefined);
             if (scoped) who = scoped;
             else if (bearer && sameToken(bearer, mcpAdminToken)) who = { admin: true };

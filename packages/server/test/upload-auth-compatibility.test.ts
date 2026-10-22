@@ -1,3 +1,4 @@
+import { signInForm } from './oauth-form.ts';
 import { after, before, test, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
@@ -67,7 +68,7 @@ before(async () => {
   const verifier = 'a'.repeat(43);
   const form = (path: string, fields: Record<string, string>) => fetch(app.url + path, { method: 'POST', redirect: 'manual',
     headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(fields) });
-  const authorized = await form('/oauth/authorize', { client_id, redirect_uri: redirect, response_type: 'code',
+  const authorized = await signInForm(app.url, { client_id, redirect_uri: redirect, response_type: 'code',
     code_challenge: createHash('sha256').update(verifier).digest('base64url'), code_challenge_method: 'S256',
     resource: app.url + '/mcp', database: 'U', account: 'Admin', password: 'pw', state: 'compat' });
   assert.equal(authorized.status, 302, await authorized.clone().text());
