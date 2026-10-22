@@ -25,7 +25,7 @@ test('minimum length is enforced when a password is set', () => {
     assert.equal(store.verify('Admin', 'longenough'), true);
     // Turning the minimum off lets a short password through again.
     store.setPasswordPolicy({ minLength: 0 });
-    assert.deepEqual(store.passwordPolicy(), {});
+    assert.deepEqual(store.passwordPolicy(), { minLength: 0 }, 'no minimum is a choice the file remembers');
     store.setPassword('Admin', 'tiny');
     assert.equal(store.verify('Admin', 'tiny'), true);
   } finally {
@@ -107,6 +107,54 @@ test('a privilege set that does not exist changes nothing', () => {
     assert.equal(store.verify('Ann', 'old-pass'), true);
     assert.equal(store.verify('Ann', 'new-pass'), false);
   } finally {
+    store.close();
+    rmSync(dir, { recursive: true });
+  }
+});
+
+test('with no policy of its own a file takes the server\'s default minimum; its own policy, 0 included, wins', () => {
+  const was = process.env.TABULARIUS_MIN_PASSWORD_LENGTH;
+  const { store, dir } = freshStore();
+  try {
+    // A library user with no variable set is held to nothing.
+    delete process.env.TABULARIUS_MIN_PASSWORD_LENGTH;
+    assert.equal(store.minPasswordLength(), 0);
+    store.setPassword('Admin', 'x');
+
+    process.env.TABULARIUS_MIN_PASSWORD_LENGTH = '12';
+    assert.equal(store.minPasswordLength(), 12);
+    assert.throws(() => store.setPassword('Admin', 'eleven-char'), (e) => e instanceof StoreError && e.code === 960 && /at least 12 characters/.test(e.message));
+    assert.throws(() => store.createAccount('Clerk', 'short', '[Data Entry Only]'), (e) => e instanceof StoreError && e.code === 960);
+    store.setPassword('Admin', 'twelve-chars');
+    assert.equal(store.verify('Admin', 'twelve-chars'), true);
+    // A blank password, spaces around a short one, and one made of several-unit characters are no way round the minimum:
+    // a password set here works from any address.
+    for (const weak of ['', ' '.repeat(12), `a${' '.repeat(11)}`, '😀'.repeat(6)]) {
+      assert.throws(() => store.setPassword('Admin', weak), (e) => e instanceof StoreError && e.code === 960, JSON.stringify(weak));
+    }
+    store.setPassword('Admin', '😀'.repeat(12));
+    assert.equal(store.verify('Admin', '😀'.repeat(12), '203.0.113.9'), true);
+    store.setPassword('Admin', 'twelve-chars');
+    // The existing password of an account is not touched by a stricter default; only a new one is held to it.
+    assert.equal(store.passwordPolicy().minLength, undefined);
+    assert.throws(() => store.setPasswordPolicy({ minLength: 5000 }), (e) => e instanceof StoreError && e.code === 960);
+
+    // The file's own minimum wins over the default, whichever way it points.
+    store.setPasswordPolicy({ minLength: 0 });
+    store.setPassword('Admin', 'tiny');
+    store.setPasswordPolicy({ minLength: 20 });
+    assert.throws(() => store.setPassword('Admin', 'twelve-chars'), (e) => e instanceof StoreError && /at least 20 characters/.test(e.message));
+    // Saying nothing about the minimum goes back to the default.
+    store.setPasswordPolicy({ maxAgeDays: 90 });
+    assert.equal(store.minPasswordLength(), 12);
+
+    // A bad value fails closed to the default rather than to no minimum.
+    process.env.TABULARIUS_MIN_PASSWORD_LENGTH = 'many';
+    assert.equal(store.minPasswordLength(), 12);
+    process.env.TABULARIUS_MIN_PASSWORD_LENGTH = '0';
+    assert.equal(store.minPasswordLength(), 0, 'the operator can switch the default off');
+  } finally {
+    if (was === undefined) delete process.env.TABULARIUS_MIN_PASSWORD_LENGTH; else process.env.TABULARIUS_MIN_PASSWORD_LENGTH = was;
     store.close();
     rmSync(dir, { recursive: true });
   }

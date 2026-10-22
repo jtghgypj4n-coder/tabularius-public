@@ -549,8 +549,8 @@ export function registerDesignTools(server: McpServer, host: Host, guard: (s: St
     inputSchema: { database: db },
     annotations: { readOnlyHint: true },
   }, async ({ database }) => withStore(database, (s) => {
-    const { accounts, privilegeSets, importApproximations, passwordPolicy, apiTokens } = securityOf(s);
-    return { database: s.name, accounts, privilegeSets, importApproximations, passwordPolicy, apiTokens: apiTokens.map(({ id: _, ...t }) => t) };
+    const { accounts, privilegeSets, importApproximations, passwordPolicy, minPasswordLength, apiTokens } = securityOf(s);
+    return { database: s.name, accounts, privilegeSets, importApproximations, passwordPolicy, minPasswordLength, apiTokens: apiTokens.map(({ id: _, ...t }) => t) };
   }));
 
   server.registerTool('review_privileges', {
@@ -774,7 +774,7 @@ export function registerDesignTools(server: McpServer, host: Host, guard: (s: St
       'privilegeSet?, mustChange?} (creates or changes an account; passwords are never set here: people set their own, or the ' +
       'administrator uses tabularius passwd), {op:"setExternalAccount", name: group, privilegeSet}, {op:"deleteAccount", name}, ' +
       '{op:"savePrivilegeSet", set: a privilege set as get_security shows it}, {op:"deletePrivilegeSet", name}, ' +
-      '{op:"setPasswordPolicy", policy}, {op:"disableTotp", account}, {op:"createExtendedPrivilege", name} / ' +
+      '{op:"setPasswordPolicy", policy} (it may keep or raise the minimum password length, never lower it), {op:"disableTotp", account}, {op:"createExtendedPrivilege", name} / ' +
       '{op:"updateExtendedPrivilege", extendedPrivilege: name or id, name} / {op:"deleteExtendedPrivilege", extendedPrivilege} ' +
       '(a custom "way in" a privilege set can grant, Manage Security\'s Extended Privileges tab). API tokens are managed in Manage Security. Returns the result as get_security does.',
     inputSchema: { database: db, changes: z.array(z.record(z.string(), z.unknown())).min(1) },
@@ -784,8 +784,8 @@ export function registerDesignTools(server: McpServer, host: Host, guard: (s: St
     if (changes.some((c) => 'password' in c)) throw new Error('Passwords are not set through AI tools: the account holder sets it, or the administrator uses tabularius passwd');
     if (changes.some((c) => c.op === 'revokeApiToken')) throw new Error('API tokens are managed in Manage Security, not through AI tools');
     applySecurityChanges(s, changes as unknown as Parameters<typeof applySecurityChanges>[1], 'AI');
-    const { accounts, privilegeSets, importApproximations, passwordPolicy, apiTokens } = securityOf(s);
-    return { database: s.name, accounts, privilegeSets, importApproximations, passwordPolicy, apiTokens: apiTokens.map(({ id: _, ...t }) => t) };
+    const { accounts, privilegeSets, importApproximations, passwordPolicy, minPasswordLength, apiTokens } = securityOf(s);
+    return { database: s.name, accounts, privilegeSets, importApproximations, passwordPolicy, minPasswordLength, apiTokens: apiTokens.map(({ id: _, ...t }) => t) };
   }));
 
   server.registerTool('create_database', {

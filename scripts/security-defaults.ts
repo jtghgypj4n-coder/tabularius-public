@@ -36,7 +36,7 @@ export function securityDefaultsPage(): string {
   lines.push('- What a plug-in an administrator installs can do: see [the threat model](threat-model.md).');
   lines.push('- A crafted `.fmp12` file given to the converter: whether it can harm the server process has not been audited here.');
   lines.push('- The browser: a computer or browser that is already compromised can do what the signed-in person can.');
-  lines.push('- How safe a password is. Nothing here checks length or strength (see Owner decisions).', '');
+  lines.push('- How safe a password is. Only the minimum length is checked (the password rules row); nothing checks strength.', '');
   return lines.join('\n');
 }
 

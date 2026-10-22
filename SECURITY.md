@@ -196,8 +196,10 @@ narrow a masked field further but never makes it more readable.
   email or one of their groups.
 - **API tokens** are long-lived, revocable bearer credentials for integrations
   (see below).
-- **Password policy**: a minimum length and a maximum age can be required, and
-  an account can be forced to change its password at next sign-in.
+- **Password policy**: a new password needs at least 12 characters by default
+  (a file's own policy, or `TABULARIUS_MIN_PASSWORD_LENGTH`, can change that,
+  0 for none), a maximum age can be required, and an account can be forced to
+  change its password at next sign-in.
 
 ### API tokens
 

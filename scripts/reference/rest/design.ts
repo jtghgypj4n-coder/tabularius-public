@@ -100,6 +100,7 @@ const SECURITY = {
   apiTokens: [] as unknown[],
   pendingChanges: [],
   passwordPolicy: {},
+  minPasswordLength: 12,
   requireTotpForFullAccess: false,
   fullAccessWithout2fa: ['Admin'],
   tables: [{ name: 'Items', fields: ['Name', 'Price', 'Status'] }],
