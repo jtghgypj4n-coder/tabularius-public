@@ -11,6 +11,7 @@ import { join } from 'node:path';
 import type { Store } from '../../store/src/index.ts';
 import { totpCode } from '../../store/src/index.ts';
 import { serve } from '../src/index.ts';
+import { OAuthServer } from '../src/oauth.ts';
 import { expiryClock, ExpiryClock } from '../../store/src/clock.ts';
 
 const fixture = join(import.meta.dirname, '..', '..', '..', 'fixtures', 'fmp12', 'Charts.fmp12');
@@ -65,8 +66,12 @@ async function signIn(client: string, challenge: string, fields: Record<string, 
   return post('/oauth/authorize', form({ client_id: client, redirect_uri: REDIRECT, response_type: 'code', code_challenge: challenge, code_challenge_method: 'S256', state, resource: `${base}/mcp`, database: 'Charts', ...fields }));
 }
 
-async function connect(account = 'ann', password = 'ann-pw') {
-  const { client_id } = await register();
+/** One registered app for tests that only need a sign-in (registering is limited per address). */
+let sharedApp: string | undefined;
+const sharedClient = async (): Promise<string> => sharedApp ??= (await register()).client_id;
+
+async function connect(account = 'ann', password = 'ann-pw', existing?: string) {
+  const client_id = existing ?? (await register()).client_id;
   const { verifier, challenge } = pkce();
   const r = await signIn(client_id, challenge, { account, password });
   assert.equal(r.status, 302, await r.text());
@@ -414,7 +419,7 @@ test('blocking new users stops AI app sign-ins; an app already signed in refresh
 
 test('a password reset made while a refresh is being issued does not leave the new access token alive', { skip }, async (t) => {
   store.setPassword('quinn', 'quinn-pw', 'Bot');
-  const c = await connect('quinn', 'quinn-pw');
+  const c = await connect('quinn', 'quinn-pw', await sharedClient());
   // The reset lands after the refresh has checked the account and before the new access token is written, as it can
   // when another worker handles it.
   const real = store.createApiToken.bind(store);
@@ -430,7 +435,7 @@ test('a password reset made while a refresh is being issued does not leave the n
 
 test('a password reset made while a sign-in code is being exchanged does not leave the access token alive', { skip }, async (t) => {
   store.setPassword('rhea', 'rhea-pw', 'Bot');
-  const { client_id } = await register();
+  const client_id = await sharedClient();
   const { verifier, challenge } = pkce();
   const r = await signIn(client_id, challenge, { account: 'rhea', password: 'rhea-pw' });
   const code = new URL(r.headers.get('location')!).searchParams.get('code')!;
@@ -446,7 +451,7 @@ test('a password reset made while a sign-in code is being exchanged does not lea
 
 test('revoking a sign-in in Manage Security while it is being refreshed does not leave a new access token alive', { skip }, async (t) => {
   store.setPassword('sam', 'sam-pw', 'Bot');
-  const c = await connect('sam', 'sam-pw');
+  const c = await connect('sam', 'sam-pw', await sharedClient());
   const id = /^ohbt_([0-9a-f]+)\./.exec(c.access_token)![1];
   // The revoke lands after the refresh has seen the access token and before it writes the next one, as it can when
   // another worker handles it.
@@ -463,9 +468,64 @@ test('revoking a sign-in in Manage Security while it is being refreshed does not
 
 test('a refresh that fails for any reason still ends the access token it was renewing', { skip }, async (t) => {
   store.setPassword('tess', 'tess-pw', 'Bot');
-  const c = await connect('tess', 'tess-pw');
+  const c = await connect('tess', 'tess-pw', await sharedClient());
   t.mock.method(store, 'createApiToken', () => { throw new Error('disk full'); });
   const r = await post('/oauth/token', form({ grant_type: 'refresh_token', refresh_token: c.refresh_token, client_id: c.client_id }));
   assert.equal(r.status, 500);
   assert.equal(store.apiToken(c.access_token), undefined, 'the used-up sign-in leaves no usable access token');
+});
+
+/** Another worker of the same server: its own OAuth server on the same file, asked to sign an app out. */
+function signOutFromAnotherWorker(token: string, clientId: string): void {
+  const other = new OAuthServer(host, dir);
+  try {
+    (other as unknown as { revoke(req: unknown, form: URLSearchParams): void }).revoke({ headers: {} }, new URLSearchParams({ token, client_id: clientId }));
+  } finally {
+    other.close();
+  }
+}
+
+test('signing out with a refresh token that has just been rotated still ends the sign-in', { skip }, async () => {
+  store.setPassword('uma', 'uma-pw', 'Bot');
+  const c = await connect('uma', 'uma-pw', await sharedClient());
+  const next = await (await post('/oauth/token', form({ grant_type: 'refresh_token', refresh_token: c.refresh_token, client_id: c.client_id }))).json();
+  assert.equal((await mcp(next.access_token)).status, 200);
+  // The app signs out with the token it used a moment ago, as it does when the new one has not reached it yet.
+  assert.equal((await post('/oauth/revoke', form({ token: c.refresh_token, client_id: c.client_id }))).status, 200);
+  assert.equal((await mcp(next.access_token)).status, 401, 'the sign-in is over: the new access token stops working');
+  const again = await post('/oauth/token', form({ grant_type: 'refresh_token', refresh_token: next.refresh_token, client_id: c.client_id }));
+  assert.equal((await again.json()).error, 'invalid_grant', 'and its new refresh token is dead');
+  // Another app cannot end it with this token.
+  const d = await connect('uma', 'uma-pw', await sharedClient());
+  const e = await (await post('/oauth/token', form({ grant_type: 'refresh_token', refresh_token: d.refresh_token, client_id: d.client_id }))).json();
+  const stranger = await register();
+  await post('/oauth/revoke', form({ token: d.refresh_token, client_id: stranger.client_id }));
+  assert.equal((await mcp(e.access_token)).status, 200);
+});
+
+test('a sign-out made while another worker is rotating the same refresh token is not lost', { skip }, async (t) => {
+  store.setPassword('vic', 'vic-pw', 'Bot');
+  const c = await connect('vic', 'vic-pw', await sharedClient());
+  // The refresh token is already taken (the rotation is under way) when the other worker is asked to sign the app out.
+  const real = store.createApiToken.bind(store);
+  t.mock.method(store, 'createApiToken', (...args: Parameters<Store['createApiToken']>) => {
+    signOutFromAnotherWorker(c.refresh_token, c.client_id);
+    return real(...args);
+  });
+  const r = await post('/oauth/token', form({ grant_type: 'refresh_token', refresh_token: c.refresh_token, client_id: c.client_id }));
+  assert.equal((await r.json()).error, 'invalid_grant');
+  assert.equal(store.apiTokens().filter((k) => k.account === 'vic').length, 0, 'no token of the signed-out app is left');
+});
+
+test('signing out with an access token made while another worker is rotating its refresh token is not lost', { skip }, async (t) => {
+  store.setPassword('walt', 'walt-pw', 'Bot');
+  const c = await connect('walt', 'walt-pw', await sharedClient());
+  const real = store.createApiToken.bind(store);
+  t.mock.method(store, 'createApiToken', (...args: Parameters<Store['createApiToken']>) => {
+    signOutFromAnotherWorker(c.access_token, c.client_id);
+    return real(...args);
+  });
+  const r = await post('/oauth/token', form({ grant_type: 'refresh_token', refresh_token: c.refresh_token, client_id: c.client_id }));
+  assert.equal((await r.json()).error, 'invalid_grant');
+  assert.equal(store.apiTokens().filter((k) => k.account === 'walt').length, 0);
 });

@@ -339,15 +339,15 @@ The following reasons apply to the exact enumerated expressions in each named fu
 | [packages/server/src/oauth.ts:59](../../packages/server/src/oauth.ts#L59) `storedName` | `SQLite.get` (59); `SQLite.prepare` (59); `Store.sql` (59) | AUTH |
 | [packages/server/src/oauth.ts:70](../../packages/server/src/oauth.ts#L70) `legacyPasswordMark` | `SQLite.get` (70); `SQLite.prepare` (70); `Store.sql` (70) | AUTH |
 | [packages/server/src/oauth.ts:164](../../packages/server/src/oauth.ts#L164) `OAuthServer/constructor/cols` | `SQLite.all` (164); `SQLite.prepare` (164) | AUTH |
-| [packages/server/src/oauth.ts:170](../../packages/server/src/oauth.ts#L170) `OAuthServer/constructor` | `SQLite.all` (170); `SQLite.prepare` (170, 182, 184, 187, 188, 191); `SQLite.iterate` (182); `SQLite.get` (184); `Store.sql` (184, 187) | AUTH |
-| [packages/server/src/oauth.ts:303](../../packages/server/src/oauth.ts#L303) `OAuthServer/register` | `SQLite.prepare` (303, 304, 305, 306, 309); `SQLite.get` (304, 306) | AUTH |
-| [packages/server/src/oauth.ts:320](../../packages/server/src/oauth.ts#L320) `OAuthServer/client` | `SQLite.get` (320); `SQLite.prepare` (320) | AUTH |
-| [packages/server/src/oauth.ts:410](../../packages/server/src/oauth.ts#L410) `OAuthServer/authorize/done` | `SQLite.prepare` (410, 411) | AUTH |
-| [packages/server/src/oauth.ts:428](../../packages/server/src/oauth.ts#L428) `OAuthServer/authorize` | `SQLite.get` (428); `SQLite.prepare` (428, 432, 434, 441, 464, 465) | AUTH |
-| [packages/server/src/oauth.ts:609](../../packages/server/src/oauth.ts#L609) `OAuthServer/token` | `SQLite.get` (609, 630); `SQLite.prepare` (609, 630) | AUTH |
-| [packages/server/src/oauth.ts:678](../../packages/server/src/oauth.ts#L678) `OAuthServer/issue` | `SQLite.prepare` (678, 679) | AUTH |
-| [packages/server/src/oauth.ts:685](../../packages/server/src/oauth.ts#L685) `OAuthServer/sweep` | `SQLite.all` (685); `SQLite.prepare` (685, 687) | AUTH |
-| [packages/server/src/oauth.ts:694](../../packages/server/src/oauth.ts#L694) `OAuthServer/revoke` | `SQLite.get` (694, 701); `SQLite.prepare` (694, 701, 704) | AUTH |
+| [packages/server/src/oauth.ts:170](../../packages/server/src/oauth.ts#L170) `OAuthServer/constructor` | `SQLite.all` (170); `SQLite.prepare` (170, 189, 191, 194, 195, 198); `SQLite.iterate` (189); `SQLite.get` (191); `Store.sql` (191, 194) | AUTH |
+| [packages/server/src/oauth.ts:310](../../packages/server/src/oauth.ts#L310) `OAuthServer/register` | `SQLite.prepare` (310, 311, 312, 313, 316); `SQLite.get` (311, 313) | AUTH |
+| [packages/server/src/oauth.ts:327](../../packages/server/src/oauth.ts#L327) `OAuthServer/client` | `SQLite.get` (327); `SQLite.prepare` (327) | AUTH |
+| [packages/server/src/oauth.ts:417](../../packages/server/src/oauth.ts#L417) `OAuthServer/authorize/done` | `SQLite.prepare` (417, 418) | AUTH |
+| [packages/server/src/oauth.ts:435](../../packages/server/src/oauth.ts#L435) `OAuthServer/authorize` | `SQLite.get` (435); `SQLite.prepare` (435, 439, 441, 448, 471, 472) | AUTH |
+| [packages/server/src/oauth.ts:616](../../packages/server/src/oauth.ts#L616) `OAuthServer/token` | `SQLite.get` (616, 640); `SQLite.prepare` (616, 640, 644, 646) | AUTH |
+| [packages/server/src/oauth.ts:697](../../packages/server/src/oauth.ts#L697) `OAuthServer/issue` | `SQLite.get` (697); `SQLite.prepare` (697, 698, 699) | AUTH |
+| [packages/server/src/oauth.ts:711](../../packages/server/src/oauth.ts#L711) `OAuthServer/sweep` | `SQLite.all` (711); `SQLite.prepare` (711, 713, 714, 715) | AUTH |
+| [packages/server/src/oauth.ts:747](../../packages/server/src/oauth.ts#L747) `OAuthServer/revoke` | `SQLite.get` (747, 748, 758, 759); `SQLite.prepare` (747, 748, 751, 758, 759, 763) | AUTH |
 | [packages/server/src/odata-crossjoin-worker.ts:40](../../packages/server/src/odata-crossjoin-worker.ts#L40) `join` | `SQLite.prepare` (40, 49, 58, 73); `SQLite.get` (58); `SQLite.all` (73) | JOIN |
 | [packages/server/src/odata.ts:926](../../packages/server/src/odata.ts#L926) `ODataEndpoint/resource` | `Store.countIds` (926); `Store.get` (966, 973, 1080) | ODATA |
 | [packages/server/src/odata.ts:1212](../../packages/server/src/odata.ts#L1212) `ODataEndpoint/lambdaFor` | `Store.selectIds` (1212); `Store.row` (1221); `relatedIdList` (1222) | ODATA |
@@ -889,4 +889,5 @@ The following reasons apply to the exact enumerated expressions in each named fu
 | [packages/store/src/words.ts:78](../../packages/store/src/words.ts#L78) `WordIndexes/ensure` | `SQLite.prepare` (78, 82); `SQLite.get` (81); `SQLite.all` (82) | CORE |
 | [packages/store/src/words.ts:85](../../packages/store/src/words.ts#L85) `WordIndexes/ensure/covers` | `SQLite.get` (85, 89); `SQLite.all` (86); `SQLite.prepare` (86, 89) | CORE |
 | [packages/store/src/words.ts:155](../../packages/store/src/words.ts#L155) `WordIndexes/dropAll` | `SQLite.all` (155); `SQLite.prepare` (155) | CORE |
+| [packages/server/src/oauth.ts:734](../../packages/server/src/oauth.ts#L734) `OAuthServer/endGrant` | `SQLite.prepare` (734, 735); `SQLite.all` (735) | AUTH |
 <!-- end generated read-gate inventory -->
