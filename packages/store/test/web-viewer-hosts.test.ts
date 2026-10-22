@@ -123,3 +123,37 @@ test('a stored entry that is not trusted is named, not dropped silently', () => 
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('a huge stored list is read once and named briefly: the work and the answer are bounded', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'web-viewer-hosts-'));
+  const path = join(dir, 'Shop.sqlite');
+  const realParse = JSON.parse;
+  try {
+    createStore(path);
+    const store = new Store(path, 'Shop');
+    const put = (stored: unknown) => (store as unknown as { sql: { prepare(q: string): { run(...a: unknown[]): void } } }).sql
+      .prepare(`INSERT INTO _fm_meta VALUES ('webViewerHosts', ?) ON CONFLICT(key) DO UPDATE SET json = excluded.json`).run(JSON.stringify(stored));
+    put(['maps.example.com', ...Array.from({ length: 200_000 }, (_, i) => `junk ${i}`)]);
+    let big = 0;
+    JSON.parse = ((text: string, ...rest: []) => { if (typeof text === 'string' && text.length > 100_000) big++; return realParse(text, ...rest); }) as typeof JSON.parse;
+    for (let i = 0; i < 5; i++) {
+      assert.deepEqual(store.webViewerHosts, ['maps.example.com']);
+      assert.ok(store.webViewerHostsDropped.length <= 51);
+    }
+    JSON.parse = realParse;
+    assert.ok(big <= 1, `the stored list was parsed ${big} times for 10 reads`);
+    const dropped = store.webViewerHostsDropped;
+    assert.equal(dropped[0], 'junk 0');
+    assert.match(dropped[dropped.length - 1], /^… and \d+ more entries? not listed$/);
+    // A change shows at the next read, and a copy of the answer can be changed without changing the next one.
+    store.webViewerHosts.push('other.example.com');
+    assert.deepEqual(store.webViewerHosts, ['maps.example.com']);
+    store.setWebViewerHosts(['maps.example.com', 'b.example.com']);
+    assert.deepEqual(store.webViewerHosts, ['b.example.com', 'maps.example.com']);
+    assert.deepEqual(store.webViewerHostsDropped, []);
+    store.close();
+  } finally {
+    JSON.parse = realParse;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

@@ -2,7 +2,7 @@
 // API in FileMaker's shapes: field names, repetitions as "Field(2)", and
 // dates in US (M/D/YYYY) or ISO format.
 
-import { droppedWebViewerHosts, normalizeWebViewerHosts, trustedWebViewerHosts } from './web-viewer-hosts.ts';
+import { checkStoredWebViewerHosts, normalizeWebViewerHosts } from './web-viewer-hosts.ts';
 import { isCredentialName } from '../../scripts/src/credentials.ts';
 import { cleanSql, sqlName, sqlTokens } from './sql-tokens.ts';
 import { SignInFailures, LOCKOUT, noAddressBudget, sharedSource, addressBucket, accountsSharingLockout, lockoutName } from './sign-in-failures.ts';
@@ -3351,12 +3351,25 @@ export class Store {
    * or new file starts with none, and a web viewer then shows only its own content. Kept in the file, and in its security log.
    */
   get webViewerHosts(): string[] {
-    return trustedWebViewerHosts(this.meta('webViewerHosts'));
+    return [...this.webViewerChecked().hosts];
   }
 
   /** What the stored list holds that is not trusted (a restored file's entries that fail the checks, or are past the most that can be listed), for the console to name. */
   get webViewerHostsDropped(): string[] {
-    return droppedWebViewerHosts(this.meta('webViewerHosts'));
+    return [...this.webViewerChecked().dropped];
+  }
+
+  // Read on the way of every page and asset, so the stored text is checked once until it changes.
+  private webViewerRaw?: string;
+  private webViewerResult: { hosts: string[]; dropped: string[] } = { hosts: [], dropped: [] };
+
+  private webViewerChecked(): { hosts: string[]; dropped: string[] } {
+    const row = this.sql.prepare('SELECT json FROM _fm_meta WHERE key = ?').get('webViewerHosts') as { json: string } | undefined;
+    if (row?.json !== this.webViewerRaw) {
+      this.webViewerRaw = row?.json;
+      this.webViewerResult = checkStoredWebViewerHosts(row ? JSON.parse(row.json) : undefined);
+    }
+    return this.webViewerResult;
   }
 
   setWebViewerHosts(hosts: unknown, opts: { account?: string } = {}): void {
