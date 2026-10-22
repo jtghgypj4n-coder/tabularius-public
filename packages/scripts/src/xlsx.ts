@@ -52,7 +52,8 @@ const STYLES = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<styleS
 const xml = (s: string) => s
   // Characters XML 1.0 can't hold.
   .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f￾￿]/g, '')
-  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+  .replace(/\r/g, '&#13;');
 
 /** A, B, ... Z, AA, AB, ... */
 export function columnName(n: number): string {
@@ -72,7 +73,7 @@ function sheet(rows: XlsxOutCell[][], header: boolean): string {
   const body = rows.map((row, r) => `<row r="${r + 1}">${row.map((v, c) => {
     const ref = `${columnName(c)}${r + 1}`;
     if (typed(v)) return Number.isFinite(v.serial) ? `<c r="${ref}" s="${STYLE[v.kind]}"><v>${v.serial}</v></c>` : '';
-    if (typeof v === 'number' && Number.isFinite(v)) return `<c r="${ref}"><v>${v}</v></c>`;
+    if (typeof v === 'number' && Number.isFinite(v)) return `<c r="${ref}"><v>${Object.is(v, -0) ? '-0' : v}</v></c>`;
     if (v === '') return '';
     return `<c r="${ref}"${header && r === 0 ? ` s="${STYLE.header}"` : ''} t="inlineStr"><is><t xml:space="preserve">${xml(String(v))}</t></is></c>`;
   }).join('')}</row>`).join('');
@@ -102,11 +103,19 @@ const PARTS = (sheetXml: string, name: string, filter = ''): [string, string][] 
  * bold, frozen, with a filter button on each column.
  */
 export function xlsx(rows: XlsxOutCell[][], sheetName = 'Sheet1', opts: { header?: boolean } = {}): Uint8Array {
+  if (rows.length > 1_048_576) throw new SheetLimitError('Excel allows at most 1,048,576 rows');
+  for (const row of rows) {
+    if (row.length > 16_384) throw new SheetLimitError('Excel allows at most 16,384 columns');
+    for (const value of row) {
+      if (!typed(value) && typeof value === 'string' && value.length > 32_767)
+        throw new SheetLimitError('Excel allows at most 32,767 characters in a cell');
+    }
+  }
   const locals: Buffer[] = [];
   const central: Buffer[] = [];
   let offset = 0;
   // Sheet names: at most 31 characters, none of []:*?/\
-  const name = sheetName.replace(/[[\]:*?/\\]/g, ' ').slice(0, 31) || 'Sheet1';
+  const name = sheetName.replace(/[\u0000-\u001f\u007f]/g, '').replace(/[[\]:*?/\\]/g, ' ').slice(0, 31).replace(/^'+|'+$/g, '').trim() || 'Sheet1';
   const header = !!opts.header && rows.length > 0;
   const columns = rows.reduce((m, r) => Math.max(m, r.length), 0);
   const filter = header && columns ? `<definedNames><definedName name="_xlnm._FilterDatabase" localSheetId="0" hidden="1">${xml(`'${name.replace(/'/g, "''")}'!$A$1:$${columnName(columns - 1)}$${rows.length}`)}</definedName></definedNames>` : '';

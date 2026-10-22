@@ -9,6 +9,7 @@ import { scriptStepName, scriptText, type Script } from '@tabularius/fmp12';
 import { importFmp12, parseScriptText, Store } from '@tabularius/store';
 import { runScript } from '../src/index.ts';
 import { appendPdf, pdf } from '../src/pdf.ts';
+import { validateSavedExcel } from './xlsx-opc-validator.ts';
 
 // DEMO_drawers: the RECORD layout shows text fields and a container.
 const fixture = join(import.meta.dirname, '..', '..', '..', 'fixtures', 'fmp12', 'DEMO_drawers.fmp12');
@@ -143,7 +144,7 @@ test('with downloads, exported files go to the person as actions and not to the 
   const files = r.actions.filter((a) => typeof a.download === 'string');
   assert.deepEqual(files.map((a) => a.download), ['sent.csv', 'Untitled.xlsx']);
   assert.equal(Buffer.from(String(files[0].base64), 'base64').toString('utf8').split('\r\n').length, 3);
-  assert.equal(Buffer.from(String(files[1].base64), 'base64').subarray(0, 2).toString(), 'PK');
+  validateSavedExcel(Buffer.from(String(files[1].base64), 'base64'));
   assert.ok(!existsSync(join(docs, 'sent.csv')));
 });
 
@@ -177,6 +178,7 @@ test('Export Records writes an Excel workbook', { skip }, async () => {
     Exit Script [ Result: Get ( LastError ) ]
   `), { layout: 'RECORD', foundSet: ids, documents: docs });
   assert.equal(r.result, '0');
+  validateSavedExcel(readFileSync(join(docs, 'out.xlsx')));
   const parts = unzip(readFileSync(join(docs, 'out.xlsx')));
   assert.deepEqual([...parts.keys()], ['[Content_Types].xml', '_rels/.rels', 'xl/workbook.xml', 'xl/_rels/workbook.xml.rels', 'xl/styles.xml', 'xl/worksheets/sheet1.xml']);
   const sheet = parts.get('xl/worksheets/sheet1.xml')!;

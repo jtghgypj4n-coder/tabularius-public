@@ -10,6 +10,7 @@ import { createStore, parseScriptText, Store } from '@tabularius/store';
 import { evaluateText } from '@tabularius/calc';
 import { isoCell, readXlsx, serialOf, unzip, xlsx } from '../src/xlsx.ts';
 import { runScript } from '../src/index.ts';
+import { validateSavedExcel } from './xlsx-opc-validator.ts';
 
 const part = (bytes: Uint8Array, name: string) => new TextDecoder().decode(unzip(bytes).get(name));
 
@@ -36,6 +37,13 @@ test('typed cells: a date, time and timestamp are numbers with a format, a heade
   // What is written reads back: the serials, the text, the numbers.
   assert.deepEqual(readXlsx(bytes)[2], ['Bo <&>', 'not a date', 7]);
   assert.deepEqual(readXlsx(bytes)[1].slice(0, 2), ['Ann', 46310]);
+});
+
+test('a table name of control characters or spaces falls back to Sheet1, not an empty sheet name', () => {
+  for (const name of ['\u0001\u0002', '   ', '']) {
+    const workbook = part(xlsx([['a']], name), 'xl/workbook.xml');
+    assert.match(workbook, /<sheet name="Sheet1"/, JSON.stringify(name));
+  }
 });
 
 test('ISO text that is not a real date stays text', () => {
@@ -76,6 +84,7 @@ test('Save Records as Excel writes dates, times and timestamps as typed cells', 
   const r = await runScript(store, { id: 1, name: 't', steps } as Script, { layout: 'Events', foundSet: store.findIds('Events'), documents: dir });
   assert.equal(r.error, 0, r.trace?.map((t) => t.message).join());
   const bytes = readFileSync(join(dir, 'events.xlsx'));
+  validateSavedExcel(bytes);
   const sheet = part(bytes, 'xl/worksheets/sheet1.xml');
   assert.match(sheet, /<c r="B1" s="2"><v>46310<\/v><\/c>/);
   assert.match(sheet, /<c r="C1" s="3"><v>0\.5729166/);
