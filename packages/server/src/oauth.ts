@@ -593,7 +593,7 @@ button.primary { background: var(--brand); border-color: var(--brand); color: va
 p strong { color: var(--text); }
 @media (forced-colors: active) { input:focus-visible, select:focus-visible, button:focus-visible { outline: 2px solid CanvasText; } }`;
     res.writeHead(status, {
-      'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', 'x-frame-options': 'DENY', 'referrer-policy': 'no-referrer',
+      'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', 'x-frame-options': 'DENY', 'referrer-policy': 'same-origin',
       // No form-action: browsers apply it to the redirect back to the app after signing in.
       'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; img-src data:; frame-ancestors 'none'; base-uri 'none'",
     }).end(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light dark">
