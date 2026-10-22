@@ -134,6 +134,7 @@
   td:first-child { font-weight: 500; }
   td.wrap { white-space: normal; min-width: 10em; }
   td.wrap button { margin: 2px 0; }
+  #dbs td.wrap { min-width: 7em; }
   td.num, th.num { text-align: right; }
   .stale-ex { display: grid; grid-template-columns: auto 1fr; gap: 0 var(--s2); font-size: var(--t-xs); }
   .stale-ex .was { color: var(--muted); text-decoration: line-through; text-decoration-color: var(--line-strong); }
@@ -410,6 +411,7 @@
   </section>
   <section id="files">
     <h2>Hosted files <span class="count" id="dbs-count"></span> <span class="spacer"></span><button id="reconvert-all" hidden>Convert all again…</button></h2>
+    <p class="note" id="script-network-note" hidden></p>
     <div id="dbs"></div>
     <div id="reconvert-panel"></div>
     <div id="externals"></div>
@@ -526,7 +528,7 @@
   </section>
   <section id="schedules-section">
     <h2>Script schedules <span class="count" id="sched-count"></span></h2>
-    <p class="meta">Scheduled scripts run as the account you choose, within its privileges. They never reach the network or send mail, and a capture-only file is never scheduled. A schedule whose last run failed shows up under Security health.</p>
+    <p class="meta">Scheduled scripts run as the account you choose, within its privileges. They reach the network only when the schedule allows it and the file's Script network switch is on (see Hosted files); they never send mail, and a capture-only file is never scheduled. A schedule whose last run failed shows up under Security health.</p>
     <div id="schedules"></div>
     <div id="sched-history" hidden></div>
     <details>
@@ -1902,6 +1904,9 @@ async function refresh() {
   ], 'Nobody has a record open.'));
 
   $('dbs-count').textContent = s.databases.length;
+  const networkOff = s.databases.filter((d) => d.scriptNetwork && !d.scriptNetwork.on).map((d) => d.name);
+  $('script-network-note').hidden = !networkOff.length;
+  $('script-network-note').textContent = networkOff.length ? `Scripts can't reach the network yet${s.databases.length > 1 ? ` in ${networkOff.join(', ')}` : ''}. Turn on Script network in the table below when this copy is the live one. Until then Insert from URL and the other web calls give error 3.` : '';
   $('reconvert-all').hidden = s.databases.filter((d) => d.reconvert).length < 2;
   render($('dbs'), table(s.databases, [
     { label: 'File', get: (d) => d.name },
@@ -1916,6 +1921,10 @@ async function refresh() {
       : d.ai.byServer ? `<span class="bad" title="The server was started with --ai-exclude for this file">Off (server setting)</span>`
       : `<span class="bad" title="It uses data from ${esc(d.ai.through)}, which has AI turned off">Off, uses ${esc(d.ai.through)}</span>` },
     { label: 'AI policy', wrap: true, html: (d) => `${d.aiPolicy ? 'On' : 'Off'} <button data-ai-policy="${esc(d.name)}" data-on="${d.aiPolicy ? '' : '1'}" aria-label="${d.aiPolicy ? 'Turn off' : 'Turn on'} AI-visible policy for ${esc(d.name)}">${d.aiPolicy ? 'Turn off' : 'Turn on'}</button>` },
+    { label: 'Script network', html: (d) => !d.scriptNetwork ? '' : d.scriptNetwork.own
+      ? `<span class="ok" title="This file's scripts can reach the network: Insert from URL, connections and MBS CURL, within the host limits">On</span> <button data-script-network="${esc(d.name)}" data-on="" aria-label="Turn off script network access for ${esc(d.name)}">Turn off</button>`
+      : d.scriptNetwork.on ? `<span class="ok" title="The server was started with --allow-script-network, which allows every file">On (server)</span>`
+      : `<span class="meta" title="Scripts in this file can't reach the network yet">Off</span> <button data-script-network="${esc(d.name)}" data-on="1" aria-label="Turn on script network access for ${esc(d.name)}">Turn on</button>` },
     { label: 'Personal data', wrap: true, html: (d) => !d.pii ? '' : `${d.pii.on
       ? `<span class="ok" title="Names, emails, phone numbers, addresses, ids and free text reach AI only as stand-ins like &lt;PERSON_3&gt;">Kept from AI${d.pii.through ? ` (by ${esc(d.pii.through)})` : ''}</span>`
       : '<span class="meta" title="AI sees personal data in fields the account can see">Sent to AI</span>'} <button data-pii="${esc(d.name)}" aria-label="Personal data settings for ${esc(d.name)}" title="Turn isolation on or off, check how each field is treated, and see what an AI model gets">Settings</button>` },
@@ -2161,6 +2170,15 @@ document.addEventListener('click', async (e) => {
     v.textContent = 'Checking…';
     await call('POST', `/tabularius/admin/v1/backups/${encodeURIComponent(v.dataset.verify)}/verify`).catch((err) => say(plainMessage(err)));
     refresh();
+  }
+  const network = e.target.closest('[data-script-network]');
+  if (network) {
+    const on = !!network.dataset.on;
+    if (!on || confirm(`Let ${network.dataset.scriptNetwork}'s scripts reach the network? They can then call outside services, as they do on the live server. Turn this on only when this copy is the live one.`)) {
+      network.disabled = true;
+      await call('POST', `/tabularius/admin/v1/script-network/${encodeURIComponent(network.dataset.scriptNetwork)}`, { on }).catch((err) => say(plainMessage(err)));
+      refresh();
+    }
   }
   const policy = e.target.closest('[data-ai-policy]');
   if (policy) {

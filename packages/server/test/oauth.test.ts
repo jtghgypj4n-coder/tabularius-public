@@ -97,7 +97,7 @@ test('OAuth codes, access and refresh tokens issued during rollback retain their
 });
 
 test('an app finds the sign-in from the 401 at /mcp', { skip }, async () => {
-  // A loopback client without a token is the administrator; a token is what a remote app shows.
+  // Nobody gets in without a credential; a token is what an app shows.
   const r = await mcp('ohbt_ffff.nope');
   assert.equal(r.status, 401);
   const challenge = r.headers.get('www-authenticate')!;

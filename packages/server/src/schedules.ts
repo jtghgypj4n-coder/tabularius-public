@@ -15,6 +15,7 @@
 // FileMaker (`write`) or changing the file (`pull`), and the file's sync setup has to allow that too. A record
 // changed on both sides stops a write or pull before anything moves, and shows up as an alert.
 
+import { itemNetwork } from './item-network.ts';
 import { existsSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { createHash, randomBytes } from 'node:crypto';
@@ -596,7 +597,7 @@ export class Schedules {
           store.requireActiveAccount(s.account);
           const privileges = store.privileges(s.account);
           privileges.checkScript(s.script);
-          const opts = this.host.scriptOptions();
+          const opts = this.host.scriptOptions(s.database);
           // Anything the run can reach edited since a person last approved it (the AI can edit it) gets no connections, and no mail through one.
           // Checked again at every request, so an edit while the run waits its turn or is under way is caught too.
           const watched = s.network === true && !!opts.connections;
@@ -625,7 +626,7 @@ export class Schedules {
             ...(stop ? { stop } : {}),
             parameter: s.parameter, account: s.account, executionAccount: s.account, privileges,
             documents: opts.documents,
-            network: opts.network && s.network === true, ...(opts.networkAllow ? { networkAllow: opts.networkAllow } : {}),
+            ...itemNetwork(opts, s.network, 'schedule'), ...(opts.networkAllow ? { networkAllow: opts.networkAllow } : {}),
             // In outbound test mode schedules' mail is captured like everyone's; with sending on, it is sent.
             ...(opts.outbound ? { outbound: opts.outbound } : {}), ...(mail ? { mail } : {}), ...(opts.ai ? { ai: opts.ai } : {}),
             // Connections (S3, web APIs) by name, only for a schedule whose network switch is on (outbound test mode would otherwise hand a fetcher to every run); schedules are made by people in the console, never by the AI.

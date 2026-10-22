@@ -62,6 +62,7 @@ send them elsewhere, backups:
 | `.openhbam-admin` | Shared admin-console password hash; keep private |
 | `.openhbam-admin-passkeys` | Admin-console passkeys; keep private |
 | `.openhbam-mcp-tokens.json` | MCP access tokens; keep private |
+| `.openhbam-mcp-token` | The administrator's token for `/mcp`, made on first start (`tabularius mcp-token <folder>` prints it); readable only by the account that runs the server; keep private |
 | `.openhbam-connections.json` | Configured external-service connections (no secrets) |
 | `.openhbam-connection-secrets.json` | Encrypted external-service credentials; keep private |
 | `.openhbam-connections.key` | Key for those credentials when no key is supplied by the environment; keep private |
@@ -238,6 +239,15 @@ tabularius serve /srv/Databases --https files.example.com --port 443
 - `--dry-run` says what it would do and how much it would copy, and changes
   nothing.
 
+Stop Tabularius in the destination folder before migrating, and use stopped
+source files or a stable source copy. Each database and its container folder
+are staged, checked against the source bytes, and published together using
+the restore recovery journal. A failed transfer preserves the originals;
+retry after resolving the reported disk, source-change, or destination
+conflict. Unencrypted files also receive the reader's header and block-count
+checks; this is not a full FileMaker consistency check. Encrypted source
+contents are not validated without their passphrase.
+
 It prints what came over and what didn't, and why:
 
 - **Files** are copied in whole, so the server never converts half a file.
@@ -250,7 +260,8 @@ It prints what came over and what didn't, and why:
   know what to bring over when the old server's folder wasn't reachable.
 - **FileMaker script schedules** become Tabularius schedules with the same
   file, script, parameter, account and timing. Like all schedules here they
-  run offline. Weekly schedules that skip days come over turned off, since
+  run offline until the schedule's network option and the file's Script
+  network switch are both on. Weekly schedules that skip days come over turned off, since
   Tabularius schedules repeat every day or every few days; one that stopped at
   a time of day repeats around the clock. Schedule emails aren't sent.
 - **Backup schedules**: Tabularius has one backup schedule, so the most

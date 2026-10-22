@@ -138,7 +138,7 @@ test('files, schedules, backups and the certificate come over in one step', { sk
       assert.match(s.url, /^https:/);
       assert.deepEqual(s.host.names(), ['Charts']);
     } finally {
-      s.server.close();
+      await new Promise<void>((resolve, reject) => s.server.close((error) => error ? reject(error) : resolve()));
     }
 
     // Without the passphrase the key stays where it is.

@@ -303,7 +303,7 @@ export function knownSecrets(folder: string, env: NodeJS.ProcessEnv, home: strin
   try {
     for (const entry of readdirSync(folder, { withFileTypes: true })) {
       const n = entry.name;
-      if (!/^\.openhbam-(?:connection-secrets|secrets|webhooks|oidc|mcp-tokens|admin)/.test(n) && !/\.(?:key|pem)$/i.test(n)) continue;
+      if (!/^\.openhbam-(?:connection-secrets|secrets|webhooks|oidc|mcp-tokens?|admin)/.test(n) && !/\.(?:key|pem)$/i.test(n)) continue;
       const file = join(folder, n);
       const files = entry.isDirectory() ? readdirSync(file).map((f) => join(file, f)) : [file];
       for (const f of files) {

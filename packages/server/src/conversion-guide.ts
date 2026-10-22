@@ -216,9 +216,9 @@ export function conversionGuide(store: Store, hosted: string[] = [], report: Con
     const { hosts: targets, computed } = urlTargets(store);
     differs.push({
       title: 'Insert from URL', severity: 'medium', count: uses(r.steps.network), where: places(r.steps.network),
-      what: 'Reaches nothing unless the server is started with --allow-script-network (and never when the assistant runs a script).' +
+      what: 'Works once Script network is turned on for the file. It starts off, so a copy you are only testing cannot call outside services; scripts the assistant runs never reach the network.' +
         (targets.length ? ` It calls ${targets.slice(0, 8).join(', ')}${targets.length > 8 ? ', …' : ''}${computed ? ', and addresses worked out when the script runs' : ''}.` : ' The addresses are worked out when the script runs.'),
-      instead: 'Turn the network on for the server when these calls are wanted; the Data API and webhooks let other systems reach Tabularius instead.',
+      instead: 'Turn on Script network for this file in the admin console when this copy is the live one (or start the server with --allow-script-network to allow every file). The Data API and webhooks let other systems reach Tabularius instead.',
     });
   }
   const viewers = webViewers(store);

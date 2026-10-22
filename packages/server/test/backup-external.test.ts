@@ -2,12 +2,13 @@
 // unchanged ones as links to the last set, and come back on restore.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, rmSync, statSync, utimesSync, writeFileSync, writeSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { createStore } from '../../store/src/index.ts';
 import { Store } from '../../store/src/index.ts';
-import { backupFolder, restoreBackup, verifySet } from '../src/index.ts';
+import { backupFolder, backupSets, restoreBackup, verifySet } from '../src/index.ts';
+import { backupNeeds } from '../src/backup.ts';
 
 function hosted(): string {
   const dir = mkdtempSync(join(tmpdir(), 'tabularius-backup-external-'));
@@ -68,5 +69,60 @@ for (const passphrase of [undefined, 'backup secret']) {
     assert.equal(check.ok, false);
     assert.match(check.files['external container files'], /INV-2\.pdf: changed on disk/);
     assert.equal((await verifySet(first.dir, passphrase)).ok, true);
+  });
+
+  test(`a verified damaged container is copied fresh on the next backup${passphrase ? ', encrypted' : ''}`, async (t) => {
+    const dir = hosted();
+    t.after(() => rmSync(dir, { recursive: true, force: true }));
+    const dest = join(dir, 'Backups');
+    const rel = 'Files/Invoices/logo.png';
+    const ext = passphrase ? '.enc' : '';
+    const first = await backupFolder(dir, dest, 7, passphrase);
+    const firstCopy = join(first.dir, rel + ext);
+    const firstInfoPath = join(first.dir, 'backup.json');
+    const firstInfo = JSON.parse(readFileSync(firstInfoPath, 'utf8'));
+    // Normalize the fixture to a timestamp that utimes can reproduce exactly;
+    // encrypted writes can otherwise have sub-microsecond mtime precision.
+    utimesSync(firstCopy, statSync(firstCopy).atime, new Date(Math.floor(firstInfo.external[rel].copyMtimeMs / 1000) * 1000));
+    firstInfo.external[rel].copyMtimeMs = statSync(firstCopy).mtimeMs;
+    writeFileSync(firstInfoPath, JSON.stringify(firstInfo));
+    assert.equal((await verifySet(first.dir, passphrase)).ok, true);
+    const recordedMtime = firstInfo.external[rel].copyMtimeMs as number;
+    const atimeMs = statSync(firstCopy).atimeMs;
+    const fd = openSync(firstCopy, 'r+');
+    try {
+      const byte = Buffer.alloc(1);
+      assert.equal(readSync(fd, byte, 0, 1, 0), 1);
+      byte[0] ^= 0xff;
+      assert.equal(writeSync(fd, byte, 0, 1, 0), 1);
+    } finally { closeSync(fd); }
+    utimesSync(firstCopy, atimeMs / 1000, recordedMtime / 1000);
+    assert.equal(statSync(firstCopy).mtimeMs, recordedMtime, 'damage leaves the recorded mtime unchanged');
+
+    if (passphrase) {
+      // An encrypted copy is opened with the passphrase before it is linked, so damage in its first chunk is found
+      // then and the container is copied fresh at once.
+      const second = await backupFolder(dir, dest, 7, passphrase);
+      assert.notEqual(statSync(join(second.dir, rel + ext)).ino, statSync(firstCopy).ino);
+      assert.equal((await verifySet(second.dir, passphrase)).ok, true);
+      return;
+    }
+    // The first later backup can link the undetected damaged inode. Its check refuses the set and disqualifies the
+    // previous copy, so the following backup returns to the live file.
+    const beforeCheckNeeds = backupNeeds(dir, ['Invoices.openhbam.sqlite'], first.dir);
+    await assert.rejects(backupFolder(dir, dest, 7, passphrase), /failed its check/);
+    assert.deepEqual(backupSets(dest), [basename(first.dir)], 'a set that failed its check is not kept');
+    assert.ok(backupNeeds(dir, ['Invoices.openhbam.sqlite'], first.dir) > beforeCheckNeeds,
+      'the next backup reserves room for a replacement copy');
+    const info = JSON.parse(readFileSync(firstInfoPath, 'utf8'));
+    assert.equal(info.external[rel].reuseBlocked, true);
+    for (const field of ['sourceCtimeMs', 'copySize', 'copyMtimeMs', 'copyIno', 'copyDev']) {
+      assert.equal(info.external[rel][field], undefined, `${field} must be cleared after failed verification`);
+    }
+
+    const third = await backupFolder(dir, dest, 7, passphrase);
+    const thirdCopy = join(third.dir, rel + ext);
+    assert.notEqual(statSync(thirdCopy).ino, statSync(firstCopy).ino);
+    assert.equal((await verifySet(third.dir, passphrase)).ok, true);
   });
 }

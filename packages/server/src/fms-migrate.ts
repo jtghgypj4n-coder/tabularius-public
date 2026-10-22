@@ -18,6 +18,8 @@ import { hostRefusal, socketLookup } from '../../scripts/src/net-guard.ts';
 import { basename, extname, join, relative, resolve, sep } from 'node:path';
 import { createHash, createPrivateKey, randomBytes, X509Certificate } from 'node:crypto';
 import type { Schedule } from './schedules.ts';
+import { claimFolder } from './backup.ts';
+import { migrateFile } from './migration-files.ts';
 
 // The FileMaker Server is one an administrator named (often on the same network), so its own network is allowed; the metadata range is never reached, and a name is checked on the lookup the connection uses.
 const FMS_LOOKUP = socketLookup({ private: true });
@@ -318,10 +320,19 @@ function interval(minutes: number): string {
 
 /**
  * Brings a FileMaker Server's setup into `dest`, a Tabularius folder (made if
- * missing). Files already in the folder, and schedules with a name already
- * used, are left as they are, so running it again only adds what's new.
+ * missing). A file already in the folder (its container files with it), and
+ * schedules with a name already used, are left as they are, so running it
+ * again only adds files and schedules that are new.
  */
 export function migrateFms(exp: FmsExport, dest: string, opts: MigrateOptions = {}): MigrationReport {
+  if (opts.dryRun) return migrateFmsClaimed(exp, dest, opts);
+  mkdirSync(dest, { recursive: true });
+  const release = claimFolder(dest, 'restore');
+  try { return migrateFmsClaimed(exp, dest, opts); }
+  finally { release(); }
+}
+
+function migrateFmsClaimed(exp: FmsExport, dest: string, opts: MigrateOptions): MigrationReport {
   const report: MigrationReport = { files: [], schedules: [], settings: {}, notes: [] };
   const write = !opts.dryRun;
   if (write) mkdirSync(dest, { recursive: true });
@@ -338,7 +349,9 @@ export function migrateFms(exp: FmsExport, dest: string, opts: MigrateOptions = 
   if (!exp.databases && !opts.fmsDir) report.notes.push('No hosted file list: give the FileMaker Server folder (--fms-dir) or its Admin API (--from).');
   const taken = new Set<string>();
   for (const db of databases) {
-    if (basename(db.filename) !== db.filename || !/^.+\.fmp12$/i.test(db.filename)) throw new FmsMigrationError(`invalid hosted filename: ${db.filename}`);
+    if (basename(db.filename) !== db.filename || /[\\\0:]/.test(db.filename) || !/\.fmp12$/i.test(db.filename)) {
+      throw new FmsMigrationError(`invalid hosted filename: ${db.filename}`);
+    }
     const name = basename(db.filename, extname(db.filename));
     const entry: MigrationReport['files'][number] = { name, done: false };
     report.files.push(entry);
@@ -356,24 +369,21 @@ export function migrateFms(exp: FmsExport, dest: string, opts: MigrateOptions = 
     }
     entry.from = from;
     const to = join(dest, db.filename);
+    if (existsSync(to) || existsSync(join(dest, name + '.sqlite')) || existsSync(join(dest, name + '.openhbam.sqlite'))) {
+      if (existsSync(to) && checksum(from) !== checksum(to)) throw new FmsMigrationError(`${db.filename} differs from the source; resolve it before rerunning`);
+      entry.note = 'already in the folder';
+      entry.done = true;
+      continue;
+    }
     const notes: string[] = [];
     if (db.isEncrypted) notes.push('encrypted with FileMaker\'s encryption at rest, which Tabularius can\'t read yet');
     // Externally stored container data sits next to the file; it comes along so nothing is lost.
     const external = join(from, '..', 'RC_Data_FMS', name);
     if (existsSync(external)) {
       notes.push('its externally stored container files were copied to RC_Data_FMS (secure storage isn\'t read yet)');
-      if (write) copyVerifiedTree(external, join(dest, 'RC_Data_FMS', name), dest);
-    }
-    if (existsSync(to) || existsSync(join(dest, name + '.openhbam.sqlite'))) {
-      if (existsSync(to) && checksum(from) !== checksum(to)) throw new FmsMigrationError(`${db.filename} differs from the source; resolve it before rerunning`);
-      entry.note = ['already in the folder', ...notes].join('; ');
-      entry.done = true;
-      progress();
-      continue;
     }
     if (write) {
-      // Copied under a hidden name and renamed whole, so the server never converts half a file.
-      copyVerifiedFile(from, to, dest);
+      migrateFile(dest, from, to, external, join(dest, 'RC_Data_FMS', name));
     }
     entry.done = true;
     if (notes.length) entry.note = notes.join('; ');

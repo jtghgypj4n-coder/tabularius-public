@@ -163,11 +163,12 @@ if (process.argv[2] === 'crash-child') {
 }
 
 /** Registers the crash tests of these operations; each child runs one at a time within the file. */
-export function crashSuite(ops: readonly Operation[]): void {
+export function crashSuite(ops: readonly Operation[], onlySteps?: readonly string[]): void {
   let expectedConversion: unknown;
   for (const [op, steps] of Object.entries(groups) as [Operation, readonly string[]][]) {
     if (!ops.includes(op)) continue;
     for (const step of steps) {
+      if (onlySteps && !onlySteps.includes(step)) continue;
       const checkpoint = `${step === 'mid-apply-log' ? 'apply-log' : step === 'after-reserve' ? 'host-conversion' : op === 'restore-replace' ? 'restore-copy' : op}:${step}`;
       const variants: { occurrence: number; mode: string }[] = [{ occurrence: 1, mode: '' }];
       if (op === 'host-conversion') {

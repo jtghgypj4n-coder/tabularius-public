@@ -75,13 +75,16 @@ options, see [Script step support](../../docs/script-steps-support.md).
   refresh) do nothing, as on FileMaker Server. Show Custom Dialog chooses the
   first button and is returned in `actions`, with Open URL and web viewer
   steps.
-- **Scripts never reach the outside world unless you allow it.** Insert from
+- **Scripts reach the outside world only when you switch it on.** Insert from
   URL fails with error 3 unless the run has `network: true` (or a fetch
-  function); the server turns that on only with `tabularius serve
+  function); the server turns that on for a file whose Script network switch
+  is on in the admin console, or for every file with `tabularius serve
   --allow-script-network`. Solutions call mail, SMS and payment services this
-  way, so an imported file must not do it by accident. Send Mail is never sent,
-  plug-in functions (SMTP, cURL) are not available, and external SQL sources
-  are never connected. ExecuteSQL reads the hosted files, including
+  way, so an imported file must not do it by accident. Send Mail is never sent
+  unless the server is set up to send it, plug-in functions (SMTP) are not
+  available, and external SQL sources are never connected. `networkFiles` and
+  `networkOff` let the host say which files may, and what the error tells a
+  person to do. ExecuteSQL reads the hosted files, including
   FileMaker_Tables and FileMaker_Fields. When allowed, Insert from URL fetches over HTTP with the
   common cURL options.
 - Import Records adds records from comma- or tab-separated files, with the

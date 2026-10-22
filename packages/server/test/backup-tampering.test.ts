@@ -714,10 +714,11 @@ test('encrypted: a point-in-time restore uses the container files of the manifes
   const w = await timeline(t, KEY);
   const point = restorePoint(w.dest, 'A.openhbam.sqlite', w.at)!;
   const target = join(w.folder, 'A.openhbam.sqlite');
-  await restorePointTo({ copy: point.copy, get logs() { plantContainerFile(w.set); return point.logs; } }, target, KEY);
+  // The planted file is not in the manifest that was checked, so the restore refuses the set and puts nothing back.
+  await assert.rejects(restorePointTo({ copy: point.copy, get logs() { plantContainerFile(w.set); return point.logs; } }, target, KEY), /absent from backup\.json external manifest/);
   assert.equal(existsSync(join(w.folder, 'Files', 'A', 'Docs', 'planted.txt')), false, 'restorePointTo');
   const again = await timeline(t, KEY);
-  await restoreAt(again.folder, again.dest, again.at, 'A', KEY, { get signal() { plantContainerFile(again.set); return undefined; } } as never);
+  await assert.rejects(restoreAt(again.folder, again.dest, again.at, 'A', KEY, { get signal() { plantContainerFile(again.set); return undefined; } } as never), /absent from backup\.json external manifest/);
   assert.equal(existsSync(join(again.folder, 'Files', 'A', 'Docs', 'planted.txt')), false, 'restoreAt');
 });
 

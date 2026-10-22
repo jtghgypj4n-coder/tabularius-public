@@ -543,7 +543,7 @@ written to the file's security log.
 
 Some protections are always on:
 
-- Scripts an AI app runs never send mail or reach the network.
+- Scripts an AI app runs never send mail or reach the network, whatever the Script network switch says.
 - AI apps never see the values of fields whose names mark them as secrets,
   such as Password, API Key, Access Token, Secret or Credential. A field
   named only "Key" or "Token" isn't hidden, so rename it or keep the file
@@ -566,19 +566,26 @@ SQLite database. Tabularius can't yet write a `.fmp12` back, so a change made
 here can't be opened in FileMaker Pro. To bring a design change made in
 FileMaker into Tabularius, use `tabularius reconvert`.
 
-### Scripts run on the server, offline by default
+### Scripts run on the server; network access is a switch you turn on
 
 Scripts run on the server, as FileMaker Server runs them.
 
-- **Mail and network.** Send Mail is never sent. Steps that reach the
-  network (Insert from URL and similar) are off unless the server is started
-  with `--allow-script-network`. Even then a script cannot reach this
-  machine's own network (loopback, 10.x, 192.168.x and so on) unless
-  `--allow-script-network-to` lists the host or range, and never a link-local or
-  cloud metadata address: see [Outbound requests](outbound-requests.md).
+- **Network.** Steps that reach the network (Insert from URL and similar) work
+  once you turn on **Script network** for the file in the admin console (Hosted
+  files), or start the server with `--allow-script-network` to turn it on for
+  every file. It starts off for every converted file and for `tabularius demo`,
+  so a copy you are testing cannot call outside services; the admin console and
+  the web client say so, and a script that tries gets error 3 with the steps to
+  turn it on. Turn it on when this copy is the live one. Even then a script
+  cannot reach this machine's own network (loopback, 10.x, 192.168.x and so on)
+  unless `--allow-script-network-to` lists the host or range, and never a
+  link-local or cloud metadata address: see
+  [Outbound requests](outbound-requests.md).
+- **Mail.** Send Mail is sent once the server is set up to send it (an email
+  connection or `--send-mail`); until then it is not sent.
 - **Scripts an AI app runs** are always offline.
-- **Scheduled scripts** are offline unless the schedule allows the network
-  and the server was started with `--allow-script-network`.
+- **Scheduled scripts, automations and inbound hooks** follow the file's switch
+  and also need their own network option.
 - **Screen-only steps** are skipped on the server, as on FileMaker Server.
 - **FileMaker Pro–only steps** (a person choosing a file, AppleScript)
   give error 3, as on FileMaker Server.
@@ -601,9 +608,11 @@ reaches the Outbox. No file is capture-only unless you name it.
 The full list of what runs and what gives "?" is in [plugin-compatibility.md](plugin-compatibility.md), generated from the code.
 
 Safe, local BaseElements functions (JSON, regular expressions, stacks, text
-files in `<folder>/Documents`) run natively. Network, mail, shell and
-clipboard calls give "?" and error 3 (with `--test-outbound`, BaseElements
-web and mail calls go to the Outbox instead). Of MBS, the `Text.*`
+files in `<folder>/Documents`) run natively. BaseElements web, mail and FTP
+calls, and its shell and clipboard calls, are not built in yet and give "?" and
+error 3 (with `--test-outbound`, BaseElements web and mail calls go to the
+Outbox instead). MBS `CURL.Perform` does reach the network, following the same
+Script network switch as Insert from URL. Of MBS, the `Text.*`
 functions run natively, following MBS's own documentation: case, trimming,
 lists and words, Base64, hex, URL, quoted-printable, HTML and XML encoding in
 the text encoding you name (UTF-8, UTF-16, Latin-1, Windows, Mac, Hex,
@@ -733,7 +742,7 @@ or `"mail": true` gets `tabularius.http.request ( { method, url, body } )` and
 `tabularius.mail.send ( { from, to, cc, bcc, subject, body, attachments } )`.
 `tabularius.http.request` returns `{ status, body, headers }` (or `error` when the
 request failed) and takes an optional `headers` object. It makes real requests
-only where scripts may reach the network (the server's network option), only to
+only where the file's scripts may reach the network (its Script network switch), only to
 the hosts the plug-in lists (a redirect to another host fails), with a 30 second
 limit, and never from a capture-only file. With `serve --test-outbound`
 requests and mail are recorded in the Outbox like BaseElements' calls and never

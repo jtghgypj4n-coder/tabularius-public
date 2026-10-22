@@ -1,3 +1,4 @@
+import { itemNetwork } from './item-network.ts';
 import { clientAddress } from './client-address.ts';
 // Inbound webhooks: another service (a payment provider, a form, a CI job) calls the server, and a chosen script
 // runs with the JSON it sent as Get ( ScriptParameter ). FileMaker has no way in like this short of the Data API
@@ -345,7 +346,7 @@ export class InboundHooks {
     };
     const store = this.host.get(hook.database);
     if (!store) return done(503, { outcome: 'error', message: `${hook.database} is not open` }, { error: 'The file is not available' });
-    const opts = this.host.scriptOptions();
+    const opts = this.host.scriptOptions(store.name);
     if (captureOnly(store.name, opts.outbound?.captureOnly)) return done(403, { outcome: 'refused', message: 'a capture-only file never runs inbound hooks' }, { error: 'Refused' });
     try {
       store.requireActiveAccount(hook.account);
@@ -355,7 +356,7 @@ export class InboundHooks {
       privileges.checkScript(script.name);
       const r = await writer.run({ owner: `${OWNER}${hook.id}`, account: hook.account, surface: 'hook' }, () => opts.serverQueue.run(() => runScript(store, script, {
         ...(hook.layout ? { layout: hook.layout } : {}), account: hook.account, executionAccount: hook.account, privileges, parameter: payload,
-        documents: opts.documents, network: opts.network && hook.network === true, ...(opts.networkAllow ? { networkAllow: opts.networkAllow } : {}),
+        documents: opts.documents, ...itemNetwork(opts, hook.network, 'inbound hook'), ...(opts.networkAllow ? { networkAllow: opts.networkAllow } : {}),
         ...(opts.outbound ? { outbound: opts.outbound } : {}), ...(opts.profile ? { profile: opts.profile } : {}),
         // No AI steps: the payload is someone else's data.
         timeoutMs: TIMEOUT_MS,

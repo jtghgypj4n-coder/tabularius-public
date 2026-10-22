@@ -18,7 +18,7 @@ import { commitRestore } from './restore-files.ts';
 import type { RestoreFile } from './restore-files.ts';
 import { checksum } from './backup-verify.ts';
 import { readVerified } from './backup-auth.ts';
-import { decryptFile, encryptFile, ENCRYPTED_EXT } from './encrypt.ts';
+import { decryptFile, encryptFile, opensWithPassphrase, ENCRYPTED_EXT } from './encrypt.ts';
 
 /** Folders, next to a hosted file, that hold its externally stored container files. */
 export const EXTERNAL_DIRS = ['RC_Data_FMS', 'Files'];
@@ -27,13 +27,22 @@ export interface ExternalEntry {
   size: number;
   mtimeMs: number;
   sha256: string;
+  encrypted?: boolean;
+  /** Metadata avoids reading unchanged containers; verify still hashes every copy. */
+  sourceCtimeMs?: number;
+  copySize?: number;
+  copyMtimeMs?: number;
+  copyIno?: number;
+  copyDev?: number;
+  /** Verification found this copy unsafe to link into another set. */
+  reuseBlocked?: boolean;
 }
 
 /** Path (with /) under the hosted folder, e.g. "RC_Data_FMS/Invoices/Invoice_Doc/1.pdf", to what was copied. */
 export type ExternalManifest = Record<string, ExternalEntry>;
 
-export function externalManifest(setDir: string): ExternalManifest {
-  return readBackupInfo<{ external?: ExternalManifest }>(setDir, true).external ?? {};
+export function externalManifest(setDir: string, allowMissing = true): ExternalManifest {
+  return readBackupInfo<{ external?: ExternalManifest }>(setDir, allowMissing).external ?? {};
 }
 
 function saveManifest(setDir: string, manifest: ExternalManifest): void {
@@ -41,7 +50,7 @@ function saveManifest(setDir: string, manifest: ExternalManifest): void {
 }
 
 /** Reject platform-specific escapes and symlink ancestors before any IO on a manifest path. */
-function safePath(root: string, rel: string): string {
+export function safePath(root: string, rel: string): string {
   const parts = rel.split('/');
   const target = resolve(root, ...parts);
   const inside = relative(resolve(root), target);
@@ -98,46 +107,78 @@ const native = (rel: string) => rel.split('/').join(sep);
 export async function backupExternal(folder: string, names: string[], setDir: string, previousSet?: string, passphrase?: string, signal?: AbortSignal): Promise<ExternalManifest> {
   // An earlier set's copies and checksums are carried over, not read again. When the backups are encrypted that is only
   // done for a set whose signature holds: its entries are then the ones it was made with.
-  let before: ExternalManifest = {};
+  let previous: { external?: ExternalManifest; verified?: { files?: Record<string, string> } } = {};
   if (previousSet) {
-    if (!passphrase) before = externalManifest(previousSet);
+    if (!passphrase) previous = readBackupInfo(previousSet, true);
     else {
       try {
         const verified = await readVerified(previousSet, passphrase);
-        if (verified.state === 'signed') before = (verified.info.external ?? {}) as ExternalManifest;
+        if (verified.state === 'signed') previous = verified.info as typeof previous;
       } catch { /* a set that does not check out is not reused: every file is copied again */ }
     }
   }
+  const before = previous.external ?? {};
   const ext = passphrase ? ENCRYPTED_EXT : '';
   const manifest: ExternalManifest = {};
   for (const rel of externalFiles(folder, names)) {
     signal?.throwIfAborted();
     const src = join(folder, native(rel));
     const st = statSync(src);
+    const checkSource = () => {
+      const after = statSync(src);
+      if (after.dev !== st.dev || after.ino !== st.ino || after.size !== st.size ||
+          after.mtimeMs !== st.mtimeMs || after.ctimeMs !== st.ctimeMs) {
+        throw new Error(`${rel}: changed while being backed up; retry with the external writer stopped`);
+      }
+    };
+    checkSource();
     const target = join(setDir, native(rel)) + ext;
     mkdirSync(dirname(target), { recursive: true });
     const old = before[rel];
     const oldCopy = previousSet && join(previousSet, native(rel)) + ext;
-    if (old && oldCopy && old.size === st.size && old.mtimeMs === st.mtimeMs && existsSync(oldCopy)) {
-      try {
+    const checkFiles = previous.verified?.files;
+    const failedCheck = checkFiles?.[rel] !== undefined ? checkFiles[rel] !== 'ok' :
+      checkFiles?.['external container files'] !== undefined;
+    if (old && !old.reuseBlocked && !failedCheck && oldCopy && !!old.encrypted === !!passphrase && old.size === st.size && old.mtimeMs === st.mtimeMs &&
+        (old.sourceCtimeMs === undefined || old.sourceCtimeMs === st.ctimeMs) && existsSync(oldCopy)) {
+      const prior = statSync(oldCopy);
+      // Links change ctime, so use the copy's size, mtime and identity. A
+      // suspicious (or legacy) copy is hashed before it can be reused.
+      // The copy's metadata is not covered by an encrypted set's signature, but the checksum that is signed is checked
+      // again when the new set is verified (before it is published) and when it is restored, so a swapped copy is found.
+      const unchanged = prior.size === old.copySize && prior.mtimeMs === old.copyMtimeMs &&
+        prior.ino === old.copyIno && prior.dev === old.copyDev;
+      // A set taken under another passphrase is not linked into this one.
+      if ((unchanged || await checksum(oldCopy) === old.sha256) && (!passphrase || await opensWithPassphrase(oldCopy, passphrase))) {
+        let linked = true;
         try { linkSync(oldCopy, target); }
-        catch { copyFileSync(oldCopy, target); }
-        await checkExternalCopy(target, old.sha256, passphrase);
+        catch { linked = false; copyFileSync(oldCopy, target); }
         crashPoint('backup:external-after-file');
-        manifest[rel] = old;
+        if (!linked && await checksum(target) !== old.sha256) throw new Error(`${rel}: backup copy checksum mismatch`);
+        checkSource();
+        const copy = statSync(target);
+        // Select fields explicitly: legacy plaintext source hashes must not
+        // leak into new encrypted manifests, including reused entries.
+        manifest[rel] = { size: st.size, mtimeMs: st.mtimeMs, sha256: old.sha256, encrypted: !!passphrase,
+          sourceCtimeMs: st.ctimeMs, copySize: copy.size, copyMtimeMs: copy.mtimeMs, copyIno: copy.ino, copyDev: copy.dev };
         continue;
-      } catch {
-        rmSync(target, { force: true });
-        // Rebuild from the source when the prior copy cannot be used with this key.
       }
+      console.warn(`Previous backup set ${previousSet}: ${rel} is damaged or sealed with another passphrase; copying fresh from source`);
     }
+    const sourceSha256 = passphrase ? undefined : await checksum(src);
+    checkSource();
     if (passphrase) await encryptFile(src, target, passphrase);
     else {
       copyFileSync(src, target);
       utimesSync(target, st.atime, st.mtime);
     }
     crashPoint('backup:external-after-file');
-    manifest[rel] = { size: st.size, mtimeMs: st.mtimeMs, sha256: await checksum(target) };
+    const sha256 = await checksum(target);
+    if (!passphrase && sha256 !== sourceSha256) throw new Error(`${rel}: backup copy checksum does not match its source`);
+    checkSource();
+    const copy = statSync(target);
+    manifest[rel] = { size: st.size, mtimeMs: st.mtimeMs, sha256, encrypted: !!passphrase,
+      sourceCtimeMs: st.ctimeMs, copySize: copy.size, copyMtimeMs: copy.mtimeMs, copyIno: copy.ino, copyDev: copy.dev };
   }
   if (Object.keys(manifest).length) saveManifest(setDir, manifest);
   crashPoint('backup:external-after-manifest');
@@ -159,18 +200,37 @@ async function checkExternalCopy(copy: string, sum: string, passphrase?: string)
   } finally { rmSync(scratch, { recursive: true, force: true }); }
 }
 
+/** Marks these container copies of a set as not to be linked into a later set: the next backup copies them fresh. */
+export function blockReuse(setDir: string, rels: string[]): void {
+  if (!rels.length) return;
+  updateBackupInfo<{ external?: ExternalManifest }>(setDir, (info) => {
+    for (const rel of rels) {
+      const entry = info.external?.[rel];
+      if (!entry) continue;
+      delete entry.sourceCtimeMs;
+      delete entry.copySize;
+      delete entry.copyMtimeMs;
+      delete entry.copyIno;
+      delete entry.copyDev;
+      entry.reuseBlocked = true;
+    }
+  });
+}
+
 /** Problems with a set's external container files: missing or changed copies, by path. */
 export async function verifyExternal(setDir: string, passphrase?: string): Promise<Record<string, string>> {
   const problems: Record<string, string> = {};
-  for (const [rel, entry] of Object.entries(externalManifest(setDir))) {
+  for (const [rel, entry] of Object.entries(externalManifest(setDir, false))) {
     try {
       const plain = validateExternal(setDir, rel);
       const encrypted = safePath(setDir, rel + ENCRYPTED_EXT);
-      const copy = [plain, encrypted].find((p) => existsSync(p));
-      if (!copy) problems[rel] = 'missing';
+      // A set made before entries said whether they were sealed has either form; one that says is read as it says.
+      const copy = entry.encrypted === undefined ? [plain, encrypted].find((p) => existsSync(p)) ?? plain : entry.encrypted ? encrypted : plain;
+      if (!existsSync(copy)) problems[rel] = 'missing';
       else await checkExternalCopy(copy, entry.sha256, passphrase);
     } catch (e) { problems[rel] = (e as Error).message; }
   }
+  blockReuse(setDir, Object.keys(problems));
   return problems;
 }
 
@@ -179,8 +239,8 @@ export async function verifyExternal(setDir: string, passphrase?: string): Promi
  * folders are rebuilt beside the hosted folder first and swapped in whole.
  * Hosted files whose set has no external files keep the folders they have.
  */
-export async function stageExternal(setDir: string, folder: string, names: string[], passphrase?: string, signal?: AbortSignal, checked?: ExternalManifest): Promise<{ count: number; files: RestoreFile[]; cleanup(): void }> {
-  const manifest = checked ?? externalManifest(setDir);
+export async function stageExternal(setDir: string, folder: string, names: string[], passphrase?: string, signal?: AbortSignal, checked?: ExternalManifest, allowMissingManifest = false): Promise<{ count: number; files: RestoreFile[]; cleanup(): void }> {
+  const manifest = checked ?? externalManifest(setDir, allowMissingManifest);
   const roots = new Map<string, string[]>();
   for (const rel of Object.keys(manifest)) {
     validateExternal(setDir, rel);
@@ -190,6 +250,21 @@ export async function stageExternal(setDir: string, folder: string, names: strin
     if (!names.includes(name)) continue;
     const key = `${sub}/${name}`;
     roots.set(key, [...(roots.get(key) ?? []), rel]);
+  }
+  // Every container folder the set holds for these databases must be listed, whether or not the manifest names any of
+  // its files: a manifest with no external section, or one that lists only another database's files, vouches for nothing.
+  for (const sub of EXTERNAL_DIRS) {
+    for (const name of names) {
+      const key = `${sub}/${name}`;
+      const dir = join(setDir, native(key));
+      let found;
+      try { found = lstatSync(dir); } catch (e) { if ((e as NodeJS.ErrnoException).code === 'ENOENT') continue; throw e; }
+      if (!found.isDirectory()) throw new Error(`${key}: not a plain folder in the backup set`);
+      for (const file of walk(setDir, key)) {
+        const listed = manifest[file] ?? (file.endsWith(ENCRYPTED_EXT) ? manifest[file.slice(0, -ENCRYPTED_EXT.length)] : undefined);
+        if (!listed) throw new Error(`${file}: absent from backup.json external manifest`);
+      }
+    }
   }
   const staged: [string, string][] = [];
   try {
@@ -203,9 +278,11 @@ export async function stageExternal(setDir: string, folder: string, names: strin
         const to = join(next, ...rel.split('/').slice(2));
         mkdirSync(dirname(to), { recursive: true });
         const plain = join(setDir, native(rel));
-        const encrypted = !existsSync(plain);
+        const encrypted = manifest[rel].encrypted ?? !existsSync(plain);
+        const source = encrypted ? plain + ENCRYPTED_EXT : plain;
+        if (!existsSync(source)) throw new Error(`${rel}: missing backup file; use a complete backup set and try the restore again`);
         const copy = encrypted ? join(next, `.decrypt-${randomUUID()}.tmp`) : to;
-        copyFileSync(encrypted ? plain + ENCRYPTED_EXT : plain, copy);
+        copyFileSync(source, copy);
         crashPoint('restore:external-after-copy');
         if (await checksum(copy) !== manifest[rel].sha256) throw new Error(`${rel}: changed on disk since it was taken`);
         crashPoint('restore:external-after-verify');

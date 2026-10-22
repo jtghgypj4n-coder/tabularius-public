@@ -18,8 +18,7 @@ At `/mcp` the `Authorization` header decides (packages/server/src/index.ts):
 | `Basic` account and password | That account, in every file it names, within its privilege set. The password is checked in each file (and counts toward sign-in lockout). |
 | `Bearer ohbt_…` (a file's API token) | One account of that file, its privilege set narrowed to the token's scope (read-only, some layouts). A token limited to some surfaces must include AI apps (`fmmcp`), and the account's sign-in location rules apply. |
 | `Bearer ohm_…` (made in the admin console's Connect an AI app) | The account it was made for, in the one file it was made for, until it expires. |
-| `Bearer` the server's `--mcp-token` | The server administrator. |
-| none, from the server itself (loopback), when no `--mcp-token` is set | The server administrator. |
+| `Bearer` the server's `--mcp-token`, or the token in the hosted folder's `.openhbam-mcp-token` when none is given (`tabularius mcp-token <folder>` prints it) | The server administrator. |
 
 Anything else gets `401` with `{"error":"unauthorized"}`.
 
@@ -3307,7 +3306,6 @@ Automations in plain English, step one: "when an invoice is marked paid, set the
 | `scriptText.text` | string | yes | One step per line, as the script workspace shows them |
 | `parameter` | string | no | Formula on the record for Get ( ScriptParameter ) |
 | `account` | string | no | Account the script runs as (default: this one) |
-| `network` | boolean | no | Let Insert from URL reach the network (only if the server allows scripts the network too) |
 | `enabled` | boolean | no | Whether it runs once saved (default true) |
 | `test` | object of string or number | no | The change that sets it off, field name to new value (e.g. {"Status": "Paid"}), made on a throwaway copy |
 
@@ -3361,7 +3359,7 @@ Result:
 
 ### `save_automation`
 
-Automations, step two: save (and turn on) an automation tried with try_automation, writing its script if scriptText is given. It runs on the server for every matching change, whoever makes it, offline unless network is allowed; its own changes set off no automations. Saving over one with the same name needs replace: true; enabled: false turns one off.
+Automations, step two: save (and turn on) an automation tried with try_automation, writing its script if scriptText is given. It runs on the server for every matching change, whoever makes it, offline: only a person can let one reach the network, on the Automations page; its own changes set off no automations. Saving over one with the same name needs replace: true; enabled: false turns one off.
 
 **Hints:** destructive
 
@@ -3384,7 +3382,6 @@ Automations, step two: save (and turn on) an automation tried with try_automatio
 | `scriptText.text` | string | yes | One step per line, as the script workspace shows them |
 | `parameter` | string | no | Formula on the record for Get ( ScriptParameter ) |
 | `account` | string | no | Account the script runs as (default: this one) |
-| `network` | boolean | no | Let Insert from URL reach the network (only if the server allows scripts the network too) |
 | `enabled` | boolean | no | Whether it runs now (default true) |
 | `replace` | boolean | no | true to save over an automation with the same name |
 
@@ -6051,7 +6048,7 @@ A privilege set's table entry can mark a field masked (fields: {Field: "masked"}
 
 Start a new, empty database on this server (no FileMaker file needed), then build it with change_design. Set a password for its first account with `tabularius passwd` before people log in.
 
-**Permissions:** The server administrator only (the --mcp-token bearer, a loopback client when no token is set, or stdio); every account and API token is refused.
+**Permissions:** The server administrator only (the --mcp-token bearer, the server's MCP token, or stdio); every account and API token is refused.
 
 **Parameters:**
 
@@ -6088,7 +6085,7 @@ Where syncing hosted files with FileMaker Server stands: for each file with a sy
 
 **Hints:** read-only
 
-**Permissions:** Only the administrator's own client (this computer, or the server's MCP token); never an account. Read-only: an administrator settles conflicts and starts writes in the admin console's Sync page. Shows only files with AI turned on. Record values, passwords and password file paths are never shown.
+**Permissions:** Only the administrator's own client (the server's MCP token); never an account. Read-only: an administrator settles conflicts and starts writes in the admin console's Sync page. Shows only files with AI turned on. Record values, passwords and password file paths are never shown.
 
 **Parameters:**
 

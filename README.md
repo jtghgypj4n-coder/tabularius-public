@@ -385,7 +385,7 @@ unknown, in [docs/known-differences.md](docs/known-differences.md).
 - **People use a browser.** There is no FileMaker Pro or FileMaker Go client for a file hosted here.
 - **Passwords.** An account whose FileMaker password is empty keeps working, from the server's own computer. Every other account needs a new password set with `tabularius passwd`.
 - **Plug-ins are never loaded.** A few BaseElements and MBS functions run as built-in code; any other plug-in call gives "?" and error 3.
-- **Scripts run on the server, offline.** Mail is never sent and web requests stay off unless the server is started to allow them; steps that need a screen or a person at FileMaker Pro are skipped or give error 3.
+- **Scripts run on the server, and reach the network when you switch it on.** Web requests (Insert from URL, `connection://` addresses) start off for every converted file, so a copy you are testing cannot call outside services; turn on **Script network** for a file in the admin console when this copy is the live one. Mail is sent only once the server is set up to send it; steps that need a screen or a person at FileMaker Pro are skipped or give error 3.
 - **The store is not the `.fmp12`.** A converted file lives in an SQLite store beside the original, which is left as it was; changes made here can't be written back into a `.fmp12`.
 - **Some security detail is flattened.** Per-layout, per-value-list and per-script privileges come over at the privilege set's overall level; review your sets in Manage Security before people sign in.
 
@@ -748,13 +748,17 @@ Add `"--account", "AI Helper"` to the args (and `"env": {"TABULARIUS_PASSWORD":
 "..."}`) to have the AI work within that account's privilege set; without one
 it acts as the server administrator.
 
-Or connect over HTTP at `http://127.0.0.1:8080/mcp`: with HTTP Basic auth
-(an account and password) the AI gets that account's privileges; local
-clients without auth, or with the `--mcp-token` bearer token, are the
-administrator. "Local" means a direct request from this computer: not one a
-proxy on it passed on, and not one addressed to any name but `localhost`,
-`127.0.0.1` or `[::1]` (so a web page can't reach it by pointing its own name
-at this computer); give anything else a token or an account.
+Or connect over HTTP at `http://127.0.0.1:8080/mcp`, which answers no one
+without a credential, programs on this computer included. With HTTP Basic auth
+(an account and password) the AI gets that account's privileges. The
+administrator's way in is a bearer token: the one in `--mcp-token`, or else the
+one the server made on first start and keeps in `.openhbam-mcp-token` in the
+hosted folder, readable only by the account that runs the server. Print it with
+`tabularius mcp-token <folder>` and give it to the app as
+`Authorization: Bearer <token>`. Delete the file and restart to make a new one. A cluster or a standby pair should be given the same `--mcp-token`, so every
+process, and a server that takes over, accepts the same token.
+Prefer a token made for one account in the admin console (**Connect an AI app**)
+over handing an app the administrator's.
 Every tool, with its parameters, permissions and an example, is in
 [docs/reference/mcp.md](docs/reference/mcp.md); every REST route in
 [docs/reference/rest.md](docs/reference/rest.md).
@@ -973,8 +977,8 @@ the account it runs as. The secret is shown once. Each call is a `POST` to
 more than five minutes off the server's clock, one already received, or one
 over the hook's calls-a-minute limit is refused. The answer is
 `{"ok": true, "result": "<the script's result>"}`, or the error. The script runs
-within the account's privileges, offline unless the server and the hook both
-allow the network, and with no AI steps. The admin console lists each hook's
+within the account's privileges, with no AI steps. It reaches the network only
+when the file's Script network switch is on and the hook allows the network too. The admin console lists each hook's
 recent calls (never their bodies). The server answers no calls unless started
 with `--allow-inbound-hooks`, and a capture-only file never has a hook.
 
@@ -1001,9 +1005,9 @@ of day (every 1440 minutes from 02:00 is nightly at 2 a.m.). A schedule runs as
 an account of the file, within its privileges, and shows its next and last run,
 its last error, and (under "Runs") its last 50 runs with how each went, kept
 across restarts in `<folder>/.openhbam-schedule-runs.json`.
-Scheduled scripts are offline: they never reach the network or send mail, even
-on a server started with `--allow-script-network`, unless the schedule allows
-it too. Scripts an AI runs (the `run_script` MCP tool) are always offline. Schedules are kept in `<folder>/.openhbam-schedules.json`. Import
+Scheduled scripts reach the network only when the file's Script network switch
+is on (admin console, Hosted files) and the schedule allows it too; they never
+send mail. Scripts an AI runs (the `run_script` MCP tool) are always offline. Schedules are kept in `<folder>/.openhbam-schedules.json`. Import
 Records in any script reads only from `<folder>/Documents`.
 
 **Plug-in functions.** Calculations run the safe, local BaseElements
@@ -1055,9 +1059,11 @@ it into a container field (or a variable); `-X DELETE` removes it; and
 `connection://invoices/?prefix=2026/` lists a folder (S3's XML, with names
 relative to the connection's folder). A script can't reach beyond the
 connection's bucket and folder, add ACLs or copy sources, or see the keys. Like
-every outbound step it works only on a server started with
-`--allow-script-network` (never for an AI-run script, a schedule that doesn't
-allow the network, an automation or an inbound hook, or any script run offline), never when a capture-only file
+every outbound step it works once Script network is turned on for the file in the
+admin console (or the server is started with `--allow-script-network`, which
+turns it on for every file). It never works for an AI-run script, a schedule,
+automation or inbound hook that doesn't allow the network, or any script run
+offline, and never when a capture-only file
 (named in `--capture-only`) is anywhere on the call stack, and in outbound test mode
 it is recorded and reaches only allowlisted hosts. Ask an AI app, or the assistant in the web client ("set up an S3
 connection to our invoices bucket"), and it calls `draft_connection`: that makes
@@ -1087,7 +1093,7 @@ POST and Google Drive uploads need it too, so those connections are switched to
 Allowed: write by a person; an AI draft starts at read. A service that issues a new
 refresh token on every use is not supported.
 
-A scheduled script (network switch on) uses connections, and mail through an
+A scheduled script (its network option on, in a file whose Script network switch is on) uses connections, and mail through an
 email connection, only while everything in the hosted files that can run or steer
 code is as a person last approved it for that schedule: scripts, custom
 functions, field formulas, layouts (triggers and buttons), custom menus, file

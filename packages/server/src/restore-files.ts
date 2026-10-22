@@ -66,7 +66,9 @@ export function recoverRestore(folder: string, publish = writeDurable): void {
   const path = join(folder, JOURNAL);
   if (!existsSync(path)) return;
   if (lstatSync(path).isSymbolicLink()) throw new Error('Cannot read a symlink restore journal');
-  const journal: unknown = JSON.parse(readFileSync(path, 'utf8'));
+  let journal: unknown;
+  try { journal = JSON.parse(readFileSync(path, 'utf8')); }
+  catch (error) { throw new Error(`${path}: cannot read restore journal JSON; preserve it and the .restore-previous-* copies for recovery`, { cause: error }); }
   validateJournal(folder, journal);
   for (const file of [...journal.files].reverse()) {
     const target = join(folder, file.target);
@@ -111,17 +113,29 @@ export function commitRestore(folder: string, files: RestoreFile[], publish = wr
       if (file.staged) publish(file.staged, file.target);
       crashPoint('restore:after-publish');
     }
+    // A failure before the decision's rename is pending and must roll back.
+    // A directory-sync failure after that rename has already committed.
+    journal.phase = 'committed';
+    atomicWrite(path, JSON.stringify(journal));
+    crashPoint('restore:after-commit');
   } catch (error) {
-    try { recoverRestore(folder); } catch (rollbackError) {
-      throw new AggregateError([error, rollbackError], 'Restore failed and rollback was incomplete; retain the restore journal and .restore-previous-* copies for recovery');
+    let committed = false;
+    if (journal.phase === 'committed') {
+      try { committed = readFileSync(path, 'utf8') === JSON.stringify(journal); }
+      catch { /* Recovery below reports an unreadable decision. */ }
     }
-    throw error;
+    if (committed) {
+      console.warn(`Restore committed, but syncing its commit decision failed; durability is uncertain: ${(error as Error).message}`);
+    } else {
+      try { recoverRestore(folder); } catch (rollbackError) {
+        throw new AggregateError([error, rollbackError], 'Restore failed and rollback was incomplete; retain the restore journal and .restore-previous-* copies for recovery');
+      }
+      throw error;
+    }
   }
-  // Persist the commit decision before deleting any rollback copy. If this write
-  // fails, leave the journal and copies for recovery to interpret on startup.
-  journal.phase = 'committed';
-  atomicWrite(path, JSON.stringify(journal));
-  crashPoint('restore:after-commit');
-  recoverRestore(folder);
+  try { recoverRestore(folder); }
+  catch (error) {
+    console.warn(`Restore committed, but cleanup is incomplete; retain the restore journal for recovery: ${(error as Error).message}`);
+  }
   crashPoint('restore:after-cleanup');
 }
