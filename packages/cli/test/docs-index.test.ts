@@ -8,7 +8,7 @@ const root = join(import.meta.dirname, '..', '..', '..');
 
 test('every guide and example is reachable from the README or its indexes', () => {
   const indexes = ['README.md', 'docs/README.md', 'examples/README.md'];
-  const pages = ['docs', 'docs/tutorials', 'docs/reference', 'docs/research'].flatMap((dir) =>
+  const pages = ['docs', 'docs/tutorials', 'docs/reference', 'docs/research', 'docs/guides/running'].flatMap((dir) =>
     readdirSync(join(root, dir)).filter((name) => name.endsWith('.md')).map((name) => `${dir}/${name}`));
   const examples = readdirSync(join(root, 'examples'), { withFileTypes: true })
     .filter((entry) => entry.isDirectory() && existsSync(join(root, 'examples', entry.name, 'README.md')))

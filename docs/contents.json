@@ -28,6 +28,13 @@
     {
       "title": "Working with a solution",
       "pages": [
+        "docs/guides/running/finds-and-reports.md",
+        "docs/guides/running/accounts-and-privilege-sets.md",
+        "docs/guides/running/masking.md",
+        "docs/guides/running/hosting-and-https.md",
+        "docs/guides/running/sync.md",
+        "docs/guides/running/plugin-replacements.md",
+        "docs/guides/running/dashboards-and-charts.md",
         "docs/design-mode.md",
         "docs/text-comparison.md",
         "docs/numbers-and-precision.md",
