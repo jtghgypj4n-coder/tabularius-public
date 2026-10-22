@@ -26,7 +26,7 @@ test('console sessions and password lockouts ignore wall-clock jumps', async (t)
   const cookie = signedIn.headers.get('set-cookie')!.split(';')[0];
   await signedIn.arrayBuffer();
   const status = async () => {
-    const r = await fetch(`${s.url}/tabularius/admin/v1/status`, { headers: { cookie } });
+    const r = await fetch(`${s.url}/tabularius/admin/v1/status`, { headers: { cookie, 'x-tabularius-admin': '1' } });
     await r.arrayBuffer();
     return r.status;
   };
@@ -63,7 +63,7 @@ test('wrong console passwords from different addresses of one IPv6 /64 share one
     for (let i = 0; i < 5; i++) await signIn('wrong', `2001:db8:1:2:${i}::${i + 1}`);
     // The right password from yet another address of that network is refused; another network is not.
     assert.equal((await signIn('admin secret', '2001:db8:1:2:ffff::9')).status, 429);
-    const active = await fetch(`${s.url}/tabularius/admin/v1/status`, { headers: { cookie, 'x-forwarded-for': '2001:db8:1:2:ffff::9' } });
+    const active = await fetch(`${s.url}/tabularius/admin/v1/status`, { headers: { cookie, 'x-tabularius-admin': '1', 'x-forwarded-for': '2001:db8:1:2:ffff::9' } });
     assert.equal(active.status, 200, 'an existing cookie is usable from the locked /64');
     await active.arrayBuffer();
     assert.equal((await signIn('admin secret', '2001:db8:1:3::1')).status, 200);

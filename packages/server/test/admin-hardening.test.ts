@@ -215,7 +215,7 @@ test('every console answer says nosniff, and the page refuses frames, referrers 
     const page = await fetch(`${s.url}/admin/`);
     assert.equal(page.status, 200);
     assert.equal(page.headers.get('x-frame-options'), 'DENY');
-    assert.equal(page.headers.get('referrer-policy'), 'no-referrer');
+    assert.equal(page.headers.get('referrer-policy'), 'same-origin', 'sent only to the console\'s own origin, so downloads keep their same-origin proof');
     const csp = page.headers.get('content-security-policy') ?? '';
     for (const part of ["frame-ancestors 'none'", "base-uri 'none'", "form-action 'self'", "default-src 'self'"]) assert.ok(csp.includes(part), part);
     await page.arrayBuffer();
@@ -674,7 +674,7 @@ test('wrong passwords from a shared address do not lock out who is signed in', (
   const cookie = ok.headers.get('set-cookie')!.split(';')[0]!;
   await ok.arrayBuffer();
   const status = async (headers: Record<string, string> = {}) => {
-    const r = await fetch(`${s.url}/tabularius/admin/v1/status`, { headers });
+    const r = await fetch(`${s.url}/tabularius/admin/v1/status`, { headers: headers.cookie ? { ...headers, 'x-tabularius-admin': '1' } : headers });
     await r.arrayBuffer();
     return r.status;
   };
@@ -694,7 +694,7 @@ test('a new admin password ends every console sign-in made with the old one', ()
     return r.headers.get('set-cookie')?.split(';')[0] ?? '';
   };
   const status = async (cookie: string) => {
-    const r = await fetch(`${s.url}/tabularius/admin/v1/status`, { headers: { cookie } });
+    const r = await fetch(`${s.url}/tabularius/admin/v1/status`, { headers: { cookie, 'x-tabularius-admin': '1' } });
     await r.arrayBuffer();
     return r.status;
   };

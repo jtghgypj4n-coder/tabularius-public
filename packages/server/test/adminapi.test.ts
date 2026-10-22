@@ -60,12 +60,12 @@ test('sign in with the admin password; tokens open the rest, nothing else does',
   assert.equal(consoleSignIn.status, 200);
   const cookie = consoleSignIn.headers.get('set-cookie')!.split(';', 1)[0];
   const cookieAndBogusBasic = await call('/user/auth', {
-    method: 'POST', headers: { cookie, authorization: 'Basic ' + btoa('admin:wrong') },
+    method: 'POST', headers: { cookie, 'x-tabularius-admin': '1', authorization: 'Basic ' + btoa('admin:wrong') },
   });
   assert.equal(cookieAndBogusBasic.status, 401, 'the console cookie cannot replace valid Admin API Basic credentials');
 
   const cookieAndCorrectBasic = await call('/user/auth', {
-    method: 'POST', headers: { cookie, authorization: 'Basic ' + btoa('admin:secret') },
+    method: 'POST', headers: { cookie, 'x-tabularius-admin': '1', authorization: 'Basic ' + btoa('admin:secret') },
   });
   assert.equal(cookieAndCorrectBasic.status, 200, 'correct Basic credentials still mint an Admin API token');
   assert.equal(code(cookieAndCorrectBasic), '0');
