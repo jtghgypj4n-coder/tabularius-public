@@ -25,6 +25,30 @@ function setup(t: TestContext) {
   store.close();
   return { root, live, dest, path };
 }
+/**
+ * Files are opened and written through the file-system boundary (descriptors, not copyFileSync), so a fault is put in at
+ * the descriptor: `after(path)` runs once the bytes of a file opened by this path are all written, just before its
+ * descriptor is closed. `names` remembers which path each descriptor was opened for, for the faults that hook a write.
+ */
+function atDescriptors(t: TestContext, after?: (path: string) => void) {
+  const names = new Map<number, string>();
+  const open = fs.openSync;
+  const close = fs.closeSync;
+  t.mock.method(fs, 'openSync', (...args: Parameters<typeof fs.openSync>) => {
+    const fd = open(...args);
+    if (typeof args[0] === 'string') names.set(fd, args[0]);
+    return fd;
+  });
+  t.mock.method(fs, 'closeSync', (fd: number) => {
+    const path = names.get(fd);
+    names.delete(fd);
+    if (path && after) after(path);
+    return close(fd);
+  });
+  syncBuiltinESMExports();
+  t.after(() => { t.mock.restoreAll(); syncBuiltinESMExports(); });
+  return names;
+}
 function edit(path: string, action: (db: DatabaseSync) => void) {
   const db = new DatabaseSync(path);
   try { action(db); } finally { db.close(); }
@@ -76,13 +100,7 @@ for (const when of ['before', 'during-staging'] as const) {
     const reason = new Error('stop review restore');
     if (when === 'before') controller.abort(reason);
     else {
-      const copy = fs.copyFileSync;
-      const mocked = t.mock.method(fs, 'copyFileSync', (from: fs.PathLike, to: fs.PathLike, flags?: number) => {
-        copy(from, to, flags);
-        if (String(to) === second + '.restoring') controller.abort(reason);
-      });
-      syncBuiltinESMExports();
-      t.after(() => { mocked.mock.restore(); syncBuiltinESMExports(); });
+      atDescriptors(t, (written) => { if (written === second + '.restoring') controller.abort(reason); });
     }
     await assert.rejects(restoreAt(live, dest, Date.now() + 1000, undefined, '', { signal: controller.signal }), (error: unknown) => error === reason);
     paths.forEach((p, i) => {
@@ -98,17 +116,18 @@ for (const code of ['ENOSPC', 'EACCES']) {
     const { live, dest, path } = setup(t);
     const first = (await backupFolder(live, dest, 1, '')).dir;
     const before = fs.readFileSync(join(first, file));
+    const names = atDescriptors(t);
     const write = fs.writeFileSync;
     let hit = false;
     const mocked = t.mock.method(fs, 'writeFileSync', (...args: Parameters<typeof fs.writeFileSync>) => {
-      if (String(args[0]).includes('.partial') && String(args[1]).includes('finished')) {
+      const name = typeof args[0] === 'number' ? names.get(args[0]) ?? '' : String(args[0]);
+      if (name.includes('.partial') && String(args[1]).includes('finished')) {
         hit = true;
         throw Object.assign(new Error('injected write failure'), { code });
       }
       return write(...args);
     });
     syncBuiltinESMExports();
-    t.after(() => { mocked.mock.restore(); syncBuiltinESMExports(); });
     await assert.rejects(backupFolder(live, dest, 1, ''), /injected write failure/);
     assert.equal(hit, true);
     assert.deepEqual(fs.readFileSync(join(first, file)), before);
