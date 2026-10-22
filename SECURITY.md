@@ -350,18 +350,15 @@ General properties:
   The same guard covers Basic-authenticated Data API, OData, SQL and XML
   requests, Admin API login, OAuth authorization POST, and originless MCP
   requests. An opaque `Origin: null` is refused. Without `--public-url`, a
-  request that comes from a browser (any `Sec-Fetch-*` header, an `Origin` or a
-  `Referer`) or carries a cookie is accepted on an ambient-credential route
-  only when its Host is an IP literal, localhost or a subdomain of it, or an
-  operator-configured `--https` domain; the 403 then says to set `--public-url`
-  or `--https` for the name, and the server logs each such name once. A client
-  that sends no browser header and no cookie (curl, a server, a database
-  driver) is not held to the host name. Gap: a very old browser that sends no
-  Fetch Metadata and suppresses `Origin` and `Referer` on a rebound page's
-  plain GET looks like such a client; the passwordless local console and the
-  empty-password accounts still check the Host name themselves, and a cookie
-  is always held to it. Upgrade note: serving a DNS name to browsers behind a
-  proxy now needs `--public-url` (or `--https` for the name).
+  request on an ambient-credential route (cookie or Basic) is accepted only when
+  its Host is an IP literal, localhost or a subdomain of it, or an
+  operator-configured `--https` domain. This holds whether or not the request
+  looks like a browser's, because a rebound page can send a plain same-origin
+  GET with no `Origin`, `Referer` or Fetch Metadata and set `Authorization`
+  itself. The 403 says to set `--public-url` or `--https` for the name, and the
+  server logs each such name once (at most 16). Upgrade note: a script, driver
+  or proxy that reaches the server by a DNS name now needs `--public-url` (or
+  `--https` for the name), or a connection by IP address or `localhost`.
   Forwarded headers cannot nominate an allowed origin. Native clients may
   omit Origin, Referer and Fetch Metadata, but console cookie or console Basic
   authentication without any of them requires `x-tabularius-console: 1` or

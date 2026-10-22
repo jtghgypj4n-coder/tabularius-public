@@ -85,8 +85,8 @@ test('every documented state-changing route refuses a request a browser says cam
   }
   assert.deepEqual(accepted, []);
   assert.deepEqual(differing, [], 'a saved login must not change the answer to a cross-site request');
-  assert.ok(sent > 1000);
-  assert.ok(refused > 0 && sent > 1000, `${refused} of ${sent} refused with 403`);
+  assert.ok(sent > 1000, `${sent} requests sent`);
+  assert.ok(refused >= sent / 2, `${refused} of ${sent} refused with 403`);
   assert.equal(state(), before, 'no record or design change got through');
 });
 
@@ -178,10 +178,9 @@ test('DNS rebinding: a converted file\'s empty-password account works from this 
     const rebound = { 'sec-fetch-site': 'same-origin', origin: 'http://evil.example' };
     assert.notEqual(await signIn('evil.example', rebound), 200, 'a page whose name points at 127.0.0.1');
     assert.notEqual(await signIn(`evil.example:${u.port}`, { ...rebound, origin: `http://evil.example:${u.port}` }), 200);
-    // A native client (no browser headers, no cookie) that reaches the server by a DNS name passes: the Host-name rule is for browsers.
-    assert.equal(await signIn('db.example.org'), 200, 'a headerless client using a DNS name is not held to the host name');
-    // The same name with any browser signal is refused until the server is told that name.
-    assert.notEqual(await signIn('db.example.org', { 'sec-fetch-dest': 'document' }), 200, 'a browser-marked request for a name the server was not told');
+    // A rebound page can leave out every browser header and set Authorization itself, so a DNS name nobody configured is refused with or without them.
+    assert.equal(await signIn('db.example.org'), 403, 'a headerless request for a name the server was not told');
+    assert.equal(await signIn('db.example.org', { 'sec-fetch-dest': 'document' }), 403);
   } finally {
     await new Promise<void>((r) => s.server.close(() => r()));
     rmSync(folder, { recursive: true, force: true, maxRetries: 5 });
