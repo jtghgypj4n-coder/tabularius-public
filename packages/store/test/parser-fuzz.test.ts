@@ -23,7 +23,6 @@ const STACK_MB = 1;
 // `error`; if it starts passing, the test fails so this list is pruned when a fix lands.
 // `optional` marks a broad cluster where only some members fail.
 const KNOWN: { finding: string; id: RegExp; input?: RegExp; error: RegExp; optional?: true }[] = [
-  { finding: 'F2 Exit Script empty result cosmetic round-trip', id: /^(step\/|edge\/)/, input: /^Exit Script \[ (Select )?; \]$/, error: /script printer fixpoint/ },
   { finding: 'F8 script lossy parse of option-only brackets', id: /^step\//, error: /script print\/parse tree/, optional: true },
   { finding: 'F9 calc nodeText printer is lossy', id: /./, error: /calc nodeText print\/parse tree|"=" expected/, optional: true },
 ];

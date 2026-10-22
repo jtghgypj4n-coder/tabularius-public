@@ -21,7 +21,51 @@ test('a step rejects options it cannot carry through script text', () => {
     'Write to Data File [ Select ]',
     'Reset Account Password [ With dialog: Off ]',
     'Set Selection [ $ ]',
-  ]) assert.throws(() => parse(line), /Line 1: .*option|Line 1: .*target/i, line);
+    'Set Error Capture [ Unknown option: 1 ]',
+    'Set Error Logging [ Unknown option: 1 ]',
+    'Adjust Window [ Unknown option: 1 ]',
+    'Show/Hide Toolbars [ Unknown option: 1 ]',
+  ]) assert.throws(() => parse(line), /Line 1: .*(option|target|takes only)/i, line);
+});
+
+test('explicit dialog choices survive printing even on fallback steps', async () => {
+  const { stepLine } = await import('../../fmp12/src/index.ts');
+  for (const line of ['Print PDF [ With dialog: On ]', 'Commit Records/Requests [ With dialog: On ]']) {
+    const step = parse(line)[0];
+    const printed = stepLine(line.slice(0, line.indexOf(' [ ')), step.params);
+    assert.match(printed, /With dialog: On/);
+    assert.deepEqual(parse(printed)[0], step);
+  }
+});
+
+test('find pause, empty Restore and open PDF options survive script text', async () => {
+  const { stepLine } = await import('../../fmp12/src/index.ts');
+  for (const line of [
+    'Enter Find Mode [ Pause: Off ]',
+    'Enter Find Mode [ Pause: Off ; Restore ]',
+    'Perform Find [ Restore ]',
+    'Save Records as PDF [ With dialog: Off ; Currently open PDF ; Current record ; Create folders: Off ]',
+  ]) {
+    const step = parse(line)[0];
+    const printed = stepLine(line.slice(0, line.indexOf(' [ ')), step.params);
+    assert.deepEqual(parse(printed)[0], step, line);
+  }
+  assert.throws(() => parse('Enter Find Mode [ Pause: On ]'), /Enter Find Mode supports only Pause: Off/);
+});
+
+test('a literal API key can be authored while its display stays masked', async () => {
+  const { stepLine } = await import('../../fmp12/src/index.ts');
+  const step = parse('Configure AI Account [ Account Name: "a" ; API key: "k" ]')[0];
+  assert.equal(step.params?.ai?.apiKey, '"k"');
+  assert.match(stepLine('Configure AI Account', step.params), /API key: "…"/);
+});
+
+test('an empty Insert Text parameter prints a stable authored form', async () => {
+  const { stepLine } = await import('../../fmp12/src/index.ts');
+  const printed = stepLine('Insert Text', {});
+  const parsed = parse(printed)[0];
+  assert.equal(parsed.params?.text, '');
+  assert.equal(stepLine('Insert Text', parsed.params), printed);
 });
 
 test('existing Select spellings on Data API and Sort Records by Field print back', async () => {

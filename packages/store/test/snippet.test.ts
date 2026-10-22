@@ -456,3 +456,12 @@ test('clipboard export refuses unresolved targeted steps rather than dropping di
     }
   } finally { store.close(); }
 });
+
+test('Restore without stored requests survives a copy out and back in', () => {
+  const a = blank('restore-a');
+  a.applyDesign([{ op: 'createScript', name: 'Find', text: 'Enter Find Mode [ Restore ]\nPerform Find [ Restore ]' }]);
+  const sc = a.schema.scripts.find((s) => s.name === 'Find')!;
+  const { xml } = designSnippet(a.schema, { scripts: [sc.id] });
+  const got = (snippetChanges(xml, a.schema).changes[0] as { steps: { params?: { restore?: boolean } }[] }).steps;
+  assert.deepEqual(got.map((s) => s.params?.restore), [true, true]);
+});
