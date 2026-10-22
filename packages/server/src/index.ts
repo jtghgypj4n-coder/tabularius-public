@@ -70,6 +70,7 @@ import { logFault, callerText } from './fault-log.ts';
 import { ServerLogs, redactPath, serverLog } from './server-logs.ts';
 import { PgServer } from './pgwire.ts';
 import { auditSurface } from './audit-surface.ts';
+import { RefusedHostLog } from './refused-host-log.ts';
 import { AutoTls, type AcmeOptions } from './acme.ts';
 import { LogShipper } from './logs.ts';
 import { Replication } from './replication.ts';
@@ -353,7 +354,7 @@ export async function serve(opts: ServeOptions): Promise<{ server: Server; host:
     if (logs.rotate) logs.onEntry = (type, src, message) => host.notifier.note(type, src, message);
     host.publicUrl = opts.publicUrlIsDefault ? undefined : opts.publicUrl;
     host.browserOrigins = [...(opts.browserOrigins ?? []), ...(opts.acme ? acmeOrigins(opts.acme.domains, opts.port ?? 443) : [])];
-    const refusedHostNames = new Set<string>();
+    const refusedHostNames = new RefusedHostLog((line) => logs.write('Event', 'Warning', '', line));
     host.listFilesPublicly = !!opts.listFilesPublicly;
     host.acmeDomains = opts.acme ? [...opts.acme.domains] : [];
     host.mcpAllowedOrigins = mcpOrigins;
@@ -625,10 +626,7 @@ export async function serve(opts: ServeOptions): Promise<{ server: Server; host:
         if (needsSameOriginCheck(req, url.pathname) && !sameOriginRequest(req, host.publicUrl, host.browserOrigins, url.pathname.startsWith('/tabularius/admin/') && url.pathname !== '/tabularius/admin/v1/metrics')) {
           // A request addressed to a DNS name nobody configured: say what fixes it, and log each such name once.
           const unknownHost = unconfiguredHostName(req, host.publicUrl, host.browserOrigins);
-          if (unknownHost !== undefined && refusedHostNames.size < 16 && !refusedHostNames.has(unknownHost)) {
-            refusedHostNames.add(unknownHost);
-            logs.write('Event', 'Warning', '', `A request addressed to the host name ${unknownHost} was refused: this server was not told that name. Start it with --public-url https://${unknownHost} (or --https ${unknownHost}) to use it.`);
-          }
+          if (unknownHost !== undefined) refusedHostNames.note(unknownHost);
           res.writeHead(403, { 'content-type': 'application/json', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' })
             .end(JSON.stringify({ error: unknownHost !== undefined ? 'Cross-origin request denied: this server was not told that host name; set --public-url or --https for it' : 'Cross-origin request denied' }));
           return;
