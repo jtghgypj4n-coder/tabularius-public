@@ -434,26 +434,26 @@ The following reasons apply to the exact enumerated expressions in each named fu
 | [packages/server/src/sync-console.ts:463](../../packages/server/src/sync-console.ts#L463) `SyncConsole/runCheck/assertActive` | `Store.sql` (463) | DESIGN |
 | [packages/server/src/warm-worker.ts:19](../../packages/server/src/warm-worker.ts#L19) `message/count` | `Store.recordCount` (19) | INTERNAL |
 | [packages/server/src/warm-worker.ts:34](../../packages/server/src/warm-worker.ts#L34) `message` | `Store.find` (34) | INTERNAL |
-| [packages/server/src/webclient.ts:442](../../packages/server/src/webclient.ts#L442) `WebClient/history` | `Store.get` (442) | WEB |
-| [packages/server/src/webclient.ts:558](../../packages/server/src/webclient.ts#L558) `WebClient/explain` | `Store.get` (558); `Store.row` (591, 604) | WEB |
-| [packages/server/src/webclient.ts:617](../../packages/server/src/webclient.ts#L617) `WebClient/index` | `Store.fieldIndex` (617) | WEB |
-| [packages/server/src/webclient.ts:707](../../packages/server/src/webclient.ts#L707) `WebClient/menus` | `Store.evaluateEach` (707) | WEB |
-| [packages/server/src/webclient.ts:923](../../packages/server/src/webclient.ts#L923) `WebClient/view` | `Store.evaluateEach` (923, 947, 966); `Store.canView` (941); `Store.previewRow` (945, 967); `Store.get` (958); `Store.row` (959, 959) | WEB |
-| [packages/server/src/webclient.ts:944](../../packages/server/src/webclient.ts#L944) `WebClient/view/get` | `Store.get` (944) | WEB |
-| [packages/server/src/webclient.ts:1009](../../packages/server/src/webclient.ts#L1009) `WebClient/refresh` | `Store.previewRow` (1009); `Store.getMany` (1014); `Store.foundSetRows` (1036) | WEB |
-| [packages/server/src/webclient.ts:1048](../../packages/server/src/webclient.ts#L1048) `WebClient/foundIds` | `Store.findIds` (1048) | WEB |
-| [packages/server/src/webclient.ts:1063](../../packages/server/src/webclient.ts#L1063) `WebClient/records` | `Store.getMany` (1063); `Store.find` (1066) | WEB |
-| [packages/server/src/webclient.ts:1092](../../packages/server/src/webclient.ts#L1092) `WebClient/foundSetPortal` | `Store.foundSetRows` (1092, 1099) | WEB |
-| [packages/server/src/webclient.ts:1132](../../packages/server/src/webclient.ts#L1132) `WebClient/charts/foundSet` | `Store.findIds` (1132) | WEB |
-| [packages/server/src/webclient.ts:1141](../../packages/server/src/webclient.ts#L1141) `WebClient/charts` | `Calculations.context` (1141); `Store.canView` (1169); `Store.evaluateEach` (1178, 1182); `Store.evaluateRows` (1187, 1189) | WEB |
-| [packages/server/src/webclient.ts:1172](../../packages/server/src/webclient.ts#L1172) `WebClient/charts/get` | `Store.get` (1172) | WEB |
-| [packages/server/src/webclient.ts:1322](../../packages/server/src/webclient.ts#L1322) `WebClient/exportRecords` | `Store.getMany` (1322) | WEB |
-| [packages/server/src/webclient.ts:1248](../../packages/server/src/webclient.ts#L1248) `WebClient/exportText/nextBatch` | `Store.selectIds` (1248); `Store.getMany` (1253) | WEB |
-| [packages/server/src/webclient.ts:1496](../../packages/server/src/webclient.ts#L1496) `WebClient/aiReplace` | `Store.canView` (1496); `Store.getMany` (1512) | WEB |
-| [packages/server/src/webclient.ts:1572](../../packages/server/src/webclient.ts#L1572) `WebClient/groups` | `Store.findIds` (1572); `Store.groupSummaries` (1578) | WEB |
-| [packages/server/src/webclient.ts:1680](../../packages/server/src/webclient.ts#L1680) `WebClient/button` | `Store.findIds` (1680, 1730); `Store.evaluateEach` (1689, 1690) | WEB |
-| [packages/server/src/webclient.ts:2337](../../packages/server/src/webclient.ts#L2337) `listItems` | `Store.valueListItems` (2337) | WEB |
-| [packages/server/src/webclient.ts:2416](../../packages/server/src/webclient.ts#L2416) `foundIds` | `Store.findIds` (2416, 2418) | WEB |
+| [packages/server/src/webclient.ts:445](../../packages/server/src/webclient.ts#L445) `WebClient/history` | `Store.get` (445) | WEB |
+| [packages/server/src/webclient.ts:582](../../packages/server/src/webclient.ts#L582) `WebClient/explain` | `Store.get` (582); `Store.row` (615, 628) | WEB |
+| [packages/server/src/webclient.ts:641](../../packages/server/src/webclient.ts#L641) `WebClient/index` | `Store.fieldIndex` (641) | WEB |
+| [packages/server/src/webclient.ts:731](../../packages/server/src/webclient.ts#L731) `WebClient/menus` | `Store.evaluateEach` (731) | WEB |
+| [packages/server/src/webclient.ts:947](../../packages/server/src/webclient.ts#L947) `WebClient/view` | `Store.evaluateEach` (947, 971, 990); `Store.canView` (965); `Store.previewRow` (969, 991); `Store.get` (982); `Store.row` (983, 983) | WEB |
+| [packages/server/src/webclient.ts:968](../../packages/server/src/webclient.ts#L968) `WebClient/view/get` | `Store.get` (968) | WEB |
+| [packages/server/src/webclient.ts:1033](../../packages/server/src/webclient.ts#L1033) `WebClient/refresh` | `Store.previewRow` (1033); `Store.getMany` (1038); `Store.foundSetRows` (1060) | WEB |
+| [packages/server/src/webclient.ts:1072](../../packages/server/src/webclient.ts#L1072) `WebClient/foundIds` | `Store.findIds` (1072) | WEB |
+| [packages/server/src/webclient.ts:1087](../../packages/server/src/webclient.ts#L1087) `WebClient/records` | `Store.getMany` (1087); `Store.find` (1090) | WEB |
+| [packages/server/src/webclient.ts:1116](../../packages/server/src/webclient.ts#L1116) `WebClient/foundSetPortal` | `Store.foundSetRows` (1116, 1123) | WEB |
+| [packages/server/src/webclient.ts:1156](../../packages/server/src/webclient.ts#L1156) `WebClient/charts/foundSet` | `Store.findIds` (1156) | WEB |
+| [packages/server/src/webclient.ts:1165](../../packages/server/src/webclient.ts#L1165) `WebClient/charts` | `Calculations.context` (1165); `Store.canView` (1193); `Store.evaluateEach` (1202, 1206); `Store.evaluateRows` (1211, 1213) | WEB |
+| [packages/server/src/webclient.ts:1196](../../packages/server/src/webclient.ts#L1196) `WebClient/charts/get` | `Store.get` (1196) | WEB |
+| [packages/server/src/webclient.ts:1346](../../packages/server/src/webclient.ts#L1346) `WebClient/exportRecords` | `Store.getMany` (1346) | WEB |
+| [packages/server/src/webclient.ts:1272](../../packages/server/src/webclient.ts#L1272) `WebClient/exportText/nextBatch` | `Store.selectIds` (1272); `Store.getMany` (1277) | WEB |
+| [packages/server/src/webclient.ts:1520](../../packages/server/src/webclient.ts#L1520) `WebClient/aiReplace` | `Store.canView` (1520); `Store.getMany` (1536) | WEB |
+| [packages/server/src/webclient.ts:1596](../../packages/server/src/webclient.ts#L1596) `WebClient/groups` | `Store.findIds` (1596); `Store.groupSummaries` (1602) | WEB |
+| [packages/server/src/webclient.ts:1704](../../packages/server/src/webclient.ts#L1704) `WebClient/button` | `Store.findIds` (1704, 1754); `Store.evaluateEach` (1713, 1714) | WEB |
+| [packages/server/src/webclient.ts:2361](../../packages/server/src/webclient.ts#L2361) `listItems` | `Store.valueListItems` (2361) | WEB |
+| [packages/server/src/webclient.ts:2440](../../packages/server/src/webclient.ts#L2440) `foundIds` | `Store.findIds` (2440, 2442) | WEB |
 | [packages/store/src/activity.ts:372](../../packages/store/src/activity.ts#L372) `SharedRecordLocks/constructor` | `SQLite.get` (372); `SQLite.prepare` (372) | CORE |
 | [packages/store/src/activity.ts:403](../../packages/store/src/activity.ts#L403) `SharedRecordLocks/count` | `SQLite.get` (403); `SQLite.prepare` (403) | CORE |
 | [packages/store/src/activity.ts:407](../../packages/store/src/activity.ts#L407) `SharedRecordLocks/sweep` | `SQLite.prepare` (407) | CORE |
