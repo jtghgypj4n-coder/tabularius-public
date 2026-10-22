@@ -691,8 +691,6 @@ export function writePdf(pages: Iterable<PdfPage>, sink: (bytes: Buffer) => void
 export function appendPdf(existing: Buffer, pages: PdfPage[]): Buffer {
   /** Objects the cross-reference sections of a PDF to add to may list in all (a file of a million objects is a large one). */
   const MAX_XREF_ENTRIES = 1_000_000;
-  /** A cross-reference stream row is at most 24 bytes (three fields of up to 8). */
-  const MAX_XREF_BYTES = 24 * MAX_XREF_ENTRIES;
   let listed = 0;
   if (!pages.length) return Buffer.alloc(0);
   const text = existing.toString('latin1');
@@ -715,7 +713,6 @@ export function appendPdf(existing: Buffer, pages: PdfPage[]): Buffer {
     const head = /^(\d+)\s+(\d+)\s+obj\b/.exec(text.slice(at, at + 40)) ?? fail('a cross-reference section is damaged');
     const dict = dictAt(text, text.indexOf('<<', at + head![0].length)) ?? fail('a cross-reference stream is damaged');
     if (!/\/Type\s*\/XRef\b/.test(dict)) fail('a cross-reference section is damaged');
-    const data = decoded(dict, streamBytes(text.indexOf('<<', at + head![0].length) + dict.length, dict, true), MAX_XREF_BYTES);
     const w = /\/W\s*\[\s*(\d+)\s+(\d+)\s+(\d+)\s*\]/.exec(dict)?.slice(1).map(Number) ?? fail('a cross-reference stream has no field widths');
     const width = w[0] + w[1] + w[2];
     if (!width || w.some((n) => n > 8)) fail('a cross-reference stream is damaged');
@@ -728,6 +725,8 @@ export function appendPdf(existing: Buffer, pages: PdfPage[]): Buffer {
     listed += count;
     if (count > Number(/\/Size\s+(\d+)/.exec(dict)?.[1] ?? NaN)) fail('a cross-reference stream lists more objects than its size');
     if (listed > MAX_XREF_ENTRIES) fail('it lists too many objects to add to');
+    // Inflated no further than its rows need (a row, and the predictor's byte in front of it), so each section costs what it lists.
+    const data = decoded(dict, streamBytes(text.indexOf('<<', at + head![0].length) + dict.length, dict, true), Math.max(1, count * (width + 1)));
     const field = (from: number, size: number) => {
       let v = 0;
       for (let k = 0; k < size; k++) v = v * 256 + data[from + k];

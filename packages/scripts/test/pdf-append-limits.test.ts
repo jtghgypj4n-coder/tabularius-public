@@ -31,8 +31,10 @@ test('a cross-reference stream of more than a million objects is refused, howeve
   refuses(xrefStream('/Size 3000000 /Index [0 3000000]', Buffer.alloc(7 * 3_000_000)), /too many objects/);
 });
 
-test('a cross-reference stream that inflates to far more than it could list is refused', () => {
+test('a cross-reference stream that inflates to far more than the rows it lists is refused', () => {
   refuses(xrefStream('/Size 3 /Index [0 3]', Buffer.alloc(60 * 1024 * 1024)), /compressed stream is damaged/);
+  // Under the cap for a million rows, over what ten rows need.
+  refuses(xrefStream('/Size 100000 /Index [0 10]', Buffer.alloc(20 * 1024 * 1024)), /compressed stream is damaged/);
 });
 
 test('a classic table that lists more than a million objects is refused', () => {
