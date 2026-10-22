@@ -17,13 +17,13 @@ test('security verification inherits admin authorization and reports raw history
   setAdminPassword(dir, 'console secret');
   const s = await serve({ dir, port: 0, log: () => {} });
   try {
-    const headers = { authorization: 'Basic ' + btoa('admin:console secret') };
+    const headers = { authorization: 'Basic ' + btoa('admin:console secret'), 'x-tabularius-admin': '1' };
     const route = '/tabularius/admin/v1/security-events/verify';
     const get = (query = '?database=Test', auth?: Record<string, string>) => fetch(s.url + route + query, { headers: auth });
     for (const path of [route, '/tabularius/admin/v1/security-events']) {
       assert.equal((await fetch(`${s.url}${path}?database=Test`)).status, 401);
       assert.equal((await fetch(`${s.url}${path}?database=Test`, {
-        headers: { authorization: 'Basic ' + btoa('admin:wrong') },
+        headers: { authorization: 'Basic ' + btoa('admin:wrong'), 'x-tabularius-admin': '1' },
       })).status, 401);
     }
     const store = s.host.get('Test')!;
@@ -36,7 +36,7 @@ test('security verification inherits admin authorization and reports raw history
     assert.equal(store.verifySecurityAudit().checked, 2, 'no presentation filters or limits');
     assert.deepEqual(store.sql.prepare('SELECT * FROM _fm_security_chain_state').get(), before);
     store.setPassword('reader', 'file secret');
-    assert.equal((await get('?database=Test', { authorization: 'Basic ' + btoa('reader:file secret') })).status, 401,
+    assert.equal((await get('?database=Test', { authorization: 'Basic ' + btoa('reader:file secret'), 'x-tabularius-admin': '1' })).status, 401,
       'a file account is not an admin console identity');
     store.sql.exec("UPDATE _fm_audit SET changes = '{}' WHERE seq = 2");
     const bad = await get('?database=Test', headers);

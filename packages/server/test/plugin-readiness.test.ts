@@ -220,13 +220,13 @@ test('only the admin sees it: no password, a wrong one, or an account of the fil
     const url = `${s.url}/tabularius/admin/v1/plugin-readiness?database=Plugs`;
     for (const format of ['', '&format=csv']) {
       assert.equal((await fetch(url + format)).status, 401, 'no password');
-      assert.equal((await fetch(url + format, { headers: { authorization: 'Basic ' + btoa('admin:wrong') } })).status, 401, 'wrong password');
+      assert.equal((await fetch(url + format, { headers: { authorization: 'Basic ' + btoa('admin:wrong'), 'x-tabularius-admin': '1' } })).status, 401, 'wrong password');
     }
     // A Full Access account of the file is not the server's administrator, and its token opens none of the console.
     const login = await fetch(`${s.url}/fmi/data/vLatest/databases/Plugs/sessions`, { method: 'POST', headers: { authorization: 'Basic ' + btoa('Admin:pw'), 'content-type': 'application/json' }, body: '{}' });
     const token = ((await login.json()) as { response: { token: string } }).response.token;
     assert.equal((await fetch(url, { headers: { authorization: `Bearer ${token}` } })).status, 401, 'a hosted account is not the administrator');
-    const ok = await fetch(url, { headers: { authorization: 'Basic ' + btoa('admin:admin secret') } });
+    const ok = await fetch(url, { headers: { authorization: 'Basic ' + btoa('admin:admin secret'), 'x-tabularius-admin': '1' } });
     assert.equal(ok.status, 200);
     assert.equal(((await ok.json()) as PluginReadiness).functions.length, 1);
   } finally {

@@ -175,7 +175,7 @@ test('Admin console: a file account is not an administrator', { skip }, async ()
   // Once an admin password is set, the console checks it — a file account’s
   // own name and password (or its Data API token) do not open it.
   setAdminPassword(dir, 'adminsecret');
-  const withAccount = await fetch(`${base}/tabularius/admin/v1/status`, { headers: { authorization: 'Basic ' + btoa('Snoop:pw') } });
+  const withAccount = await fetch(`${base}/tabularius/admin/v1/status`, { headers: { authorization: 'Basic ' + btoa('Snoop:pw'), 'x-tabularius-admin': '1' } });
   assert.equal(withAccount.status, 401, 'a file account cannot administer the server');
   const withToken = await fetch(`${base}/tabularius/admin/v1/status`, { headers: { authorization: `Bearer ${await snoopToken()}` } });
   assert.equal(withToken.status, 401, 'a Data API token is not admin access');

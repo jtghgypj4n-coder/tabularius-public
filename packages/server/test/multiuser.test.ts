@@ -272,8 +272,8 @@ test('admin console: status, back up now, disconnect; password once set', { skip
   const locked = await admin('/status');
   assert.equal(locked.status, 401);
   assert.match(locked.headers.get('www-authenticate') ?? '', /Basic/);
-  assert.equal((await admin('/status', { headers: { authorization: 'Basic ' + btoa('admin:wrong') } })).status, 401);
-  const ok = await admin('/status', { headers: { authorization: 'Basic ' + btoa('admin:secret') } });
+  assert.equal((await admin('/status', { headers: { authorization: 'Basic ' + btoa('admin:wrong'), 'x-tabularius-admin': '1' } })).status, 401);
+  const ok = await admin('/status', { headers: { authorization: 'Basic ' + btoa('admin:secret'), 'x-tabularius-admin': '1' } });
   assert.equal(ok.status, 200);
   assert.equal((await ok.json()).server.passwordSet, true);
 });
@@ -281,7 +281,7 @@ test('admin console: status, back up now, disconnect; password once set', { skip
 test('admin console: repeated wrong passwords lock the address out', { skip }, async () => {
   // The password was set to 'secret' by the previous test.
   const admin = (pw: string) =>
-    fetch(`${base}/tabularius/admin/v1/status`, { headers: { authorization: 'Basic ' + btoa('admin:' + pw) } });
+    fetch(`${base}/tabularius/admin/v1/status`, { headers: { authorization: 'Basic ' + btoa('admin:' + pw), 'x-tabularius-admin': '1' } });
 
   // Five misses trip the cooldown; the fifth answers 429 with a Retry-After.
   let last: Response | undefined;

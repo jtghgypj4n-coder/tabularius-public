@@ -595,8 +595,10 @@ export async function serve(opts: ServeOptions): Promise<{ server: Server; host:
         res.on('finish', () => logs.write('Admin', res.statusCode >= 400 ? 'Warning' : 'Information', clientAddress(req), `${req.method} ${redactPath(url.pathname)} ${res.statusCode}`));
       }
       try {
-        if (needsSameOriginCheck(req, url.pathname) && !sameOriginRequest(req, host.publicUrl, host.browserOrigins, url.pathname.startsWith('/tabularius/admin/'))) {
-          res.writeHead(403, { 'content-type': 'application/json', 'cache-control': 'no-store' }).end(JSON.stringify({ error: 'Cross-origin request denied' }));
+        // The metrics GET is the one console call a scraper makes with Basic credentials and no header (docs/monitoring.md); it changes nothing,
+        // and a browser that says it is cross-site is still refused.
+        if (needsSameOriginCheck(req, url.pathname) && !sameOriginRequest(req, host.publicUrl, host.browserOrigins, url.pathname.startsWith('/tabularius/admin/') && url.pathname !== '/tabularius/admin/v1/metrics')) {
+          res.writeHead(403, { 'content-type': 'application/json', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' }).end(JSON.stringify({ error: 'Cross-origin request denied' }));
           return;
         }
         if (url.pathname === '/tabularius/health') return metrics.health(res);

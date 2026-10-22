@@ -57,7 +57,7 @@ test('a console passkey registers while signed in, then signs a fresh session in
     });
     assert.equal(signIn.status, 200);
     const cookie = signIn.headers.get('set-cookie')!.split(';')[0];
-    const status = await fetch(url('/tabularius/admin/v1/status'), { headers: { cookie } });
+    const status = await fetch(url('/tabularius/admin/v1/status'), { headers: { cookie, 'x-tabularius-admin': '1' } });
     assert.equal(status.status, 200, 'the passkey alone opened the console');
 
     // A replayed assertion (same challenge, now spent) is refused.
