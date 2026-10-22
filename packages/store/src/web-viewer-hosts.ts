@@ -46,3 +46,11 @@ export function trustedWebViewerHosts(stored: unknown): string[] {
   }
   return out.slice(0, WEB_VIEWER_HOSTS_MAX);
 }
+
+/** Whether a listed entry (a stored host or `*.` wildcard) would let a web viewer load a page of the host name `name`. */
+export function webViewerEntryCovers(entry: string, name: string): boolean {
+  const e = entry.trim().toLowerCase();
+  const n = name.trim().toLowerCase().replace(/^\[|\]$/g, '').replace(/\.$/, '');
+  if (!e || !n) return false;
+  return e === n || (e.startsWith('*.') && n.endsWith(e.slice(1)));
+}
