@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { zip } from '../../calc/src/zip.ts';
-import { MAX_XLSX_BYTES, readXlsx, xlsx, xlsxSheetNames } from '../src/xlsx.ts';
+import { MAX_XLSX_BYTES, openXlsx, readXlsx, SheetLimitError, xlsx, xlsxSheetNames } from '../src/xlsx.ts';
 
 // Every directory entry points at the same tiny compressed payload, declaring
 // one MiB per entry. Duplicate names count toward the 4x directory guard too.
@@ -76,4 +76,40 @@ test('archive checks reject unsupported or damaged unread entries before sheet s
     assert.throws(() => xlsxSheetNames(bytes), error, label);
     assert.throws(() => readXlsx(bytes), error, label);
   }
+});
+
+/** A workbook of `names` sheets, each stored in its own part with `sheetXml`. */
+function book(names: string[], sheetXml: (i: number) => string): Buffer {
+  const list = names.map((n, i) => `<sheet name="${n}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join('');
+  const rels = names.map((_, i) => `<Relationship Id="rId${i + 1}" Type="x" Target="worksheets/sheet${i + 1}.xml"/>`).join('');
+  return Buffer.from(zip([
+    { name: 'xl/workbook.xml', data: Buffer.from(`<workbook xmlns:r="r"><sheets>${list}</sheets></workbook>`) },
+    { name: 'xl/_rels/workbook.xml.rels', data: Buffer.from(`<Relationships>${rels}</Relationships>`) },
+    ...names.map((_, i) => ({ name: `xl/worksheets/sheet${i + 1}.xml`, data: Buffer.from(sheetXml(i)) })),
+  ]));
+}
+
+test('sheets with the same name, in any case, are refused', () => {
+  const sheet = () => '<worksheet><sheetData><row><c><v>1</v></c></row></sheetData></worksheet>';
+  assert.throws(() => xlsxSheetNames(book(['Data', 'DATA'], sheet)), /more than one sheet called "DATA"/);
+  assert.throws(() => openXlsx(book(Array.from({ length: 256 }, () => 'Same'), sheet)), /more than one sheet called "Same"/);
+  assert.deepEqual(xlsxSheetNames(book(['Data', 'Other'], sheet)), ['Data', 'Other']);
+});
+
+test('the sheets of one opened workbook share the cell budget, so many large sheets are stopped as one', () => {
+  // Each sheet comes to 900,000 cells (a lone cell on row 900,000); 60 of them are 54 million, past the 50 million a workbook may be.
+  const names = Array.from({ length: 60 }, (_, i) => `S${i}`);
+  const bytes = book(names, () => '<worksheet><sheetData><row r="900000"><c r="A900000"><v>1</v></c></row></sheetData></worksheet>');
+  const wb = openXlsx(bytes);
+  assert.deepEqual(wb.sheetNames, names);
+  assert.throws(() => names.forEach((n) => wb.read(n)), SheetLimitError);
+  assert.equal(readXlsx(bytes, 'S59').length, 900_000, 'one sheet alone is fine');
+});
+
+test('an opened workbook reads each sheet as readXlsx does', () => {
+  const sheet = (i: number) => `<worksheet><sheetData><row><c><v>${i}</v></c></row></sheetData></worksheet>`;
+  const bytes = book(['A', 'B'], sheet);
+  const wb = openXlsx(bytes);
+  assert.deepEqual(wb.read('B'), readXlsx(bytes, 'B'));
+  assert.deepEqual(wb.read(), readXlsx(bytes));
 });

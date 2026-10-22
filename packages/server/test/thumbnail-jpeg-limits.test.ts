@@ -29,3 +29,13 @@ test('a picture with thousands of scans is refused after a few, not decoded once
   const evil = jpeg(dqt, sof(15000, 1), dht, ...Array.from({ length: 2000 }, () => sos));
   assert.equal(quick(() => decodeImage(evil), 20_000), undefined);
 });
+
+test('scans that carry no data do not walk the picture: 60 of them on a 15000 pixel square stay quick', () => {
+  const sos = seg(0xda, [1, 1, 0x00, 0, 63, 0]);
+  const evil = jpeg(dqt, sof(15000, 1), dht, ...Array.from({ length: 60 }, () => sos));
+  quick(() => decodeImage(evil), 3000);
+});
+
+test('a second frame header is refused', () => {
+  assert.equal(decodeImage(jpeg(dqt, sof(64, 1), sof(64, 1), dht, seg(0xda, [1, 1, 0x00, 0, 63, 0]))), undefined);
+});

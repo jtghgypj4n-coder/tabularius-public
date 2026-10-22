@@ -380,8 +380,12 @@ function workbookSheets(files: Map<string, Uint8Array>): { name: string; path: s
   // Every sheet is a part of its own. A workbook that lists thousands of sheets, or many that share one part, is
   // not a workbook but a way to have a small upload read again and again.
   if (sheets.length > MAX_SHEETS) throw new Error(`The workbook has ${sheets.length} sheets; more than ${MAX_SHEETS} are not read`);
+  // Excel never repeats a sheet name (the comparison ignores case), and a name that picks two sheets would read the first one every time.
   const parts = new Set<string>();
+  const names = new Set<string>();
   for (const s of sheets) {
+    if (names.has(s.name.toLowerCase())) throw new Error(`The workbook is not valid: it has more than one sheet called "${s.name}"`);
+    names.add(s.name.toLowerCase());
     if (parts.has(s.path)) throw new Error(`The workbook is not valid: the sheet "${s.name}" is stored in the same part as another sheet`);
     parts.add(s.path);
   }
@@ -435,73 +439,95 @@ const DATE_1904_OFFSET = 1462;
  * Empty cells are ''. A sheet that is not there throws MissingSheetError.
  */
 export function readXlsx(data: Uint8Array, sheetName?: string): XlsxCell[][] {
+  return openXlsx(data).read(sheetName);
+}
+
+/** An opened workbook: the sheets can be read one after another, sharing one archive, one inflate budget and one cell budget. */
+export interface XlsxWorkbook {
+  sheetNames: string[];
+  read(sheetName?: string): XlsxCell[][];
+}
+
+/**
+ * A workbook opened once. Reading several sheets of it (an import of every sheet) inflates the shared strings
+ * once, and all the sheets together stay within the budgets one sheet has: inflated bytes (MAX_XLSX_BYTES) and cells.
+ */
+export function openXlsx(data: Uint8Array): XlsxWorkbook {
   const archive = zipReader(data);
   const book = archive.read(WORKBOOK_PARTS);
   const sheets = workbookSheets(book);
-  const wanted = sheetName === undefined ? sheets[0] : sheets.find((s) => s.name === sheetName) ?? sheets.find((s) => s.name.toLowerCase() === sheetName.toLowerCase());
-  if (!wanted) throw new MissingSheetError(`the workbook has no sheet called "${sheetName}"`);
   // A workbook that counts days from 1904 (Excel for Mac's old default) is read as the 1900 system, so every date means what it did.
   const from1904 = [...xmlTags(decode(book.get(WORKBOOK_PARTS[0])) ?? '', /<workbookPr\b[^>]*>/gi)].some((m) => /\bdate1904="(?:1|true)"/i.test(m[0]));
-  // Only the parts this sheet needs, all inflated before any is decoded: the budget stops a bomb before its text fills memory.
-  const parts = archive.read([wanted.path, 'xl/sharedStrings.xml', ...(from1904 ? ['xl/styles.xml'] : [])]);
-  const text = (name: string) => decode(parts.get(name));
-  const phonetic = (si: string) => removeUpTo(si, /<rPh\b[\s\S]*?<\/rPh>/g, '</rPh>');
-  const runs = (si: string) => ooxmlString([...xmlElements(phonetic(si), 't')].map(([, t]) => unxml(t ?? '')).join(''));
-  const shared = [...xmlElements(text('xl/sharedStrings.xml') ?? '', 'si')].map(([, si]) => runs(si ?? ''));
-  const sheet = text(wanted.path);
-  if (sheet === undefined) throw new Error('the workbook has no sheet');
-  const dates = from1904 ? dateStyles(text('xl/styles.xml') ?? '') : [];
-  const rows: XlsxCell[][] = [];
-  // The empty cells a row skips are filled in only once the whole sheet is known to fit, so a few bytes saying
-  // "XFD1" on every row can't fill memory first. Until then such a row is its columns and values.
-  const sparse: { at: number; cols: number[]; values: XlsxCell[]; width: number }[] = [];
-  let cells = 0;
-  const count = (n: number) => {
-    if ((cells += n) > MAX_CELLS) throw new SheetLimitError(`the sheet comes to more than ${MAX_CELLS} cells, counting the empty ones between`);
-  };
-  for (const [attributes, content] of xmlElements(sheet, 'row')) {
-    const r = /\br="(\d+)"/.exec(attributes)?.[1];
-    const rowNum = r === undefined ? rows.length + 1 : Number(r);
-    if (rowNum > MAX_ROW) throw new SheetLimitError(`row ${r} is past Excel's last row, ${MAX_ROW}`);
-    const values: XlsxCell[] = [];
-    // Each value's column, kept from the first cell out of its place on (the rest are in order).
-    let cols: number[] | undefined;
-    let next = 0, width = 0;
-    for (const [cell, body = ''] of xmlElements(content ?? '', 'c')) {
-      const ref = /\br="([A-Z]+\d+)"/.exec(cell)?.[1];
-      const col = ref ? columnIndex(ref) : next;
-      if (ref && col >= MAX_COLUMN) throw new SheetLimitError(`cell ${ref} is past Excel's last column, XFD`);
-      next = col + 1;
-      const type = /\bt="([^"]+)"/.exec(cell)?.[1];
-      const v = xmlElements(body, 'v').next().value?.[1];
-      let value: XlsxCell = '';
-      if (type === 's') value = shared[Number(v)] ?? '';
-      else if (type === 'inlineStr') value = runs(body);
-      else if (type === 'str' || type === 'e' || type === 'd') value = ooxmlString(unxml(v ?? '')); // 'd' is an ISO 8601 date, 'e' an error such as #DIV/0!
-      else if (type === 'b') value = v === '1' ? 1 : 0;
-      else if (v !== undefined) {
-        value = Number.isFinite(Number(v)) ? Number(v) : unxml(v);
-        const style = Number(/\bs="(\d+)"/.exec(cell)?.[1] ?? -1);
-        if (from1904 && typeof value === 'number' && dates[style]) value += DATE_1904_OFFSET;
+  let shared: string[] | undefined;
+  let dates: boolean[] | undefined;
+  let cellsInBook = 0;
+  return { sheetNames: sheets.map((s) => s.name), read: (sheetName) => readSheet(sheetName) };
+
+  function readSheet(sheetName?: string): XlsxCell[][] {
+    const wanted = sheetName === undefined ? sheets[0] : sheets.find((s) => s.name === sheetName) ?? sheets.find((s) => s.name.toLowerCase() === sheetName.toLowerCase());
+    if (!wanted) throw new MissingSheetError(`the workbook has no sheet called "${sheetName}"`);
+    // Only the parts this sheet needs, all inflated before any is decoded: the budget stops a bomb before its text fills memory.
+    // The shared strings and styles are inflated by the first sheet read and kept for the rest.
+    const parts = archive.read([wanted.path, ...(shared ? [] : ['xl/sharedStrings.xml']), ...(from1904 && !dates ? ['xl/styles.xml'] : [])]);
+    const text = (name: string) => decode(parts.get(name));
+    const phonetic = (si: string) => removeUpTo(si, /<rPh\b[\s\S]*?<\/rPh>/g, '</rPh>');
+    const runs = (si: string) => ooxmlString([...xmlElements(phonetic(si), 't')].map(([, t]) => unxml(t ?? '')).join(''));
+    shared ??= [...xmlElements(text('xl/sharedStrings.xml') ?? '', 'si')].map(([, si]) => runs(si ?? ''));
+    const sheet = text(wanted.path);
+    if (sheet === undefined) throw new Error('the workbook has no sheet');
+    dates ??= from1904 ? dateStyles(text('xl/styles.xml') ?? '') : [];
+    const rows: XlsxCell[][] = [];
+    // The empty cells a row skips are filled in only once the whole sheet is known to fit, so a few bytes saying
+    // "XFD1" on every row can't fill memory first. Until then such a row is its columns and values.
+    const sparse: { at: number; cols: number[]; values: XlsxCell[]; width: number }[] = [];
+    let cells = 0;
+    const count = (n: number) => {
+      if ((cells += n) > MAX_CELLS || (cellsInBook += n) > MAX_CELLS) throw new SheetLimitError(`the sheet comes to more than ${MAX_CELLS} cells, counting the empty ones between`);
+    };
+    for (const [attributes, content] of xmlElements(sheet, 'row')) {
+      const r = /\br="(\d+)"/.exec(attributes)?.[1];
+      const rowNum = r === undefined ? rows.length + 1 : Number(r);
+      if (rowNum > MAX_ROW) throw new SheetLimitError(`row ${r} is past Excel's last row, ${MAX_ROW}`);
+      const values: XlsxCell[] = [];
+      // Each value's column, kept from the first cell out of its place on (the rest are in order).
+      let cols: number[] | undefined;
+      let next = 0, width = 0;
+      for (const [cell, body = ''] of xmlElements(content ?? '', 'c')) {
+        const ref = /\br="([A-Z]+\d+)"/.exec(cell)?.[1];
+        const col = ref ? columnIndex(ref) : next;
+        if (ref && col >= MAX_COLUMN) throw new SheetLimitError(`cell ${ref} is past Excel's last column, XFD`);
+        next = col + 1;
+        const type = /\bt="([^"]+)"/.exec(cell)?.[1];
+        const v = xmlElements(body, 'v').next().value?.[1];
+        let value: XlsxCell = '';
+        if (type === 's') value = shared[Number(v)] ?? '';
+        else if (type === 'inlineStr') value = runs(body);
+        else if (type === 'str' || type === 'e' || type === 'd') value = ooxmlString(unxml(v ?? '')); // 'd' is an ISO 8601 date, 'e' an error such as #DIV/0!
+        else if (type === 'b') value = v === '1' ? 1 : 0;
+        else if (v !== undefined) {
+          value = Number.isFinite(Number(v)) ? Number(v) : unxml(v);
+          const style = Number(/\bs="(\d+)"/.exec(cell)?.[1] ?? -1);
+          if (from1904 && typeof value === 'number' && dates[style]) value += DATE_1904_OFFSET;
+        }
+        if (!cols && col !== values.length) cols = values.map((_, i) => i);
+        cols?.push(col);
+        values.push(value);
+        width = Math.max(width, next);
       }
-      if (!cols && col !== values.length) cols = values.map((_, i) => i);
-      cols?.push(col);
-      values.push(value);
-      width = Math.max(width, next);
+      if (rowNum - 1 > rows.length) count(rowNum - 1 - rows.length);
+      while (rows.length < rowNum - 1) rows.push([]);
+      count(Math.max(width, 1));
+      if (!cols) rows.push(values);
+      else {
+        sparse.push({ at: rows.length, cols, values, width });
+        rows.push([]);
+      }
     }
-    if (rowNum - 1 > rows.length) count(rowNum - 1 - rows.length);
-    while (rows.length < rowNum - 1) rows.push([]);
-    count(Math.max(width, 1));
-    if (!cols) rows.push(values);
-    else {
-      sparse.push({ at: rows.length, cols, values, width });
-      rows.push([]);
+    for (const { at, cols, values, width } of sparse) {
+      const row: XlsxCell[] = Array(width).fill('');
+      cols.forEach((col, i) => { row[col] = values[i]; });
+      rows[at] = row;
     }
+    return rows;
   }
-  for (const { at, cols, values, width } of sparse) {
-    const row: XlsxCell[] = Array(width).fill('');
-    cols.forEach((col, i) => { row[col] = values[i]; });
-    rows[at] = row;
-  }
-  return rows;
 }
