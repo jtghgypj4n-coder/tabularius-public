@@ -1389,14 +1389,15 @@ function main(argv: string[]): number {
       if (!(Number.isInteger(workers) && workers >= 1 && workers <= 64)) throw new Error('serve: --workers takes a number of processes (1 to 64) or auto');
       if (workers > 1) {
         serveCluster({ dir: path, port, hostname, mcpToken, scriptNetwork, scriptNetworkAllow, listFilesPublicly, appConnections, webhooks, inboundHooks, testOutbound, ...(sendMail ? { sendMail } : {}), tlsCert, tlsKey, publicUrl, mcpAllowedOrigins, proxyHeader, trustedProxies, edgeLimits, acme, backups, offsite, progressive, statsInterval, logLimit, replicationToken, sqlPort, ai, aiExclude, oidc, ldap, encryptionKey, background: true }, workers, PASSWORD_POLICY.blankFromNetwork).then(({ url, close }) => {
+          // Ready for a stop before anything is printed: whoever sees the first line may signal at once.
+          const stop = () => void close().finally(() => process.exit(0));
+          process.once('SIGINT', stop);
+          process.once('SIGTERM', stop);
           if (exposedPlain) console.warn(`Warning: this server listens on ${hostname} over plain HTTP, so passwords and sign-in tokens cross the network unencrypted. Add --https <your domain> (or --https local for a local network), or put it behind a proxy that does HTTPS and give --public-url https://...`);
           console.log(`hosting ${path} with ${workers} worker processes`);
           console.log(`Web client: ${url}/app/   Admin: ${url}/admin/   Data API: ${url}/fmi/data/vLatest   MCP: ${url}/mcp`);
           if (ai) console.log(`AI assistant on (${ai.model ?? DEFAULT_MODEL}): questions and what it reads go to Anthropic`);
           console.log(backups ? `backups every ${every} to ${dest ?? defaultBackupDir(path)}, keeping ${keep}${process.env.TABULARIUS_BACKUP_KEY ? ', encrypted' : ''}` : 'backups off');
-          const stop = () => void close().finally(() => process.exit(0));
-          process.once('SIGINT', stop);
-          process.once('SIGTERM', stop);
         }, (e) => {
           process.stderr.write(`error: ${plainError(e)}\n`);
           process.exit(1);
@@ -1408,6 +1409,25 @@ function main(argv: string[]): number {
       const drainMs = graceText === undefined || graceText === '' ? undefined : Number(graceText) * 1000;
       if (drainMs !== undefined && !(Number.isFinite(drainMs) && drainMs >= 1000 && drainMs <= 86_400_000)) throw new Error('serve: TABULARIUS_DRAIN_SECONDS is a number of seconds (1 to 86400)');
       serve({ dir: path, drainMs, port, hostname, serviceInstalled: () => installed()?.folder === resolve(path), mcpToken, scriptNetwork, scriptNetworkAllow, listFilesPublicly, appConnections, webhooks, inboundHooks, testOutbound, ...(sendMail ? { sendMail } : {}), tlsCert, tlsKey, publicUrl, mcpAllowedOrigins, proxyHeader, trustedProxies, edgeLimits, acme, backups, offsite, progressive, statsInterval, logLimit, replicationToken, sqlPort, ai, aiExclude, oidc, ldap, encryptionKey, background: true }).then(({ url, host, server, offsite: offsiteSchedule }) => {
+        // Ready for a stop before anything is printed: whoever sees the first line may signal at once. The last changes go
+        // off-site before the process ends. A first signal stops cleanly (running requests finish, the files are saved and
+        // closed); a second one stops at once.
+        let stopping = false;
+        let filesClosed = false;
+        const stop = () => {
+          if (stopping) {
+            console.error(filesClosed ? 'stopping now' : 'stopping now without closing the files; they recover when the server starts again');
+            process.exit(1);
+          }
+          stopping = true;
+          console.log('stopping: finishing running requests and saving the files (press Ctrl-C again to stop at once)');
+          server.close(() => {
+            filesClosed = true;
+            void (offsiteSchedule?.stop() ?? Promise.resolve()).finally(() => process.exit(0));
+          });
+        };
+        process.on('SIGINT', stop);
+        process.on('SIGTERM', stop);
         // Told once it is listening, so a start that fails (a bad address, a port in use) gives only its own error.
         if (exposedPlain) console.warn(`Warning: this server listens on ${hostname} over plain HTTP, so passwords and sign-in tokens cross the network unencrypted. Add --https <your domain> (or --https local for a local network), or put it behind a proxy that does HTTPS and give --public-url https://...`);
         console.log(`hosting ${host.names().join(', ') || '(no databases)'}`);
@@ -1431,24 +1451,6 @@ function main(argv: string[]): number {
         if (replicationToken) console.log(`standby servers can follow this one: tabularius standby <folder> --primary ${url} --token ...`);
         if (progressive) console.log(`changes saved every ${progressiveEvery}: restore to any of those moments with tabularius restore --at`);
         if (encryptionKey) console.log('encryption at rest on: stores are re-encrypted on a clean shutdown (Ctrl-C), not left as plaintext');
-        // The last changes go off-site before the process ends.
-        // A first signal stops cleanly (running requests finish, the files are saved and closed); a second one stops at once.
-        let stopping = false;
-        let filesClosed = false;
-        const stop = () => {
-          if (stopping) {
-            console.error(filesClosed ? 'stopping now' : 'stopping now without closing the files; they recover when the server starts again');
-            process.exit(1);
-          }
-          stopping = true;
-          console.log('stopping: finishing running requests and saving the files (press Ctrl-C again to stop at once)');
-          server.close(() => {
-            filesClosed = true;
-            void (offsiteSchedule?.stop() ?? Promise.resolve()).finally(() => process.exit(0));
-          });
-        };
-        process.on('SIGINT', stop);
-        process.on('SIGTERM', stop);
       }, (e) => {
         process.stderr.write(`error: ${plainError(e)}\n`);
         process.exit(1);

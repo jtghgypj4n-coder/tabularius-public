@@ -245,6 +245,34 @@ test('a stop signal ends an idle server cleanly and at once, with exit code 0', 
   }
 });
 
+test('a stop signal sent as soon as the first line appears still ends the server cleanly', { timeout: 60_000 }, async () => {
+  // Whoever sees the server's first line may signal at once (a script that starts it and stops it). The stop has to be
+  // ready by then, not a moment after the line is printed.
+  const ends = await Promise.all(Array.from({ length: 6 }, async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'tabularius-signal-early-'));
+    createStore(join(dir, 'S' + STORE_EXT));
+    const clean = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('TABULARIUS_')));
+    const child = spawn(process.execPath, ['--no-warnings', join(import.meta.dirname, '../../cli/src/main.ts'), 'serve', dir, '--port', '0', '--host', '127.0.0.1'], {
+      env: { ...clean, TABULARIUS_HOME: dir }, stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    let output = '';
+    let signalled = false;
+    child.stdout.on('data', (c) => { output += c; if (!signalled) { signalled = true; child.kill('SIGTERM'); } });
+    child.stderr.on('data', (c) => { output += c; });
+    try {
+      const end = await Promise.race([
+        new Promise<{ code: number | null; signal: string | null }>((resolve) => child.once('exit', (code, signal) => resolve({ code, signal }))),
+        sleep(20_000).then(() => ({ code: -1, signal: 'late' })),
+      ]);
+      return { end, output };
+    } finally {
+      child.kill('SIGKILL');
+      rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    }
+  }));
+  for (const { end, output } of ends) assert.deepEqual(end, { code: 0, signal: null }, output);
+});
+
 test('a second signal stops a server that is waiting for a running request, with exit code 1', { timeout: 60_000 }, async () => {
   const s = await cli({ TABULARIUS_DRAIN_SECONDS: '30' });
   try {
