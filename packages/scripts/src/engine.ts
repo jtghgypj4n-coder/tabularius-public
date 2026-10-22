@@ -450,6 +450,17 @@ export interface RunOptions {
    */
   networkAllow?: readonly string[];
   /**
+   * Whether web requests are allowed for a file: with `network` on, every file on the call stack (the one that started
+   * the run, and each file it performs scripts in) has to pass, so a script in a file whose network access is off never
+   * borrows another file's. Absent: `network` alone decides.
+   */
+  networkFiles?: (file: string) => boolean;
+  /**
+   * What the error says when web requests are refused for a file (the file whose access is off, or the one that
+   * started a run with no network): the server uses it to say how to turn network access on. Absent: a plain message.
+   */
+  networkOff?: (file: string) => string;
+  /**
    * Outbound test mode (outbound.ts): Send Mail and mail plug-ins write to an
    * outbox and send nothing to the recipients a script names; web requests
    * reach only allowlisted hosts and are recorded. Takes the place of
@@ -2711,7 +2722,7 @@ export class ScriptEngine {
 
   /** Whether a plug-in could ask for a real web request here: the server lets scripts reach the network and one is on. */
   private mayFetch(f: Frame): boolean {
-    return !this.opts.outbound && !!this.opts.network && f.store.pluginsUseNetwork();
+    return !this.opts.outbound && !!this.opts.network && this.networkBlocker(f) === undefined && f.store.pluginsUseNetwork();
   }
 
   /**
@@ -2724,6 +2735,9 @@ export class ScriptEngine {
       fetch: (via, req) => {
         const held = this.callStackFiles(f).find((x) => captureOnly(x));
         if (held !== undefined) throw new CalcError(ERR.calculation, `${via} can't reach the web: "${held}" is a capture-only file, and its scripts never reach the network`);
+        // Checked at every request: this closure outlives the step that made it, and a file may have joined the call stack since.
+        const refused = this.networkRefusal(f);
+        if (refused) throw new CalcError(ERR.calculation, `${via} can't reach the web: ${refused}`);
         const key = JSON.stringify([via, req.method, req.url, req.headers, req.body]);
         const done = this.pluginFetched.get(key);
         if (done) return done;
@@ -2734,6 +2748,8 @@ export class ScriptEngine {
 
   /** MBS CURL uses the same offline switch and bounded host fetch as script URL steps. */
   private curlFetch(f: Frame, request: MbsCurlRequest): PluginResponse {
+    const refused = this.networkRefusal(f);
+    if (refused) throw new CalcError(ERR.calculation, `CURL.Perform can't reach the web: ${refused}`);
     const held = this.callStackFiles(f).find((x) => captureOnly(x));
     if (held !== undefined) throw new CalcError(ERR.calculation, `CURL.Perform can't reach the web: "${held}" is a capture-only file`);
     const key = JSON.stringify(['CURL.Perform', request]);
@@ -8654,17 +8670,33 @@ export class ScriptEngine {
     if (typeof refused === 'string') throw new ScriptError(ERROR.unavailable, `Send Mail is not available: ${refused}`);
   }
 
+  /** The file whose scripts can't make web requests here: the one that started a run with no network, or one on the call stack that hasn't been allowed it. */
+  private networkBlocker(f: Frame): string | undefined {
+    const check = this.opts.networkFiles;
+    const blocked = check ? this.callStackFiles(f).find((x) => !check(x)) : undefined;
+    return this.opts.network ? blocked : blocked ?? f.store.name;
+  }
+
+  /** Why web requests can't be made from here, or undefined when they can. Test mode records requests instead, so it is never asked. */
+  private networkRefusal(f: Frame): string | undefined {
+    const file = this.networkBlocker(f);
+    if (file === undefined) return undefined;
+    const off = this.opts.networkOff;
+    return off ? off(file) : this.opts.network ? `Network access is off for "${file}"` : 'Network access is off for scripts (allow it with the network option)';
+  }
+
   /** The offline switch applies before either ordinary URLs or connections are dispatched. */
-  private requireScriptNetwork(): typeof fetch {
-    const net = this.opts.network;
+  private requireScriptNetwork(f: Frame): typeof fetch {
     const out = this.opts.outbound;
-    const doFetch = out ? this.scriptFetch(out.allowHosts, out.fetch) : net ? this.scriptFetch() : undefined;
-    if (!doFetch) throw new ScriptError(ERROR.unavailable, 'Network access is off for scripts (allow it with the network option)');
-    return doFetch;
+    if (!out) {
+      const why = this.networkRefusal(f);
+      if (why) throw new ScriptError(ERROR.unavailable, why);
+    }
+    return out ? this.scriptFetch(out.allowHosts, out.fetch) : this.scriptFetch();
   }
 
   private async insertFromUrl(f: Frame, p: StepParams): Promise<void> {
-    const doFetch = this.requireScriptNetwork();
+    const doFetch = this.requireScriptNetwork(f);
     const out = this.opts.outbound;
     const url = asText(this.eval(f, p.calculation ?? ''));
     // connection://name/path goes through a connection set up in the admin console, which adds its credentials.

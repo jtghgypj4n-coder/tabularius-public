@@ -21,6 +21,7 @@
 //
 // [Full Access] only, as design changes are: an automation runs a script on every matching change.
 
+import { itemNetwork } from './item-network.ts';
 import { mkdtempSync, rmSync, statSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
@@ -438,7 +439,7 @@ export class AutomationRunner {
     const saved = new Saved(store);
     const log = (run: Omit<AutomationRun, 'at' | 'recordId'>) => saved.logRun(a.id, { at: new Date(started).toISOString(), recordId, ms: Date.now() - started, ...run });
     try {
-      const opts = this.host.scriptOptions();
+      const opts = this.host.scriptOptions(store.name);
       if (captureOnly(store.name, opts.outbound?.captureOnly)) return log({ outcome: 'skipped', message: `"${store.name}" is a capture-only file: it never runs automations` });
       store.requireActiveAccount(a.account);
       const info = store.layout(a.layout);
@@ -466,7 +467,7 @@ export class AutomationRunner {
       const r = await writer.run({ owner: `${OWNER}${a.id}`, account: a.account, surface: 'automation' }, () => opts.serverQueue.run((stop) => runScript(store, script, {
         ...(stop ? { stop } : {}),
         layout: info.name, foundSet: [recordId], recordId, account: a.account, executionAccount: a.account, privileges, ...(parameter !== undefined ? { parameter } : {}),
-        documents: opts.documents, network: opts.network && a.network === true, ...(opts.networkAllow ? { networkAllow: opts.networkAllow } : {}),
+        documents: opts.documents, ...itemNetwork(opts, a.network, 'automation'), ...(opts.networkAllow ? { networkAllow: opts.networkAllow } : {}),
         ...(opts.outbound ? { outbound: opts.outbound } : {}), ...(opts.profile ? { profile: opts.profile } : {}),
         // No AI steps: AI apps can save automations (MCP save_automation), and scripts AI apps start stay offline.
         timeoutMs: 60_000,
@@ -502,11 +503,11 @@ export class AutomationRunner {
     if (!script) return log({ outcome: 'error', error: 104, message: `no script "${a.script}"` });
     privileges.checkScript(script.name);
     const parameter = JSON.stringify({ recordId, fields: deletedFields(values, info.table, privileges) });
-    const opts = this.host.scriptOptions();
+    const opts = this.host.scriptOptions(store.name);
     const r = await writer.run({ owner: `${OWNER}${a.id}`, account: a.account, surface: 'automation' }, () => opts.serverQueue.run((stop) => runScript(store, script, {
       ...(stop ? { stop } : {}),
       layout: info.name, foundSet: [], account: a.account, executionAccount: a.account, privileges, parameter,
-      documents: opts.documents, network: opts.network && a.network === true, ...(opts.networkAllow ? { networkAllow: opts.networkAllow } : {}),
+      documents: opts.documents, ...itemNetwork(opts, a.network, 'automation'), ...(opts.networkAllow ? { networkAllow: opts.networkAllow } : {}),
       ...(opts.outbound ? { outbound: opts.outbound } : {}), ...(opts.profile ? { profile: opts.profile } : {}),
       timeoutMs: 60_000,
     }), { file: store.name, script: script.name, account: a.account, kind: 'automation' }));
@@ -553,7 +554,7 @@ export class AutomationApi {
       const saved = new Saved(store);
       const shown = (a: Automation) => ({ ...a, trigger: describeTrigger(a, tableOf(store, a.layout)), runs: saved.runs(a.id, 10) });
       const id = m[2];
-      if (!id && req.method === 'GET') send(200, { automations: saved.list().map(shown), network: this.host.scriptOptions().network, outbound: !!this.host.scriptOptions().outbound });
+      if (!id && req.method === 'GET') send(200, { automations: saved.list().map(shown), network: this.host.scriptOptions(store.name).network, outbound: !!this.host.scriptOptions().outbound });
       else if (!id && req.method === 'POST') {
         const body = await readJson(req);
         const input = (body.automation && typeof body.automation === 'object' ? body.automation : {}) as Record<string, unknown>;

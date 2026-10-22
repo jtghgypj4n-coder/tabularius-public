@@ -57,7 +57,7 @@ async function start(): Promise<void> {
       list.replaceChildren(h('p', { class: 'empty' }, (e as Error).message));
       return;
     }
-    const note = h('p', { class: 'dash-note' }, `Scripts run on the server, offline${body.network ? '; Insert from URL may reach the network for automations that allow it' : ''}. ` +
+    const note = h('p', { class: 'dash-note' }, `Scripts run on the server${body.network ? '; Insert from URL may reach the network for automations that allow it' : ", and can't reach the network until an administrator turns on Script network for this file"}. ` +
       (body.outbound ? 'Send Mail goes to the outbox (outbound test mode).' : 'Send Mail sends nothing.') + ' An automation\'s own changes set off no automations.');
     if (!body.automations.length) {
       list.replaceChildren(h('div', { class: 'dash-empty' }, h('h2', {}, 'No automations yet'),

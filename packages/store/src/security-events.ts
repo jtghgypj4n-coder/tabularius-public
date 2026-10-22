@@ -31,6 +31,7 @@ export const SECURITY_EVENT_KINDS = [
   'blank-password-lan-allowed', 'blank-password-lan-disallowed',
   'audit-settings-changed', 'audit-pruned',
   'plugin-installed', 'plugin-install-refused',
+  'script-network-on', 'script-network-off',
 ] as const;
 
 /** The security and authentication events the audit log records, besides record changes. */
@@ -63,6 +64,7 @@ export const SECURITY_EVENT_CATEGORIES: Record<string, readonly SecurityEventKin
   'Audit log': ['audit-settings-changed', 'audit-pruned'],
   'Blank passwords': ['blank-password-lan-allowed', 'blank-password-lan-disallowed'],
   'Plug-ins': ['plugin-installed', 'plugin-install-refused'],
+  'Script network access': ['script-network-on', 'script-network-off'],
   'AI access': ['ai-turned-off', 'ai-turned-on', 'ai-access-refused', 'ai-policy-on', 'ai-policy-off', 'pii-isolation-on', 'pii-isolation-off', 'pii-field-marked', 'ai-data-masked'],
 };
 
@@ -167,6 +169,8 @@ export function describeSecurityEvent(e: AuditEntry): string {
     case 'agent-change-approved': return `Approved a record ${str(d.kind) ?? 'change'} by AI agent${t}${num(d.recordId) != null ? ` (#${num(d.recordId)})` : ''}`;
     case 'agent-change-rejected': return `Rejected a record ${str(d.kind) ?? 'change'} by AI agent${t}`;
     case 'schema-changed': return `Schema changed${schemaOps(d)}`;
+    case 'script-network-on': return 'Script network access turned on: this file\'s scripts can reach the network';
+    case 'script-network-off': return 'Script network access turned off for this file';
     case 'ai-policy-on': return 'AI-visible policy turned on';
     case 'ai-policy-off': return 'AI-visible policy turned off';
     case 'ai-turned-off': return 'AI turned off for this file';

@@ -82,6 +82,7 @@ import { auditCsvField } from '../../store/src/audit-output.ts';
 //                                                     Rest; the passphrase is used for that conversion only, never kept
 //   (reconvert and reconvert-preview take {passphrase} too, for such a file)
 //   GET|POST /tabularius/admin/v1/ai-access/{name}      whether AI may read the file; {"on": false} keeps it from AI
+//   GET|POST /tabularius/admin/v1/script-network/{name}  whether the file's scripts may reach the network; {"on": true} lets them (off for a new or converted file)
 //   POST /tabularius/admin/v1/solutions/plan          {name, description}: the assistant plans a new file (solution-builder.ts; creates nothing)
 //   POST /tabularius/admin/v1/solutions               {name, changes, password?}: create it from the plan, all or nothing
 //   GET  /tabularius/admin/v1/ai-usage                 the assistant's tokens and approximate cost: today, this month against
@@ -266,7 +267,7 @@ function consoleMethods(path: string): string | undefined {
   if (/^connections\/[0-9a-f]+$/.test(name)) return 'GET, PATCH, DELETE';
   if (/^connections\/[0-9a-f]+\/(approve|test)$/.test(name)) return 'POST';
   if (/^connections\/[0-9a-f]+\/secrets\/[A-Za-z][A-Za-z0-9]*$/.test(name)) return 'PUT, DELETE';
-  if (/^ai-access\/[^/]+$/.test(name) || /^pii\/[^/]+$/.test(name) || /^conversion-guide\/[^/]+$/.test(name)) return 'GET, POST';
+  if (/^script-network\/[^/]+$/.test(name) || /^ai-access\/[^/]+$/.test(name) || /^pii\/[^/]+$/.test(name) || /^conversion-guide\/[^/]+$/.test(name)) return 'GET, POST';
   if (/^pii\/[^/]+\/field$/.test(name) || /^digests\/[^/]+\/[0-9a-f]{12}\/run$/.test(name)) return 'POST';
   if (name === 'digests') return 'GET';
   if (/^optimization\/[^/]+$/.test(name)) return 'GET';
@@ -1140,6 +1141,24 @@ export class Admin {
           const body = await readJson(req) as { on?: unknown };
           if (typeof body.on !== 'boolean') send(400, { error: 'Send {"on": true} or {"on": false}' });
           else { store.setAiPolicy(body.on); send(200, { on: store.aiPolicy }); }
+        } else send(405, { error: 'method not allowed' });
+      } else if (path.startsWith('/tabularius/admin/v1/script-network/')) {
+        // GET: whether this file's scripts may reach the network; POST {"on": true}: let them (kept in the file; off for every new or converted file).
+        const name = decodeURIComponent(path.slice('/tabularius/admin/v1/script-network/'.length));
+        const store = this.host.get(name);
+        const status = (s: Store) => ({ on: s.scriptNetwork, serverWide: this.host.scriptNetwork });
+        if (!store) send(404, { error: 'No such hosted file' });
+        else if (req.method === 'GET') send(200, status(store));
+        else if (req.method === 'POST') {
+          const body = await readJson(req) as { on?: unknown };
+          if (typeof body.on !== 'boolean') send(400, { error: 'Send {"on": true} or {"on": false}' });
+          else {
+            if (body.on !== store.scriptNetwork) {
+              store.setScriptNetwork(body.on, { account: 'admin console' });
+              this.log(`Script network access ${body.on ? 'turned on' : 'turned off'} for ${store.name} (admin console)`);
+            }
+            send(200, status(store));
+          }
         } else send(405, { error: 'method not allowed' });
       } else if (path.startsWith('/tabularius/admin/v1/ai-access/')) {
         // GET: whether AI may read the file; POST {"on": false}: keep its data from AI apps and the assistant.
@@ -2517,6 +2536,8 @@ export class Admin {
         // Whether AI apps and the assistant may read the file, and why not.
         ai: aiStatus(store),
         aiPolicy: store.aiPolicy,
+        // Whether this file's scripts may reach the network: its own switch, or the server-wide flag.
+        scriptNetwork: { on: this.host.scriptNetworkOn(name), own: store.scriptNetwork },
         // Whether personal data is swapped for stand-ins before anything goes to AI (here, or in a file it uses).
         pii: (() => {
           const f = piiFile(store);

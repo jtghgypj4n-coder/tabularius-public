@@ -235,6 +235,8 @@ export interface Portal { name: string; occurrenceId: number; occurrence: string
 export interface LayoutMeta {
   database: string;
   fileMode?: 'native' | 'compat';
+  /** False while this file's scripts can't reach the network: an administrator turns it on in the admin console. */
+  scriptNetwork?: boolean;
   /** `file` is the hosted file holding the table, when it is another file of the solution. */
   layout: { name: string; id: number; occurrence: string; table: string; file?: string };
   design: LayoutDesign;

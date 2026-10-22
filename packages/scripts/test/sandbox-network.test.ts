@@ -41,6 +41,31 @@ test('the offline switch covers URLs, cURL options and connection URLs before an
   assert.deepEqual(sent, ['https://allowed.example/']);
 });
 
+test('a file whose network access is off refuses web requests in the words it was given, wherever it is on the call stack', async () => {
+  const sent: string[] = [];
+  const network: typeof fetch = async (url) => { sent.push(String(url)); return new Response('sent'); };
+  const url = 'https://allowed.example/';
+  const networkOff = (file: string) => `Network access is off for "${file}". Turn it on in the admin console.`;
+  // No network for the run: the message names the file that started it.
+  const none = await insert(url, { network: false, networkOff });
+  assert.equal(none.result, '3|');
+  assert.match(JSON.stringify(none.trace), /off for \\"Network\\"\. Turn it on in the admin console/);
+  // The network is on, but a file the run reaches is not allowed it.
+  for (const options of [{ callerFiles: ['Elsewhere'] }, { networkFiles: () => false }]) {
+    const run = await insert(url, { network, networkFiles: (file: string) => file === 'Network' && !('callerFiles' in options), networkOff, ...options });
+    assert.equal(run.result, '3|');
+    assert.match(JSON.stringify(run.trace), /Network access is off for/);
+  }
+  assert.match(JSON.stringify((await insert(url, { network, networkFiles: (file: string) => file !== 'Elsewhere', networkOff, callerFiles: ['Elsewhere'] })).trace), /\\"Elsewhere\\"/);
+  // A run that starts in a file with no network and reaches an allowed one names the file that is off.
+  const started = await insert(url, { network: false, networkFiles: (file: string) => file !== 'Elsewhere', networkOff, callerFiles: ['Elsewhere'] });
+  assert.match(JSON.stringify(started.trace), /\\"Elsewhere\\"/);
+  assert.deepEqual(sent, []);
+  // Every file allowed: the request goes out.
+  assert.equal((await insert(url, { network, networkFiles: () => true, networkOff })).result, '0|sent');
+  assert.deepEqual(sent, [url]);
+});
+
 test('URL and cURL requests refuse non-web protocols and malformed addresses before fetch', async () => {
   const sent: string[] = [];
   const network: typeof fetch = async (url) => { sent.push(String(url)); return new Response('sent'); };

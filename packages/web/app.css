@@ -339,6 +339,10 @@ button, select, input, textarea { font: inherit; }
   border-radius: var(--radius-sm); color: var(--text); background: var(--panel); border: 1px solid var(--line); box-shadow: var(--shadow-raised); z-index: 1050; font-size: var(--t-sm); font-weight: 500; }
 .offline-banner::before { content: ''; flex: none; width: 7px; height: 7px; border-radius: 50%; background: #b54708; }
 .offline-banner[hidden] { display: none; }
+.network-banner { flex: none; display: flex; align-items: center; gap: var(--s2); padding: 6px var(--s4); border-bottom: 1px solid var(--line); background: var(--panel); color: var(--text); font-size: var(--t-sm); font-weight: 500; }
+.network-banner::before { content: ''; flex: none; width: 7px; height: 7px; border-radius: 50%; background: #b54708; }
+.network-banner .offline-action { margin-left: var(--s1); min-height: 26px; padding: 0 var(--s3); border-radius: var(--radius-sm); border: 1px solid var(--line); background: var(--panel); color: var(--accent); font: 600 var(--t-sm) var(--sans); cursor: pointer; }
+.network-banner .offline-action:hover { background: var(--accent-soft); }
 .offline-banner .offline-action { margin-left: var(--s1); min-height: 26px; padding: 0 var(--s3); border-radius: var(--radius-sm); border: 1px solid var(--line); background: var(--panel); color: var(--accent); font: 600 var(--t-sm) var(--sans); cursor: pointer; }
 .offline-banner .offline-action:hover { background: var(--accent-soft); }
 .clash-dialog { width: min(640px, calc(100% - 32px)); }

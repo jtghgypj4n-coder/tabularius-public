@@ -130,7 +130,7 @@ test('a raw fetch is seen: the scan is not blind', () => {
 test('every place that starts a script from a schedule, hook or automation hands it the administrator\'s network list', () => {
   for (const file of ['schedules.ts', 'inbound-hooks.ts', 'automations.ts']) {
     const text = readFileSync(join(root, 'packages/server/src', file), 'utf8');
-    const starts = text.match(/network: opts\.network && /g)?.length ?? 0;
+    const starts = text.match(/\.\.\.itemNetwork\(opts, /g)?.length ?? 0;
     const passes = text.match(/networkAllow: opts\.networkAllow/g)?.length ?? 0;
     assert.ok(starts > 0, `${file}: expected scripts to be started here`);
     assert.equal(passes, starts, `${file}: ${starts} scripts started with the network switch, ${passes} given --allow-script-network-to`);
