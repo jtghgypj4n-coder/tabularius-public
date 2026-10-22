@@ -423,7 +423,7 @@ export function serviceSummary(o: Pick<ServiceOptions, 'folder' | 'port' | 'host
   }
   const inline = ['--mcp-token', '--replication-token'].filter((n) => opt(n) !== undefined);
   const files = ['--mcp-token-file', '--replication-token-file'].filter((n) => opt(n) !== undefined);
-  if (inline.length) lines.push(`  Note: ${inline.join(' and ')} ${inline.length > 1 ? 'are' : 'is'} written into the service file. ${(o.platform ?? process.platform) === 'win32' ? 'Restrict its Windows ACL and the task permissions; chmod does not make it private.' : 'Only your account can read it.'} A key file (--ai-key-file, --tls-key) is named by its path, not copied.`);
+  if (inline.length) lines.push(`  Note: ${inline.join(' and ')} ${inline.length > 1 ? 'are' : 'is'} written into the service file${(o.platform ?? process.platform) === 'win32' ? '. Restrict its Windows ACL and the task permissions; chmod does not make it private.' : ', which only your account can read.'} A key file (--ai-key-file, --tls-key) is named by its path, not copied.`);
   if (files.length) lines.push(`  Note: ${files.join(' and ')} ${files.length > 1 ? 'are' : 'is'} named by path in the service file; the contents are not copied.`);
   if (local) lines.push(`  each device trusts it once from ${at(everywhere && lan[0] ? lan[0] : 'localhost')}tabularius/tls/`);
   return lines;
