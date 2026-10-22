@@ -5,6 +5,7 @@ numbers, and what each code means, follow Claris's current list,
 <https://help.claris.com/en/pro-help/content/error-codes.html> (read 2026-10-13).
 The short descriptions are written in our own words, so they read differently
 from Claris's, and the quotes below are marked as quotes.
+The Data API, OData and web client keep Claris's exact messages (for example "Record is missing") because clients match on them, so a script's error dialog can word a code differently from the API.
 `packages/store/src/error-codes.ts` holds every code with a short description, and
 `packages/scripts/test/error-codes.test.ts` runs each row below.
 
