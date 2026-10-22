@@ -7758,6 +7758,7 @@ class Session implements Host {
       f: allowed('Find Mode', () => this.doCommand('Find Mode')),
       b: () => void this.enterBrowse(),
       u: allowed('Preview Mode', () => this.doCommand('Preview Mode')),
+      w: allowed('Close Window', () => this.doCommand('Close Window')),
       l: this.canDesign ? allowed('Layout Mode', () => this.doCommand('Layout Mode')) : undefined,
       // Without the printing privilege, ⌘P doesn't fall through to the browser's own print dialog either.
       p: allowed('Print', () => this.doCommand('Print')) ?? (this.printing ? undefined : () => toast('This account isn\'t allowed to print.', 'error')),
