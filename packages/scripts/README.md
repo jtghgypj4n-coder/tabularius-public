@@ -107,10 +107,18 @@ options, see [Script step support](../../docs/script-steps-support.md).
   UTF-8, and reading past the end sets error 10. A file or folder link that
   leads outside `Documents` is refused; the error identifies the attempted
   path as a link.
-- Export Records writes the found set to the documents folder as
-  comma-separated or tab-separated values, a merge file, or an Excel workbook
-  (.xlsx, with numbers as number cells). The file's extension picks the format
-  when the step doesn't name one. XML and FileMaker exports set error 3.
+- Tabularius Export Records writes the found set to the documents folder as
+  CSV, tab-separated text, Merge, Excel (.xlsx), FMPXMLRESULT (.xml), or an
+  HTML table (.html). The extension picks the format when the step does not
+  name one. Excel dates, times, and timestamps use styled numeric cells.
+  Excel exports refuse more than 1,048,576 rows, 16,384 columns, or 32,767
+  characters in one cell before writing a file.
+  CSV, tab-separated, and Merge exports prefix text with an apostrophe when
+  it begins with `=`, `+`, `-`, `@`, a control character (including tab or
+  carriage return), or those characters after leading whitespace. Numeric,
+  date, time, and timestamp fields keep a leading minus sign. Importing the exported
+  text into a text field keeps the added apostrophe. This rule is a
+  Tabularius safety policy; matching Claris behavior is unverified.
 - Save Records as PDF prints the current layout to a PDF in the documents
   folder: the found set, the current record or a blank record. Headers and
   footers repeat on each page, the body repeats per record, and sub-summaries
