@@ -176,8 +176,8 @@ class World {
     return n;
   }
 
-  async startServer(n: Node): Promise<void> {
-    n.server = await serve({ dir: n.dir, port: 0, watch: false, replicationToken: TOKEN, log: (m) => void n.log.push(m) });
+  async startServer(n: Node, extra: { keepApiTokensOnTakeover?: boolean } = {}): Promise<void> {
+    n.server = await serve({ dir: n.dir, port: 0, watch: false, replicationToken: TOKEN, ...extra, log: (m) => void n.log.push(m) });
     n.link.target = Number(new URL(n.server.url).port);
   }
 
@@ -773,7 +773,8 @@ test('accounts and API tokens come with the file when a standby is promoted; ses
     await w.stopStandby();
     w.checkStandbyFile('before promotion', true);
     await w.stopServer(w.primary);
-    await w.startServer(w.standbyNode);
+    // Kept on purpose: takeover ends API tokens unless asked not to (standby.test.ts holds that).
+    await w.startServer(w.standbyNode, { keepApiTokensOnTakeover: true });
     const url = w.standbyNode.server!.url;
     const records = (token: string) => dataApi(url, '/layouts/Items/records?_limit=5', { headers: { authorization: `Bearer ${token}` } });
     assert.equal((await records(apiToken)).status, 200, 'an API token made on the primary works on the promoted server');
