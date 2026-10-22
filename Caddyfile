@@ -1,4 +1,9 @@
 # Used by compose.https.yaml. Replace the name with yours.
 filemaker.example.com {
-	reverse_proxy tabularius:8080
+	reverse_proxy tabularius:8080 {
+		# Match the origin's HTTP/1.1 transport; h2c is not supported.
+		transport http {
+			versions 1.1
+		}
+	}
 }
