@@ -1324,7 +1324,10 @@ file's name as the database and an account with `fmxdbc`:
 psql "host=server port=5432 dbname=Contacts user=Ann sslmode=require"
 ```
 
-Queries are the same read-only FileMaker SQL. Tools that browse a database
+Queries are the same FileMaker SQL, read-only unless the server also has
+`--sql-writes`, which lets the connection run `INSERT`, `UPDATE` and `DELETE`
+in a narrow grammar through the same record rules as the Data API (off by
+default; see [docs/pgwire-writes.md](docs/pgwire-writes.md)). Tools that browse a database
 see each table occurrence as a table in the `public` schema, with its fields
 as columns: psql's `\dt` and `\d`, `information_schema`, and the
 `pg_catalog` queries JDBC and ODBC drivers send for their table and column

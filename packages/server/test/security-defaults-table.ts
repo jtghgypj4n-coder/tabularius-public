@@ -359,9 +359,17 @@ export const ROWS: Row[] = [
     id: 'sql-port', section: 'What can reach outside', setting: 'PostgreSQL-protocol SQL port for BI tools',
     default: 'Off',
     changedBy: '`--sql-port`',
-    risk: 'Another listening port to protect; read-only, signs in with file accounts',
+    risk: 'Another listening port to protect; read-only unless `--sql-writes` is also given, signs in with file accounts',
     how: 'probed', expect: 'off',
     observe: async (c) => (/PostgreSQL clients/.test(c.log()) ? 'on' : 'off'),
+  },
+  {
+    id: 'sql-writes', section: 'What can reach outside', setting: 'SQL writes over the PostgreSQL-protocol port',
+    default: 'Off: INSERT, UPDATE and DELETE are refused (SQLSTATE 25006)',
+    changedBy: '`--sql-writes` with `--sql-port`',
+    risk: 'A reporting or ETL account can change records, within its record and field privileges and the audit log; a connection inside BEGIN holds the file until it ends, goes idle for 30 seconds or reaches 5 minutes',
+    how: 'read from code', expect: 'off',
+    observe: async (c) => (grep(c.source('packages/server/src/index.ts'), /(writes: opts\.sqlWrites === true)/) && grep(c.source('packages/server/src/pgwire.ts'), /(return this\.opts\.writes === true;)/) ? 'off' : 'on'),
   },
   {
     id: 'standby', section: 'What can reach outside', setting: 'Standby servers following this one (replication)',

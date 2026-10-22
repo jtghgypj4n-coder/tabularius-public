@@ -5,7 +5,7 @@ import { relative, resolve, join } from 'node:path';
 import ts from 'typescript';
 
 export const READ_APIS = {
-  Store: new Set(`recordCount auditLog recordAsOf pendingChanges previewRecordRule foundSetRows portalCounts fieldIndex valueListItems externalContainerCheck externalContainerCount externalContainerReport orphanContainerReport container containerInfo containerRange embeddedContainerCount containerId find previewRow row get getMany canViewRecord canView evaluate evaluateEach evaluateRows selectIds countIds computeValues findIds groupSummaries sortIds matchIds iterateCommitted select describe query queryWithOrigins inspectQuery viewableIds scopedTableSql persistentData persistentDataIds`.split(' ')),
+  Store: new Set(`recordCount auditLog recordAsOf pendingChanges previewRecordRule foundSetRows portalCounts fieldIndex valueListItems externalContainerCheck externalContainerCount externalContainerReport orphanContainerReport container containerInfo containerRange embeddedContainerCount containerId find previewRow row get getMany canViewRecord canView evaluate evaluateEach evaluateRows selectIds selectIn countIds computeValues findIds groupSummaries sortIds matchIds iterateCommitted select describe query queryWithOrigins inspectQuery viewableIds scopedTableSql persistentData persistentDataIds`.split(' ')),
   Calculations: new Set(`globalValue value unstoredValue unstoredStyled collect collector summary wholeTable related firstRelated relatedIds statement context executeSQL translateSQL computeStored computeStoredStyled`.split(' ')),
   related: new Set(['relatedRows', 'relatedIdList', 'firstRelatedEach', 'keyValue']),
   calc: new Set(['rowsById', 'rowsOf']),
