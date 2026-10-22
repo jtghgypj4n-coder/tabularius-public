@@ -5,6 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { TERMS, missingTerms } from '../../../scripts/filemaker-glossary.ts';
 
 const root = join(import.meta.dirname, '..', '..', '..');
 const read = (rel: string) => readFileSync(join(root, rel), 'utf8');
@@ -23,7 +24,6 @@ function table(heading: string): string[][] {
 }
 
 const rows = table('Where is each thing?');
-const words = table('Words that mean something else here');
 
 const menubar = read('packages/web/src/menubar.ts');
 const designTabs = [...read('packages/web/src/design/main.ts').matchAll(/^\s*\['\w+', '([^']+)', \w+\],?$/gm)].map((m) => m[1]);
@@ -97,8 +97,15 @@ test('the rows that say something is missing are true to the step list', () => {
   assert.ok(!commands.has('recover'), 'there is now a recover command; update the Recover row');
 });
 
-test('the glossary covers the words that differ', () => {
-  const terms = words.map((w) => w[0].replace(/\*/g, '').toLowerCase());
-  for (const t of ['database', 'hosting', 'privilege set', 'extended privilege']) assert.ok(terms.includes(t), `no glossary entry for ${t}`);
-  for (const w of words) assert.equal(w.length, 3, `glossary row "${w[0]}" has ${w.length} cells`);
+test('the generated glossary is linked from the menu map and covers its key terms', () => {
+  const glossary = read('docs/filemaker-glossary.md');
+  assert.match(page, /\]\(filemaker-glossary\.md\)/);
+  for (const t of ['Database', 'Hosting', 'Privilege set', 'Extended privilege']) assert.ok(TERMS.some(([term]) => term.toLowerCase() === t.toLowerCase()), `no glossary entry for ${t}`);
+  assert.match(glossary, /## Where is each thing\?/);
+  assert.match(glossary, /\]\(known-differences\.md\)/);
+});
+
+test('docs:check reports a marked guide term that is missing from the maintained list', () => {
+  assert.deepEqual(missingTerms('Use {@fm-term Layout} and {@fm-term Unlisted Term}.'), ['Unlisted Term']);
+  assert.deepEqual(missingTerms('No marked FileMaker terms here.'), []);
 });

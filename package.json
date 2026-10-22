@@ -43,6 +43,8 @@
     "docs:settings-cli": "node --no-warnings scripts/docs-settings-cli.ts",
     "docs:check": "node --no-warnings scripts/docs-settings-cli.ts --check",
     "docs:build": "node --no-warnings scripts/docs-site.ts",
+    "docs:glossary": "node --no-warnings scripts/filemaker-glossary.ts",
+    "docs:check": "node --no-warnings scripts/filemaker-glossary.ts --check",
     "docs:known-differences": "node --no-warnings scripts/known-differences.ts",
     "release-notes": "node --no-warnings scripts/release-notes.ts",
     "docs:plugins": "node --no-warnings scripts/plugin-matrix.ts",
