@@ -175,7 +175,7 @@ export interface InstallOptions {
 export function installPackage(dataDir: string, bytes: Uint8Array, opts: InstallOptions = {}): { manifest: PluginManifest; signer?: string; replaced?: string } {
   const info = readPackage(bytes);
   const { manifest } = info;
-  if (!/^[a-z0-9][a-z0-9.-]*$/.test(manifest.id)) throw new Error(`${manifest.id} can't be a folder name`);
+  if (!/^[a-z0-9][a-z0-9.-]*$/.test(manifest.id) || manifest.id.endsWith('.json')) throw new Error(`${manifest.id} can't be a folder name`);
   let newlyTrusted: Record<string, string> | undefined;
   if (info.signer) {
     const trusted = trustedPublishers(dataDir);
