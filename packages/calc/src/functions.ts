@@ -15,6 +15,7 @@ import type { Env } from './evaluate.ts';
 import { compare } from './evaluate.ts';
 import { knownJavaScript } from './bejs.ts';
 import { mbsHashFunctions } from './mbs-hash.ts';
+import { mbsSystemFunctions } from './mbs-system.ts';
 import { replayMbsCall } from './mbs-replay.ts';
 import { evaluateXPath, parseXmlDocument, xpathText, xpathValues, xpathXml, type XNode } from './xpath.ts';
 import { canonicalXml, stripInvalidUtf16, tidyXml } from './xmltools.ts';
@@ -1394,6 +1395,7 @@ for (const [name, f] of Object.entries(MBS_JS)) {
 // Client-only progress windows have nothing to show on a server.
 for (const n of ['Hide', 'Reset', 'SetBottomText', 'SetTitle', 'SetTopText', 'SetButtonCaption', 'SetProgress', 'Show'])
   MBS['progressdialog.' + n.toLowerCase()] = () => text('OK');
+Object.assign(MBS, mbsSystemFunctions());
 Object.assign(MBS, mbsHashFunctions((env, message) => {
   mbsErrors.set(env.ctx.pluginSession ?? env.ctx, true);
   return text(`[MBS] ERROR: ${message}`);

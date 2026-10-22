@@ -7,7 +7,7 @@ missing from it. `npm run docs:known-differences` rewrites it, and a test fails 
 marker (`<!-- known-difference: area ;; what ;; how it shows ;; what would settle it -->`). Internal working notes are not
 part of it.
 
-**81 entries in 17 areas.** Waiting on: 21 on a sample file, 45 on a FileMaker run or Design Report, 10 on a Claris answer, 16 on a decision by the owner (an entry can wait on more than one).
+**85 entries in 17 areas.** Waiting on: 21 on a sample file, 45 on a FileMaker run or Design Report, 10 on a Claris answer, 16 on a decision by the owner (an entry can wait on more than one).
 
 ## Data API
 
@@ -41,6 +41,10 @@ part of it.
 | Dictionary.ToXML and the SQL, variable-setting and custom-function Dictionary functions are not available, and Dictionary.Serialize writes Tabularius's own form that only its Deserialize reads | The call gives ? and error 3; serialised text from MBS is not read | Owner decision, and an MBS serialised sample | [docs/moving-a-solution.md › Plug-ins are not loaded](moving-a-solution.md) — “…Tabularius puts each item on its own line. Not yet: JSONPath” |
 | List.CSVSplit, List.OrColumn, List.XOrColumn and List.SortWithEvaluate are not available, and sorts go by character code because MBS does not name its order | The call gives ? and error 3; sorted order can differ from MBS | Owner decision, and an MBS run that shows its sort order | [docs/moving-a-solution.md › Plug-ins are not loaded](moving-a-solution.md) — “…Tabularius puts each item on its own line. Not yet: JSONPath” |
 | The same four List functions and QuickList.AddSQL are not available | The call gives ? and error 3 | Owner decision on whether to build them | [docs/moving-a-solution.md › Plug-ins are not loaded](moving-a-solution.md) — “…Tabularius puts each item on its own line. Not yet: JSONPath” |
+| IsLinux, IsWindows and IsMac report the server process platform; IsServer reports whether a script runs without a person, including schedules, Perform Script on Server, Data API, MCP and CLI runs, and returns 0 in the web client | A script can take a different platform or server branch than with the vendor plug-in | A vendor run on each host and client type | [docs/moving-a-solution.md › Plug-ins are not loaded](moving-a-solution.md) — “…Tabularius puts each item on its own line. Not yet: JSONPath” |
+| Trace silently answers OK and Path.AddPathComponent joins with one separator from the input path style; empty components and trailing separators follow the simplest join rule | Vendor logging or path output may differ, especially at path edges | A vendor run with logging and empty, trailing-separator and mixed-separator paths | [docs/moving-a-solution.md › Plug-ins are not loaded](moving-a-solution.md) — “…Tabularius puts each item on its own line. Not yet: JSONPath” |
+| CURL.SetUpdateProgressDialog answers OK and ProgressDialog.GetCancel answers 0 because a server has no progress dialog | A script relying on dialog cancellation or vendor side effects may behave differently | A vendor run of these calls in server and client scripts | [docs/moving-a-solution.md › Plug-ins are not loaded](moving-a-solution.md) — “…Tabularius puts each item on its own line. Not yet: JSONPath” |
+| Folders.UserDesktop is unavailable because it names a person's computer folder | The call gives an MBS error text and IsError then answers 1 | A safe client-folder capability and a vendor run showing its contract | [docs/moving-a-solution.md › Plug-ins are not loaded](moving-a-solution.md) — “…Tabularius puts each item on its own line. Not yet: JSONPath” |
 
 ## MCP
 

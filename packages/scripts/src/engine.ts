@@ -334,6 +334,8 @@ export interface RunOptions {
   activeObjectId?: number;
   /** Return Export Field Contents as an action even when this run has a server Documents folder. */
   clientFieldExports?: boolean;
+  /** Whether no person is present; defaults from downloads, and is true for Perform Script on Server. */
+  headless?: boolean;
   /** Checks each resolved file before reading its scripts, schema or records, including dynamic cross-file calls. */
   beforeFile?: (store: Store) => void;
   /** Non-throwing observation of explicitly tagged refused checks, independent of LastError. */
@@ -4984,7 +4986,7 @@ export class ScriptEngine {
       // window, found set, record, globals or variables, and records the caller
       // has open are locked to it. Nothing it does reaches the caller's screen.
       const sub = new ScriptEngine({
-        ...this.opts, executionAccount, session: undefined, layout: undefined, foundSet: undefined, recordId: undefined, mode: undefined, preview: undefined,
+        ...this.opts, headless: true, executionAccount, session: undefined, layout: undefined, foundSet: undefined, recordId: undefined, mode: undefined, preview: undefined,
         trigger: undefined, parameter: asText(parameter).slice(0, SERVER_TEXT_LIMIT), debug: undefined, insertFile: undefined, pause: undefined, dialog: undefined,
         // Scripts it calls on the server run at once, so waiting on each other can't fill the queue.
         serverQueue: undefined,
@@ -5153,6 +5155,7 @@ export class ScriptEngine {
 
   private newCalcContext(f: Frame, win: Window, info: LayoutInfo | undefined): CalcContext {
     return {
+      headless: this.opts.headless ?? !this.opts.downloads,
       notice: (message) => { if (!this.warnings.includes(message)) this.warnings.push(message); },
       names: this.names(win.store, info),
       occurrence: info?.occurrence,

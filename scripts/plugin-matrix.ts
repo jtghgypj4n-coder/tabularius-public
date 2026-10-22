@@ -46,7 +46,7 @@ export function pluginMatrix(): string {
   lines.push('## Monkeybread Software (MBS)', '');
   lines.push(`${mbs.length} functions run, by family:`, '', '| Family | Functions |', '| --- | --- |');
   for (const [family, n] of [...families].sort((a, b) => a[0].localeCompare(b[0]))) lines.push(`| ${MBS_FAMILIES[family] ?? family} | ${n} |`);
-  lines.push('', 'MBS functions that read or write the server\'s files, open dialogs, or depend on Apple frameworks give an MBS error. `docs/moving-a-solution.md` explains each family\'s differences from the plug-in.', '');
+  lines.push('', 'Most MBS functions that read or write files, open dialogs, or depend on Apple frameworks give an MBS error. Supported progress dialog calls answer without opening a dialog. `docs/moving-a-solution.md` explains each family\'s differences from the plug-in.', '');
   lines.push('## Other plug-ins Tabularius knows by name', '');
   lines.push('Every one of these gives `?`:', '', other.join(', ') || '(none)', '');
   lines.push('The 360Works Email guide describes `IsValidEmail` as a convenience validator but does not publish its acceptance rule. It remains `?`; Tabularius does not infer a replacement result.', '');
