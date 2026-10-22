@@ -3,7 +3,7 @@
 // dates in US (M/D/YYYY) or ISO format.
 
 import { cleanSql, sqlName, sqlTokens } from './sql-tokens.ts';
-import { SignInFailures, LOCKOUT, NO_ADDRESS_BUDGET, addressBucket, accountsSharingLockout, lockoutName } from './sign-in-failures.ts';
+import { SignInFailures, LOCKOUT, noAddressBudget, sharedSource, addressBucket, accountsSharingLockout, lockoutName } from './sign-in-failures.ts';
 import { expiryClock } from './clock.ts';
 import { crashPoint } from './crash-point.ts';
 import { atomicWrite, syncPath } from './durable.ts';
@@ -955,6 +955,12 @@ export class Store {
     const [account, from, factor] = key.split('\u0000');
     if (account === '') this.logSecurity('locked-out', { from: factor, detail: { scope: 'address' } });
     else this.logSecurity('locked-out', { account, from: address ?? from, ...(factor === 'totp' ? { detail: { factor: 'two-factor' } } : {}) });
+  }, (key) => {
+    // A lock that ran out by itself leaves one audit event, like an administrator's unlock does.
+    const [account, from, factor] = key.split('\u0000');
+    this.logSecurity('lockout-cleared', account === ''
+      ? { target: factor, detail: { scope: 'address', via: 'timer' } }
+      : { target: account, from, detail: { scope: 'account', via: 'timer', ...(factor === 'totp' ? { factor: 'two-factor' } : {}) } });
   });
   /** Called after design mode changes this file (the host refreshes the other files that may use it). */
   onDesignChange: () => void = () => {};
@@ -4609,8 +4615,8 @@ export class Store {
    */
   challengeWait(from: string): number {
     const now = performance.now();
-    const key = NO_ADDRESS_BUDGET.has(from) ? from : addressBucket(from);
-    const limit = NO_ADDRESS_BUDGET.has(from) ? 600 : 60;
+    const key = noAddressBudget(from) ? from : addressBucket(from);
+    const limit = noAddressBudget(from) ? 600 : 60;
     let e = this.challengeAsks.get(key);
     if (!e || now - e.start >= 60_000) {
       if (this.challengeAsks.size > 10_000) {
@@ -5534,7 +5540,7 @@ export class Store {
 
   /** Anonymous real-account counters are bounded by provisioned identities, not caller-supplied names. */
   private knownSharedAccount(account: string, from: string): boolean {
-    return NO_ADDRESS_BUDGET.has(from) && !LOCAL.has(from)
+    return sharedSource(from)
       && this.sql.prepare('SELECT 1 FROM _fm_accounts WHERE name = ? COLLATE NOCASE').get(account) !== undefined;
   }
 
@@ -5571,6 +5577,8 @@ export class Store {
   /** Resets an address's failures; true only when an active block was lifted. */
   unlockAddress(from: string): boolean {
     const key = `\u0000address\u0000${addressBucket(from)}`;
+    // Observe timer expiry (and its audit event) before an administrator removes the entry.
+    this.failures.blocked(key);
     const until = this.failures.get(key)?.until;
     const cleared = until !== undefined && until > performance.now();
     this.failures.delete(key);
