@@ -243,17 +243,23 @@ export function numberFromText(s: string): number | undefined {
 /** FileMaker's limit on the digits of a number. */
 const MAX_DIGITS = 400;
 
+/** A plain whole-number literal or argument outside the supported number range. */
+export function isOverlongWholeText(s: string): boolean {
+  const t = s.trim();
+  return /^[+-]?\d+$/.test(t) && t.replace(/^[+-]/, '').length > MAX_DIGITS;
+}
+
 /** A whole number written as digits that a double cannot hold exactly (past 2^53), or undefined. */
 export function exactIntegerText(s: string): bigint | undefined {
   const t = s.trim();
-  if (!/^-?\d{16,}$/.test(t) || t.replace('-', '').length > MAX_DIGITS) return undefined;
+  if (!/^[+-]?\d{16,}$/.test(t) || t.replace(/^[+-]/, '').length > MAX_DIGITS) return undefined;
   return Number.isSafeInteger(Number(t)) ? undefined : BigInt(t);
 }
 
 /** The whole number a value holds, digit for digit, when it is one (a number, or text of digits); undefined for anything else. */
 export function exactOf(v: Value): bigint | undefined {
   if (v.type === 'number') return v.exact ?? (Number.isSafeInteger(v.value) ? BigInt(v.value) : undefined);
-  if (v.type === 'text') return exactIntegerText(v.value) ?? (/^\s*-?\d{1,15}\s*$/.test(v.value) ? BigInt(v.value.trim()) : undefined);
+  if (v.type === 'text') return exactIntegerText(v.value) ?? (/^\s*[+-]?\d{1,15}\s*$/.test(v.value) ? BigInt(v.value.trim()) : undefined);
   return undefined;
 }
 
@@ -265,6 +271,65 @@ export function fromExact(b: bigint): Value {
   if (b.toString().replace('-', '').length > MAX_DIGITS) return { type: 'number', value: NaN };
   const n = Number(b);
   return Number.isSafeInteger(n) ? { type: 'number', value: n } : { type: 'number', value: n, exact: b };
+}
+
+export function exactAbs(v: Value): bigint | undefined {
+  const x = exactOf(v);
+  return x === undefined ? undefined : x < 0n ? -x : x;
+}
+
+export function exactSign(v: Value): bigint | undefined {
+  const x = exactOf(v);
+  return x === undefined ? undefined : x < 0n ? -1n : x > 0n ? 1n : 0n;
+}
+
+export function exactDivFloor(a: Value, b: Value): bigint | undefined {
+  const x = exactOf(a), y = exactOf(b);
+  if (x === undefined || y === undefined || y === 0n) return undefined;
+  const q = x / y, r = x % y;
+  return r !== 0n && (r < 0n) !== (y < 0n) ? q - 1n : q;
+}
+
+export function exactMod(a: Value, b: Value): bigint | undefined {
+  const x = exactOf(a), y = exactOf(b);
+  if (x === undefined || y === undefined || y === 0n) return undefined;
+  return x - y * exactDivFloor(a, b)!;
+}
+
+/** A small overflow witness; fromExact remains the only place that applies the digit cap. */
+const overflowExact = () => 10n ** BigInt(MAX_DIGITS);
+
+export function exactPow(a: Value, b: Value): bigint | undefined {
+  const x = exactOf(a), e = exactOf(b);
+  if (x === undefined || e === undefined || e < 0n) return undefined;
+  const magnitude = x < 0n ? -x : x;
+  if (e === 0n) return 1n;
+  if (magnitude <= 1n) return x === -1n ? (e % 2n === 0n ? 1n : -1n) : x;
+  // The bit length gives a strict lower bound on decimal digits, before exponentiation.
+  const lowerBits = magnitude.toString(2).length - 1;
+  if (e * BigInt(lowerBits) > BigInt(Math.ceil(MAX_DIGITS / Math.log10(2)) + 1)) return overflowExact();
+  return x ** e;
+}
+
+export function exactRound(a: Value, places: Value): bigint | undefined {
+  return exactRounded(a, places, true);
+}
+
+export function exactTruncate(a: Value, places: Value): bigint | undefined {
+  return exactRounded(a, places, false);
+}
+
+function exactRounded(a: Value, places: Value, halfAway: boolean): bigint | undefined {
+  const x = exactOf(a), p = exactOf(places);
+  if (x === undefined || p === undefined) return undefined;
+  if (p >= 0n || x === 0n) return x;
+  const magnitude = x < 0n ? -x : x;
+  // Larger scales can only round a bounded whole number to zero.
+  if (-p > BigInt(MAX_DIGITS)) return 0n;
+  const scale = 10n ** -p;
+  const quotient = magnitude / scale;
+  const rounded = quotient + (halfAway && magnitude % scale * 2n >= scale ? 1n : 0n);
+  return (x < 0n ? -rounded : rounded) * scale;
 }
 
 /** Number of a value, or undefined for empty / non-numeric text. */

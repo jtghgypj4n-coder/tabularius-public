@@ -7,7 +7,7 @@ missing from it. `npm run docs:known-differences` rewrites it, and a test fails 
 marker (`<!-- known-difference: area ;; what ;; how it shows ;; what would settle it -->`). Internal working notes are not
 part of it.
 
-**81 entries in 17 areas.** Waiting on: 21 on a sample file, 45 on a FileMaker run or Design Report, 10 on a Claris answer, 16 on a decision by the owner (an entry can wait on more than one).
+**82 entries in 17 areas.** Waiting on: 21 on a sample file, 45 on a FileMaker run or Design Report, 10 on a Claris answer, 16 on a decision by the owner (an entry can wait on more than one).
 
 ## Data API
 
@@ -128,6 +128,7 @@ part of it.
 | --- | --- | --- | --- |
 | Four SQL, date and time compatibility behaviours are marked unverified in the test suite (as todo) and left as they are | Nothing shows; the tests carry a todo for each | A FileMaker run of the same probes (see consistency.md) | [docs/ai-visible-policy-report.md › Validation](ai-visible-policy-report.md) — “…concern the CI Node-version declaration and four unverified SQL/date/time compatibility behaviors; protected…” |
 | Whether FileMaker counts an emoji (a surrogate pair) or a combining mark as one character is unverified; Length counts Unicode code points | Length of text with emoji or combining marks may differ from FileMaker | A FileMaker run of Length on emoji and combining-mark text | [docs/consistency.md › Cross-module consistency decisions](consistency.md) — “…clusters. Emoji parity with FileMaker itself is unverified; this change implements the requested internal…” |
+| Functions over whole numbers longer than 15 digits keep every digit up to 400 digits; which functions the other product computes exactly is unverified | A formula that relies on rounding at 15 digits shows more digits here | Compare against the other product with a real file | [docs/consistency.md › Cross-module consistency decisions](consistency.md) — “…functions the other product computes exactly is unverified; formulas relying on rounding at 15 digits may show…” |
 | Whether SQL equality should fold accents the way a find does is not established; Tabularius keeps binary comparison | A SQL query for e does not match É though a find does | A FileMaker run of ExecuteSQL equality on accented text | [docs/consistency.md › Unverified behavior left unchanged <!-- known-difference-ok: heading of the list below, whose items carry the markers -->](consistency.md) — “A4-08: accent-folded SQL equality. Claris documents [Unicode binary SQL…” |
 | How DATEVAL parses an overflowing date (February 31) is not specified | The date normalises as GetAsDate does here, which may differ from FileMaker | A FileMaker run of DATEVAL and GetAsDate on February 31 | [docs/consistency.md › Unverified behavior left unchanged <!-- known-difference-ok: heading of the list below, whose items carry the markers -->](consistency.md) — “A4-09: overflowing DATEVAL. [SQL date…” |
 | How a SQL time literal with overflowing minutes (minute 90) is parsed is not specified | The literal normalises as GetAsTime does here | A FileMaker run of a SQL time literal with minute 90 | [docs/consistency.md › Unverified behavior left unchanged <!-- known-difference-ok: heading of the list below, whose items carry the markers -->](consistency.md) — “A4-10: overflowing minutes in a SQL time literal. [SQL…” |

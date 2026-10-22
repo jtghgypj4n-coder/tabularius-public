@@ -44,7 +44,8 @@ import type { Node } from './parser.ts';
 import { ALL_STYLES, STYLE_BITS, restyle, rgbHex, sliceRuns, toCss, type TextFormat } from './styled.ts';
 import {
   CalcError, HostWait, ERR, EMPTY, asBoolean, asDate, asNumber, asNumberOrEmpty, asText, asTime, asTimestamp, bool, dayNumber,
-  decimalSum, formatNumber, fromDayNumber, isEmpty, num, numberFromText, parseDateText, parseTimeText, parseTimestampText, text, type Value,
+  decimalSum, exactAbs, exactDivFloor, exactMod, exactOf, exactRound, exactSign, exactTruncate, formatNumber, fromDayNumber,
+  fromExact, isBeyondDouble, isEmpty, isOverlongWholeText, num, numberFromText, parseDateText, parseTimeText, parseTimestampText, text, type Value,
 } from './values.ts';
 
 export interface Fn {
@@ -68,10 +69,16 @@ const T = (v: Value | undefined, env: Env) => (v === undefined ? '' : env.textOf
 const N = (v: Value | undefined) => (v === undefined ? 0 : asNumber(v));
 
 /** Number result, or empty when an input number is empty (FileMaker propagates empty). */
-function numeric(names: string | string[], min: number, max: number, f: (...n: number[]) => number): void {
+function numeric(names: string | string[], min: number, max: number, f: (...n: number[]) => number,
+  exact?: (...v: Value[]) => bigint | undefined): void {
   eager(names, min, max, (v) => {
     const ns = v.map(asNumberOrEmpty);
     if (ns[0] === undefined) return EMPTY;
+    if (v.some((value) => value.type === 'text' && isOverlongWholeText(value.value))) return num(NaN);
+    if (exact) {
+      const r = exact(...v);
+      if (r !== undefined && (v.some(isBeyondDouble) || !Number.isSafeInteger(Number(r)))) return fromExact(r);
+    }
     // A result that is not a number (Sqrt ( -1 ), anything of 1/0) shows as "?", as in FileMaker.
     return num(f(...ns.map((n) => n ?? 0)));
   });
@@ -566,6 +573,9 @@ eager('GetAsURLEncoded', 1, 1, (v, env) => text(encodeURIComponent(T(v[0], env))
 
 eager('GetAsText', 1, 1, (v, env) => text(T(v[0], env)));
 eager('GetAsNumber', 1, 1, (v) => {
+  if (v[0].type === 'text' && isOverlongWholeText(v[0].value)) return num(NaN);
+  const whole = exactOf(v[0]);
+  if (whole !== undefined && isBeyondDouble(v[0])) return fromExact(whole);
   const n = asNumberOrEmpty(v[0]);
   return n === undefined ? EMPTY : num(n);
 });
@@ -590,17 +600,17 @@ const roundTo = (n: number, places: number, f: (x: number) => number) => {
   // Round half away from zero; the small epsilon absorbs binary representation error.
   return f(Number((Math.abs(n) * p).toPrecision(15))) / p * Math.sign(n);
 };
-numeric('Abs', 1, 1, Math.abs);
-numeric('Ceiling', 1, 1, Math.ceil);
-numeric('Floor', 1, 1, Math.floor);
-numeric('Int', 1, 1, Math.trunc);
-numeric('Round', 2, 2, (n, p) => roundTo(n, Math.trunc(p), (x) => Math.floor(x + 0.5)));
-numeric('Truncate', 2, 2, (n, p) => roundTo(n, Math.trunc(p), Math.floor));
+numeric('Abs', 1, 1, Math.abs, exactAbs);
+numeric('Ceiling', 1, 1, Math.ceil, exactOf);
+numeric('Floor', 1, 1, Math.floor, exactOf);
+numeric('Int', 1, 1, Math.trunc, exactOf);
+numeric('Round', 2, 2, (n, p) => roundTo(n, Math.trunc(p), (x) => Math.floor(x + 0.5)), exactRound);
+numeric('Truncate', 2, 2, (n, p) => roundTo(n, Math.trunc(p), Math.floor), exactTruncate);
 numeric('SetPrecision', 2, 2, (n) => n);
 // By zero these give "?", like the / operator.
-numeric('Mod', 2, 2, (n, d) => (d === 0 ? NaN : n - d * Math.floor(n / d)));
-numeric('Div', 2, 2, (n, d) => (d === 0 ? NaN : Math.floor(n / d)));
-numeric('Sign', 1, 1, Math.sign);
+numeric('Mod', 2, 2, (n, d) => (d === 0 ? NaN : n - d * Math.floor(n / d)), exactMod);
+numeric('Div', 2, 2, (n, d) => (d === 0 ? NaN : Math.floor(n / d)), exactDivFloor);
+numeric('Sign', 1, 1, Math.sign, exactSign);
 numeric('Sqrt', 1, 1, Math.sqrt);
 numeric('Exp', 1, 1, Math.exp);
 numeric('Ln', 1, 1, Math.log);
@@ -636,13 +646,16 @@ def('NPV', 2, 2, (a, env) => {
 });
 
 /** Numbers an aggregate sees: every argument's values, skipping empty ones. */
-function aggregateNumbers(a: Node[], env: Env): number[] {
-  const out: number[] = [];
+function aggregateValues(a: Node[], env: Env): Value[] {
+  const out: Value[] = [];
   for (const arg of a) for (const v of env.values(arg)) {
     const n = asNumberOrEmpty(v);
-    if (n !== undefined && !isEmpty(v)) out.push(n);
+    if (n !== undefined && !isEmpty(v)) out.push(v);
   }
   return out;
+}
+function aggregateNumbers(a: Node[], env: Env): number[] {
+  return aggregateValues(a, env).map(asNumber);
 }
 function aggregate(name: string, f: (ns: number[]) => number | undefined): void {
   def(name, 1, undefined, (a, env) => {
@@ -650,8 +663,20 @@ function aggregate(name: string, f: (ns: number[]) => number | undefined): void 
     return r === undefined ? EMPTY : num(r);
   });
 }
-aggregate('Sum', (ns) => decimalSum(ns));
-aggregate('Average', (ns) => (ns.length ? decimalSum(ns) / ns.length : undefined));
+for (const name of ['Sum', 'Average']) def(name, 1, undefined, (a, env) => {
+  const values = aggregateValues(a, env);
+  const wholes = values.map(exactOf);
+  if (wholes.every((n): n is bigint => n !== undefined)) {
+    const sum = wholes.reduce((total, n) => total + n, 0n);
+    const count = BigInt(wholes.length);
+    if (name === 'Sum' || (count !== 0n && sum % count === 0n)) {
+      const result = name === 'Sum' ? sum : sum / count;
+      if (values.some(isBeyondDouble) || !Number.isSafeInteger(Number(result))) return fromExact(result);
+    }
+  }
+  const ns = values.map(asNumber);
+  return name === 'Sum' ? num(decimalSum(ns)) : ns.length ? num(decimalSum(ns) / ns.length) : EMPTY;
+});
 const variance = (ns: number[], sample: boolean) => {
   if (ns.length === 0) return undefined;
   // Claris: the standard deviation of a single value is undefined, an error (the sample forms only).

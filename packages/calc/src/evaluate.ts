@@ -10,7 +10,7 @@ import { concatRuns } from './styled.ts';
 import { Decimal, decimalFunction, decimalNumberText, supportsDecimalFunction, withDecimalBudget } from './decimal.ts';
 import { NameTable, parse, type CalcNames, type Node } from './parser.ts';
 import {
-  CalcError, ERR, EMPTY, asBoolean, asNumber, asNumberOrEmpty, asText, bool, exactOf, fromExact, isBeyondDouble, isEmpty, num, text, tidy,
+  CalcError, ERR, EMPTY, asBoolean, asNumber, asNumberOrEmpty, asText, bool, exactOf, exactPow, fromExact, isBeyondDouble, isEmpty, isOverlongWholeText, num, text, tidy,
   type DateStyle, type Value,
 } from './values.ts';
 
@@ -404,7 +404,8 @@ export class Env {
     switch (n.k) {
       case 'num': return this.decimalPlaces !== undefined ? (n.raw === 'Pi' ? Decimal.pi(this.decimalPlaces)
         : Decimal.parse(n.raw ?? String(n.value), this.decimalPlaces)).value()
-        : n.exact !== undefined ? { type: 'number', value: n.value, exact: n.exact } : num(n.value);
+        : n.raw !== undefined && isOverlongWholeText(n.raw) ? num(NaN)
+          : n.exact !== undefined ? { type: 'number', value: n.value, exact: n.exact } : num(n.value);
       case 'str': return text(n.value);
       case 'field': return this.field(n);
       case 'var': return this.variable(n);
@@ -820,9 +821,22 @@ export class Env {
         if (isEmpty(a) && isEmpty(b)) return EMPTY;
         const d = asNumber(b);
         if (d === 0) return num(NaN);
+        const x = exactOf(a), y = exactOf(b);
+        if (x !== undefined && y !== undefined && y !== 0n && x % y === 0n) {
+          const quotient = x / y;
+          if (isBeyondDouble(a) || isBeyondDouble(b) || !Number.isSafeInteger(Number(quotient))) return fromExact(quotient);
+        }
         return isEmpty(a) ? EMPTY : num(tidy(asNumber(a) / d));
       }
       case '^': {
+        // An overlong whole-number operand has no value, including for exponents that Math.pow would simplify.
+        if ((a.type === 'text' && isOverlongWholeText(a.value)) || (b.type === 'text' && isOverlongWholeText(b.value))
+          || (an.k === 'num' && isOverlongWholeText(an.raw ?? ''))
+          || (bn.k === 'num' && isOverlongWholeText(bn.raw ?? ''))) return num(NaN);
+        const exact = exactPow(a, b);
+        if (exact !== undefined && (isBeyondDouble(a) || isBeyondDouble(b) || !Number.isSafeInteger(Number(exact)))) {
+          return fromExact(exact);
+        }
         const e = asNumber(b);
         const r = Math.pow(asNumber(a), e);
         return num(Number.isInteger(e) ? tidy(r) : r);
