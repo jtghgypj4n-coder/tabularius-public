@@ -1536,6 +1536,8 @@ export class Store {
     const temp = `${dest}.copy-${randomUUID()}.tmp`;
     let copy: DatabaseSync | undefined;
     try {
+      // Created private first, as backup() does: the published copy shares this file's mode, so the umask never widens it.
+      closeSync(openSync(temp, 'a', 0o600));
       await backup(this.sql, temp);
       copy = new DatabaseSync(temp);
       // No -wal beside the published copy: everything must be in the main file.

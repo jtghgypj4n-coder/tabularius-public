@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import fs, { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createStore, Store } from '../src/index.ts';
@@ -198,6 +199,33 @@ test('Save a Copy embeds external containers and refuses a missing source withou
     assert.equal(existsSync(join(f.dir, 'missing.openhbam.sqlite')), false);
   } finally { f.close(); }
 });
+
+for (const route of ['link', 'copy fallback'] as const) {
+  test(`Save a Copy publishes a private file by the ${route} path, whatever the umask`, async (t) => {
+    const f = fixture();
+    const umask = process.umask(0o022);
+    try {
+      const id = Number(f.store.create('Items', { Name: 'A' }).recordId);
+      f.store.setContainer('Items', id, 'Pic', 1, file('private bytes'));
+      let fallback = 0;
+      if (route === 'copy fallback') {
+        t.mock.method(fs, 'linkSync', () => { fallback++; throw Object.assign(new Error('links are not supported here'), { code: 'EPERM' }); });
+        syncBuiltinESMExports();
+      }
+      const at = join(f.dir, 'private.openhbam.sqlite');
+      await f.store.selfContainedCopy(at);
+      assert.equal(route === 'copy fallback', fallback === 1, 'the fallback ran exactly when the link was refused');
+      assert.equal(statSync(at).mode & 0o077, 0, 'no group or other permission bits on the published copy');
+      const copy = new Store(at, 'private');
+      try { assert.equal(copy.findIds('Items').length, 1); } finally { copy.close(); }
+    } finally {
+      process.umask(umask);
+      t.mock.restoreAll();
+      syncBuiltinESMExports();
+      f.close();
+    }
+  });
+}
 
 test('Export Field Contents and Insert File round-trip generated container bytes', async () => {
   const f = fixture();
