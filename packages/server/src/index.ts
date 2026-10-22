@@ -223,6 +223,8 @@ export interface ServeOptions {
   acme?: Omit<AcmeOptions, 'httpsPort' | 'log'>;
   /** Let standby servers follow this one (tabularius standby), signing in with this token. */
   replicationToken?: string;
+  /** Keep the API tokens when this folder takes over from a standby (see docs/standby-guarantees.md); by default they are ended. */
+  keepApiTokensOnTakeover?: boolean;
   /** The AI assistant in the web client; off without an API key. */
   ai?: AssistantOptions;
   /** Files (names, with or without .fmp12) whose data is never sent to AI, whatever each file's own setting says. */
@@ -376,6 +378,15 @@ export async function serve(opts: ServeOptions): Promise<{ server: Server; host:
       const unfinished = unfinishedStandbyFiles(was);
       log(`taking over from ${was.primary}: this folder was its standby${unfinished.length ? `; ${unfinished.join(', ')} had not caught up to a whole state and may need restoring from a backup` : ''}`);
       rmSync(join(opts.dir, STANDBY_STATE), { force: true });
+      // The copy is as the primary was some moments before it failed, or longer if the link was down: a token revoked there since
+      // is alive here, and nothing says which. They are ended unless the operator knows the standby had caught up.
+      if (!opts.keepApiTokensOnTakeover) {
+        let ended = 0;
+        for (const store of host.openStores()) {
+          for (const t of store.apiTokens()) if (store.revokeApiToken(t.id)) ended++;
+        }
+        if (ended) log(`taking over: ended ${ended} API token${ended === 1 ? '' : 's'}, because the standby cannot show which the main server had revoked; issue new ones (--keep-api-tokens-on-takeover keeps them after a planned switch)`);
+      }
     }
     // Each file's changes, taken for point-in-time backups and standbys.
     const shipper = new LogShipper(host, log);

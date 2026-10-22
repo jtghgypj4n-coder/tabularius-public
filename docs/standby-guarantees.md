@@ -63,6 +63,12 @@ To take over, stop the standby and run `tabularius serve <standby folder>`.
 - A file written by a newer Tabularius than the one that is promoted is not opened, and the log says so
   (`was written by a newer Tabularius ... Update Tabularius to open it`). The standby does not notice while following; the
   first place it shows is the takeover.
+- **API tokens are ended at takeover.** The copy is the primary as it was a moment before it failed (longer if the link was
+  down), so a token revoked there in that time would work again here, and nothing can say which. `serve` therefore ends every
+  API token and AI-app sign-in in the taken-over files and logs how many (`taking over: ended N API tokens`); issue new ones.
+  After a planned switch, when the standby had caught up before the primary was stopped, `serve --keep-api-tokens-on-takeover`
+  keeps them. Passwords, accounts and privilege sets are not touched: an account disabled or a password changed on the primary in
+  its last moments is back as the standby had it, so review the accounts in Manage Security after a takeover.
 - The promoted server accepts writes at once. Nothing stops the old primary if it is still running (no fencing, no witness):
   stop it first.
 

@@ -151,3 +151,48 @@ test('log files read up to their last whole record, sealed or not', async () => 
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('a takeover ends the API tokens the standby cannot show are still valid, unless asked to keep them', { skip }, async () => {
+  const root = mkdtempSync(join(tmpdir(), 'tabularius-standby-revoke-'));
+  const folder = join(root, 'spare');
+  mkdirSync(folder);
+  copyFileSync(fixture, join(folder, 'Charts.fmp12'));
+  try {
+    // A file with a token; the standby's copy is as the primary had it before the token was revoked there.
+    let s = await serve({ dir: folder, port: 0, watch: false, log: () => {} });
+    const issue = () => {
+      const store = s.host.get('Charts')!;
+      store.setPassword('svc', 'service-password-1');
+      return store.createApiToken('svc', { label: 'integration' });
+    };
+    const token = issue();
+    assert.ok(s.host.get('Charts')!.apiToken(token));
+    await new Promise<void>((resolve) => s.server.close(() => resolve()));
+    const standing = () => writeFileSync(join(folder, STANDBY_STATE), JSON.stringify({ primary: 'http://primary.invalid:8080', files: { Charts: { run: 'r', seq: 1, wholeAfter: 1, size: 0, mtimeMs: 0, at: Date.now() } } }));
+
+    standing();
+    const lines: string[] = [];
+    s = await serve({ dir: folder, port: 0, watch: false, log: (m) => void lines.push(m) });
+    try {
+      assert.equal(s.host.get('Charts')!.apiToken(token), undefined, 'a token the primary may have revoked in its last seconds is not honoured');
+      assert.equal(s.host.get('Charts')!.apiTokens().length, 0);
+      assert.ok(lines.some((m) => /ended 1 API token/.test(m) && /--keep-api-tokens/.test(m)), lines.join('\n'));
+    } finally {
+      await new Promise<void>((resolve) => s.server.close(() => resolve()));
+    }
+
+    // Asked to keep them, as in a planned switch after the standby caught up.
+    s = await serve({ dir: folder, port: 0, watch: false, log: () => {} });
+    const kept = issue();
+    await new Promise<void>((resolve) => s.server.close(() => resolve()));
+    standing();
+    s = await serve({ dir: folder, port: 0, watch: false, keepApiTokensOnTakeover: true, log: () => {} });
+    try {
+      assert.ok(s.host.get('Charts')!.apiToken(kept));
+    } finally {
+      await new Promise<void>((resolve) => s.server.close(() => resolve()));
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  }
+});
