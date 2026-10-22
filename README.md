@@ -386,6 +386,7 @@ unknown, in [docs/known-differences.md](docs/known-differences.md).
 - **Passwords.** An account whose FileMaker password is empty keeps working, from the server's own computer. Every other account needs a new password set with `tabularius passwd`.
 - **Plug-ins are never loaded.** A few BaseElements and MBS functions run as built-in code; any other plug-in call gives "?" and error 3.
 - **Scripts run on the server, and reach the network when you switch it on.** Web requests (Insert from URL, `connection://` addresses) start off for every converted file, so a copy you are testing cannot call outside services; turn on **Script network** for a file in the admin console when this copy is the live one. Mail is sent only once the server is set up to send it; steps that need a screen or a person at FileMaker Pro are skipped or give error 3.
+- **AI script steps use this server's own model;** the account, endpoint, key and model a script names are not used.
 - **The store is not the `.fmp12`.** A converted file lives in an SQLite store beside the original, which is left as it was; changes made here can't be written back into a `.fmp12`.
 - **Some security detail is flattened.** Per-layout, per-value-list and per-script privileges come over at the privilege set's overall level; review your sets in Manage Security before people sign in.
 

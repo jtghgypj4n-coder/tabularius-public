@@ -205,6 +205,13 @@ export function conversionGuide(store: Store, hosted: string[] = [], report: Con
   }
 
   // What works, but differently.
+  if (r.aiSteps.count) {
+    differs.push({
+      title: "AI steps run on this server's model", severity: 'medium', count: r.aiSteps.count, where: r.aiSteps.where.slice(0, WHERE),
+      what: "The account's endpoint, key and model named in the script are not used; this server's own model answers. Set AI Call Logging does nothing here.",
+      instead: 'The server needs --ai (and an embedding model for the embedding steps) or the steps that call a model stop with error 3. Set them in the admin console.',
+    });
+  }
   if (r.steps.blocked.length) {
     differs.push({
       title: 'Send Mail', severity: 'medium', count: uses(r.steps.blocked), where: places(r.steps.blocked),

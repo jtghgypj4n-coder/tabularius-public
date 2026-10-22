@@ -107,6 +107,8 @@ export interface ScheduleRun {
   steps: number;
   ms: number;
   message?: string;
+  /** First 100 retained script warnings, kept with the bounded run history. */
+  warnings?: string[];
   /** Run from the console ("Run now") rather than at its time. */
   manual?: boolean;
   /** A sync run: records changed on both sides that need an administrator. */
@@ -633,7 +635,7 @@ export class Schedules {
             ...(connections ? { connections } : {}),
             ...(opts.profile ? { profile: opts.profile } : {}),
           }), { file: store.name, script: s.script, account: s.account, kind: 'schedule' });
-          run = { at: new Date(started).toISOString(), error: r.error, result: r.result, steps: r.steps, ms: Date.now() - started, ...(withheld ? { message: `ran without its connections: ${changed.slice(0, 3).join(', ')} changed since they were last approved for this schedule` } : {}), ...(manual ? { manual } : {}) };
+          run = { at: new Date(started).toISOString(), error: r.error, result: r.result, steps: r.steps, ms: Date.now() - started, ...(r.warnings?.length ? { warnings: r.warnings.slice(0, 100) } : {}), ...(withheld ? { message: `ran without its connections: ${changed.slice(0, 3).join(', ')} changed since they were last approved for this schedule` } : {}), ...(manual ? { manual } : {}) };
         }
       }
     } catch (e) {
