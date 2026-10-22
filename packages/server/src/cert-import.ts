@@ -128,8 +128,9 @@ function rawSettings(dir: string): Record<string, unknown> {
   if (!existsSync(f)) return {};
   try {
     return JSON.parse(readFileSync(f, 'utf8'));
-  } catch (e) {
-    throw new CertificateError(960, `${SETTINGS_FILE} could not be read: ${(e as Error).message}`);
+  } catch {
+    // Not the parser's or the file system's own message: it quotes the file's text or names its folder.
+    throw new CertificateError(960, `${SETTINGS_FILE} could not be read: check that it is valid JSON and that the server may read it`);
   }
 }
 
