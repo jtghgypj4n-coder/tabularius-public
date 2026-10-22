@@ -20,6 +20,10 @@ if (!Number.isInteger(index) || !Number.isInteger(count) || count < 1 || index <
 }
 const { gates, shards } = plan(count);
 const files = flag('gates') ? gates : shardArg ? shards[index - 1] : [...gates, ...shards.flat()].sort();
+if (!files.length) {
+  console.error('no test files selected: node --test would fall back to finding every file itself, so this stops instead');
+  process.exit(1);
+}
 if (flag('list')) {
   console.log(files.join('\n'));
   process.exit(0);
