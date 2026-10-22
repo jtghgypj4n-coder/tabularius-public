@@ -15,7 +15,9 @@ server makes such a connection and what proves it is guarded.
   fe80::/10, where clouds keep instance credentials; 100.100.100.200;
   168.63.129.16; `metadata.google.internal` and the other metadata names), the
   unspecified address (0.0.0.0, `::`), or multicast and reserved ranges. No
-  setting allows these.
+  setting allows these. IPv6 zone identifiers and deprecated site-local scoped
+  addresses are also refused, including in DNS answers and allow lists with
+  zone identifiers.
 - **Reaches the machine's own network only where allowed:** loopback,
   10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 100.64.0.0/10, fc00::/7 and the
   other ranges used inside a network. A destination an administrator typed in
@@ -31,7 +33,10 @@ server makes such a connection and what proves it is guarded.
   Accept-Encoding, User-Agent and Range, so no credential follows it. A POST
   turned into a GET sends no body.
 - **Caps time and size.** A request has the caller's total time and response size
-  limits (size counted after decompression). Script requests also obey
+  limits (size counted after gzip, x-gzip, deflate or Brotli decompression).
+  The deadline also cancels a stalled streaming upload before admission.
+  Bodyless responses close their sockets immediately instead of draining
+  unsolicited payloads; HTTP protocol upgrades are refused. Script requests also obey
   `TABULARIUS_OUTBOUND_MAX_TIME_MS` (default 10 minutes), including time waiting
   for capacity. Operator requests, such as S3 transfers and standby copies, keep
   their own timeouts, including `Infinity`.
@@ -42,6 +47,19 @@ server makes such a connection and what proves it is guarded.
   from this rate rule. Operator work started by a script's commit, including
   change-feed subscribers and webhooks, inherits neither its slots nor its stop
   signal.
+- **Isolates request state.** Each HTTP/HTTPS request, including each redirect,
+  gets a fresh socket and agent. There is no shared cookie jar, authorization
+  state or TLS session cache across requests, accounts or files. Admission is
+  counted by file/account, not hostname, so additional destination names cannot
+  create additional active capacity.
+- **Ignores proxy environment variables.** `HTTP_PROXY`, `HTTPS_PROXY`,
+  `ALL_PROXY`, `NO_PROXY`, their lowercase forms and `NODE_USE_ENV_PROXY` do not
+  route guarded requests through a proxy.
+- **Keeps resolved destinations out of failure messages.** Guard refusals and
+  connection/DNS/TLS failure causes omit host names and addresses. System error
+  codes remain available for diagnostics. Malformed request and redirect URLs
+  produce generic errors without echoing the URL. Caller-provided abort reasons
+  are preserved.
 - **Refuses credentials in the address** (`http://user:pass@host/`) and any
   scheme but http and https.
 
@@ -106,6 +124,8 @@ lookup is also checked for that.
   provider, including the own network.
 - Image embedding sends to two fixed public hosts through the global fetch, so
   the guard's time and size limits do not apply to it.
-- The guard does not use an HTTP proxy from the environment.
+- Unknown or compound `Content-Encoding` values are returned as opaque bytes
+  with their encoding header preserved. Their byte cap applies to those bytes;
+  the guard does not promise a decoded-size cap for an encoding it does not decode.
 - `fms-sync` and `fms-migrate` build their own requests (cookie handling and a
   response cap of their own); only the connection's lookup is the guard's.
