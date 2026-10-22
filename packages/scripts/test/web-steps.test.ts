@@ -120,6 +120,12 @@ test('Refresh Portal uses active object identity and delegates nonportals withou
   assert.equal(active.active, undefined);
 });
 
+test('Open Help asks the web client to open the hosted guides', async () => {
+  const r = await run('Open Help');
+  assert.equal(r.error, 0);
+  assert.deepEqual(r.actions, [{ step: 'Open Help', script: 'test', open: 'help' }]);
+});
+
 test('refresh validation reports missing objects, invalid repetitions, and viewers of the wrong kind', async () => {
   for (const [line, error] of [
     ['Refresh Portal', 116], ['Refresh Object [ Object Name: "missing" ]', 116],

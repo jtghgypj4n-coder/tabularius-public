@@ -5841,6 +5841,8 @@ class Session implements Host {
           openAfter = act.open;
         } else if (act.open === 'saved-finds') {
           this.editSavedFinds();
+        } else if (act.open === 'help') {
+          openAfter = '/docs';
         }
       }
     };
