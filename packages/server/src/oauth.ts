@@ -624,7 +624,7 @@ p strong { color: var(--text); }
       }
       // A code given out just before new users were blocked doesn't become a grant after.
       if (this.host.config.blockNewUsers()) throw new OAuthError('invalid_grant', BLOCKED);
-      return this.issue(client, row.database, row.account, clientAddress(req), row.who ? `${plain(row.who)} via AI app: ${plain(client.name)}` : undefined, undefined, identity);
+      return this.issue(client, row.database, row.account, clientAddress(req), row.who ? `${plain(row.who)} via AI app: ${plain(client.name)}` : undefined, undefined, identity, false, row.mark);
     }
     if (grant === 'refresh_token') {
       const row = this.db.prepare('DELETE FROM refresh WHERE hash = ? AND client_id = ? RETURNING client_id, database, account, access_id, expires, password, identity').get(hash(form.get('refresh_token') ?? ''), client.id) as
@@ -644,20 +644,29 @@ p strong { color: var(--text); }
       if (!markCurrent(store, row.account, row.password) || this.allowed(store, row.account, clientAddress(req), false, false)) {
         throw new OAuthError('invalid_grant', 'This account\'s password or access changed since it signed in; sign in again');
       }
-      return this.issue(client, row.database, row.account, clientAddress(req), label, identity ? row.expires : undefined, identity, true);
+      return this.issue(client, row.database, row.account, clientAddress(req), label, identity ? row.expires : undefined, identity, true, row.password);
     }
     throw new OAuthError('unsupported_grant_type', 'Only authorization_code and refresh_token are supported');
   }
 
-  private issue(client: Client, database: string, account: string, from: string, label?: string, keepExpiry?: number, identity?: { issuer: string; sub: string; person?: string; mapping: string }, refreshing = false): Record<string, unknown> {
+  private issue(client: Client, database: string, account: string, from: string, label?: string, keepExpiry?: number, identity?: { issuer: string; sub: string; person?: string; mapping: string }, refreshing = false, signedInMark: string | null = null): Record<string, unknown> {
     const store = this.host.get(database);
     if (!store) throw new OAuthError('invalid_grant', `${database} is no longer hosted`);
     if (identity && (identity.mapping !== account || !store.canonicalAccount(identity.mapping) || !store.isExternalAccount(identity.mapping) || (identity.person && store.accountInactive(identity.person)))) throw new OAuthError('invalid_grant', 'This federated sign-in is no longer valid; sign in again');
     if (this.allowed(store, account, from, !!identity, !refreshing)) throw new OAuthError('invalid_grant', "This account's access changed since it signed in; sign in again");
-    const access = store.createApiToken(account, { label: (label ?? `AI app: ${plain(client.name)}`).slice(0, 80), surfaces: ['fmmcp'], provenance: 'delegated', expires: new Date(expiryClock.now() + ACCESS_SECONDS * 1000), ...(identity ? { identity } : {}) });
+    // The mark the caller checked is checked again as the token is written, under the file's lock: a password or privilege change
+    // made in between (by another worker) must not be outlived by a token of the old sign-in. The refresh row keeps that same mark.
+    let mark = '';
+    const access = store.createApiToken(account, {
+      label: (label ?? `AI app: ${plain(client.name)}`).slice(0, 80), surfaces: ['fmmcp'], provenance: 'delegated', expires: new Date(expiryClock.now() + ACCESS_SECONDS * 1000), ...(identity ? { identity } : {}),
+      guard: () => {
+        if (!markCurrent(store, account, signedInMark)) throw new OAuthError('invalid_grant', 'This account\'s password or access changed since it signed in; sign in again');
+        mark = passwordMark(store, account);
+      },
+    });
     const accessId = /^ohbt_([0-9a-f]+)\./.exec(access)![1];
     const refresh = token('ohrt_');
-    this.db.prepare('INSERT INTO refresh (hash, client_id, database, account, access_id, expires, password, identity) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(hash(refresh), client.id, store.name, account, accessId, keepExpiry ?? expiryClock.now() + (identity ? REFRESH_EXTERNAL_MS : REFRESH_MS), passwordMark(store, account), identity ? JSON.stringify(identity) : null);
+    this.db.prepare('INSERT INTO refresh (hash, client_id, database, account, access_id, expires, password, identity) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(hash(refresh), client.id, store.name, account, accessId, keepExpiry ?? expiryClock.now() + (identity ? REFRESH_EXTERNAL_MS : REFRESH_MS), mark, identity ? JSON.stringify(identity) : null);
     this.db.prepare('UPDATE clients SET used = ? WHERE id = ?').run(Date.now(), client.id);
     return { access_token: access, token_type: 'Bearer', expires_in: ACCESS_SECONDS, refresh_token: refresh, scope: 'mcp' };
   }
