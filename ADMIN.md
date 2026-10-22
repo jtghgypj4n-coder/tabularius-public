@@ -238,6 +238,15 @@ tabularius serve /srv/Databases --https files.example.com --port 443
 - `--dry-run` says what it would do and how much it would copy, and changes
   nothing.
 
+Stop Tabularius in the destination folder before migrating, and use stopped
+source files or a stable source copy. Each database and its container folder
+are staged, checked against the source bytes, and published together using
+the restore recovery journal. A failed transfer preserves the originals;
+retry after resolving the reported disk, source-change, or destination
+conflict. Unencrypted files also receive the reader's header and block-count
+checks; this is not a full FileMaker consistency check. Encrypted source
+contents are not validated without their passphrase.
+
 It prints what came over and what didn't, and why:
 
 - **Files** are copied in whole, so the server never converts half a file.

@@ -73,7 +73,7 @@ test('X1.2: one changed byte prevents every database replacement', async (t) => 
       const cleanInfo = JSON.parse(readFileSync(join(clean, 'backup.json'), 'utf8'));
       cleanInfo.external = { 'Files/A/missing': { sha256: 'unused' } };
       writeFileSync(join(clean, 'backup.json'), JSON.stringify(cleanInfo));
-      await assert.rejects(restoreBackup(folder, clean, undefined, key), /ENOENT/);
+      await assert.rejects(restoreBackup(folder, clean, undefined, key), /Files\/A\/missing: missing backup file; use a complete backup set and try the restore again/);
       unchanged();
     }
   }
@@ -101,4 +101,48 @@ test('X1.3: unreadable manifest fails verification without overwriting the evide
   assert.equal(result.ok, false);
   assert.match(result.files['backup.json'], /unreadable manifest/i);
   assert.equal(readFileSync(join(set, 'backup.json'), 'utf8'), '{');
+});
+
+for (const key of ['', 'key']) test(`restore refuses a database listed in the manifest but missing from the set${key ? ' encrypted' : ''}`, async (t) => {
+  const { folder, set } = setup(t);
+  const names = ['A.openhbam.sqlite', 'B.openhbam.sqlite'];
+  for (const name of names) createStore(join(folder, name));
+  const backup = (await backupFolder(folder, set, 0, key)).dir;
+  rmSync(join(backup, names[1] + (key ? '.enc' : '')));
+  const before = names.map((name) => readFileSync(join(folder, name)));
+  await assert.rejects(restoreBackup(folder, backup, undefined, key), /B\.openhbam\.sqlite: missing database copy/);
+  names.forEach((name, i) => assert.deepEqual(readFileSync(join(folder, name)), before[i]));
+  // Even a completely empty set names the missing database, rather than succeeding.
+  rmSync(join(backup, names[0] + (key ? '.enc' : '')));
+  await assert.rejects(restoreBackup(folder, backup, undefined, key), /A\.openhbam\.sqlite: missing database copy/);
+});
+
+test('a database absent from the manifest cannot replace its live database', async (t) => {
+  const { folder, set } = setup(t);
+  const name = 'A.openhbam.sqlite';
+  createStore(join(folder, name));
+  const backup = (await backupFolder(folder, set, 0, '')).dir;
+  createStore(join(backup, 'Unlisted.openhbam.sqlite'));
+  writeFileSync(join(folder, 'Unlisted.openhbam.sqlite'), 'keep live');
+  const before = readFileSync(join(folder, name));
+  await assert.rejects(restoreBackup(folder, backup, undefined, ''), /Unlisted\.openhbam\.sqlite: not listed in the database inventory/);
+  assert.equal(readFileSync(join(folder, 'Unlisted.openhbam.sqlite'), 'utf8'), 'keep live');
+  assert.deepEqual(readFileSync(join(folder, name)), before);
+});
+
+test('database restore requires backup.json when either generation has containers', async (t) => {
+  for (const containersIn of ['live', 'set']) {
+    const { folder, set } = setup(t);
+    const name = 'A.openhbam.sqlite';
+    createStore(join(folder, name));
+    const backup = (await backupFolder(folder, set, 0, '')).dir;
+    const root = containersIn === 'live' ? folder : backup;
+    mkdirSync(join(root, 'Files/A'), { recursive: true });
+    writeFileSync(join(root, 'Files/A/keep'), 'keep container');
+    rmSync(join(backup, 'backup.json'));
+    const before = readFileSync(join(folder, name));
+    await assert.rejects(restoreBackup(folder, backup, undefined, ''), /unreadable manifest.*backup.json/);
+    assert.deepEqual(readFileSync(join(folder, name)), before);
+    assert.equal(readFileSync(join(root, 'Files/A/keep'), 'utf8'), 'keep container');
+  }
 });
