@@ -215,6 +215,7 @@ test('a takeover whose standby note holds nonsense still ends the API tokens and
       { primary: 'http://primary.invalid:8080', files: { Charts: { run: 'r', seq: 1, wholeAfter: 1, size: 0, mtimeMs: 0, at: 'yesterday' } } },
       { primary: 'http://primary.invalid:8080', files: 5 },
       { primary: 42, files: { Charts: null } },
+      { primary: 'http://user:secret-value@primary.invalid:8080/x?y=1', files: {} },
     ]) {
       let s = await serve({ dir: folder, port: 0, watch: false, log: () => {} });
       s.host.get('Charts')!.setPassword('svc', 'service-password-1');
@@ -226,7 +227,9 @@ test('a takeover whose standby note holds nonsense still ends the API tokens and
       try {
         assert.equal(s.host.get('Charts')!.apiToken(token), undefined, JSON.stringify(note) + '\n' + lines.join('\n'));
         assert.ok(!existsSync(join(folder, STANDBY_STATE)), 'the note is removed once the takeover is done');
-        assert.equal(s.host.get('Charts')!.securityEvents({ category: 'Standby takeover' }).length >= 1, true);
+        const trail = s.host.get('Charts')!.securityEvents({ category: 'Standby takeover' });
+        assert.equal(trail.length >= 1, true);
+        assert.ok(!/secret-value|user:/.test(trail.map((e) => e.description + JSON.stringify(e)).join()), 'an address carries no credentials into the log');
         assert.ok(lines.some((m) => /last updated at an unknown time/.test(m)), lines.join('\n'));
       } finally {
         await new Promise<void>((resolve) => s.server.close(() => resolve()));
