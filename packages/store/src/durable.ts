@@ -1,4 +1,5 @@
-import { chmodSync, closeSync, existsSync, fsyncSync, lstatSync, openSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, closeSync, existsSync, fsyncSync, lstatSync, readFileSync, readdirSync, realpathSync, statSync, unlinkSync } from 'node:fs';
+import { cleanupPath, openSync, renameSync, writeFileSync } from './fs-boundary.ts';
 import { createHash, randomUUID } from 'node:crypto';
 import { basename, dirname, join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -17,7 +18,7 @@ export function syncPath(path: string, fs: DurableFs = disk, platform: NodeJS.Pl
   const directory = fs.statSync(path).isDirectory();
   if (directory && platform === 'win32') return;
   try {
-    const fd = fs.openSync(path, 'r');
+    const fd = fs.openSync(directory && fs === disk ? realpathSync(path) : path, 'r');
     try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
   } catch (error) {
     if (!directory || !['EPERM', 'EISDIR', 'EINVAL'].includes((error as NodeJS.ErrnoException).code ?? '')) throw error;
@@ -35,11 +36,13 @@ export function writeDurable(staged: string, target: string, fs: DurableFs = dis
 /** Same-directory, exclusive temporary file: readers see either complete version. */
 export function atomicWrite(path: string, data: string): void {
   const tmp = `${path}.${randomUUID()}.tmp`;
+  const fd = openSync(tmp, 'wx', 0o600);
+  const cleanup = cleanupPath(tmp);
   try {
-    writeFileSync(tmp, data, { flag: 'wx', mode: 0o600 });
+    try { writeFileSync(fd, data); } finally { closeSync(fd); }
     writeDurable(tmp, path);
   } finally {
-    rmSync(tmp, { force: true });
+    cleanup();
   }
 }
 
@@ -178,10 +181,12 @@ export function writeStateFileSync(file: string, data: string | Uint8Array, opti
   sweepStateDirectoryOnce(file);
   const tmp = join(dirname(file), `.${basename(file)}.${process.pid}.${randomUUID()}.tmp`);
   let fd: number | undefined;
+  let cleanup = () => {};
   const tempKey = lockKey(tmp);
   activeStateTemps.add(tempKey);
   try {
     fd = openSync(tmp, 'wx', options.mode ?? 0o600);
+    cleanup = cleanupPath(tmp);
     writeFileSync(fd, data);
     fsyncSync(fd);
     const opened = fd;
@@ -191,7 +196,7 @@ export function writeStateFileSync(file: string, data: string | Uint8Array, opti
     if (process.platform !== 'win32') {
       let dirFd: number | undefined;
       try {
-        dirFd = openSync(dirname(file), 'r');
+        dirFd = openSync(realpathSync(dirname(file)), 'r');
         fsyncSync(dirFd);
       } catch (e) {
         console.warn(`Could not sync state directory ${dirname(file)}: ${(e as Error).message}`);
@@ -206,7 +211,7 @@ export function writeStateFileSync(file: string, data: string | Uint8Array, opti
     if (fd !== undefined) {
       try { closeSync(fd); } catch { /* preserve the original failure and still remove the temporary file */ }
     }
-    try { unlinkSync(tmp); } catch { /* already renamed or removed */ }
+    try { cleanup(); } catch { /* preserve the original failure */ }
     throw e;
   } finally {
     activeStateTemps.delete(tempKey);

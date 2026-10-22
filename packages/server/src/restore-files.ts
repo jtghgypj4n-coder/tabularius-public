@@ -1,5 +1,6 @@
 import { crashPoint } from '../../store/src/crash-point.ts';
-import { existsSync, lstatSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, lstatSync, readdirSync, rmSync } from 'node:fs';
+import { readFileSync } from '../../store/src/fs-boundary.ts';
 import { randomUUID } from 'node:crypto';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { atomicWrite, syncPath, writeDurable } from '../../store/src/durable.ts';

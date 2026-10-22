@@ -21,8 +21,9 @@
 //                                                         entries, newest first
 //   GET /tabularius/admin/v1/logs/<name>/download          the file as it is
 
-import { appendFile, mkdir, rename, stat } from 'node:fs/promises';
-import { existsSync, mkdirSync, readFileSync, statSync, appendFileSync, renameSync } from 'node:fs';
+import { mkdir, stat } from 'node:fs/promises';
+import { existsSync, mkdirSync, statSync } from 'node:fs';
+import { appendFile, appendFileSync, readFileSync, renameSync } from '../../store/src/fs-boundary.ts';
 import { join } from 'node:path';
 
 export const LOGS = ['Event', 'Access', 'ScriptEvent', 'fmdapi', 'Admin'] as const;
@@ -123,10 +124,11 @@ export class ServerLogs {
           await mkdir(this.dir, { recursive: true });
           const file = join(this.dir, `${log}.log`);
           if (this.rotate) {
-            let size = 0;
-            try { size = (await stat(file)).size; }
-            catch (e) { if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e; }
-            if (size >= this.limit) await rename(file, join(this.dir, `${log}-old.log`));
+            try {
+              if ((await stat(file)).size >= this.limit) renameSync(file, join(this.dir, `${log}-old.log`));
+            } catch (error) {
+              if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+            }
           }
           await appendFile(file, lines.join(''));
         } catch (e) {

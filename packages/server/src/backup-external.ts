@@ -9,7 +9,8 @@
 // With a passphrase every file is encrypted, as the databases are.
 
 import { crashPoint } from '../../store/src/crash-point.ts';
-import { copyFileSync, existsSync, linkSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, utimesSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, utimesSync } from 'node:fs';
+import { copyFileSync, linkSync } from '../../store/src/fs-boundary.ts';
 import { dirname, isAbsolute, join, relative, resolve, sep, win32 } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
@@ -152,7 +153,12 @@ export async function backupExternal(folder: string, names: string[], setDir: st
       if ((unchanged || await checksum(oldCopy) === old.sha256) && (!passphrase || await opensWithPassphrase(oldCopy, passphrase))) {
         let linked = true;
         try { linkSync(oldCopy, target); }
-        catch { linked = false; copyFileSync(oldCopy, target); }
+        catch (error) {
+          // A detected replacement must never be retried using a fresh snapshot.
+          if (!['EPRIVATECOPY', 'EXDEV', 'ENOSYS', 'ENOTSUP', 'EOPNOTSUPP', 'EPERM'].includes((error as NodeJS.ErrnoException).code ?? '')) throw error;
+          linked = false;
+          copyFileSync(oldCopy, target); // another disk, or links not allowed
+        }
         crashPoint('backup:external-after-file');
         if (!linked && await checksum(target) !== old.sha256) throw new Error(`${rel}: backup copy checksum mismatch`);
         checkSource();

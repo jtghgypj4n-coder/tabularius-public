@@ -5,7 +5,8 @@
 // install.json beside it, so a file changed by hand afterwards isn't loaded.
 
 import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, sign, verify } from 'node:crypto';
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { cleanupPath, readFileSync, writeFileSync, renameSync } from '../../store/src/fs-boundary.ts';
 import { readJsonStateSync, updateJsonStateSync } from '../../store/src/durable.ts';
 import { join } from 'node:path';
 import { unzip, zip, type ZipEntry } from '../../calc/src/zip.ts';
@@ -203,29 +204,33 @@ export function installPackage(dataDir: string, bytes: Uint8Array, opts: Install
     installedAt: (opts.now ?? new Date()).toISOString(), files: Object.fromEntries([...info.files].filter(([n]) => n !== SIGNATURE).map(([n, b]) => [n, sha256(b)])),
   };
   // Unpack beside the destination and swap it in, so a failure never leaves half a plug-in loaded.
-  const staging = join(pluginsDir(dataDir), `.installing-${manifest.id}`);
-  const aside = join(pluginsDir(dataDir), `.replaced-${manifest.id}`);
-  rmSync(staging, { recursive: true, force: true });
-  rmSync(aside, { recursive: true, force: true });
+  mkdirSync(pluginsDir(dataDir), { recursive: true });
+  const staging = mkdtempSync(join(pluginsDir(dataDir), `.installing-${manifest.id}-`));
+  const aside = staging + '.previous';
+  const cleanupStaging = cleanupPath(staging, { recursive: true, force: true });
+  let cleanupAside = () => {};
   try {
     mkdirSync(staging, { recursive: true });
     for (const [name, data] of info.files) writeFileSync(join(staging, name), data);
     writeFileSync(join(staging, INSTALL), JSON.stringify(record, null, 2) + '\n');
   } catch (err) {
-    rmSync(staging, { recursive: true, force: true });
+    cleanupStaging();
     throw err;
   }
   // The old plug-in is moved aside, not deleted, until the new one is in its place: if the swap fails, it comes back.
   const hadOld = existsSync(dest);
   try {
-    if (hadOld) renameSync(dest, aside);
+    if (hadOld) {
+      renameSync(dest, aside);
+      cleanupAside = cleanupPath(aside, { recursive: true, force: true });
+    }
     renameSync(staging, dest);
   } catch (err) {
-    rmSync(staging, { recursive: true, force: true });
+    cleanupStaging();
     if (hadOld && !existsSync(dest) && existsSync(aside)) renameSync(aside, dest);
     throw err;
   }
-  rmSync(aside, { recursive: true, force: true });
+  cleanupAside();
   if (newlyTrusted) {
     mkdirSync(pluginsDir(dataDir), { recursive: true });
     updateJsonStateSync<Record<string, string>>(trustedPath(dataDir), {}, (latest) => ({ ...latest, ...newlyTrusted }), { mode: 0o600 });
@@ -234,13 +239,14 @@ export function installPackage(dataDir: string, bytes: Uint8Array, opts: Install
 }
 
 /** Throws when a package-installed plug-in's files are not the ones installed (a plug-in put there by hand has no record). */
-export function checkInstalled(dir: string): InstallRecord | undefined {
+export function checkInstalled(dir: string, loaded: ReadonlyMap<string, Uint8Array> = new Map()): InstallRecord | undefined {
   const file = join(dir, INSTALL);
   if (!existsSync(file)) return undefined;
   const record = readJsonFile(file) as InstallRecord;
   for (const [name, want] of Object.entries(record.files)) {
+    if (!name || name.startsWith('.') || /[\\/]/.test(name)) throw new Error('Invalid installed plug-in file name');
     const path = join(dir, name);
-    if (!existsSync(path) || sha256(readFileSync(path)) !== want) throw new Error(`${name} has changed since ${record.id} was installed from its package`);
+    if (!existsSync(path) || sha256(loaded.get(name) ?? readFileSync(path)) !== want) throw new Error(`${name} has changed since ${record.id} was installed from its package`);
   }
   return record;
 }

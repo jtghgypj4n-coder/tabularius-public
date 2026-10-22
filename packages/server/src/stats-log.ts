@@ -20,7 +20,8 @@
 //
 // Off with `statsInterval: 0`; `serve --stats-interval 30s` changes the minute.
 
-import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, statSync } from 'node:fs';
+import { appendFileSync, readFileSync, renameSync } from '../../store/src/fs-boundary.ts';
 import { join } from 'node:path';
 import type { FinishedCall, Metrics } from './metrics.ts';
 import { DEFAULT_LOG_LIMIT, logTime, redactPath } from './server-logs.ts';

@@ -7,7 +7,7 @@ missing from it. `npm run docs:known-differences` rewrites it, and a test fails 
 marker (`<!-- known-difference: area ;; what ;; how it shows ;; what would settle it -->`). Internal working notes are not
 part of it.
 
-**78 entries in 17 areas.** Waiting on: 21 on a sample file, 45 on a FileMaker run or Design Report, 10 on a Claris answer, 15 on a decision by the owner (an entry can wait on more than one).
+**79 entries in 18 areas.** Waiting on: 21 on a sample file, 45 on a FileMaker run or Design Report, 10 on a Claris answer, 15 on a decision by the owner (an entry can wait on more than one).
 
 ## Data API
 
@@ -26,6 +26,12 @@ part of it.
 | What differs or is unknown | How it shows | What would settle it | Where it is written |
 | --- | --- | --- | --- |
 | YearName is not implemented because its exact output (Japanese era names) could not be read from the Claris page, and negative or fractional times, ambiguous locale-dependent text parsing and mixed text coercions follow Tabularius choices that the Claris pages do not define | A calculation using YearName returns an error, and one that builds a time outside a clock day or parses ambiguous date text may give a different answer from FileMaker | A readable Claris YearName reference or a FileMaker run of YearName, out-of-range times and ambiguous date text | [docs/audits/r25-22-date-time-functions.md](audits/r25-22-date-time-functions.md) — “(the whole page)” |
+
+## File system races
+
+| What differs or is unknown | How it shows | What would settle it | Where it is written |
+| --- | --- | --- | --- |
+| The behaviour under failed or racing file operations is tested only on a local macOS run with injected failures; Linux and Windows behaviour and every other file system or platform error is unverified, and no Claris behaviour is claimed | On another platform or file system a failed write, rename or link may leave a different state than the tests show | A run of the same failure-injection tests on Linux and Windows | [docs/audits/r25-11-filesystem-races.md](audits/r25-11-filesystem-races.md) — “(the whole page)” |
 
 ## MBS plug-in functions
 
