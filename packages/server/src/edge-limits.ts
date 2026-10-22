@@ -6,6 +6,7 @@ import type { BlockList, Socket } from 'node:net';
 import { performance } from 'node:perf_hooks';
 import { closeUnreadBody, continueOnRead } from './request-body.ts';
 import { forwardedFor, trustedProxyPeer, type ProxyHeader } from './client-address.ts';
+import { requestClosesConnection, validHttpRequest } from './http-framing.ts';
 
 export const EDGE_LIMITS = Object.freeze({
   headerBytes: 16 * 1024,
@@ -53,15 +54,15 @@ export function createEdgeServer(
   };
   const proxied = (socket: Socket) => !!proxy.proxyHeader && trustedProxyPeer(socket, proxy.trustedProxies);
   type Pending = { req: IncomingMessage; res: ServerResponse; last: boolean };
-  type Connection = { accepted: number; queue: Pending[]; active?: ServerResponse };
+  type Connection = { accepted: number; queue: Pending[]; active?: ServerResponse; activeReq?: IncomingMessage; failed?: boolean };
   const connections = new WeakMap<Socket, Connection>();
   const run = (state: Connection, { req, res, last }: Pending) => {
-    if (req.socket.destroyed || res.destroyed) return;
-    state.active = res;
+    if (state.failed || req.socket.destroyed || res.destroyed) return;
+    state.active = res; state.activeReq = req;
     closeUnreadBody(req, res);
     // Node's maxRequestsPerSocket emits 503 for already-pipelined surplus requests. Instead finish
     // the last accepted response and close normally; no later operation is dispatched or committed.
-    if (last) {
+    if (last || requestClosesConnection(req)) {
       const writeHead = res.writeHead;
       res.writeHead = function (this: ServerResponse, ...args: Parameters<ServerResponse['writeHead']>) {
         const values: unknown[] = [...args];
@@ -79,19 +80,29 @@ export function createEdgeServer(
         this.removeHeader('keep-alive');
         this.setHeader('connection', 'close');
         this.shouldKeepAlive = false;
+        state.failed = true;
+        state.queue.length = 0;
         return writeHead.apply(this, values as Parameters<ServerResponse['writeHead']>);
       } as ServerResponse['writeHead'];
     }
     const release = () => {
       if (state.active === res) state.active = undefined;
-      if (res.shouldKeepAlive && !req.socket.destroyed && !res.destroyed) {
+      // Node can close after a response while shouldKeepAlive is still true (HTTP/1.0 without a length, or a route that
+      // set Connection: close itself); a pipelined request must not run once the response has decided to close.
+      const closing = (res as ServerResponse & { _last?: boolean })._last === true || !req.socket.writable
+        || /(?:^|[\s,])close(?:$|[\s,])/i.test(String(res.getHeader('connection') ?? ''));
+      if (!state.failed && !closing && res.shouldKeepAlive && !req.socket.destroyed && !res.destroyed) {
         const next = state.queue.shift();
         if (next) run(state, next);
-      } else state.queue.length = 0;
+      } else { state.failed = true; state.queue.length = 0; }
     };
     res.once('finish', release);
     res.once('close', () => { if (!res.writableFinished) state.queue.length = 0; });
-    const refuse = (status: number) => res.writeHead(status, { connection: 'close', 'content-length': '0' }).end();
+    const refuse = (status: number) => {
+      state.failed = true;
+      state.queue.length = 0;
+      res.writeHead(status, { connection: 'close', 'content-length': '0' }).end();
+    };
     // Proxy connections can serve different visitors over time. Count their current visitor only
     // while its response is outstanding, and never put all proxy connections in one peer bucket.
     if (proxied(req.socket)) {
@@ -108,8 +119,11 @@ export function createEdgeServer(
     if (headerBytes > limits.headerBytes) { refuse(431); return; }
     const lineBytes = Buffer.byteLength(`${req.method} ${req.url} HTTP/${req.httpVersion}\r\n`, 'latin1');
     if (lineBytes > limits.requestLineBytes) { refuse(414); return; }
+    if (!validHttpRequest(req)) { refuse(400); return; }
     if (req.headers['content-encoding'] && req.headers['content-encoding'].trim().toLowerCase() !== 'identity') { refuse(415); return; }
-    if (req.headers.expect?.toLowerCase() === '100-continue') continueOnRead(req, res);
+    if (req.headers.expect !== undefined && req.headers.expect.toLowerCase() !== '100-continue') { refuse(417); return; }
+    // RFC 9110 section 10.1.1: an HTTP/1.0 recipient ignores the expectation (no interim response exists there).
+    if (req.headers.expect?.toLowerCase() === '100-continue' && req.httpVersion !== '1.0') continueOnRead(req, res);
     // Observe wire progress without attaching a data listener (which would consume before auth).
     if (!req.complete) {
       let bytes = req.socket.bytesRead;
@@ -144,13 +158,14 @@ export function createEdgeServer(
     catch { failed(); }
   };
   const dispatch = (req: IncomingMessage, res: ServerResponse) => {
-    if (req.socket.destroyed || res.destroyed) return;
+    if (failedSockets.has(req.socket) || req.socket.destroyed || res.destroyed) return;
     let state = connections.get(req.socket);
     if (!state) {
       state = { accepted: 0, queue: [] };
       connections.set(req.socket, state);
       req.socket.once('close', () => { state!.queue.length = 0; });
     }
+    if (state.failed || (state.active?.writableFinished && !state.active.shouldKeepAlive)) return;
     if (state.accepted >= limits.requestsPerSocket) {
       // Do not let an open stream accumulate unlimited surplus HTTP response objects. Earlier
       // accepted bodies have already been framed before this pipelined request can arrive.
@@ -159,10 +174,14 @@ export function createEdgeServer(
     }
     const pending = { req, res, last: ++state.accepted === limits.requestsPerSocket };
     // Bound queued application work by the socket's request budget; Node orders the wire responses.
-    if (state.active && !state.active.writableFinished) state.queue.push(pending);
+    if (state.active) state.queue.push(pending);
     else run(state, pending);
   };
   const httpOptions = {
+    // Do not inherit --insecure-http-parser from the process command line.
+    insecureHTTPParser: false,
+    // Validate Host in dispatch, so a missing Host also stops already-parsed pipeline work.
+    requireHostHeader: false,
     maxHeaderSize: limits.headerBytes + limits.requestLineBytes, headersTimeout: limits.headersMs,
     requestTimeout: 0, connectionsCheckingInterval: limits.checkMs,
     keepAliveTimeout: limits.idleMs,
@@ -174,25 +193,37 @@ export function createEdgeServer(
   // Newer Node versions add a default grace period; keep this public limit exact across supported Node 22s.
   (server as Server & { keepAliveTimeoutBuffer: number }).keepAliveTimeoutBuffer = 0;
   server.on('checkContinue', dispatch);
-  server.on('checkExpectation', (req, res) => {
-    closeUnreadBody(req, res);
-    res.writeHead(417, { connection: 'close', 'content-length': '0' }).end();
-  });
+  server.on('checkExpectation', dispatch);
   const unsupported = (_req: IncomingMessage, socket: Socket) => {
-    socket.end('HTTP/1.1 400 Bad Request\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
-    socket.setTimeout(limits.idleMs, () => socket.destroy());
+    protocolError(Object.assign(new Error('Unsupported HTTP protocol'), { code: 'HPE_INVALID_PROTOCOL' }), socket);
   };
   server.on('upgrade', unsupported);
   server.on('connect', unsupported);
-  server.on('clientError', (error: NodeJS.ErrnoException, socket: Socket) => {
+  const failedSockets = new WeakSet<Socket>();
+  const protocolError = (error: NodeJS.ErrnoException, socket: Socket) => {
+    const state = connections.get(socket);
+    if (failedSockets.has(socket)) return;
+    failedSockets.add(socket);
+    if (state) { state.failed = true; state.queue.length = 0; }
     // A socket destroyed with an application error may carry a numeric code; only a string is a Node parser code.
     const code = typeof error.code === 'string' ? error.code : '';
     const status = code === 'HPE_HEADER_OVERFLOW' ? '431 Request Header Fields Too Large'
       : code === 'ERR_HTTP_REQUEST_TIMEOUT' ? '408 Request Timeout'
       : code.startsWith('HPE_') ? '400 Bad Request' : undefined;
-    if (!status || !socket.writable || connections.get(socket)?.active?.headersSent) { socket.destroy(); return; }
+    const active = state?.active;
+    if (active && !active.writableFinished && !active.destroyed && state?.activeReq?.complete) {
+      // A request that arrived whole is still being answered, so the error belongs to bytes after it. Writing a status line now would be read as its response, so let it
+      // finish (no further request is dispatched) and close the connection behind it.
+      if (!active.headersSent) active.setHeader('connection', 'close');
+      active.shouldKeepAlive = false;
+      // Headers already sent cannot be amended, so close the connection behind the finished response ourselves.
+      active.once('finish', () => socket.end());
+      return;
+    }
+    if (!status || !socket.writable || active?.headersSent) { socket.destroy(); return; }
     socket.end(`HTTP/1.1 ${status}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`, () => socket.destroy());
-  });
+  };
+  server.on('clientError', protocolError);
   let total = 0;
   const admit = (socket: Socket) => {
     if (socket.destroyed) return;
