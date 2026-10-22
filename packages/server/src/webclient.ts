@@ -51,6 +51,7 @@ import { recordHistory } from './record-history.ts';
 import { ApiError, badPathError, multipartText, multipartUpload, readBody, readJson, recordJson, sessionPrivileges, type DataApi, type Session } from './dataapi.ts';
 import { FAULT_MESSAGE, isFault, logFault } from './fault-log.ts';
 import type { Host } from './host.ts';
+import { requestHostName } from './public-origin.ts';
 import { sendError } from './pages.ts';
 import { loadAsset, sendAsset, type Asset } from './static-cache.ts';
 import { Derived, WebBuild, staticImports, versionPage, versionScript } from './web-build.ts';
@@ -404,7 +405,7 @@ export class WebClient {
         else if (m[3] === 'revert') send(200, this.revert(store, session, layout, body, privileges));
         else send(200, await this.button(store, session, layout, body, privileges));
       } else {
-        send(200, m[2] === undefined ? this.menu(store, privileges, session.account) : this.layout(store, decodeURIComponent(m[2]), privileges, session));
+        send(200, m[2] === undefined ? this.menu(store, privileges, session.account) : this.layout(store, decodeURIComponent(m[2]), privileges, session, requestHostName(req)));
       }
     } catch (e) {
       captureDenial(e);
@@ -561,7 +562,7 @@ export class WebClient {
       // Web viewers draw a solution's HTML in frames; a frame can't navigate itself out to the network.
       // No other site may frame the app (clickjacking).
       // frame-src also names the https hosts an administrator let web viewers load (any file's; the client frames only its own file's).
-      ...(ext === '.html' ? { 'x-frame-options': 'DENY', 'content-security-policy': `frame-src 'self' about: data: blob:${this.host.webViewerHostsAll().map((h) => ` https://${h}`).join('')}; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'` } : {}),
+      ...(ext === '.html' ? { 'x-frame-options': 'DENY', 'content-security-policy': `frame-src 'self' about: data: blob:${this.host.webViewerHostsAll([requestHostName(req)]).map((h) => ` https://${h}`).join('')}; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'` } : {}),
     }, asset);
   }
 
@@ -748,7 +749,7 @@ export class WebClient {
     };
   }
 
-  private layout(store: Store, name: string, privileges: Privileges, session: Session) {
+  private layout(store: Store, name: string, privileges: Privileges, session: Session, host = '') {
     const info = store.layout(name);
     const design = info.layoutId !== undefined ? store.design(info.layoutId) : undefined;
     if (!design) throw new ApiError(105, `Layout "${name}" has no design`, 404);
@@ -805,7 +806,7 @@ export class WebClient {
       fileMode: store.fileMode,
       scriptNetwork: this.host.scriptNetworkOn(store.name),
       // The https hosts this file's web viewers may load (the page's frame policy has them too).
-      webViewerHosts: this.host.webViewerHostsOf(store).hosts,
+      webViewerHosts: this.host.webViewerHostsOf(store, [host]).hosts,
       design: this.resolveDesign(store, design),
       // The width below which a layout with no breakpoint of its own stacks in one column (0: never).
       stackBelowDefault: this.host.config.responsiveStackBelow(),

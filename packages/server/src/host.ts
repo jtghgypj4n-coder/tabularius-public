@@ -291,12 +291,12 @@ export class Host {
     return { hosts, ignored };
   }
 
-  /** Every web host any hosted file lets its web viewers load, for the web app's frame policy (each file's own list still decides what its viewers load). */
-  webViewerHostsAll(): string[] {
+  /** Every web host any hosted file lets its web viewers load, for the web app's frame policy (each file's own list still decides what its viewers load). `extra` are names to leave out besides the server's own, such as the one the page was asked for by. */
+  webViewerHostsAll(extra: readonly string[] = []): string[] {
     // Bounded by count and by size, so the policy header stays well under what proxies accept; a host past the bound is simply not framed.
     const out: string[] = [];
     let bytes = 0;
-    for (const h of [...new Set([...this.stores.values()].flatMap((s) => this.webViewerHostsOf(s).hosts))].sort()) {
+    for (const h of [...new Set([...this.stores.values()].flatMap((s) => this.webViewerHostsOf(s, extra).hosts))].sort()) {
       bytes += h.length + 10;
       if (out.length >= WEB_VIEWER_HOSTS_ALL_MAX || bytes > WEB_VIEWER_HOSTS_ALL_BYTES) break;
       out.push(h);
