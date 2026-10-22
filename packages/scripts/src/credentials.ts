@@ -38,7 +38,7 @@ export const isCredentialParameterName = (name: string): boolean => isCredential
 /** Patterns that are a credential wherever they appear, and what to call them. */
 const PATTERNS: [RegExp, string][] = [
   [/\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/, 'an AWS access key'],
-  [/\b[a-z][a-z0-9+.-]*:\/\/[^\s/:@"$]+:[^\s/@"$]+@/i, 'a user name and password in a web address'],
+  [/[a-z][a-z0-9+.-]{0,31}:\/\/[^\s/:@"$]+:[^\s/@"$]+@/i, 'a user name and password in a web address'],
   [/(?:--user|\s-u)\s+"?[^\s"$&]+:[^\s"$&]+/, 'a user name and password in cURL options'],
   [/\bBearer\s+[A-Za-z0-9._~+/=-]{20,}/, 'a bearer token'],
   [/-----BEGIN [A-Z ]*PRIVATE KEY-----/, 'a private key'],
@@ -87,8 +87,31 @@ export function scriptsWithCredentials(scripts: readonly Pick<Script, 'name' | '
   return found;
 }
 
-const EMAIL = /[^\s"“”'<>()[\];,:]+@[^\s"“”'<>()[\];,:]+\.[A-Za-z]{2,}/g;
-const URL_TEXT = /\b[a-z][a-z0-9+.-]*:\/\/[^\s"“”]+|\bwww\.[^\s"“”]+/gi;
+const EMAIL_WORD = /[^\s"“”'<>()[\];,:]+/g;
+const isLetter = (c: string | undefined) => c !== undefined && /[A-Za-z]/.test(c);
+
+/**
+ * Email addresses become ‹email›. An address is made of the characters of one word (no space, quote, bracket, comma,
+ * semicolon or colon): the last "@" in it that a domain follows, with a dot and a top-level name of two letters or more
+ * at its end. Found word by word, one scan of each word: a pattern for it backtracks over every "@" of a long run.
+ */
+export function maskEmails(text: string): string {
+  return text.replace(EMAIL_WORD, (word) => {
+    if (!word.includes('@')) return word;
+    let dot = word.length - 3;
+    while (dot >= 0 && !(word[dot] === '.' && isLetter(word[dot + 1]) && isLetter(word[dot + 2]))) dot--;
+    // The domain has a character before the dot, and the name something before its "@".
+    const at = dot < 3 ? -1 : word.lastIndexOf('@', dot - 2);
+    if (at < 1) return word;
+    let end = dot + 3;
+    while (isLetter(word[end])) end++;
+    return `‹email›${word.slice(end)}`;
+  });
+}
+/** A scheme is short (at most 32 characters, the last 32 of a longer run), which keeps a long run of letters and dots from being tried at every dot. */
+const URL_TEXT = /[a-z][a-z0-9+.-]{0,31}:\/\/[^\s"“”]+|\bwww\.[^\s"“”]+/gi;
+/** Text beyond this many characters is not shown in a masked report: masking is for what a person reads. */
+const MASK_CHARS = 200_000;
 /** Where a path ends in a step or message: a quote, a step's ; or ], a list's ¶, a new line. */
 const PATH_END = String.raw`[^"“”;\]\n\r¶]*`;
 /**
@@ -104,9 +127,9 @@ const ABSOLUTE_PATH = new RegExp(String.raw`(?<![\w.:\/\\])(?:\/(?:Users|Volumes
  * web addresses, file paths and credentials in it are masked; names stay.
  */
 export function maskSensitive(text: string): string {
-  let out = text;
+  let out = text.length > MASK_CHARS ? `${text.slice(0, MASK_CHARS)}…` : text;
   for (const [re] of PATTERNS) out = out.replace(new RegExp(re.source, re.flags.includes('g') ? re.flags : `${re.flags}g`), '‹secret›');
-  return out.replace(URL_TEXT, '‹url›').replace(FILE_REF, '$1:‹path›').replace(ABSOLUTE_PATH, '‹path›').replace(EMAIL, '‹email›');
+  return maskEmails(out.replace(URL_TEXT, '‹url›').replace(FILE_REF, '$1:‹path›').replace(ABSOLUTE_PATH, '‹path›'));
 }
 
 /**
@@ -128,11 +151,40 @@ export function maskFormula(formula: string): string {
   return maskLiterals(formula).replace(/\/\*[\s\S]*?(?:\*\/|$)/g, '/* … */').replace(/\/\/[^\r\n]*/g, '// …');
 }
 
+/**
+ * "…" literals become "…" (a "" inside one is an escaped quote, a backslash escapes the next character), except one
+ * character, or up to three with no letters, which tell how a script works. A quote that is never closed stays as it is,
+ * with what follows it up to where the literal gave up (the end, or a backslash before a line break): one scan, not
+ * one per quote mark.
+ */
+export function maskQuoted(text: string): string {
+  const keep = (m: string) => (/^"(?:[^"\\]|[^\p{L}"\\]{0,3})"$/u.test(m) ? m : '"…"');
+  let out = '';
+  let at = 0;
+  for (let i = text.indexOf('"'); i >= 0; i = text.indexOf('"', at)) {
+    let end = -1; // where the literal ends: the quote that closes it
+    let pair = -1; // else where it ends if a "" inside it is its end and a quote after it
+    let stop = text.length; // where a literal that doesn't close gives up
+    for (let j = i + 1; j < text.length; j++) {
+      const c = text[j];
+      if (c === '\\') {
+        if (j + 1 >= text.length || /[\n\r\u2028\u2029]/.test(text[j + 1])) { stop = j + 1; break; }
+        j++;
+      } else if (c === '"') {
+        if (text[j + 1] === '"') { pair = j + 1; j++; } else { end = j + 1; break; }
+      }
+    }
+    if (end < 0) end = pair;
+    out += text.slice(at, i);
+    if (end >= 0) { out += keep(text.slice(i, end)); at = end; } else { out += text.slice(i, stop); at = stop; }
+  }
+  return out + text.slice(at);
+}
+
 function maskLiterals(text: string): string {
-  return maskSensitive(text)
-    // "…" literals (a "" inside one is an escaped quote), except one character, or up to three with no letters
-    // ("-5", "¶", "<:"), which tell how a script works; “…” names a script, layout or file and stays…
-    .replace(/"(?:[^"\\]|\\.|"")*"/g, (m) => (/^"(?:[^"\\]|[^\p{L}"\\]{0,3})"$/u.test(m) ? m : '"…"'))
+  return maskQuoted(maskSensitive(text))
+    // "…" literals, except one character, or up to three with no letters ("-5", "¶", "<:"), which tell how a script
+    // works (see maskQuoted); “…” names a script, layout or file and stays…
     // …except a stored find's criteria, which print as TO::Field: “criteria”.
     .replace(/(::[^“”"[\];\n]*?: )“[^”]*”/g, '$1“…”')
     // Numbers of five or more digits outside names: record ids, quote and phone numbers.
