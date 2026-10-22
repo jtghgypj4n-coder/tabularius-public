@@ -10,6 +10,7 @@ import { expiryClock } from './clock.ts';
 import { crashPoint } from './crash-point.ts';
 import { atomicWrite, syncPath } from './durable.ts';
 import { ensureCacheVersions, ensureContainerVersions } from './cache-versions.ts';
+import { containerBackupInProgress, holdContainerBackup } from './container-backup-lease.ts';
 import { PreparedCache } from './preparation.ts';
 import { rethrowExecutionRefusal } from '../../calc/src/execution-refusal.ts';
 import { SQL_DATE_FUNCTIONS, placeholders, oneStatement } from './sql-dates.ts';
@@ -17,7 +18,7 @@ import { DatabaseSync, backup, type Session, type StatementSync, type SQLInputVa
 import { createHash, createHmac, pbkdf2Sync, scrypt, scryptSync, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { isIP } from 'node:net';
 import { basename, dirname, extname, join, relative, resolve, isAbsolute } from 'node:path';
-import { closeSync, constants as fsConstants, existsSync, mkdirSync, readSync, rmSync, statSync } from 'node:fs';
+import { closeSync, constants as fsConstants, copyFileSync, existsSync, linkSync, mkdirSync, readSync, rmSync, statSync } from 'node:fs';
 import { checkedFile, cleanupPath, openSync, readFileSync, writeFileSync, writeSync } from './fs-boundary.ts';
 import { externalFieldNames, parseDate, parseTime, parseTimestamp, type DateStyle, type Field, type FieldType, type LayoutDesign, type LayoutDesigns, type LayoutObject, type Schema, type Table } from '../../fmp12/src/index.ts';
 import { findWhere, registerFindFunctions, beginFindBudget, FindError, type RelatedCriteria, type FieldInfo, type FindRequest, type SqlValue, type WordIndex } from './find.ts';
@@ -1153,6 +1154,12 @@ export class Store {
     if (!(this.sql.prepare('PRAGMA table_info(_fm_containers)').all() as { name: string }[]).some((c) => c.name === 'stored')) {
       this.sql.exec('ALTER TABLE _fm_containers ADD COLUMN stored INTEGER');
     }
+    // New embedded uploads can share a container id when their bytes and display
+    // metadata agree. Legacy rows keep their ids; no migration reads their bytes.
+    if (!(this.sql.prepare('PRAGMA table_info(_fm_containers)').all() as { name: string }[]).some((c) => c.name === 'sha256')) {
+      this.sql.exec('ALTER TABLE _fm_containers ADD COLUMN sha256 TEXT');
+    }
+    this.sql.exec('CREATE INDEX IF NOT EXISTS _fm_containers_hash ON _fm_containers (sha256, mime, filename) WHERE external IS NULL AND sha256 IS NOT NULL');
     this.externalRoots = externalRoots(dirname(path), name, this.schema?.containerDirectories?.map((d) => d.path) ?? []);
     this.externalDirectoryLinks = existingDirectoryLinks(this.externalRoots);
     if (existsSync(this.path + '.containers-out.json')) {
@@ -1521,6 +1528,70 @@ export class Store {
       }
     }
     check();
+  }
+
+  /** Save a single-file copy: materialize every external container in the copied database. */
+  async selfContainedCopy(dest: string): Promise<void> {
+    const release = holdContainerBackup(dirname(this.path));
+    const temp = `${dest}.copy-${randomUUID()}.tmp`;
+    let copy: DatabaseSync | undefined;
+    try {
+      await backup(this.sql, temp);
+      copy = new DatabaseSync(temp);
+      // No -wal beside the published copy: everything must be in the main file.
+      copy.exec('PRAGMA journal_mode = DELETE');
+      copy.exec('BEGIN IMMEDIATE');
+      const rows = copy.prepare('SELECT id, external, external_size FROM _fm_containers WHERE external IS NOT NULL').all() as
+        { id: number | bigint; external: string; external_size: number | bigint | null }[];
+      const small = copy.prepare('UPDATE _fm_containers SET data = ?, external = NULL, external_size = NULL WHERE id = ?');
+      const large = copy.prepare("UPDATE _fm_containers SET data = x'', external = NULL, external_size = NULL WHERE id = ?");
+      const piece = copy.prepare('INSERT INTO _fm_container_chunks (id, n, data) VALUES (?, ?, ?)');
+      for (const row of rows) {
+        const at = this.externalFile(row.external);
+        if (!at) throw new StoreError(500, 'A container file is missing; the copy was not saved');
+        const size = fileSize(at);
+        if (size === undefined || (row.external_size !== null && size !== Number(row.external_size))) {
+          throw new StoreError(500, 'A container file changed; the copy was not saved');
+        }
+        const id = Number(row.id);
+        if (size <= CONTAINER_CHUNK) { small.run(readFileSync(at), id); continue; }
+        large.run(id);
+        const fd = openSync(at, 'r');
+        try {
+          for (let n = 0, offset = 0; offset < size; n++, offset += CONTAINER_CHUNK) {
+            const bytes = Buffer.allocUnsafe(Math.min(CONTAINER_CHUNK, size - offset));
+            let got = 0;
+            while (got < bytes.length) {
+              const read = readSync(fd, bytes, got, bytes.length - got, offset + got);
+              if (!read) throw new StoreError(500, 'A container file ended early; the copy was not saved');
+              got += read;
+            }
+            piece.run(id, n, bytes);
+          }
+        } finally { closeSync(fd); }
+      }
+      copy.exec('COMMIT');
+      copy.close();
+      copy = undefined;
+      // Publish only a complete copy. An exclusive link also refuses a target
+      // another writer created after the script checked its name.
+      try { linkSync(temp, dest); } catch (error) {
+        // Some file systems (FAT, some network shares) cannot hard-link; an exclusive copy keeps the same guarantee.
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code !== 'EPERM' && code !== 'ENOTSUP' && code !== 'EOPNOTSUPP' && code !== 'ENOSYS' && code !== 'EXDEV') throw error;
+        try { copyFileSync(temp, dest, fsConstants.COPYFILE_EXCL); } catch (copyError) {
+          if ((copyError as NodeJS.ErrnoException).code !== 'EEXIST') rmSync(dest, { force: true });
+          throw copyError;
+        }
+      }
+    } catch (error) {
+      if (copy?.isTransaction) copy.exec('ROLLBACK');
+      copy?.close();
+      throw error;
+    } finally {
+      for (const suffix of ['', '-wal', '-shm']) rmSync(temp + suffix, { force: true });
+      release();
+    }
   }
 
   // --- several users -------------------------------------------------------
@@ -6797,15 +6868,23 @@ export class Store {
     return out;
   }
 
-  /** Container rows no record field points to, including their external path when they have one. */
-  orphanContainerReport(): { count: number; containers: { id: number; filename: string | null; external: string | null; size: number }[] } {
-    const referenced = new Set<number>();
+  /** Rebuild references from records and all retained undo sources each time; no crash-prone counter is persisted. */
+  private containerReferences(): Map<number, number> {
+    const referenced = new Map<number, number>();
     const add = (value: unknown) => {
       const values = typeof value === 'string' && value.startsWith('[') ? (() => { try { return JSON.parse(value) as unknown[]; } catch { return []; } })() : [value];
       for (const id of values) {
         const n = typeof id === 'number' || typeof id === 'bigint' ? Number(id) : typeof id === 'string' && /^\d+$/.test(id) ? Number(id) : NaN;
-        if (Number.isSafeInteger(n) && n > 0) referenced.add(n);
+        if (Number.isSafeInteger(n) && n > 0) referenced.set(n, (referenced.get(n) ?? 0) + 1);
       }
+    };
+    // Undo sources can name a table or field that is now in design trash, so the
+    // current schema cannot say whether it was a container. Keep what it holds.
+    const retains = (tableName: string | undefined, fieldName: string | undefined): boolean => {
+      const table = this.schema?.tables.find((t) => t.name.toLowerCase() === tableName?.toLowerCase());
+      if (!table) return true;
+      const field = table.fields.find((f) => f.name.toLowerCase() === fieldName?.replace(/\(\d+\)$/, '').toLowerCase());
+      return !field || field.type === 'container';
     };
     for (const table of this.schema?.tables ?? []) {
       for (const field of table.fields.filter((f) => f.type === 'container')) {
@@ -6855,9 +6934,7 @@ export class Store {
         let changes: { table?: string; field?: string; before?: unknown; after?: unknown }[];
         try { changes = JSON.parse(batch.undo) as typeof changes; } catch { continue; }
         for (const change of changes) {
-          const field = this.schema?.tables.find((t) => t.name.toLowerCase() === change.table?.toLowerCase())?.fields
-            .find((f) => f.name.toLowerCase() === change.field?.toLowerCase());
-          if (field?.type === 'container') { add(change.before); add(change.after); }
+          if (retains(change.table, change.field)) { add(change.before); add(change.after); }
         }
       }
     }
@@ -6865,15 +6942,10 @@ export class Store {
     // restoreRecord and duplicate-merge undo can put the original pointer back.
     const history = this.sql.prepare("SELECT tbl, kind, changes FROM _fm_audit WHERE security = 0 AND changes IS NOT NULL AND kind IN ('create', 'update', 'delete')").all() as { tbl: string; kind: string; changes: string }[];
     for (const entry of history) {
-      const table = this.schema?.tables.find((t) => t.name.toLowerCase() === entry.tbl.toLowerCase());
-      if (!table) continue;
-      const fields = new Set(table.fields.filter((f) => f.type === 'container').map((f) => f.name.toLowerCase()));
-      if (!fields.size) continue;
       let changes: Record<string, unknown>;
       try { changes = JSON.parse(entry.changes) as Record<string, unknown>; } catch { continue; }
       for (const [key, value] of Object.entries(changes)) {
-        const field = key.replace(/\(\d+\)$/, '').toLowerCase();
-        if (!fields.has(field)) continue;
+        if (!retains(entry.tbl, key)) continue;
         if (entry.kind === 'update' && Array.isArray(value)) for (const side of value) add(side);
         else add(value);
       }
@@ -6887,21 +6959,24 @@ export class Store {
         let ops: { op?: string; table?: string; field?: string; before?: unknown; after?: unknown; row?: Record<string, unknown>; values?: Record<string, unknown> }[];
         try { ops = JSON.parse(batch.undo) as typeof ops; } catch { continue; }
         for (const op of ops) {
-          const table = this.schema?.tables.find((t) => t.name.toLowerCase() === op.table?.toLowerCase());
-          if (!table) continue;
-          const fields = new Set(table.fields.filter((f) => f.type === 'container').map((f) => f.name.toLowerCase()));
-          if (op.op === 'set' && op.field && fields.has(op.field.toLowerCase())) {
+          if (op.op === 'set' && op.field && retains(op.table, op.field)) {
             add(op.before);
             add(op.after);
           }
           for (const row of [op.row, op.values]) if (row) {
-            for (const [field, value] of Object.entries(row)) if (fields.has(field.toLowerCase())) add(value);
+            for (const [field, value] of Object.entries(row)) if (retains(op.table, field)) add(value);
           }
         }
       }
     }
+    return referenced;
+  }
+
+  /** Container rows no record field or retained undo source points to. */
+  orphanContainerReport(): { count: number; containers: { id: number; filename: string | null; external: string | null; size: number }[] } {
+    const referenced = this.containerReferences();
     const rows = this.sql.prepare(`SELECT c.id, c.filename, c.external,
-      coalesce(c.external_size, length(c.data), (SELECT sum(length(data)) FROM _fm_container_chunks WHERE id = c.id), 0) AS size
+      coalesce(c.external_size, length(c.data) + coalesce((SELECT sum(length(data)) FROM _fm_container_chunks WHERE id = c.id), 0), 0) AS size
       FROM _fm_containers c ORDER BY c.id`).all() as { id: number | bigint; filename: string | null; external: string | null; size: number | bigint }[];
     const containers = rows.filter((row) => !referenced.has(Number(row.id))).map((row) => ({
       id: Number(row.id), filename: row.filename, external: row.external, size: Number(row.size),
@@ -6909,31 +6984,58 @@ export class Store {
     return { count: containers.length, containers };
   }
 
+  /** Aggregate storage integrity without exposing filenames or record values. */
+  containerIntegrityReport(): { referenced: number; shared: number; orphans: number; missingRows: number; missingExternal: number; changedExternal: number; danglingChunks: number } {
+    const references = this.containerReferences();
+    const rows = this.sql.prepare('SELECT id, external, external_size FROM _fm_containers').all() as
+      { id: number | bigint; external: string | null; external_size: number | bigint | null }[];
+    const present = new Set(rows.map((row) => Number(row.id)));
+    let missingExternal = 0;
+    let changedExternal = 0;
+    for (const row of rows) {
+      if (!row.external || !references.has(Number(row.id))) continue;
+      const at = this.externalFile(row.external);
+      if (!at) missingExternal++;
+      else if (row.external_size !== null && fileSize(at) !== Number(row.external_size)) changedExternal++;
+    }
+    const danglingChunks = Number((this.sql.prepare('SELECT count(*) AS n FROM _fm_container_chunks AS p WHERE NOT EXISTS (SELECT 1 FROM _fm_containers AS c WHERE c.id = p.id)').get() as { n: number | bigint }).n);
+    return {
+      referenced: [...references.keys()].filter((id) => present.has(id)).length,
+      shared: [...references.values()].filter((count) => count > 1).length,
+      orphans: rows.filter((row) => !references.has(Number(row.id))).length,
+      missingRows: [...references.keys()].filter((id) => !present.has(id)).length,
+      missingExternal, changedExternal, danglingChunks,
+    };
+  }
+
   /** Explicitly removes unreferenced container rows, chunks and safe external files. Default retention is unchanged. */
   purgeOrphanContainers(): { removed: number; bytes: number; externalFiles: number } {
     if (this.heldBy || this.sql.isTransaction) throw new StoreError(301, 'Orphan containers can only be purged with no transaction open');
-    const { containers } = this.orphanContainerReport();
-    if (!containers.length) return { removed: 0, bytes: 0, externalFiles: 0 };
-    const paths = new Set(containers.map((c) => c.external).filter((x): x is string => !!x));
-    // externalFile returns canonical paths, so canonicalize the owning folders too
-    // (e.g. /var and /private/var on macOS). Readable storage mounts outside these
-    // folders are not owned by this file and must not be purged.
-    const ownFolders = [join(dirname(this.path), 'RC_Data_FMS', this.name), join(dirname(this.path), 'Files', this.name)]
-      .map((folder) => safeExistingPath(folder, '.')).filter((folder): folder is string => !!folder);
-    const externalFiles = [...paths].filter((rel) => !(this.sql.prepare('SELECT 1 FROM _fm_containers WHERE external = ? AND id NOT IN (SELECT value FROM json_each(?)) LIMIT 1').get(rel, JSON.stringify(containers.map((c) => c.id)))))
-      .map((rel) => this.externalFile(rel)).filter((path): path is string => !!path)
-      .filter((path) => ownFolders.some((folder) => safeExistingPath(folder, relative(folder, path)) === path));
-    this.sql.exec('SAVEPOINT purge_orphan_containers');
+    if (containerBackupInProgress(dirname(this.path))) throw new StoreError(301, 'Orphan containers cannot be purged while a backup is in progress');
+    // Reserve the writer before scanning. Another connection must not attach a
+    // reference between the scan and the deletion.
+    this.sql.exec('BEGIN IMMEDIATE');
+    let containers: ReturnType<Store['orphanContainerReport']>['containers'];
+    let externalFiles: string[];
     try {
+      containers = this.orphanContainerReport().containers;
+      const paths = new Set(containers.map((c) => c.external).filter((x): x is string => !!x));
+      // Readable operator mounts are not owned by this file and may never be removed.
+      const ownFolders = [join(dirname(this.path), 'RC_Data_FMS', this.name), join(dirname(this.path), 'Files', this.name)]
+        .map((folder) => safeExistingPath(folder, '.')).filter((folder): folder is string => !!folder);
+      externalFiles = [...paths].filter((rel) => !(this.sql.prepare('SELECT 1 FROM _fm_containers WHERE external = ? AND id NOT IN (SELECT value FROM json_each(?)) LIMIT 1').get(rel, JSON.stringify(containers.map((c) => c.id)))))
+        .map((rel) => this.externalFile(rel)).filter((path): path is string => !!path)
+        .filter((path) => ownFolders.some((folder) => safeExistingPath(folder, relative(folder, path)) === path));
       const delChunks = this.sql.prepare('DELETE FROM _fm_container_chunks WHERE id = ?');
       const delContainer = this.sql.prepare('DELETE FROM _fm_containers WHERE id = ?');
       for (const container of containers) {
         delChunks.run(container.id);
         delContainer.run(container.id);
       }
-      this.sql.exec('RELEASE purge_orphan_containers');
+      this.sql.exec('DELETE FROM _fm_container_chunks WHERE NOT EXISTS (SELECT 1 FROM _fm_containers WHERE _fm_containers.id = _fm_container_chunks.id)');
+      this.sql.exec('COMMIT');
     } catch (e) {
-      this.sql.exec('ROLLBACK TO purge_orphan_containers; RELEASE purge_orphan_containers');
+      if (this.sql.isTransaction) this.sql.exec('ROLLBACK');
       throw e;
     }
     for (const path of externalFiles) rmSync(path, { force: true });
@@ -7027,20 +7129,44 @@ export class Store {
     return row?.part ?? new Uint8Array(0);
   }
 
-  /** Stores a container file (in pieces when big) and returns its id. */
-  addContainer(file: ContainerFile): number {
+  /**
+   * Stores a container file (in pieces when big) and returns its id. With a `scope`, identical bytes already
+   * held by that same field are reused; without one the file always gets its own row, so a row is never shared
+   * between fields whose storage settings differ.
+   */
+  addContainer(file: ContainerFile, scope?: { table: string; field: string }): number {
     const kind = file.mime.startsWith('image/') ? 'image' : 'file';
     const stored = Math.floor(Date.now() / 1000);
     const size = containerFileSize(file);
+    // Hash the actual bytes, including a spooled upload's bytes. A caller's
+    // announced digest is useful for resume validation, but is not a storage key.
+    const digest = createHash('sha256');
+    eachContainerPiece(file, (_n, piece) => { digest.update(piece); });
+    const sha256 = digest.digest('hex');
+    const priors = !scope ? [] : this.sql.prepare(`SELECT id FROM _fm_containers WHERE sha256 = ? AND mime = ?
+      AND filename IS ? AND external IS NULL AND
+      (length(data) + coalesce((SELECT sum(length(data)) FROM _fm_container_chunks WHERE id = _fm_containers.id), 0)) = ?
+      ORDER BY id`).all(sha256, file.mime, file.filename, size) as { id: number | bigint }[];
+    const held = scope && priors.length
+      ? this.sql.prepare(`SELECT 1 FROM ${q(scope.table)} WHERE ${q(scope.field)} = ?1
+        OR (typeof(${q(scope.field)}) = 'text' AND ${q(scope.field)} LIKE '[%' AND EXISTS (SELECT 1 FROM json_each(${q(scope.field)}) WHERE value = ?1)) LIMIT 1`)
+      : undefined;
+    for (const prior of priors) {
+      const id = Number(prior.id);
+      if (!held!.get(id)) continue;
+      const actual = createHash('sha256');
+      for (let at = 0; at < size; at += CONTAINER_CHUNK) actual.update(this.containerRange(id, at, Math.min(size, at + CONTAINER_CHUNK) - 1));
+      if (actual.digest('hex') === sha256) return id;
+    }
     if (size <= CONTAINER_CHUNK) {
       let data: Uint8Array | undefined;
       if (spooled(file)) eachContainerPiece(file, (_n, piece) => { data = Buffer.from(piece); });
       else data = file.data;
-      return Number(this.sql.prepare('INSERT INTO _fm_containers (filename, mime, kind, data, stored) VALUES (?, ?, ?, ?, ?)').run(file.filename, file.mime, kind, data ?? new Uint8Array(0), stored).lastInsertRowid);
+      return Number(this.sql.prepare('INSERT INTO _fm_containers (filename, mime, kind, data, stored, sha256) VALUES (?, ?, ?, ?, ?, ?)').run(file.filename, file.mime, kind, data ?? new Uint8Array(0), stored, sha256).lastInsertRowid);
     }
     this.sql.exec('SAVEPOINT add_container');
     try {
-      const id = Number(this.sql.prepare("INSERT INTO _fm_containers (filename, mime, kind, data, stored) VALUES (?, ?, ?, x'', ?)").run(file.filename, file.mime, kind, stored).lastInsertRowid);
+      const id = Number(this.sql.prepare("INSERT INTO _fm_containers (filename, mime, kind, data, stored, sha256) VALUES (?, ?, ?, x'', ?, ?)").run(file.filename, file.mime, kind, stored, sha256).lastInsertRowid);
       const piece = this.sql.prepare('INSERT INTO _fm_container_chunks (id, n, data) VALUES (?, ?, ?)');
       eachContainerPiece(file, (n, bytes) => { piece.run(id, n, bytes); });
       this.sql.exec('RELEASE add_container');
@@ -7057,9 +7183,10 @@ export class Store {
    * Server keeps them), where FileMaker and backups of that folder find it. Undefined for fields stored in the file,
    * and for secure storage, whose files are kept in the database instead (encrypted at rest with it).
    */
-  private addExternalContainer(info: LayoutInfo, recordId: number, field: string, file: ContainerFile): number | undefined {
+  private addExternalContainer(info: LayoutInfo, recordId: number, field: string, file: ContainerFile, created?: string[]): number | undefined {
     const written = this.writeExternalFile(info, recordId, field, file);
     if (!written) return undefined;
+    created?.push(written.full);
     const rel = written.rel;
     const kind = file.mime.startsWith('image/') ? 'image' : 'file';
     return Number(this.sql.prepare("INSERT INTO _fm_containers (filename, mime, kind, data, external, external_size, stored) VALUES (?, ?, ?, x'', ?, ?, ?)")
@@ -7115,12 +7242,16 @@ export class Store {
     const cleanup = cleanupPath(full);
     let complete = false;
     try {
-      if (spooled(file)) eachContainerPiece(file, (_n, piece) => { for (let done = 0; done < piece.length;) done += writeSync(fd, piece, done, piece.length - done); });
+      if (spooled(file)) eachContainerPiece(file, (_n, piece) => { for (let done = 0; done < piece.length;) {
+        const count = writeSync(fd, piece, done, piece.length - done);
+        if (!count) throw new StoreError(500, 'The container file could not be written');
+        done += count;
+      } });
       else writeFileSync(fd, file.data);
       complete = true;
     } finally {
-      closeSync(fd);
-      if (!complete) cleanup();
+      // A close that fails also leaves an incomplete file, so it is removed like a failed write.
+      try { closeSync(fd); } catch (error) { complete = false; throw error; } finally { if (!complete) cleanup(); }
     }
     if (this.heldBy) this.heldFiles.push(cleanup);
     return { rel, full };
@@ -7235,6 +7366,7 @@ export class Store {
    */
   moveContainersIn(ids: number[]): { moved: number; bytes: number; missing: number } {
     if (this.heldBy || this.sql.isTransaction) throw new StoreError(301, 'Container files can only be moved with no transaction open');
+    if (containerBackupInProgress(dirname(this.path))) throw new StoreError(301, 'Container files cannot be moved back into the file while a backup is in progress');
     const copied: string[] = [];
     let bytes = 0;
     let missing = 0;
@@ -7338,23 +7470,38 @@ export class Store {
     this.checkContainerWrite(info, recordId, field, repetition, opts);
     if (info.owner !== this) return info.owner.setContainer(info, recordId, field, repetition, file, opts);
     this.joinTransaction();
-    const current = this.row(info, recordId);
-    const id = file && (this.addExternalContainer(info, recordId, field, file) ?? this.addContainer(file));
-    let value: SqlValue = id;
-    if (repetition > 1 || (this.repeating[info.table] ?? []).includes(field)) {
-      const cur = current[field];
-      const arr: SqlValue[] = typeof cur === 'string' && cur.startsWith('[') ? JSON.parse(cur) : cur != null ? [cur] : [];
-      while (arr.length < repetition) arr.push(null);
-      arr[repetition - 1] = id;
-      value = JSON.stringify(arr);
-      this.markRepeating(info.table, field);
+    const createdExternal: string[] = [];
+    try { return this.withWriteTransaction(() => {
+      this.sql.exec('SAVEPOINT set_container');
+      try {
+        this.checkContainerWrite(info, recordId, field, repetition, opts);
+        const current = this.row(info, recordId);
+        const id = file && (this.addExternalContainer(info, recordId, field, file, createdExternal) ?? this.addContainer(file, { table: info.table, field }));
+        let value: SqlValue = id;
+        if (repetition > 1 || (this.repeating[info.table] ?? []).includes(field)) {
+          const cur = current[field];
+          const arr: SqlValue[] = typeof cur === 'string' && cur.startsWith('[') ? JSON.parse(cur) : cur != null ? [cur] : [];
+          while (arr.length < repetition) arr.push(null);
+          arr[repetition - 1] = id;
+          value = JSON.stringify(arr);
+          this.markRepeating(info.table, field);
+        }
+        this.sql.prepare(`UPDATE ${q(info.table)} SET _fm_mod_id = _fm_mod_id + 1, ${q(field)} = ? WHERE _fm_record_id = ?`).run(value, recordId);
+        // Never the contents: the name, size and a hash that identifies them.
+        const described = file && `${file.filename ?? '(file)'} (${containerFileSize(file)} bytes, sha256 ${containerFileHash(file)})`;
+        this.audit('update', info.table, recordId, { [repetition > 1 ? `${field}(${repetition})` : field]: [current[field] ?? null, described ?? null] }, opts);
+        this.notify('update', info.table, recordId, Number(current._fm_mod_id) + 1, undefined, [field]);
+        this.sql.exec('RELEASE set_container');
+        return { modId: Number(current._fm_mod_id) + 1 };
+      } catch (error) {
+        if (this.sql.isTransaction) this.sql.exec('ROLLBACK TO set_container; RELEASE set_container');
+        for (const path of createdExternal) rmSync(path, { force: true });
+        throw error;
+      }
+    }); } catch (error) {
+      for (const path of createdExternal) rmSync(path, { force: true });
+      throw error;
     }
-    this.sql.prepare(`UPDATE ${q(info.table)} SET _fm_mod_id = _fm_mod_id + 1, ${q(field)} = ? WHERE _fm_record_id = ?`).run(value, recordId);
-    // Never the contents: the name, size and a hash that identifies them.
-    const described = file && `${file.filename ?? '(file)'} (${containerFileSize(file)} bytes, sha256 ${containerFileHash(file)})`;
-    this.audit('update', info.table, recordId, { [repetition > 1 ? `${field}(${repetition})` : field]: [current[field] ?? null, described ?? null] }, opts);
-    this.notify('update', info.table, recordId, Number(current._fm_mod_id) + 1, undefined, [field]);
-    return { modId: Number(current._fm_mod_id) + 1 };
   }
 
   // --- records ------------------------------------------------------------

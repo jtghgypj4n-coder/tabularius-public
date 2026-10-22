@@ -971,11 +971,11 @@ export class Admin {
         const name = decodeURIComponent(path.split('/')[5]);
         const store = this.host.storeOf(name);
         if (!store) send(404, { error: `${name} isn't hosted` });
-        else if (req.method === 'GET') send(200, store.orphanContainerReport());
+        else if (req.method === 'GET') send(200, { ...store.orphanContainerReport(), integrity: store.containerIntegrityReport() });
         else {
           const body = await readJson(req).catch(lenient({})) as { purge?: boolean };
           if (body.purge !== true) send(400, { error: 'purge must be true to remove unreferenced containers' });
-          else send(200, { ...store.purgeOrphanContainers(), ...store.orphanContainerReport() });
+          else send(200, { ...store.purgeOrphanContainers(), ...store.orphanContainerReport(), integrity: store.containerIntegrityReport() });
         }
       } else if (/^\/tabularius\/admin\/v1\/files\/[^/]+\/reconvert-preview$/.test(path) && req.method === 'POST') {
         // A dry run: what converting again would change, in a scratch folder; nothing hosted is touched.
