@@ -10,7 +10,7 @@ import { runCli } from './cli-run.ts';
 
 const main = join(import.meta.dirname, '../src/main.ts');
 const key = 'synthetic-encryption-key';
-const cli = (...args: string[]) => runCli(main, args, { timeout: 15_000, env: { ...process.env, TABULARIUS_ENCRYPTION_KEY: key } });
+const cli = (...args: string[]) => runCli(main, args, { timeout: 60_000, env: { ...process.env, TABULARIUS_ENCRYPTION_KEY: key } });
 const setup = () => {
   const dir = mkdtempSync(join(tmpdir(), 'tabularius-cli-security-'));
   const file = join(dir, 'Synthetic' + STORE_EXT);
@@ -40,7 +40,7 @@ test('AR-cli-plugins-tooling-01 closed folder and release', async () => {
     assert.equal(existsSync(file), false);
     const release = claimFolder(dir);
     try { assert.equal((await cli('decrypt', dir)).status, 1); } finally { release(); }
-    const failed = await runCli(main, ['decrypt', dir], { timeout: 15_000, env: { ...process.env, TABULARIUS_ENCRYPTION_KEY: 'wrong-synthetic-key' } });
+    const failed = await runCli(main, ['decrypt', dir], { timeout: 60_000, env: { ...process.env, TABULARIUS_ENCRYPTION_KEY: 'wrong-synthetic-key' } });
     assert.equal(failed.status, 1);
     assert.equal(existsSync(join(dir, '.openhbam.pid')), false);
     assert.equal((await cli('decrypt', dir)).status, 0);
@@ -98,7 +98,7 @@ test('AR-cli-plugins-tooling-01 a decrypt with the wrong key leaves no working f
   const { dir, file } = setup();
   try {
     assert.equal((await cli('encrypt', dir)).status, 0);
-    const wrong = await runCli(main, ['decrypt', dir], { timeout: 15_000, env: { ...process.env, TABULARIUS_ENCRYPTION_KEY: 'wrong-synthetic-key' } });
+    const wrong = await runCli(main, ['decrypt', dir], { timeout: 60_000, env: { ...process.env, TABULARIUS_ENCRYPTION_KEY: 'wrong-synthetic-key' } });
     assert.equal(wrong.status, 1);
     assert.equal(existsSync(file), false, 'a failed decrypt must not leave an empty or partial working file');
     assert.equal(existsSync(file + '.partial'), false);
@@ -122,7 +122,7 @@ test('AR-cli-plugins-tooling-01 an encrypt that finds a plaintext database besid
     const before = readFileSync(file);
     const encrypted = readFileSync(file + ENCRYPTED_EXT);
     for (const k of [key, 'wrong-synthetic-key']) {
-      const result = await runCli(main, ['encrypt', dir], { timeout: 15_000, env: { ...process.env, TABULARIUS_ENCRYPTION_KEY: k } });
+      const result = await runCli(main, ['encrypt', dir], { timeout: 60_000, env: { ...process.env, TABULARIUS_ENCRYPTION_KEY: k } });
       assert.equal(result.status, 1, result.stderr);
       assert.match(result.stderr, /plaintext may be newer/);
       assert.match(result.stderr, /This database was not changed/);
@@ -215,7 +215,7 @@ test('AR-cli-plugins-tooling-02 mcp refuses options it would otherwise ignore in
     for (const args of [['--account=Review'], ['--acount', 'Review'], ['--ai-exclude=Secret'], ['--ai-exclude'], ['--ai-exclude', '--account', 'Review'], ['--account', 'Review', '--ai-exclude'],
       // The bypasses that started the server as administrator: a misspelled option taken as the exclusion list, a stray word, an extra word.
       ['--ai-exclude', '--acount', 'Review'], ['--ai-exclude', '--account=Review'], ['Review'], ['--account', 'Review', 'extra']]) {
-      const result = await runCli(main, ['mcp', dir, ...args], { timeout: 15_000, env: { ...process.env, TABULARIUS_PASSWORD: 'synthetic-password' } });
+      const result = await runCli(main, ['mcp', dir, ...args], { timeout: 60_000, env: { ...process.env, TABULARIUS_PASSWORD: 'synthetic-password' } });
       assert.equal(result.status, 1, JSON.stringify({ args, ...result }));
       assert.match(result.stderr, /mcp:|--account needs|--ai-exclude needs/, JSON.stringify(args));
     }

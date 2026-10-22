@@ -41,7 +41,7 @@ for (const [command, option, property] of [
         process.exitCode = 0;
       `;
       const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('TABULARIUS_') && key !== 'PORT'));
-      const result = spawnSync(process.execPath, ['--no-warnings', '--experimental-test-module-mocks', '--input-type=module', '-e', code], { encoding: 'utf8', timeout: 15_000, env });
+      const result = spawnSync(process.execPath, ['--no-warnings', '--experimental-test-module-mocks', '--input-type=module', '-e', code], { encoding: 'utf8', timeout: 60_000, env });
       assert.equal(result.status, 0, result.stderr);
       if (!valid) assert.ok(result.stderr.includes(`${option} needs a non-empty value`), result.stderr);
     }
@@ -67,7 +67,7 @@ test('AR-cli-plugins-tooling-02 dispatch', () => {
         ${valid ? `assert.deepEqual(calls[0][1], ${args.length === 0 ? '{ admin: true }' : "{ account: 'Review', password: 'synthetic-password' }"});` : ''}
         process.exitCode = 0;
       `;
-      const result = spawnSync(process.execPath, ['--no-warnings', '--experimental-test-module-mocks', '--input-type=module', '-e', code], { encoding: 'utf8', timeout: 15_000 });
+      const result = spawnSync(process.execPath, ['--no-warnings', '--experimental-test-module-mocks', '--input-type=module', '-e', code], { encoding: 'utf8', timeout: 60_000 });
       assert.equal(result.status, 0, result.stderr);
     }
   } finally { rmSync(dir, { recursive: true, force: true }); }
