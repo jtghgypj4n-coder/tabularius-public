@@ -397,11 +397,11 @@ export function exportSql(store: Store, sink: ExportSqlSink, opts: ExportSqlOpti
     for (const c of t.cols) {
       if (c.field.kind === 'calculation' && c.field.calculation) {
         if (dialect === 'postgres') out(`COMMENT ON COLUMN ${q(t.name)}.${q(c.column)} IS ${str(`Calculation, exported as the value stored in the file: ${comment(c.field.calculation)}`)};\n`);
-        else out(`-- ${q(t.name)}.${q(c.column)} is a calculation, exported as the value stored in the file: ${comment(c.field.calculation)}\n`);
+        else out(`-- ${comment(q(t.name))}.${comment(q(c.column))} is a calculation, exported as the value stored in the file: ${comment(c.field.calculation)}\n`);
       }
       if (c.seq === undefined && c.field.options?.autoEnter?.serial) {
         const next = store.calc.peekSerial(t.table, c.field);
-        out(`-- ${q(t.name)}.${q(c.column)} is a serial number; the next value in the file is ${comment(next ?? '')}\n`);
+        out(`-- ${comment(q(t.name))}.${comment(q(c.column))} is a serial number; the next value in the file is ${comment(next ?? '')}\n`);
       }
     }
     out('\n');
