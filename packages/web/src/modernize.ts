@@ -457,7 +457,7 @@ const RUNTIME = String.raw`
   function pill(v) { var k = String(v).toLowerCase(); return el('span', { class: 'pill ' + (Object.prototype.hasOwnProperty.call(TONES, k) ? TONES[k] : ''), text: v }); }
   function avatar(v) { var w = String(v).trim().split(/\s+/).map(function (x) { return Array.from(x)[0]; }); return el('span', { class: 'who', 'data-i': ((w[0] || '?') + (w.length > 1 ? w[w.length - 1] : '')).toUpperCase(), text: v }); }
   function nameCol(c) { return c === P.columns[0] && c.control !== 'number' && c.control !== 'date' && c.control !== 'timestamp' && c.control !== 'time' && !/(^|[ _])(id|no|number|sku|code)$|^#$/i.test(c.name) && !/[a-z](ID|No|Number|SKU|Code)$/.test(c.name); }
-  function recHead(rec, isNew) { var c = P.columns[0]; if (!c) return []; var n = val(rec, c.name); return [el('h2', { class: 'title' }, [isNew ? el('span', { text: /ies$/i.test(P.title) ? 'New record' : 'New ' + P.title.replace(/([^su])s$/, '$1') }) : (n && !/\d{3}/.test(n) ? avatar(n) : el('span', { text: n || P.title }))])]; }
+  function recHead(rec, isNew) { var c = P.columns[0]; if (!c) return []; var n = val(rec, c.name); return [el('h2', { class: 'title' }, [isNew ? el('span', { text: /(ies|sses|xes|ches|shes)$/i.test(P.title) ? 'New record' : 'New ' + P.title.replace(/([^su])s$/, '$1') }) : (n && !/\d{3}/.test(n) ? avatar(n) : el('span', { text: n || P.title }))])]; }
   /*</chips>*/
   var val = function (rec, f) { var v = rec && rec.fieldData ? rec.fieldData[f] : ''; return v == null ? '' : String(v); };
 
