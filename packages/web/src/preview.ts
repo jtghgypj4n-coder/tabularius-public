@@ -1,3 +1,6 @@
+// This file exists twice, byte for byte: here for the browser, which imports nothing from other packages, and as
+// packages/fmp12/src/page-geometry.ts for the PDF layout in packages/scripts. Change both; a test keeps them equal.
+//
 // Preview mode: the found set laid out on printed pages, as FileMaker does.
 // Each page has the header (the title header on page one) at the top and
 // the footer (or title footer) at the bottom; grand summaries, sub-summaries

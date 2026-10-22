@@ -5,7 +5,7 @@ import { createServer } from 'node:net';
 import { readdirSync, readFileSync } from 'node:fs';
 import { MBS_JS_HANDLES_PER_SESSION } from '../src/mbs-js.ts';
 import { evaluate, evaluateText, text, num, type CalcContext, type Value } from '../src/index.ts';
-import { JavaScriptContext, stopJavaScript, JS_CONTEXT_LIMIT, JS_COOL_DOWN_MS, JS_MEMORY_MB, JS_RESULT_LIMIT, JS_TIME_LIMIT_MS } from '../../store/src/javascript.ts';
+import { JavaScriptContext, stopJavaScript, JS_CONTEXT_LIMIT, JS_COOL_DOWN_MS, JS_MEMORY_MB, JS_RESULT_LIMIT, JS_TIME_LIMIT_MS } from '../src/javascript.ts';
 
 afterEach(async () => { await stopJavaScript(); });
 

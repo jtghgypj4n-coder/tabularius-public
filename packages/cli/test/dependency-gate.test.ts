@@ -1,9 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { committedProblems, DEV_LICENCES, licenceAllowed, licenceProblems, lockedPackages, RUNTIME_LICENCES } from '../../../scripts/dependency-gate.ts';
+import { ALLOWED_IMPORTS, committedProblems, DEV_LICENCES, KNOWN_LEAKS, layeringProblems, licenceAllowed, packageImports, licenceProblems, lockedPackages, RUNTIME_LICENCES } from '../../../scripts/dependency-gate.ts';
 
 const ROOT = join(import.meta.dirname, '..', '..', '..');
 
@@ -61,4 +62,23 @@ test('committedProblems refuses sample files and FileMaker files anywhere', () =
     'fixtures/README.md is committed, but fixtures/ is downloaded by npm run fixtures and never committed',
     'docs/x/Sample.FMP12 is committed, but FileMaker files are never committed',
   ]);
+});
+
+test('packages import only downward: no new upward import, and a fixed leak leaves KNOWN_LEAKS', () => {
+  assert.deepEqual(layeringProblems(packageImports(ROOT)), []);
+});
+
+test('the layering gate names an upward import, ignores tests, and asks for a fixed leak to be removed', () => {
+  const root = mkdtempSync(join(tmpdir(), 'layers-'));
+  const write = (path: string, text: string) => { mkdirSync(join(root, path, '..'), { recursive: true }); writeFileSync(join(root, path), text); };
+  write('packages/calc/src/a.ts', "import { x } from '../../store/src/y.ts';\nimport { z } from '../../fmp12/src/z.ts';\nimport { l } from './local.ts';\n");
+  write('packages/calc/test/a.test.ts', "import { x } from '../../store/src/y.ts';\n");
+  write('packages/web/src/b.ts', "export type T = import('../../fmp12/src/t.ts').T;\n");
+  write('packages/server/src/c.ts', "import { s } from '../../store/src/index.ts';\n");
+  const found = packageImports(root, ALLOWED_IMPORTS);
+  assert.deepEqual(found, ['packages/calc/src/a.ts -> store', 'packages/web/src/b.ts -> fmp12']);
+  assert.match(layeringProblems(found, [])[0], /^packages\/calc\/src\/a\.ts -> store: a package may not import from a higher one/);
+  assert.deepEqual(layeringProblems(found, found), []);
+  assert.deepEqual(layeringProblems([], ['packages/x/src/q.ts -> web']), ['packages/x/src/q.ts -> web is fixed: delete it from KNOWN_LEAKS in scripts/dependency-gate.ts']);
+  assert.ok(KNOWN_LEAKS.every((k) => /^packages\/[a-z0-9-]+\/.* -> [a-z0-9]+$/.test(k)));
 });

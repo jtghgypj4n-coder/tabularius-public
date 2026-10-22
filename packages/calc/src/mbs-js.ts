@@ -13,7 +13,7 @@
 // text; no guessed empty/zero/OK result. Time, heap, input/result and handle caps are Tabularius security policy.
 // JS.SetVariable/GetVariable are not documented names and deliberately remain unavailable.
 
-import { JavaScriptContext, JavaScriptResourceError, JS_COOL_DOWN_MS, type JavaScriptContextRequest } from '../../store/src/javascript.ts';
+import { JavaScriptContext, JavaScriptResourceError, JS_COOL_DOWN_MS, type JavaScriptContextRequest } from './javascript.ts';
 import { CalcError, num, text, type Value } from './values.ts';
 import { MbsError } from './mbs-text.ts';
 

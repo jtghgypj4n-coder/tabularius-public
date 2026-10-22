@@ -182,7 +182,7 @@ the original session vulnerabilities intact.
 | `store/src/store.ts` | Password/TOTP/address failure windows and cooldowns; passkey challenge rate limiter; audit-settings cache; denial sampling, retry and append budgets; AI-refusal log throttle; cadence for publishing shared read-your-writes timestamps. |
 | `store/src/calc.ts` | Local summary/SQL-result TTLs and shared-result wait limit. |
 | `store/src/durable.ts` | Local state-lock acquisition budget (rounded to integer SQLite milliseconds). |
-| `store/src/javascript.ts` | Sandbox reply wait and failure cooldown. |
+| `calc/src/javascript.ts` | Sandbox reply wait and failure cooldown. |
 | `store/src/text-styles.ts` | Formatting cache recheck intervals. |
 
 Other wall-clock uses intentionally remain:

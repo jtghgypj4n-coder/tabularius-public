@@ -38,7 +38,7 @@ const ALLOWED: Record<string, Allowed> = {
   'packages/cli/src/ask-server.ts': { reason: 'the command line asking the server on this machine for its own folder, at the address in the folder\'s own access file' },
   'packages/cli/src/service.ts': { reason: 'the service installer\'s health check of the server it just installed, on this machine' },
   'packages/cli/src/doctor.ts': { reason: 'the doctor command checking the certificate at the address the administrator typed after --url (or the server on this machine): run from a command line, never by a script or a request' },
-  'packages/store/src/javascript.ts': { reason: 'the JavaScript sandbox: this file REPLACES net, tls, dgram, dns and http2 connect functions with a refusal; it makes no connection' },
+  'packages/calc/src/javascript.ts': { reason: 'the JavaScript sandbox: this file REPLACES net, tls, dgram, dns and http2 connect functions with a refusal; it makes no connection' },
 };
 
 function sources(dir: string): string[] {

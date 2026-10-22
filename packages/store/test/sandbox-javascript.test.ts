@@ -72,19 +72,21 @@ test('persistent JavaScript contexts share the restricted realm without host cap
 });
 
 test('source grep inventories JS execution entry points and requires realm, host and time guards', (t) => {
-  const entries = grep('packages/store/src', /export function callJavaScript(?:Module)?\(/g);
+  const entries = grep('packages/calc/src', /export function callJavaScript(?:Module)?\(/g);
   t.diagnostic(JSON.stringify(entries));
   assert.deepEqual(entries.map((e) => e.match), ['export function callJavaScript(', 'export function callJavaScriptModule(']);
-  const execution = ['packages/store/src', 'packages/plugins/src'].flatMap((dir) =>
-    grep(dir, /\b(?:createContext|compileFunction|runInContext|runInNewContext|runInThisContext)\s*\(/g));
+  // The sandbox moved from store to calc; the rest of calc/src (regex-guard.ts) is not part of this inventory.
+  const execution = ['packages/calc/src', 'packages/store/src', 'packages/plugins/src'].flatMap((dir) =>
+    grep(dir, /\b(?:createContext|compileFunction|runInContext|runInNewContext|runInThisContext)\s*\(/g)
+      .filter((e) => dir !== 'packages/calc/src' || e.file === 'packages/calc/src/javascript.ts'));
   t.diagnostic(JSON.stringify(execution));
   assert.deepEqual(execution, [
+    { file: 'packages/calc/src/javascript.ts', match: 'createContext(' },
+    { file: 'packages/calc/src/javascript.ts', match: 'runInContext(' },
     // errors.ts runs the constant text 'gc' (never anything a person wrote) to reach the garbage collector for the memory guard.
     { file: 'packages/store/src/errors.ts', match: 'runInNewContext(' },
-    { file: 'packages/store/src/javascript.ts', match: 'createContext(' },
-    { file: 'packages/store/src/javascript.ts', match: 'runInContext(' },
   ], 'new VM entry points need guard coverage');
-  const src = source('packages/store/src/javascript.ts');
+  const src = source('packages/calc/src/javascript.ts');
   const host = parse(src);
   for (const name of ['callJavaScript', 'callJavaScriptModule']) assert.equal(calls(body(host, name), /^sandboxCall$/).length, 1, name);
   const child = parse(src.split('const CHILD = String.raw`')[1].split('\n`;')[0]);
