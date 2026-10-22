@@ -107,7 +107,7 @@ test('every redirect rechecks scheme, URL credentials and literal address policy
     await assert.rejects(guardedFetch(input), OutboundRefused);
     assert.equal(sent.length, before);
   }
-  await assert.rejects(guardedFetch('not a URL'), TypeError);
+  await assert.rejects(guardedFetch('not a URL'), /The request address is not a valid URL/);
 });
 
 test('caller cancellation and configured fetchers preserve the refusal decision', async (t) => {
