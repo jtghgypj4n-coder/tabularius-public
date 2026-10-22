@@ -497,13 +497,15 @@ test('the rewrite settles however deep the nesting', () => {
 });
 
 test('a long run of comparisons that are left alone costs a bounded scan', () => {
-  // Each is skipped because its aggregate names no column of the outer query; every attempt counts against the limit, so the scan does not grow with the number of them.
+  // Each is skipped because its aggregate names no column of the outer query; every attempt counts against the limit (500), so the
+  // scan does not grow with the number of them. Counted, not timed: the 501st attempt is not made, and the 500th still is.
   const skipped = 'COUNT(*) = ALL (SELECT 1) AND ';
+  const last = (count: number) => `SELECT 1 FROM W GROUP BY N HAVING ${skipped.repeat(count)}COUNT(N) ${ALL_OF_TWO}`;
+  assert.notEqual(rewrite(last(499)), last(499));
+  assert.equal(rewrite(last(500)), last(500));
+  // Nothing about the answer changes with the length or the nesting of a query this long.
   for (const nest of ['', '('.repeat(2000)]) {
     const query = `SELECT 1 FROM W GROUP BY N HAVING ${nest}${skipped.repeat(Math.floor(190_000 / skipped.length))}1`;
-    const started = Date.now();
     assert.equal(rewrite(query), query);
-    // Unbounded, this took 1.4 s and 3.1 s; bounded it takes tens of milliseconds. A generous bound, not a measurement.
-    assert.ok(Date.now() - started < 1_000, `${Date.now() - started} ms`);
   }
 });
