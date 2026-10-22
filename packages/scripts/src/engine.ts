@@ -6265,7 +6265,7 @@ export class ScriptEngine {
     const path = p.filePaths?.some((x) => x.trim()) ? this.filePath(f, p, 'Export Field Contents').path : this.sandboxPath(filename);
     if (!path) throw new ScriptError(ERROR.missingFile, `"${filename}" is not a file name in the documents folder`);
     if (!existsSync(dirname(path))) {
-      if (!p.createFolders && dirname(path) !== this.opts.documents) throw new ScriptError(ERROR.missingFile, 'The folder is missing (Create folders is off)');
+      if (!p.createFolders && !this.isDocumentsFolder(dirname(path))) throw new ScriptError(ERROR.missingFile, 'The folder is missing (Create folders is off)');
       mkdirSync(dirname(path), { recursive: true });
     }
     if ([...this.dataFiles.values()].some((d) => d.path === path)) throw new ScriptError(ERROR.fileInUse, 'The file is open (Open Data File)');
@@ -6732,7 +6732,7 @@ export class ScriptEngine {
     const { path } = this.filePath(f, p, 'Save Records as JSONL');
     if (p.createFolders) mkdirSync(dirname(path), { recursive: true });
     else if (!existsSync(dirname(path))) {
-      if (dirname(path) !== this.opts.documents) throw new ScriptError(ERROR.missingFile, 'The folder is missing (Create folders is off)');
+      if (!this.isDocumentsFolder(dirname(path))) throw new ScriptError(ERROR.missingFile, 'The folder is missing (Create folders is off)');
       mkdirSync(dirname(path), { recursive: true });
     }
     const fields = this.tableFields(info).filter((x) => x.kind !== 'summary' && x.type !== 'container');
@@ -6984,6 +6984,20 @@ export class ScriptEngine {
     return { interval, timerScriptId: target.id, timerScript: target.name, ...(p.parameter !== undefined ? { parameter: p.parameter } : {}) };
   }
 
+  /** The real place of a path whose tail may not exist yet: its nearest existing parent, resolved, plus the rest. */
+  private realPlace(target: string): string {
+    for (let at = target; ; at = dirname(at)) {
+      // lstat: a link that points nowhere still counts as there, and realpath then refuses it.
+      const there = (() => { try { lstatSync(at); return true; } catch { return false; } })();
+      if (there || at === dirname(at)) return join(realpathSync(at), relative(at, target));
+    }
+  }
+
+  /** Whether a folder is the documents folder itself. The paths file steps work with are real places, so a documents folder behind a link is compared by where it really is. */
+  private isDocumentsFolder(dir: string): boolean {
+    return !!this.opts.documents && dir === this.realPlace(this.opts.documents);
+  }
+
   /**
    * A path as a file in the documents folder or this run's temporary folder,
    * never outside them: Get ( DocumentsPath ) and Get ( TemporaryPath ) keep
@@ -7008,14 +7022,7 @@ export class ScriptEngine {
     try { checkPathLength(path, 64); } catch { return undefined; }
     // A link inside the folder that points outside it is not a way out: where the path (or its nearest existing parent) really is must be under the folder.
     try {
-      // The real place of a path whose tail may not exist yet: its nearest existing parent, resolved, plus the rest.
-      const resolve = (target: string): string => {
-        for (let at = target; ; at = dirname(at)) {
-          // lstat: a link that points nowhere still counts as there, and realpath then refuses it.
-          const there = (() => { try { lstatSync(at); return true; } catch { return false; } })();
-          if (there || at === dirname(at)) return join(realpathSync(at), relative(at, target));
-        }
-      };
+      const resolve = (target: string) => this.realPlace(target);
       const canonical = resolve(path);
       const inside = relative(resolve(base), canonical);
       if (inside.startsWith('..') || isAbsolute(inside)) return undefined;
@@ -7171,7 +7178,7 @@ export class ScriptEngine {
         if (isOpen(path)) throw new ScriptError(ERROR.fileInUse, 'The file is open');
         if (p.createFolders) mkdirSync(dirname(path), { recursive: true });
         else if (!existsSync(dirname(path))) {
-          if (dirname(path) !== this.opts.documents) throw new ScriptError(ERROR.missingFile, 'The folder is missing (Create folders is off)');
+          if (!this.isDocumentsFolder(dirname(path))) throw new ScriptError(ERROR.missingFile, 'The folder is missing (Create folders is off)');
           mkdirSync(dirname(path), { recursive: true });
         }
         writeFileSync(path, new Uint8Array(0));
@@ -7283,7 +7290,7 @@ export class ScriptEngine {
         : info.fields.map((x) => ({ occurrence: info.occurrence, field: x.name, repetition: 1 }));
       if (p.createFolders) mkdirSync(dirname(path), { recursive: true });
       else if (!existsSync(dirname(path))) {
-        if (dirname(path) !== this.opts.documents) throw new ScriptError(ERROR.missingFile, 'The folder is missing (Create folders is off)');
+        if (!this.isDocumentsFolder(dirname(path))) throw new ScriptError(ERROR.missingFile, 'The folder is missing (Create folders is off)');
         mkdirSync(dirname(path), { recursive: true });
       }
       closeSync(openSync(path, 'wx', 0o600));
@@ -7465,7 +7472,7 @@ export class ScriptEngine {
     if (this.privileges && !this.privileges.in(this.current.store).canExport) throw new ScriptError(ERROR.privileges, 'Save Records as Snapshot Link needs the "export" privilege (or a script set to run with full access privileges)');
     const path = this.outputPath(f, p, 'Save Records as Snapshot Link', 'Untitled.fmpsl');
     if (!existsSync(dirname(path))) {
-      if (!p.createFolders && dirname(path) !== this.opts.documents) throw new ScriptError(ERROR.missingFile, 'The folder is missing (Create folders is off)');
+      if (!p.createFolders && !this.isDocumentsFolder(dirname(path))) throw new ScriptError(ERROR.missingFile, 'The folder is missing (Create folders is off)');
       mkdirSync(dirname(path), { recursive: true });
     }
     const fs: { ids: number[]; index: number; sort?: unknown } = win.layout ? this.foundSet(win) : { ids: [], index: 0 };
@@ -7499,7 +7506,7 @@ export class ScriptEngine {
     const path = this.outputPath(f, p, step, 'Untitled.pdf');
     if (p.createFolders) mkdirSync(dirname(path), { recursive: true });
     else if (!existsSync(dirname(path))) {
-      if (dirname(path) !== this.opts.documents) throw new ScriptError(ERROR.missingFile, 'The folder is missing (Create folders is off)');
+      if (!this.isDocumentsFolder(dirname(path))) throw new ScriptError(ERROR.missingFile, 'The folder is missing (Create folders is off)');
       mkdirSync(dirname(path), { recursive: true });
     }
     return path;

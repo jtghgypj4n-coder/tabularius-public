@@ -142,3 +142,20 @@ test('entry operations refuse an outside parent even when its alias points back 
   assert.equal(fs.lstatSync(outsideAlias).isSymbolicLink(), true);
   assert.equal(fs.readFileSync(real, 'utf8'), 'inside');
 });
+
+test('a documents folder reached through a link, and not made yet, is still the documents folder', async (t) => {
+  // As on macOS, where the temporary folder sits behind /var, a link to /private/var.
+  const real = fs.mkdtempSync(join(tmpdir(), 'tabularius-script-alias-real-'));
+  const alias = real + '-link';
+  fs.symlinkSync(real, alias);
+  const db = join(real, 'Synthetic.openhbam.sqlite'); createStore(db);
+  const store = new Store(db, 'Synthetic');
+  t.after(() => { store.close(); fs.rmSync(alias, { force: true }); fs.rmSync(real, { recursive: true, force: true }); });
+  store.applyDesign([{ op: 'createTable', name: 'Items', fields: [{ name: 'Name' }] }]);
+  const recordId = Number(store.create('Items', { Name: 'inside' }).recordId);
+  const documents = join(alias, 'Documents');
+  const steps = parseScriptText('Export Records [ "file:/Documents/records.csv" ; Create folders: Off ]', store.schema).map((s) => ({ stepId: s.stepId!, name: s.name!, enabled: true, params: { ...s.params, exportFields: [field('Name')] } }));
+  const result = await runScript(store, { id: 1, name: 'Synthetic', steps } as Script, { layout: 'Items', foundSet: [recordId], documents });
+  assert.equal(result.error, 0);
+  assert.match(fs.readFileSync(join(real, 'Documents', 'records.csv'), 'utf8'), /inside/);
+});
