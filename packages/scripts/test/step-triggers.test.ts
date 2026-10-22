@@ -580,9 +580,10 @@ test('Close Window on another window runs that window\'s OnLayoutExit, in that w
     const r = await run(`
       Set Error Capture [ On ]
       Set Variable [ $first ; Value: Get ( WindowName ) ]
-      Set Variable [ $$allow ; Value: False ]
+      Set Variable [ $$allow ; Value: True ]
       New Window [ "Second" ]
       Go to Layout [ "Places" ]
+      Set Variable [ $$allow ; Value: False ]
       Set Variable [ $$log ; Value: "" ]
       Close Window [ Name: $first ]
       Set Variable [ $kept ; Value: Get ( LastError ) & "/" & Get ( WindowName ) & "/" & ValueCount ( WindowNames ) ]
@@ -592,6 +593,31 @@ test('Close Window on another window runs that window\'s OnLayoutExit, in that w
     // The trigger runs in the window being closed, on its layout (People; the script's window is on Places), and
     // the script carries on in its own window.
     assert.equal(r.result, '20/Second/2,0/Second/1|exit@People;exit@People;');
+  } finally {
+    store.applyDesign([{ op: 'updateLayout', layout: 'People', design: { triggers: people } }]);
+  }
+});
+
+test('a trigger set off by another window\'s script reads its own window: name, layout, found set and record', async () => {
+  store.applyDesign([{ op: 'createScript', name: 'Whose', text: 'Set Variable [ $$log ; Value: $$log & Get ( WindowName ) & "/" & Get ( LayoutName ) & "/" & Get ( FoundCount ) & "/" & Get ( RecordNumber ) & ";" ]' }]);
+  const people = store.design('People')!.triggers!;
+  store.applyDesign([{ op: 'updateLayout', layout: 'People', design: { triggers: [trigger('People', 'OnLayoutExit', 'Whose')] } }]);
+  try {
+    const r = await run(`
+      Set Variable [ $first ; Value: Get ( WindowName ) ]
+      Go to Record/Request/Page [ Last ]
+      Set Variable [ $mine ; Value: Get ( WindowName ) & "/" & Get ( LayoutName ) & "/" & Get ( FoundCount ) & "/" & Get ( RecordNumber ) & ";" ]
+      New Window [ "Second" ]
+      Go to Layout [ "Places" ]
+      Set Variable [ $$log ; Value: "" ]
+      Close Window [ Name: $first ]
+      Exit Script [ Text Result: $mine & "|" & $$log & "|" & Get ( WindowName ) & "/" & Get ( LayoutName ) ]`);
+    assert.equal(r.error, 0);
+    // The trigger saw the closing window's own state, and the script went on in "Second", on Places.
+    const [mine, seen, after] = String(r.result).split('|');
+    assert.match(mine, /^[^/]+\/People\/\d+\/\d+;$/);
+    assert.equal(seen, mine);
+    assert.equal(after, 'Second/Places');
   } finally {
     store.applyDesign([{ op: 'updateLayout', layout: 'People', design: { triggers: people } }]);
   }

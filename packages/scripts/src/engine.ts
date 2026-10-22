@@ -2207,11 +2207,15 @@ export class ScriptEngine {
       return undefined; // as a button the account can't run: nothing happens
     }
     const kept = { error: this.lastError, detail: this.lastErrorDetail, location: this.lastErrorLocation, result: this.lastResult };
+    const caller = this.current;
     try {
       // In the window's file, on its record (a step may have gone to another file's window).
       const parameter = t.parameter ? this.eval(w.store === f.store ? f : { ...f, store: w.store, window: w, locals: new Map() }, t.parameter) : text('');
       this.actions.push({ step: 'Script Trigger', script: script.name, event });
       running.add(key);
+      // A trigger runs in its own window (Get ( WindowName ), Get ( LayoutName ), the found set), also when another
+      // window's script set it off, and the script carries on in its own window afterwards.
+      this.current = w;
       return await this.perform(w.store, script, parameter, w);
     } catch (e) {
       rethrowExecutionRefusal(e);
@@ -2219,6 +2223,8 @@ export class ScriptEngine {
       // A trigger that can't run (its parameter fails, it is skipped) leaves the script that set it off going on.
       return undefined;
     } finally {
+      if (w !== caller && this.windows.includes(caller)) this.current = caller;
+      f.window = this.current;
       running.delete(key);
       this.lastError = kept.error;
       this.lastErrorDetail = kept.detail;
