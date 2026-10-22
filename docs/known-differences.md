@@ -7,7 +7,7 @@ missing from it. `npm run docs:known-differences` rewrites it, and a test fails 
 marker (`<!-- known-difference: area ;; what ;; how it shows ;; what would settle it -->`). Internal working notes are not
 part of it.
 
-**107 entries in 19 areas.** Waiting on: 22 on a sample file, 51 on a FileMaker run or Design Report, 10 on a Claris answer, 16 on a decision by the owner (an entry can wait on more than one).
+**108 entries in 20 areas.** Waiting on: 22 on a sample file, 51 on a FileMaker run or Design Report, 10 on a Claris answer, 16 on a decision by the owner (an entry can wait on more than one).
 
 ## Data API
 
@@ -53,6 +53,12 @@ part of it.
 | What differs or is unknown | How it shows | What would settle it | Where it is written |
 | --- | --- | --- | --- |
 | Behaviour the MCP specification leaves open (malformed stdio input, requests before initialize, sessionless DELETE, progress and cancellation effects, SSE resume, GET stream lifetime, request limits) is a Tabularius choice or not offered, not a claim of matching another server | An MCP client that relies on one of these behaviours may see a different answer or a refusal | A later MCP specification revision or tested behaviour of reference servers that pins these cases | [docs/audits/mcp-conformance.md › Not specified or not offered](audits/mcp-conformance.md) — “…features. No Claris or vendor behavior is inferred by these tests.” |
+
+## PostgreSQL connection
+
+| What differs or is unknown | How it shows | What would settle it | Where it is written |
+| --- | --- | --- | --- |
+| Binary array parameters with float elements, and intervals of exactly -1 of a unit, are read into text that may differ from PostgreSQL's (exponent notation thresholds; singular or plural) and is unverified against a running server | A query comparing such a parameter with stored text could find different rows than on PostgreSQL | A run of asyncpg or Npgsql against PostgreSQL and this server with the same parameters | [docs/pgwire-bi-tools.md › Binary formats](pgwire-bi-tools.md) — “What these tests do not show: no driver named above was run against the server in this change, so none is…” |
 
 ## Privileges and security
 
