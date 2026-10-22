@@ -78,7 +78,14 @@ function valueEnd(js: string, at: number): number {
 }
 
 const isObject = (x: unknown): x is Record<string, unknown> => x !== null && typeof x === 'object';
+// An array index past this is refused, as json.ts does: JSON.stringify walks every hole of a sparse array, so one
+// index of a hundred million holds the server's thread for seconds and builds a text of hundreds of megabytes.
+const MAX_ARRAY_INDEX = 1_000_000;
 const setData = (target: object, key: string | number, value: unknown): void => {
+  if (Array.isArray(target)) {
+    const n = /^\d+$/.test(String(key)) ? Number(key) : 0;
+    if (n > MAX_ARRAY_INDEX) throw new RangeError(`Array index ${n.toLocaleString('en-US')} is past the ${MAX_ARRAY_INDEX.toLocaleString('en-US')} Tabularius allows`);
+  }
   Object.defineProperty(target, key, Array.isArray(target) && key === 'length'
     ? { value } : { value, writable: true, enumerable: true, configurable: true });
 };

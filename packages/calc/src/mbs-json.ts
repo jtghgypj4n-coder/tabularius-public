@@ -10,6 +10,8 @@ import { MbsError } from './mbs-text.ts';
 import { jmesSearch } from './jmespath.ts';
 import { jsonPathMatches, replaceAt } from './jsonpath.ts';
 import { withRegexBudget } from './regex-guard.ts';
+import { ENTRY_BYTES, retainedBudget, type RetainedBudget } from './retained-budget.ts';
+import { MAX_TEXT_RESULT } from './text-budget.ts';
 
 export type Json =
   | { t: 'null' }
@@ -155,18 +157,29 @@ export const DEFAULT_FORMAT: FormatOptions = { indent: '\t', afterKey: ' ' };
  * colon; an array of plain values stays on one line ("[2, 3, 4]"). An array holding objects or arrays puts each
  * on its own line (inferred: MBS's pages show only flattened renderings of that case).
  */
-export function pretty(j: Json, o: FormatOptions = DEFAULT_FORMAT, level = 0): string {
-  const pad = (n: number) => o.indent.repeat(n);
+export function pretty(j: Json, o: FormatOptions = DEFAULT_FORMAT, level = 0, room: { left: number } = { left: MAX_TEXT_RESULT }): string {
+  // Indent times depth makes the text far larger than the JSON: every line is charged before it is built, so a
+  // text over the limit is refused after about that much work, not after it has been written out.
+  const take = (n: number) => {
+    if ((room.left -= n) < 0) throw new RangeError('The result is too large');
+  };
+  const pad = (n: number) => (take(o.indent.length * n), o.indent.repeat(n));
   if (j.t === 'arr') {
     if (!j.items.length) return '[]';
-    if (j.items.every((x) => x.t !== 'arr' && x.t !== 'obj')) return '[' + j.items.map(scalar).join(', ') + ']';
-    return '[\n' + j.items.map((x) => pad(level + 1) + pretty(x, o, level + 1)).join(',\n') + '\n' + pad(level) + ']';
+    if (j.items.every((x) => x.t !== 'arr' && x.t !== 'obj')) {
+      const text = '[' + j.items.map(scalar).join(', ') + ']';
+      take(text.length);
+      return text;
+    }
+    return '[\n' + j.items.map((x) => pad(level + 1) + pretty(x, o, level + 1, room)).join(',\n') + '\n' + pad(level) + ']';
   }
   if (j.t === 'obj') {
     if (!j.entries.length) return '{}';
-    return '{\n' + j.entries.map(([k, v]) => pad(level + 1) + quote(k) + ':' + o.afterKey + pretty(v, o, level + 1)).join(',\n') + '\n' + pad(level) + '}';
+    return '{\n' + j.entries.map(([k, v]) => pad(level + 1) + quote(k) + ':' + o.afterKey + pretty(v, o, level + 1, room)).join(',\n') + '\n' + pad(level) + '}';
   }
-  return scalar(j);
+  const text = scalar(j);
+  take(text.length);
+  return text;
 }
 
 /** A value as FileMaker text: a string without quotes, true and false as 1 and 0, null as empty, objects and arrays as JSON. */
@@ -183,12 +196,49 @@ function plain(j: Json, o: FormatOptions): string {
 // references. Tabularius starts each session's numbers at a large random place, so a reference is never mistaken
 // for an ordinary number in the data (an ID of 1 passed to AddItemToObject is the number 1).
 
+/** The session's open references; each tree is charged to the session's retained-memory budget until it is released. */
+class RefMap extends Map<number, Json> {
+  private sizes = new Map<number, number>();
+  private budget: RetainedBudget;
+  constructor(budget: RetainedBudget) { super(); this.budget = budget; }
+  override set(ref: number, j: Json): this {
+    const size = retainedBytes(j);
+    this.budget.replace(this.sizes.get(ref) ?? 0, size);
+    this.sizes.set(ref, size);
+    return super.set(ref, j);
+  }
+  override delete(ref: number): boolean {
+    if (!super.delete(ref)) return false;
+    this.budget.replace(this.sizes.get(ref)!, 0);
+    this.sizes.delete(ref);
+    return true;
+  }
+  override clear(): void {
+    for (const size of this.sizes.values()) this.budget.replace(size, 0);
+    this.sizes.clear();
+    super.clear();
+  }
+}
+/** Logical bytes a tree holds: UTF-16 text plus a fixed amount per value, as the other plug-in stores count. */
+function retainedBytes(root: Json): number {
+  let bytes = 0;
+  const stack: Json[] = [root];
+  while (stack.length) {
+    const j = stack.pop()!;
+    bytes += ENTRY_BYTES;
+    if (j.t === 'str') bytes += j.v.length * 2;
+    else if (j.t === 'num') bytes += j.raw.length * 2;
+    else if (j.t === 'arr') for (const x of j.items) stack.push(x);
+    else if (j.t === 'obj') for (const [k, x] of j.entries) (bytes += k.length * 2), stack.push(x);
+  }
+  return bytes;
+}
 interface Session { next: number; refs: Map<number, Json>; format: FormatOptions }
 const sessions = new WeakMap<object, Session>();
 const MAX_LIVE = 10_000;
 const sessionOf = (scope: object): Session => {
   let s = sessions.get(scope);
-  if (!s) sessions.set(scope, (s = { next: 100_000_000 + Math.floor(Math.random() * 800_000_000), refs: new Map(), format: { ...DEFAULT_FORMAT } }));
+  if (!s) sessions.set(scope, (s = { next: 100_000_000 + Math.floor(Math.random() * 800_000_000), refs: new RefMap(retainedBudget(scope)), format: { ...DEFAULT_FORMAT } }));
   return s;
 };
 function keep(scope: object, j: Json): number {
@@ -423,17 +473,32 @@ function equal(a: Json, b: Json, byContent: boolean): boolean {
   }
 }
 
+/** Text that is the same for two values exactly when equal(a, b, false) holds. */
+function canonical(j: Json): string {
+  switch (j.t) {
+    case 'null': return 'z';
+    case 'bool': return 'b' + j.v;
+    case 'num': return 'n' + Number(j.raw);
+    case 'str': return 's' + JSON.stringify(j.v);
+    case 'arr': return '[' + j.items.map(canonical).join(',') + ']';
+    case 'obj': return '{' + j.entries.map(([k, v]) => JSON.stringify(k) + ':' + canonical(v)).sort().join(',') + '}';
+  }
+}
+
 /** JSON.Merge: arrays gain the values they don't have yet; objects gain new keys, merge objects and arrays, and take other values from the later JSON. */
 function merge(a: Json, b: Json): Json {
   if (a.t === 'arr' && b.t === 'arr') {
     const items = [...a.items];
-    // Plain values are looked up by a key; objects and arrays are compared one by one.
+    // Plain values are looked up by a key.
     const keyOf = (x: Json) => (x.t === 'num' ? 'n' + Number(x.raw) : x.t === 'str' ? 's' + x.v : x.t === 'bool' ? 'b' + x.v : x.t === 'null' ? 'z' : undefined);
-    const seen = new Set(items.map(keyOf).filter((k) => k !== undefined));
+    // Objects and arrays are looked up by a canonical text (equal() ignores the order of an object's entries and
+    // compares numbers by value), so merging two long arrays of objects is not N × M comparisons.
+    const keyed = (x: Json) => keyOf(x) ?? 'c' + canonical(x);
+    const seen = new Set(items.map(keyed));
     for (const x of b.items) {
-      const k = keyOf(x);
-      if (k !== undefined ? seen.has(k) : items.some((y) => equal(x, y, false))) continue;
-      if (k !== undefined) seen.add(k);
+      const k = keyed(x);
+      if (seen.has(k)) continue;
+      seen.add(k);
       items.push(clone(x));
     }
     return { t: 'arr', items };
