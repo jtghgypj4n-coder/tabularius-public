@@ -274,10 +274,10 @@ The following reasons apply to the exact enumerated expressions in each named fu
 | [packages/server/src/containers.ts:120](../../packages/server/src/containers.ts#L120) `ContainerFiles/send` | `Store.containerInfo` (120); `Store.container` (187); `Store.containerRange` (196) | CONTAINER |
 | [packages/server/src/containers.ts:286](../../packages/server/src/containers.ts#L286) `ContainerFiles/make` | `Store.containerInfo` (286) | CONTAINER |
 | [packages/server/src/containers.ts:298](../../packages/server/src/containers.ts#L298) `ContainerFiles/makeAdmitted` | `Store.container` (298) | CONTAINER |
-| [packages/server/src/conversion-guide.ts:118](../../packages/server/src/conversion-guide.ts#L118) `convertedAt` | `SQLite.get` (118); `SQLite.prepare` (118); `Store.sql` (118) | DESIGN |
-| [packages/server/src/conversion-guide.ts:323](../../packages/server/src/conversion-guide.ts#L323) `ConversionGuides/table` | `Store.sql` (323) | DESIGN |
-| [packages/server/src/conversion-guide.ts:333](../../packages/server/src/conversion-guide.ts#L333) `ConversionGuides/saved` | `SQLite.get` (333); `SQLite.prepare` (333); `Store.sql` (333) | DESIGN |
-| [packages/server/src/conversion-guide.ts:339](../../packages/server/src/conversion-guide.ts#L339) `ConversionGuides/save` | `SQLite.prepare` (339); `Store.sql` (339) | DESIGN |
+| [packages/server/src/conversion-guide.ts:138](../../packages/server/src/conversion-guide.ts#L138) `convertedAt` | `SQLite.get` (138); `SQLite.prepare` (138); `Store.sql` (138) | DESIGN |
+| [packages/server/src/conversion-guide.ts:332](../../packages/server/src/conversion-guide.ts#L332) `ConversionGuides/table` | `Store.sql` (332) | DESIGN |
+| [packages/server/src/conversion-guide.ts:342](../../packages/server/src/conversion-guide.ts#L342) `ConversionGuides/saved` | `SQLite.get` (342); `SQLite.prepare` (342); `Store.sql` (342) | DESIGN |
+| [packages/server/src/conversion-guide.ts:348](../../packages/server/src/conversion-guide.ts#L348) `ConversionGuides/save` | `SQLite.prepare` (348); `Store.sql` (348) | DESIGN |
 | [packages/server/src/conversion.ts:289](../../packages/server/src/conversion.ts#L289) `conversionReport` | `Store.externalContainerCheck` (289) | DESIGN |
 | [packages/server/src/cwp-xml.ts:457](../../packages/server/src/cwp-xml.ts#L457) `CwpXmlEndpoint/records` | `Store.find` (457, 459, 460, 466, 469); `Store.get` (465, 473) | XML |
 | [packages/server/src/cwp-xml.ts:541](../../packages/server/src/cwp-xml.ts#L541) `CwpXmlEndpoint/layoutDoc` | `Store.valueListItems` (541) | XML |
