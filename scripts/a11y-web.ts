@@ -49,7 +49,7 @@ async function axe(page: Page): Promise<string[]> {
 }
 
 /** Tab through the page; report stops without a visible focus indicator or a name, or covered by a sticky bar. */
-async function keyboardWalk(page: Page): Promise<{ problems: string[]; stops: string[] }> {
+async function keyboardWalk(page: Page, visualSection?: string): Promise<{ problems: string[]; stops: string[] }> {
   // Start from the top of the page: focus a sentinel before everything else.
   await page.evaluate(() => {
     window.scrollTo(0, 0);
@@ -131,6 +131,26 @@ async function keyboardWalk(page: Page): Promise<{ problems: string[]; stops: st
   }
   await page.evaluate(() => document.getElementById('a11y-start')?.remove());
   if (stops.length >= MAX_TABS) problems.push(`more than ${MAX_TABS} Tab stops (possible keyboard trap)`);
+  if (visualSection) {
+    const orderProblem = await page.evaluate((id) => {
+      const section = document.getElementById(id);
+      if (!section) return `section #${id} disappeared during the Tab walk`;
+      const elements = [...section.querySelectorAll<HTMLElement>('[data-a11y-stop]')];
+      const actual = elements.slice().sort((a, b) => Number(a.dataset.a11yStop) - Number(b.dataset.a11yStop));
+      const visual = elements.slice().sort((a, b) => {
+        const ar = a.getBoundingClientRect();
+        const br = b.getBoundingClientRect();
+        const rowA = a.closest('tr, .controls, .filters, #pick, form.add, form.controls, .actions, p');
+        const rowB = b.closest('tr, .controls, .filters, #pick, form.add, form.controls, .actions, p');
+        const sameRow = rowA && rowA === rowB;
+        if (sameRow && (rowA.tagName === 'TR' || Math.abs(ar.top - br.top) <= 18)) return Math.round(ar.left) - Math.round(br.left);
+        return Math.round(ar.top) - Math.round(br.top) || Math.round(ar.left) - Math.round(br.left)
+          || Number(a.dataset.a11yStop) - Number(b.dataset.a11yStop);
+      });
+      return actual.some((node, index) => node !== visual[index]) ? `Tab order does not follow visual order in #${id}` : '';
+    }, visualSection);
+    if (orderProblem) problems.push(orderProblem);
+  }
   return { problems, stops };
 }
 
@@ -151,6 +171,48 @@ async function motion(page: Page): Promise<string[]> {
     if (getComputedStyle(document.documentElement).scrollBehavior === 'smooth') out.push('smooth scrolling still on with reduced motion');
     return [...new Set(out)].slice(0, 20);
   });
+}
+
+/** Audit each admin panel on its own, including panels normally hidden until a feature is enabled. */
+async function adminPanels(page: Page, audit: (name: string, sectionId?: string) => Promise<void>): Promise<void> {
+  const sections = await page.locator('main section').evaluateAll((nodes) => nodes.map((node) => ({ id: node.id, hidden: (node as HTMLElement).hidden })));
+  for (const section of sections) {
+    await page.evaluate((id) => {
+      for (const node of document.querySelectorAll('main section')) (node as HTMLElement).hidden = node.id !== id;
+      const target = document.getElementById(id);
+      if (target) target.hidden = false;
+    }, section.id);
+    await audit(`/admin/ panel #${section.id || '(unnamed)'}`, section.id);
+  }
+  await page.evaluate((states) => {
+    for (const state of states) {
+      const node = document.getElementById(state.id);
+      if (node) (node as HTMLElement).hidden = state.hidden;
+    }
+  }, sections);
+  const disclosures = await page.locator('main details').evaluateAll((nodes) => nodes.map((node, index) => {
+    const details = node as HTMLDetailsElement;
+    details.dataset.a11yAuditDisclosure = String(index);
+    const wasOpen = details.open;
+    details.open = true;
+    return { index, name: details.querySelector('summary')?.textContent?.replace(/\s+/g, ' ').trim() || `disclosure ${index}`, wasOpen };
+  }));
+  for (const disclosure of disclosures) await audit(`/admin/ disclosure ${disclosure.name}`);
+  await page.evaluate((states) => {
+    for (const state of states) {
+      const node = document.querySelector(`[data-a11y-audit-disclosure="${state.index}"]`) as HTMLDetailsElement | null;
+      if (node) {
+        node.open = state.wasOpen;
+        delete node.dataset.a11yAuditDisclosure;
+      }
+    }
+  }, disclosures);
+  // No source file is needed to exercise this modal: the passphrase is synthetic and is never submitted.
+  await page.evaluate(() => { void (window as any).askPassphrase('Synthetic audit dialog', '', undefined); });
+  await page.locator('#pass-dialog[open]').waitFor();
+  await audit('/admin/ passphrase dialog');
+  await page.keyboard.press('Escape');
+  await page.locator('#pass-dialog').waitFor({ state: 'hidden' });
 }
 
 /** The web client's keyboard paths a Tab walk can't see: menus, the toolbar keeping focus, the skip link. */
@@ -209,12 +271,28 @@ async function main(): Promise<void> {
   // A small file built in memory, so the audit needs no fixtures: a table, a layout, a few records.
   const db = s.host.create('Contacts');
   db.setPassword('Admin', 'pw');
-  db.applyDesign([{ op: 'createTable', name: 'People', fields: [{ name: 'Name' }, { name: 'Email' }, { name: 'Age', type: 'number' }, { name: 'Notes' }] }] as never);
+  db.applyDesign([
+    { op: 'createTable', name: 'People', fields: [{ name: 'Name' }, { name: 'Email' }, { name: 'Age', type: 'number' }, { name: 'Notes' }] },
+    { op: 'createScript', name: 'Synthetic audit script', text: 'Exit Script [ Text Result: 1 ]' },
+  ] as never);
   const login = await fetch(`${s.url}/fmi/data/vLatest/databases/Contacts/sessions`, { method: 'POST', headers: { authorization: 'Basic ' + btoa('Admin:pw') } });
   const token = (await login.json()).response.token;
   for (const [Name, Email, Age] of [['Ada Lovelace', 'ada@example.org', 36], ['Alan Turing', 'alan@example.org', 41], ['Grace Hopper', 'grace@example.org', 85]]) {
     await fetch(`${s.url}/fmi/data/vLatest/databases/Contacts/layouts/People/records`, { method: 'POST', headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify({ fieldData: { Name, Email, Age } }) });
   }
+  // Seed a disabled, synthetic item through the Admin API so panels with row actions are audited too.
+  const adminLogin = await fetch(`${s.url}/tabularius/admin/v1/sign-in`, {
+    method: 'POST', headers: { 'x-tabularius-admin': '1', 'content-type': 'application/json' },
+    body: JSON.stringify({ password: ADMIN_PASSWORD }),
+  });
+  if (!adminLogin.ok) throw new Error(`Could not sign in to seed the synthetic Admin API schedule: ${adminLogin.status}`);
+  const adminCookie = adminLogin.headers.get('set-cookie')?.split(';')[0];
+  if (!adminCookie) throw new Error('The synthetic Admin API sign-in did not return its session cookie.');
+  const seeded = await fetch(`${s.url}/tabularius/admin/v1/schedules`, {
+    method: 'POST', headers: { cookie: adminCookie, 'x-tabularius-admin': '1', 'content-type': 'application/json' },
+    body: JSON.stringify({ name: 'Synthetic accessibility schedule', database: 'Contacts', script: 'Synthetic audit script', account: 'Admin', everyMinutes: 1440, at: '02:00', enabled: false }),
+  });
+  if (!seeded.ok) throw new Error(`Could not seed the synthetic Admin API schedule: ${seeded.status} ${await seeded.text()}`);
 
   const findings: Finding[] = [];
   const tabOrders: Record<string, string[]> = {};
@@ -231,7 +309,7 @@ async function main(): Promise<void> {
         page.on('console', (m) => { if (m.type() === 'error') trouble.push(`console: ${m.text()}`); });
         page.on('requestfailed', (r) => trouble.push(`request failed: ${r.url()} ${r.failure()?.errorText ?? ''}`));
         page.on('response', (r) => { if (r.status() >= 400 || /\/sessions|\/auth\//.test(r.url())) trouble.push(`${r.status()} ${r.request().method()} ${r.url()}`); });
-        const audit = async (name: string) => {
+        const audit = async (name: string, sectionId?: string) => {
           const label = `${name} @${width}`;
           for (const d of await axe(page)) findings.push({ page: label, scheme, check: 'axe', detail: d });
           for (const d of await motion(page)) findings.push({ page: label, scheme, check: 'motion', detail: d });
@@ -239,6 +317,10 @@ async function main(): Promise<void> {
             const walk = await keyboardWalk(page);
             for (const d of walk.problems) findings.push({ page: label, scheme, check: 'keyboard', detail: d });
             if (scheme === 'light') tabOrders[label] = walk.stops;
+          }
+          if (sectionId && scheme === 'light' && width === 1440) {
+            const walk = await keyboardWalk(page, sectionId);
+            for (const d of walk.problems) findings.push({ page: `${label} #${sectionId}`, scheme, check: 'keyboard', detail: d });
           }
         };
 
@@ -250,6 +332,7 @@ async function main(): Promise<void> {
         await page.waitForSelector('#signin', { state: 'hidden' });
         await page.waitForTimeout(1500);
         await audit('/admin/ signed in');
+        await adminPanels(page, audit);
 
         await page.goto(`${s.url}/app/`);
         await page.waitForSelector('form.login');
