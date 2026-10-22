@@ -267,17 +267,17 @@ export const ROWS: Row[] = [
   },
   {
     id: 'mcp-local', section: 'Sign-in and accounts', setting: 'AI connector (`/mcp`)',
-    default: 'Needs a credential from everyone, this computer included. The server makes an administrator token on first start and keeps it in `.openhbam-mcp-token` in the hosted folder, readable only by the account that runs the server (`tabularius mcp-token <folder>` prints it)',
+    default: 'Needs a credential from everyone, this computer included. A request addressed to a host name the server was not told (no `--public-url` or `--https` for it) is refused with 403 before the token is checked; a request without a token to this computer\'s own address or `localhost` gets 401. The server makes an administrator token on first start and keeps it in `.openhbam-mcp-token` in the hosted folder, readable only by the account that runs the server (`tabularius mcp-token <folder>` prints it)',
     changedBy: '`--mcp-token` (or `TABULARIUS_MCP_TOKEN`) sets the administrator token instead; an account (HTTP Basic), an API token from the admin console or Manage Security, or the OAuth sign-in limit a caller to one account\'s privilege set. Deleting `.openhbam-mcp-token` and restarting makes a new one. Give a cluster or a standby pair the same `--mcp-token`, so every process and a server that takes over accept the same one; the admin console is a separate door and trusts this computer until it has a password',
     risk: 'Whoever holds the administrator token can read and change every hosted file: keep the file and the token out of repositories and chats. On Windows the file has no owner-only mode, so keep the hosted folder\'s own permissions tight',
-    how: 'probed', expect: 'refused without a token, open with the folder\'s',
+    how: 'probed', expect: 'no token 401, other host name 403, open with the folder\'s token',
     observe: async (c) => {
       const call = (headers: Record<string, string>) => c.request('/mcp', { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', ...headers }, body: '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' });
       const bare = await call({});
       const other = await call({ host: 'example.com' });
       const token = readFileSync(join(c.dir, '.openhbam-mcp-token'), 'utf8').trim();
       const own = await call({ authorization: `Bearer ${token}` });
-      return bare.status === 401 && other.status === 401 && own.status === 200 ? 'refused without a token, open with the folder\'s' : `${bare.status}, other host ${other.status}, with the token ${own.status}`;
+      return bare.status === 401 && other.status === 403 && own.status === 200 ? 'no token 401, other host name 403, open with the folder\'s token' : `${bare.status}, other host ${other.status}, with the token ${own.status}`;
     },
   },
   {
