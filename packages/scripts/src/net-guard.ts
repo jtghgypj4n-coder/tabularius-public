@@ -111,9 +111,12 @@ export function classifyAddress(address: string): AddressClass {
   const [g0, g1, g2, g3, g4, g5, g6, g7] = g;
   if (g.every((x) => x === 0)) return 'never'; // ::
   if (g.slice(0, 7).every((x) => x === 0) && g7 === 1) return 'own'; // ::1
-  if (g0 === 0x64 && g1 === 0xff9b && g2 === 1) { // 64:ff9b:1::/48, local-use NAT64: the IPv4 address sits in bytes 6, 7, 9 and 10 (RFC 6052 skips byte 8)
-    const v4 = [g3 >> 8, g3 & 255, g4 & 255, g5 >> 8];
-    return v4.some(Boolean) && classifyV4(v4.join('.')) === 'never' ? 'never' : 'own'; // nothing embedded: still this host's own translator
+  if (g0 === 0x64 && g1 === 0xff9b && g2 === 1) {
+    // 64:ff9b:1::/48, local-use NAT64. A translator may use any prefix length inside it (RFC 6052 section 2.2), so look where
+    // the IPv4 address sits for the /48 form (bytes 6, 7, 9 and 10: byte 8 is skipped) and for the /96 form (the last 32 bits).
+    const embedded = [[g3 >> 8, g3 & 255, g4 & 255, g5 >> 8], [g6 >> 8, g6 & 255, g7 >> 8, g7 & 255]];
+    // A first octet of 0 is a host number in a long prefix, not an address in 0.0.0.0/8; nothing embedded is still this host's own translator.
+    return embedded.some((v4) => v4[0] !== 0 && classifyV4(v4.join('.')) === 'never') ? 'never' : 'own';
   }
   if (g0 === 0x2001 && g1 === 0) return 'own'; // Teredo
   if ((g0 & 0xffc0) === 0xfe80) return 'never'; // fe80::/10 link-local
