@@ -118,15 +118,25 @@ for (const state of ['absent', 'below the threshold', 'expired']) {
       const now = performance.now();
       t.mock.method(performance, 'now', () => now + LOCKOUT.lockMs);
     }
-    const before = store.securityEvents({ kind: 'lockout-cleared' }).length;
+    // A lock that ran out by itself leaves its own timer-stamped event the first time anything observes the expiry; an unlock
+    // must add none, because there was nothing for it to clear.
+    const cleared = () => store.securityEvents({ kind: 'lockout-cleared' });
+    const unlocks = () => cleared().filter((e) => e.changes?.via !== 'timer').length;
+    const timers = () => cleared().filter((e) => e.changes?.via === 'timer');
+    const before = unlocks(), timersBefore = timers().length;
     const logged = logs.length;
     for (const target of [{ account }, { address }]) {
       const r = await post('/tabularius/admin/v1/accounts/unlock', { database: 'Charts', ...target });
       assert.equal(r.status, 200);
-      assert.equal(store.securityEvents({ kind: 'lockout-cleared' }).length, before, 'no false security event');
+      assert.equal(unlocks(), before, 'no false security event');
       assert.ok(!logs.slice(logged).some((line) => /(?:lockout|sign-in block) cleared/.test(line)), 'no false cleared message');
       assert.deepEqual(await r.json(), { ok: true, cleared: false });
     }
+    const written = timers().slice(timersBefore);
+    if (state === 'expired') {
+      assert.deepEqual(written.map((e) => e.changes?.scope).sort(), ['account', 'address'], 'one timer event per expired lock, none claiming an unlock');
+      assert.ok(written.every((e) => typeof e.changes?.expiredAt === 'string'));
+    } else assert.deepEqual(written, [], 'no lock ran out, so no timer event');
   });
 }
 
