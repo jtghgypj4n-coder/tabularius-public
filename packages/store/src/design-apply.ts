@@ -425,7 +425,7 @@ export function planDesignApply(files: Map<string, string>, src: DesignSource, o
     const idIn = (re: RegExp, from = text) => { const m = re.exec(from); return m?.[1] === undefined ? undefined : Number(m[1]); };
     // The object a file names: by the id in it (so renaming a file or an object keeps it), else the object that had this path.
     const wantId = kindOf === 'table' ? idIn(/^Table: .*? \(id (\d+)\)$/, text.split('\n')[0]) : kindOf === 'script' ? idIn(/^# Script: .*? \(id (\d+)\)$/, text.split('\n')[0])
-      : kindOf === 'valueList' ? idIn(/^Value list: .*? \(id (\d+)\)$/)
+      : kindOf === 'valueList' ? idIn(/^Value list: .*? \(id (\d+)\)$/, text.split('\n')[0])
         : kindOf === 'layout' ? (() => { try { const j = JSON.parse(text); return typeof j?.id === 'number' ? j.id : undefined; } catch { return undefined; } })()
           : undefined;
     const target = (() => {

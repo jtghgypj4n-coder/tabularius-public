@@ -454,8 +454,10 @@ export function findWhere(
     }
     const clause = parts.length ? `(${parts.join(' AND ')})` : '1';
     const omitting = req.omit === true || req.omit === 'true';
-    where = first ? (omitting ? `NOT ${clause}` : clause)
-      : `(${where} ${omitting ? 'AND NOT' : 'OR'} ${clause})`;
+    // A record whose field is empty gives NULL for the clause, and NOT NULL is NULL: it is not matched, so omitting does not drop it.
+    const omit = `NOT COALESCE(${clause}, 0)`;
+    where = first ? (omitting ? omit : clause)
+      : `(${where} ${omitting ? `AND ${omit}` : `OR ${clause}`})`;
     first = false;
   }
   return { where, params };
