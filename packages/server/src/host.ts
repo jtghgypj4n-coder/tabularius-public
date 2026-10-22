@@ -1066,6 +1066,8 @@ export class Host {
   add(path: string): Store {
     this.assertOpen();
     const store = new Store(path, basename(path).slice(0, -STORE_EXT.length));
+    // A copy made before migrating the file is as sensitive as the file: with encryption at rest it is kept encrypted too.
+    for (const backup of store.migrationBackups) this.lock(backup);
     this.stores.set(store.name.toLowerCase(), store);
     // Multi-file solutions: layouts can use tables in other files hosted here.
     store.resolveFile = (name) => this.get(name);

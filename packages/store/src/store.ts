@@ -1167,6 +1167,9 @@ export class Store {
     this.designVersion = initialDesignVersion;
   }
 
+  /** Copies of the file made while it was opened (before migrating it), which the host locks when it keeps files encrypted. */
+  readonly migrationBackups: string[] = [];
+
   /** Backfill pre-N3 native tables once. VACUUM INTO copies the committed SQLite snapshot, including WAL content. */
   private ensureNativeIds(path: string): void {
     const tables = this.currentSchema?.tables ?? [];
@@ -1174,6 +1177,7 @@ export class Store {
     if (missing.length) {
       const copy = `${path}.before-native-uuid-${Date.now()}-${randomBytes(4).toString('hex')}`;
       this.sql.prepare('VACUUM INTO ?').run(copy);
+      this.migrationBackups.push(copy);
     }
     this.sql.exec('SAVEPOINT native_uuid_ids');
     try {

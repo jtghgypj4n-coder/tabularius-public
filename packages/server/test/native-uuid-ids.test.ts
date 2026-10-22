@@ -47,15 +47,20 @@ test('native Data API and OData expose id while compat JSON keeps its original s
       const entity = await row.json() as Record<string, unknown>;
       assert.equal(entity.ROWID, 1);
       if (mode === 'native') {
-        assert.equal(entity.id, (created as Record<string, unknown>).id);
-        assert.equal(entity.id_2, 'user-value');
+        // The UUID is ROWUUID, beside ROWID and ROWMODID; a field a person called id keeps its name and its value.
+        assert.equal(entity.ROWUUID, (created as Record<string, unknown>).id);
+        assert.equal(entity.id, 'user-value');
+        assert.equal(Object.hasOwn(entity, 'id_2'), false);
         const selected = await fetch(`${odata}/Items(1)?$select=id`, { headers: { authorization: `Basic ${btoa('Admin:pw')}` } });
         assert.equal(selected.status, 200);
-        assert.equal((await selected.json() as { id: string }).id, (created as Record<string, unknown>).id);
+        const picked = await selected.json() as Record<string, unknown>;
+        assert.equal(picked.id, 'user-value');
+        assert.equal(picked.ROWUUID, (created as Record<string, unknown>).id);
         const metadata = await (await fetch(`${odata}/$metadata`, { headers: { authorization: `Basic ${btoa('Admin:pw')}` } })).text();
-        assert.match(metadata, /Property Name="id" Type="Edm.Guid" Nullable="false"/);
+        assert.match(metadata, /Property Name="ROWUUID" Type="Edm.Guid" Nullable="false"/);
+        assert.match(metadata, /Property Name="id" /);
       }
-      else assert.equal(Object.hasOwn(entity, 'id'), false);
+      else assert.equal(Object.hasOwn(entity, 'ROWUUID'), false);
       if (mode === 'native') {
         const exported = await fetch(`${hosted.url}/tabularius/app/v1/databases/${mode}/layouts/Items/export`, {
           method: 'POST', headers, body: JSON.stringify({ fields: ['Title'], format: 'csv', ids: [1], fieldNames: true }),
