@@ -32,7 +32,7 @@ Unless otherwise noted, test names below are in
 | Security audit rows | Account password setter and `securityEvents` | Same test sets an account password and checks the security-event output; authentication events record the action, not the supplied password. |
 | Owner export and Save-as-XML authentication metadata | `fmExport`, `saveAsXml` account catalog | **exports: authentication material excluded from owner bundle and XML** sets account credentials and injects verifier material into the account schema; neither export emits it. Export manifests remain present. |
 | Database backup bytes, external container bytes and backup metadata | `backupFolder` with a passphrase | **encrypted backups and external containers** seeds all seven values into a real database and external container, checks every output file, then decrypts and reads the database to prove restoration still works. The container-password seed is also the backup passphrase. |
-| Conversion JSON and human-readable summary | `conversionReport` | **conversion JSON and summary** creates a credential assignment plus a broken formula repeating the value. Formula literals/comments are masked and discovered credentials are removed from report prose. The diagnostic and summary still exist. |
+| Conversion JSON and human-readable summary | `conversionReport` | **conversion JSON and summary** creates a credential assignment plus a broken formula repeating the value. Quoted string literals and comments in the formulas the report shows are masked (`maskFormula`); the report's other text is not scrubbed by value (see the limits below). The diagnostic and summary still exist. |
 | Corpus report JSON and Markdown, failure details | `errorClass`, `buildReport`, `reportMarkdown` | **corpus JSON and Markdown** supplies an unlabelled decoder echo. Only a fixed error class and repository code location are retained; arbitrary decoder text cannot enter shareable reports. Formula shapes already mask literal values. |
 | AI record and portal output | `recordForModel` | **AI tool record output** seeds a named credential and an innocently named copy. Both are hidden. |
 | AI SQL output | `rowsForModel` | **AI tool SQL output** checks an alias of each credential column, using column origin metadata. |
@@ -77,7 +77,10 @@ Conversion reports mask the literal values inside formulas and script text they 
 (`maskFormula`). Their other text, such as script and field names, is not scrubbed by
 remembered value, because a script inspection also learns harmless short values (`file:`,
 `_`, `$result`) that would mangle names and paths. A secret typed into a script name is
-therefore not recognised.
+therefore not recognised. A short numeric or bare-name value is not a quoted literal either: with
+`Set Variable [ $password ; Value: 4711 ]` and a broken formula that repeats `4711`, the formula text in the
+report keeps `4711` and any bare field or variable names. That gap is accepted rather than masking every
+number in a formula, which would hide the formulas people need to read.
 
 ## Validation
 
