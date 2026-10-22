@@ -70,6 +70,7 @@ export { safeExistingPath, safeWritePath } from './safe-path.ts';
 export { accountKey, accountCollisionKey, AccountImportError, parseAccountCsv, type AccountImportRow, type AccountImportIssue, type AccountImportState, type AccountImportDecision, type AccountImportPlan, type AccountImportPreview, type AccountImportResult } from './account-provisioning.ts';
 export { fieldDisplayTypes, fieldMetaData } from './field-meta.ts';
 export { exportSql, exportSqlSummary } from './export-sql.ts';
+export { exitBundle, discardExitBundle, ExitBundleError, type ExitBundleOptions, type ExitBundleReport } from './exit-bundle.ts';
 export type { ExportSqlOptions, ExportSqlReport, ExportSqlSink, SqlDialect } from './export-sql.ts';
 export { applyStarter, starterSummaries, starterTarget, STARTER_NAMES, type Starter, type StarterResult } from './starters.ts';
 export { planImportTables, importTables, importTablesSummary, notionMarkdownSheet, parseNumber, MAX_IMPORT_ROWS, MAX_IMPORT_COLUMNS } from './import-tables.ts';
