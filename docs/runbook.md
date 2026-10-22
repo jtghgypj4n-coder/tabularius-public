@@ -34,6 +34,7 @@ Three things make every section below shorter.
 - **Backups exist and are somewhere else too.** `tabularius serve` backs up every day to `<folder>/Backups`; a backup on the same disk does not survive losing the disk. Copy `Backups` off the machine (or serve with `--backup-s3`, see the [S3 tutorial](tutorials/connect-an-s3-bucket.md)).
 - **A backup is checked, not trusted.** `tabularius verify-backup <folder>` reads every set back and compares its checksum. The server does this after each scheduled backup and tests a restore once a day; the [backup tutorial](tutorials/backup-and-restore.md) walks through it.
 - **You know what a backup does not hold.** A set holds each hosted file (its design, records and accounts) and the container files kept outside it. It does not hold the folder's `.openhbam-*` files (the admin console password, settings, schedules, connections, API tokens for AI apps), `Documents/`, `Logs/` or certificate files. Copy those with the folder if you want them back.
+- Folders named `tabularius-container-uploads-` followed by six letters or digits in the upload temporary folder are removed a day after a crash when no running server process owns them.
 
 ## Forgot the admin console password
 
