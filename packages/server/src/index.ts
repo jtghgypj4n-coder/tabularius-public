@@ -14,7 +14,7 @@ import { createEdgeServer, type EdgeLimits } from './edge-limits.ts';
 import { parseAllowList } from '../../scripts/src/net-guard.ts';
 import { trustedProxyAddresses, useForwardedFor, type ProxyHeader } from './client-address.ts';
 import { acmeOrigins, mcpOriginAllowed, onForwardedWithoutPublicUrl, validatePublicUrl, urlHostname } from './public-origin.ts';
-import { browserSignal, needsSameOriginCheck, sameOriginRequest, unconfiguredHostName } from './browser-request.ts';
+import { needsSameOriginCheck, sameOriginRequest, unconfiguredHostName } from './browser-request.ts';
 import { readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -599,14 +599,14 @@ export async function serve(opts: ServeOptions): Promise<{ server: Server; host:
         // The metrics GET is the one console call a scraper makes with Basic credentials and no header (docs/monitoring.md); it changes nothing,
         // and a browser that says it is cross-site is still refused.
         if (needsSameOriginCheck(req, url.pathname) && !sameOriginRequest(req, host.publicUrl, host.browserOrigins, url.pathname.startsWith('/tabularius/admin/') && url.pathname !== '/tabularius/admin/v1/metrics')) {
-          // A browser (or a cookie) addressed to a DNS name nobody configured: say what fixes it, and log each such name once.
+          // A request addressed to a DNS name nobody configured: say what fixes it, and log each such name once.
           const unknownHost = unconfiguredHostName(req, host.publicUrl, host.browserOrigins);
-          if (unknownHost !== undefined && (browserSignal(req) || req.headers.cookie !== undefined) && refusedHostNames.size < 16 && !refusedHostNames.has(unknownHost)) {
+          if (unknownHost !== undefined && refusedHostNames.size < 16 && !refusedHostNames.has(unknownHost)) {
             refusedHostNames.add(unknownHost);
-            logs.write('Event', 'Warning', '', `A browser request addressed to the host name ${unknownHost} was refused: this server was not told that name. Start it with --public-url https://${unknownHost} (or --https ${unknownHost}) to use it from a browser.`);
+            logs.write('Event', 'Warning', '', `A request addressed to the host name ${unknownHost} was refused: this server was not told that name. Start it with --public-url https://${unknownHost} (or --https ${unknownHost}) to use it.`);
           }
           res.writeHead(403, { 'content-type': 'application/json', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' })
-            .end(JSON.stringify({ error: unknownHost !== undefined ? 'Cross-origin request denied: to use this host name from a browser, set --public-url or --https for it' : 'Cross-origin request denied' }));
+            .end(JSON.stringify({ error: unknownHost !== undefined ? 'Cross-origin request denied: this server was not told that host name; set --public-url or --https for it' : 'Cross-origin request denied' }));
           return;
         }
         if (url.pathname === '/tabularius/health') return metrics.health(res);

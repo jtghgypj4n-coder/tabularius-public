@@ -23,16 +23,13 @@ test('ambient origin policy rejects opaque, sibling, forged, missing-metadata an
     { referer: 'https://evil.example/page' }, { referer: 'null' },
     { 'sec-fetch-site': 'same-site' }, { 'sec-fetch-site': 'cross-site' }, { 'sec-fetch-site': 'invalid' },
     { host: 'rebound.example:8080', origin: 'http://rebound.example:8080' },
-    { host: 'rebound.example:8080', 'sec-fetch-dest': 'document' }, { host: 'rebound.example:8080', 'sec-fetch-mode': 'navigate' },
-    { host: 'rebound.example:8080', cookie: 'session=synthetic' }, { host: 'rebound.example:8080', referer: 'http://rebound.example:8080/' },
+    { host: 'rebound.example:8080' }, { host: 'myserver.lan' }, { host: 'myserver.lan', authorization: 'Basic synthetic' },
+    { host: 'rebound.example:8080', 'sec-fetch-dest': 'document' }, { host: 'rebound.example:8080', cookie: 'session=synthetic' },
     { origin: 'https://evil.example', 'x-forwarded-host': 'evil.example', 'x-forwarded-proto': 'https' },
   ]) assert.equal(sameOriginRequest(req(headers)), false, JSON.stringify(headers));
   for (const headers of [{}, { origin: 'http://localhost:8080' }, { referer: 'http://localhost:8080/admin/' }, { 'sec-fetch-site': 'none' }, { 'sec-fetch-site': 'same-origin' }]) {
     assert.equal(sameOriginRequest(req(headers)), true, JSON.stringify(headers));
   }
-  // A native client sends no browser signal and no cookie: a DNS name nobody configured does not stop it.
-  assert.equal(sameOriginRequest(req({ host: 'myserver.lan' })), true);
-  assert.equal(sameOriginRequest(req({ host: 'myserver.lan', authorization: 'Basic synthetic' })), true);
   assert.equal(sameOriginRequest(req({ origin: 'https://files.example' }), 'https://files.example'), true);
   assert.equal(sameOriginRequest(req({ origin: 'https://sub.files.example' }), 'https://files.example'), false);
   assert.equal(sameOriginRequest(req({ origin: 'http://localhost:8080' }), 'https://files.example'), false);
@@ -116,7 +113,7 @@ test('Basic-auth surfaces, OAuth authorization POST, and originless MCP reject h
       ['POST', '/tabularius/sql/v1/databases/Synthetic'], ['GET', '/tabularius/sql/v1/databases/Synthetic/tables'],
       ['POST', '/oauth/authorize'], ['GET', '/mcp'],
     ]) {
-      for (const context of [{ origin: 'null' }, { referer: 'https://evil.example/' }, { 'sec-fetch-site': 'cross-site' }, { host: 'rebound.example', 'sec-fetch-site': 'same-origin' }, { host: 'rebound.example', cookie: 'a=b' }]) {
+      for (const context of [{ origin: 'null' }, { referer: 'https://evil.example/' }, { 'sec-fetch-site': 'cross-site' }, { host: 'rebound.example' }]) {
         // Node fetch normalizes Host; a raw HTTP request preserves the rebinding probe.
         const status = await new Promise<number>((resolve, reject) => {
           const r = request(`${s.url}${path}`, { method, headers: { ...context, authorization: 'Basic ' + btoa('admin:synthetic-secret') } }, (res) => {
