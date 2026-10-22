@@ -324,3 +324,21 @@ test('the XML reader refuses hostile depth and out-of-range character references
   assert.equal(b.attrs.e, '&#x110000;');
   assert.deepEqual(b.children, ['&#1114112;\u{10FFFF}']);
 });
+
+test('Save as XML: an account that is switched off is exported switched off', () => {
+  const schema = {
+    tables: [],
+    tableOccurrences: [],
+    customFunctions: [],
+    valueLists: [],
+    relationships: [],
+    extendedPrivileges: [],
+    privilegeSets: [{ id: 1, name: 'Full Access' }],
+    accounts: [
+      { id: 1, name: 'Admin', privilegeSetId: 1 },
+      { id: 2, name: 'tool_admin', privilegeSetId: 1, inactive: true },
+    ],
+  } as unknown as Schema;
+  const accounts = all(root(saveAsXml(schema, { fileName: 'demo.fmp12', source: '19.6.3' })), 'Account');
+  assert.deepEqual(accounts.map((a) => [a.attrs.id, a.attrs.enable]), [['1', 'True'], ['2', 'False']]);
+});

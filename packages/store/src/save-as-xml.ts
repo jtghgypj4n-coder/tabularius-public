@@ -218,9 +218,10 @@ function privilegeSetsCatalog(sets: PrivilegeSet[]): string {
  * <INSECURE_PASSWORD> block (a password <Context> token) inside <Authentication>;
  * we emit the <AccountName> and never that block, and never the reader's
  * password verifier. The reader marks external-server accounts (Account.external),
- * but the type value FileMaker writes for them here isn't known from a sample, and
- * the enabled state isn't decoded yet, so accounts are emitted as enabled
- * FileMaker accounts.
+ * but the type value FileMaker writes for them here isn't known from a sample, so
+ * accounts are emitted as FileMaker accounts. An account the reader marked inactive
+ * (the "Active" box off) is written enable="False", so a file built from the XML
+ * does not turn it on.
  */
 function accountsCatalog(accounts: Account[], setById: Map<number, PrivilegeSet>): string {
   if (!accounts.length) return '';
@@ -229,7 +230,7 @@ function accountsCatalog(accounts: Account[], setById: Map<number, PrivilegeSet>
       const set = a.privilegeSetId !== undefined ? setById.get(a.privilegeSetId) : undefined;
       const ref = set ? `<PrivilegeSetReference id="${set.id}" name="${esc(set.name)}"></PrivilegeSetReference>` : '';
       const auth = `<Authentication><AccountName><INSECURE_TEXT>${esc(a.name)}</INSECURE_TEXT></AccountName></Authentication>`;
-      return `<Account id="${a.id}" kind="0" type="FileMaker" enable="True">${uuidEl(`account:${a.id}`)}<TagList></TagList><Description></Description>${auth}${ref}</Account>`;
+      return `<Account id="${a.id}" kind="0" type="FileMaker" enable="${a.inactive ? 'False' : 'True'}">${uuidEl(`account:${a.id}`)}<TagList></TagList><Description></Description>${auth}${ref}</Account>`;
     })
     .join('');
   return `<AccountsCatalog membercount="${accounts.length}">${uuidEl('accountscatalog')}<Options>1</Options><ObjectList membercount="${accounts.length}">${items}</ObjectList></AccountsCatalog>`;
