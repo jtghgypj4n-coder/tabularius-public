@@ -149,6 +149,7 @@ part of it.
 | What differs or is unknown | How it shows | What would settle it | Where it is written |
 | --- | --- | --- | --- |
 | The mutation audit tests this repository's implemented contracts, not Claris behaviour checked against a Claris instance | Nothing shows; where a Claris product answers differently the audit would not notice | A run of the same cases against a Claris instance | [docs/audit-mutation.md › Baseline and scope](audit-mutation.md) — “…guard was changed. No Claris-specific value was inferred: this audit tests the repository's implemented…” |
+| Round two of the mutation audit also tests this repository's implemented outbound and forwarded-address contracts, not Claris behaviour | Nothing shows; where a Claris product answers differently the audit would not notice | A run of the same cases against a Claris instance | [docs/audit-mutation.md › Round two: outbound and forwarded-address decisions](audit-mutation.md) — “…the implemented repository contracts remains unverified.” |
 
 ## Server operation
 
