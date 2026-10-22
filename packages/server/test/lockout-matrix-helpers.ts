@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { serve, setAdminPassword, type ServeOptions } from '../src/index.ts';
+import { signInForm } from './oauth-form.ts';
 
 export const FROM = '198.51.100.8';
 export const basic = (name: string, password = 'wrong') => `Basic ${Buffer.from(`${name}:${password}`).toString('base64')}`;
@@ -33,7 +34,9 @@ export async function setup(t: TestContext, opts: Partial<ServeOptions> = {}) {
   const call = (path: string, init: RequestInit = {}, from = FROM) => fetch(s.url + path, { ...init, redirect: 'manual', headers: { 'x-forwarded-for': from, ...init.headers } });
   const json = (path: string, body: object, headers = {}, from = FROM) => call(path, { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body) }, from);
   const form = (path: string, body: Record<string, string>, from = FROM) => call(path, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(body).toString() }, from);
-  const authorize = (account: string, password: string, from = FROM) => form('/oauth/authorize', { client_id, redirect_uri: REDIRECT, response_type: 'code', code_challenge: challenge, code_challenge_method: 'S256', database: 'Synthetic', account, password }, from);
+  // As a browser signs in: the page first (its anti-forgery value and cookie), then the form with the server's own Origin. The
+  // client address header goes with both requests, so the page and the sign-in count for the same address.
+  const authorize = (account: string, password: string, from = FROM) => signInForm(s.url, { client_id, redirect_uri: REDIRECT, response_type: 'code', code_challenge: challenge, code_challenge_method: 'S256', database: 'Synthetic', account, password }, { 'x-forwarded-for': from });
   const routes = {
     'Data API': (name: string, password = 'wrong', from = FROM) => json('/fmi/data/vLatest/databases/Synthetic/sessions', {}, { authorization: basic(name, password) }, from),
     web: (name: string, password = 'wrong', from = FROM) => json('/fmi/data/vLatest/databases/Synthetic/sessions', {}, { authorization: basic(name, password), 'x-tabularius-client': 'web' }, from),
@@ -49,9 +52,10 @@ export async function setup(t: TestContext, opts: Partial<ServeOptions> = {}) {
 export const names = ['Data API', 'web', 'OData', 'SQL', 'MCP', 'OAuth', 'passkey second factor', 'XML'] as const;
 export const median = (xs: number[]) => [...xs].sort((a, b) => a - b)[Math.floor(xs.length / 2)];
 export async function snapshot(r: Response, typedName: string) {
-  const headers = Object.fromEntries([...r.headers].filter(([key]) => key !== 'date'));
+  // The sign-in page issues a fresh random anti-forgery value (in its form and its cookie) with every answer; it says nothing about the account.
+  const headers = Object.fromEntries([...r.headers].filter(([key]) => key !== 'date').map(([key, value]) => [key, key === 'set-cookie' ? value.replace(/(csrf=)[^;]+/, '$1CSRF') : value]));
   // OAuth reflects the submitted form value; this is caller-controlled, not account existence.
-  const body = (await r.text()).replace(`value="${typedName}"`, 'value="NAME"');
+  const body = (await r.text()).replace(`value="${typedName}"`, 'value="NAME"').replace(/(name="csrf" value=")[^"]+/, '$1CSRF');
   return { status: r.status, headers, body };
 }
 
