@@ -178,8 +178,8 @@ test('server script queue bounds waiting jobs without abandoning admitted work',
   const queue = new ScriptQueue(1);
   let release!: () => void;
   const first = queue.run(() => new Promise<void>((ok) => { release = ok; }));
-  const waiting = Array.from({ length: queue.pendingLimit }, (_, i) => queue.run(async () => 1, { file: `File${i}` }));
-  assert.throws(() => queue.run(async () => 2, { file: 'Extra' }), /queue is full/);
+  const waiting = Array.from({ length: queue.pendingLimit }, (_, i) => queue.run(async () => 1, { file: `File${i}`, script: 'Ping' }));
+  assert.throws(() => queue.run(async () => 2, { file: 'Extra', script: 'Ping' }), /queue is full/);
   release();
   await Promise.all([first, ...waiting]);
   assert.equal(queue.queued, 0);
