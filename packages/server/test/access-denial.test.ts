@@ -372,11 +372,11 @@ test('security metadata and CSV are accessible only to administrators or Full Ac
   const signIn = await fetch(url + '/tabularius/admin/v1/sign-in', { method: 'POST', headers: { 'content-type': 'application/json', 'x-tabularius-admin': '1' }, body: JSON.stringify({ password: 'adminpw' }) });
   assert.equal(signIn.status, 200);
   const cookie = signIn.headers.get('set-cookie')!.split(';')[0];
-  const feed = await fetch(url + '/tabularius/admin/v1/security-events?database=Scratch&category=Privilege%20sets', { headers: { cookie } });
+  const feed = await fetch(url + '/tabularius/admin/v1/security-events?database=Scratch&category=Privilege%20sets', { headers: { cookie, 'x-tabularius-admin': '1' } });
   const events = (await feed.json()).events;
   const event = events.find((e: { kind: string }) => e.kind === 'privilege-denied');
   assert.equal(event.category, 'Privilege sets'); assert.equal(event.severity, 'notice'); assert.match(event.description, /records.delete/);
-  const csv = await fetch(url + '/tabularius/admin/v1/security-events?database=Scratch&kind=privilege-denied&format=csv', { headers: { cookie } });
+  const csv = await fetch(url + '/tabularius/admin/v1/security-events?database=Scratch&kind=privilege-denied&format=csv', { headers: { cookie, 'x-tabularius-admin': '1' } });
   const text = await csv.text(); assert.match(text, /detail/); assert.match(text, /""policyFingerprint""/);
   for (const sentinel of [SECRET, SUBMITTED, 'exception-sentinel', 'record-label-sentinel']) assert.ok(!text.includes(sentinel));
 });

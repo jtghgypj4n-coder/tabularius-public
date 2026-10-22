@@ -354,7 +354,8 @@ test('REST reference examples match live status and response shape', async () =>
         }
       }
       if (authFailed) continue;
-      if (target.startsWith('/tabularius/admin/') && method !== 'GET' && method !== 'HEAD') headers.set('x-tabularius-admin', '1');
+      // A script sends no browser headers, so the cross-origin guard also wants this header on a GET that carries the cookie or Basic credentials.
+      if (target.startsWith('/tabularius/admin/')) headers.set('x-tabularius-admin', '1');
       body = body.replaceAll('3f9c2a7e1b0d4c8e9a6f5b2d7c1e0a4b8d3f6e2c9a1b5d7e', f.token)
         .replaceAll('3f1d0c6e8a…', `Bearer ${f.token}`).replaceAll('2f1c…', f.token)
         .replaceAll('<session-token>', f.token)

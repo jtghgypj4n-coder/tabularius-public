@@ -1025,8 +1025,10 @@ Calls that need a database take `?database=` (or `?db=`); leaving it out, or nam
 | `GET /audit?database=D` | Who created, changed and deleted which records (`&table=`, `&account=`, `&recordId=`) |
 
 ```sh
-curl -u admin:"$PASSWORD" https://files.example.com/tabularius/admin/v1/status
+curl -u admin:"$PASSWORD" -H 'x-tabularius-admin: 1' https://files.example.com/tabularius/admin/v1/status
 ```
+
+A call with the console password (or the console's cookie) that carries no browser headers, which is what a script sends, needs `x-tabularius-admin: 1`; without it the server answers 403, because a page on another site could otherwise have a browser replay a saved login.
 
 **FileMaker Server's Admin API (v2)**, at `/fmi/admin/api/v2`, for tools
 written for FileMaker Server such as fmcsadmin or Claris Connect: sign in with

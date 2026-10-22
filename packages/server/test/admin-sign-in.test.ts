@@ -48,13 +48,13 @@ test('signing in to the console with its password, by cookie, without the browse
     const cookie = ok.headers.get('set-cookie')!;
     assert.match(cookie, /^tabularius_admin=[0-9a-f]{64}; Path=\/; HttpOnly; SameSite=Strict; Max-Age=43200$/);
     const jar = cookie.split(';')[0];
-    const status = await fetch(url('/tabularius/admin/v1/status'), { headers: { cookie: jar } });
+    const status = await fetch(url('/tabularius/admin/v1/status'), { headers: { cookie: jar, 'x-tabularius-admin': '1' } });
     assert.equal(status.status, 200);
     assert.equal((await status.json()).server.passwordSet, true);
 
     await fetch(url('/tabularius/admin/v1/sign-out'), { method: 'POST', headers: { cookie: jar, 'x-tabularius-admin': '1' } });
-    assert.equal((await fetch(url('/tabularius/admin/v1/status'), { headers: { cookie: jar } })).status, 401, 'signed out');
-    assert.equal((await fetch(url('/tabularius/admin/v1/status'), { headers: { cookie: 'tabularius_admin=' + 'a'.repeat(64) } })).status, 401);
+    assert.equal((await fetch(url('/tabularius/admin/v1/status'), { headers: { cookie: jar, 'x-tabularius-admin': '1' } })).status, 401, 'signed out');
+    assert.equal((await fetch(url('/tabularius/admin/v1/status'), { headers: { cookie: 'tabularius_admin=' + 'a'.repeat(64), 'x-tabularius-admin': '1' } })).status, 401);
   } finally {
     s.server.close();
     rmSync(dir, { recursive: true, force: true });
