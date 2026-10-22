@@ -101,7 +101,7 @@ test('console password, passkey, Admin API, backup and restore share the console
     await r.text();
   }
   assert.equal((await s.json('/tabularius/admin/v1/passkey-sign-in', { response: { challenge: 'missing' } }, headers)).status, 429);
-  assert.equal((await s.call('/tabularius/admin/v1/status', { headers: { cookie } })).status, 200);
+  assert.equal((await s.call('/tabularius/admin/v1/status', { headers: { cookie, ...headers } })).status, 200);
   assert.equal((await s.call('/fmi/admin/api/v2/server/status', { headers: { authorization: `Bearer ${token}` } })).status, 200);
   assert.equal((await s.json('/tabularius/admin/v1/sign-in', { password: 'console-secret' }, headers, '198.51.100.7')).status, 200);
   assert.equal((await s.routes['Data API']('Alice', 'correct')).status, 200, 'console lockouts cannot lock file accounts');
