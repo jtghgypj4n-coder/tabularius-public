@@ -100,6 +100,13 @@ async function open(file = 'Town'): Promise<Page & { errors: string[] }> {
 
 const names = (page: Page) => page.locator('.row:not(.head) .lead-text').allTextContents();
 
+/** Use the command key the client advertises for this browser platform. */
+async function openPalette(page: Page): Promise<void> {
+  const modifier = await page.evaluate(() => /Mac|iPhone|iPad/.test(navigator.platform) ? 'Meta' : 'Control');
+  await page.keyboard.press(`${modifier}+k`);
+  await page.locator('.palette').waitFor({ state: 'visible' });
+}
+
 test('the alternative client lists, searches, edits and adds records', { skip }, async () => {
   const page = await open();
   assert.deepEqual((await names(page)).sort(), ['Ada', 'Alan', 'Edsger', 'Grace']);
@@ -158,7 +165,7 @@ test('the alternative client lists, searches, edits and adds records', { skip },
   await until(() => page.locator('.sheet').isHidden(), (h) => h);
 
   // The command bar goes to another collection.
-  await page.keyboard.press('Control+k');
+  await openPalette(page);
   await page.locator('.palette-input').fill('plac');
   await page.keyboard.press('Enter');
   await page.locator('.stage-title h1', { hasText: 'Places' }).waitFor();
@@ -249,7 +256,7 @@ test('the command bar asks the assistant, and the records an answer found show i
   await page.locator('.rail-item', { hasText: 'People' }).click();
   await page.locator('.row:not(.head)').first().waitFor();
 
-  await page.keyboard.press('Control+k');
+  await openPalette(page);
   await page.locator('.palette-input').fill('who lives in leeds?');
   // A question puts asking first, so Enter asks.
   assert.equal(await page.locator('.palette-item').first().textContent(), 'Ask: who lives in leeds?⇥');
@@ -342,7 +349,7 @@ test('a narrowed list is kept by name under its collection, and opens again as i
   await until(() => names(page), (n) => n.join() === 'Ada,Grace');
 
   // Deleted from the command bar.
-  await page.keyboard.press('Control+k');
+  await openPalette(page);
   await page.locator('.palette-input').fill('delete view');
   await page.keyboard.press('Enter');
   await until(() => page.locator('.rail-view').count(), (n) => n === 0);
@@ -435,7 +442,7 @@ test('a modern layout shows as a page, its data calls answered as the signed-in 
   await page.locator('.rail-item[data-table="Parks"]').click();
   await until(() => page.locator('.row:not(.head)').count(), (n) => n === 2);
   // And to the page again from the command bar.
-  await page.keyboard.press('Control+k');
+  await openPalette(page);
   await page.keyboard.type('Welcome');
   await page.keyboard.press('Enter');
   await frame.locator('li').first().waitFor();
@@ -458,7 +465,7 @@ test('a page is edited beside a preview and saved to the layout; a new page star
   await until(() => page.frameLocator('.page-frame iframe').locator('#t').textContent(), (t) => t === 'Hello #1');
 
   // New page, from the command bar.
-  await page.keyboard.press('Control+k');
+  await openPalette(page);
   await page.keyboard.type('New page');
   await page.keyboard.press('Enter');
   await page.locator('.rail-pages .rail-item', { hasText: 'Parks page' }).waitFor();
