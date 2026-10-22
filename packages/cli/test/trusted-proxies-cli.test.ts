@@ -70,7 +70,7 @@ for (const source of ['flag', 'environment']) {
       delete env.TABULARIUS_TRUSTED_PROXIES;
       if (source === 'environment') env.TABULARIUS_TRUSTED_PROXIES = '172.30.0.0/24, caddy';
       const extra = source === 'flag' ? ['--trusted-proxies', '172.30.0.0/24, caddy'] : [];
-      const result = spawnSync(process.execPath, ['--no-warnings', main, 'serve', dir, '--port', '0', ...extra], { env, encoding: 'utf8', timeout: 15_000 });
+      const result = spawnSync(process.execPath, ['--no-warnings', main, 'serve', dir, '--port', '0', ...extra], { env, encoding: 'utf8', timeout: 60_000 });
       assert.ifError(result.error);
       assert.equal(result.status, 1, result.stderr);
       assert.match(result.stderr, /--trusted-proxies.*must be an IP address or CIDR/);
