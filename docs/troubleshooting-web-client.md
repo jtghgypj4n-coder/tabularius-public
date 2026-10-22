@@ -88,6 +88,6 @@ This guide covers the Tabularius browser client at `/app/` and related screens. 
 
 **Cause:** The prompt may have been dismissed, the selected authenticator may not hold a registered passkey, or this browser/context may not support WebAuthn for the current address. Passkey sign-in also requires the server-side account to have a passkey registered.
 
-**Check:** Use the account name before choosing its passkey. If the prompt was dismissed, choose **Sign in with a passkey** again; for a file account, use its password and authenticator code if available. The passkey code paths are covered by `packages/web/test/webauthn.test.ts` and `packages/web/e2e/sign-in.e2e.ts` exercises the sign-in screen.
+**Check:** Use the account name before choosing its passkey. If the prompt was dismissed, choose **Sign in with a passkey** again; for a file account, use its password and authenticator code if available. The passkey code paths are covered by `packages/server/test/passkey-signin.test.ts` and `packages/server/test/admin-passkey.test.ts` and `packages/web/e2e/sign-in.e2e.ts` exercises the sign-in screen.
 
 **Fix:** Retry with the authenticator that holds the registered passkey, or use another enabled sign-in method. For the admin console, an administrator can check **Security health > Console passkeys** after signing in with the console password. **Not verified automatically:** the operating system's authenticator picker, physical key, and browser account configuration.

@@ -13,7 +13,7 @@ An open-source (MIT), AI-native platform that opens and hosts FileMaker `.fmp12`
 - `packages/store`: the SQLite store, design import/export, security and privileges.
 - `packages/scripts`: the script engine (script steps, triggers, transactions).
 - `packages/server`: HTTP server, Data API, MCP tools, pgwire, admin API, auth, backups (`admin/` holds the admin console pages, `evals/` the AI evals).
-- `packages/web`: the browser client and design mode (plain HTML, CSS and JS; `e2e/` holds the browser tests).
+- `packages/web`: the browser client and design mode (HTML and CSS, with TypeScript modules in `src/` that are type-stripped when served; `e2e/` holds the browser tests).
 - `packages/cli`: the `tabularius` command (`launch.cjs` is the entry point).
 - `packages/plugins`: the plug-in system.
 - `docs/`: guides (menu in `docs/contents.json`), `docs/reference/` is generated. `examples/`, `scripts/` (repo tooling and gates), `packaging/`, `claude-plugin/` (skills for Claude).

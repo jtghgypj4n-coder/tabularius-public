@@ -125,10 +125,10 @@ FileMaker errors, with the FileMaker code in `messages[0].code`.
 | 105 | Layout is missing | 500 | ✓ |
 | 200, 201 | Record or field access denied | 500 | ✓ |
 | 212 | Invalid account or password, or locked out after too many tries | 401 | ✓ |
-| 301 | Record is in use by another session | 500 | ✓ |
+| 301 | Record is in use by another session | 503 (with Retry-After: 1) | ✓ |
 | 306 | `modId` doesn't match | 500 | ✓ |
 | 401 | No records match the request | 500 | ✓ |
-| 500–511 | Field validation failed | 500 | ✓ |
+| 500–511 | Field validation failed | 400 for 500 and 508, otherwise 500 | ✓ |
 | 802 | Unable to open the file (not hosted) | 404 | ✓ |
 | 812 | Log in refused: the server is blocking new users (Admin API `blocknewusers`) | 503 | ◐ *(unconfirmed which code and status FileMaker Server answers)* | <!-- known-difference: Data API ;; Which code and status FileMaker Server answers when it is blocking new users (code 812) is unconfirmed; Tabularius answers 503 ;; A client sees 503 and code 812 ;; A FileMaker Server run with new users blocked -->
 | 952 | Invalid Data API token | 401 | ✓ |

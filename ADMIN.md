@@ -183,7 +183,7 @@ passed to `tabularius serve`, for example
 shows the service file without installing it, and `tabularius service uninstall`
 removes it; the folder is never touched.
 
-Check it's up: `GET /tabularius/health` answers `{"status":"ok"}` without
+Check it's up: `GET /tabularius/health` answers `{"status":"ok"}`, with its uptime and server time, without
 signing in. The admin console is at `/admin/`, the web client at `/app/`.
 
 **Large files.** A file is converted on a worker thread, a few rows at a

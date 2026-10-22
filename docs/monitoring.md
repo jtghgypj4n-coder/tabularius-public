@@ -100,6 +100,9 @@ series exist only for hosted files; `file` is the hosted name.
 | --- | --- | --- | --- |
 | `tabularius_files` | gauge | None | Number of hosted files. |
 | `tabularius_file_size_bytes` | gauge | `file` | Hosted SQLite file size plus its write-ahead log, in bytes. A file that cannot be statted contributes 0. This is not free disk space. |
+| `tabularius_request_gate_active` | gauge | None | Short HTTP requests holding a request slot across workers. |
+| `tabularius_request_gate_queue_depth` | gauge | None | Short HTTP requests waiting for a slot across workers. |
+| `tabularius_request_gate_shed_total` | counter | None | Requests refused because the queue filled or their wait expired across workers. |
 | `tabularius_disk_free_bytes` | gauge | `area` | Free disk space, in bytes, for this user where the hosted files (`data`) and the backups (`backups`) are kept. A series is left out when the system does not report free space (some network and virtual file systems). |
 | `tabularius_sessions` | gauge | `file` | Signed-in web client and Data API sessions for each hosted file. |
 | `tabularius_record_locks` | gauge | `file` | Records currently locked for editing in each hosted file. |
@@ -155,7 +158,7 @@ standby acknowledged, so downloading a response alone does not reduce it.
 | `process_cpu_seconds_total` | counter | None | Cumulative user and system CPU time in seconds. |
 | `nodejs_eventloop_delay_p99_seconds` | gauge | None | 99th-percentile event loop delay in seconds since the previous render/scrape; rendering resets the histogram. |
 
-The current server does not emit `tabularius_build_info` or disk capacity
+The current server does not emit disk capacity
 metrics; `tabularius_disk_free_bytes` reports free space only. Use a host exporter
 for filesystem capacity.
 

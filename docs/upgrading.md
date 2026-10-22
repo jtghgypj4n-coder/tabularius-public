@@ -13,7 +13,7 @@ fails if they disagree.
   it. Your records, accounts, privilege sets, value lists, scripts, backups, schedules and settings carry over.
 - A version **refuses a file in a newer format** than it reads, and leaves it exactly as it was (no byte is written).
   The message names the file, the two numbers and the way out:
-  `Shop was written by a newer Tabularius (file format 2; this version reads up to format 1), so it is not opened. Update tabularius to open it, or put back a backup made before the newer version first opened it`
+  `Shop was written by a newer Tabularius (file format 2; this version reads up to format 1), so it is not opened. Update Tabularius to open it, or put back a backup made before the newer version first opened it`
   The server skips that one file, still serves the others, and lists it as closed in the admin console with that text.
   `tabularius doctor <folder>` names it too.
 - The format number goes up only for a change an older version could not read or would damage (a column that changes
@@ -64,14 +64,14 @@ world-readable.
 
 ## Stopping and restarting
 
-A stop signal (Ctrl+C, `SIGTERM` from a service manager, `tabularius service stop`, an upgrade) ends the server in this order:
+A stop signal (Ctrl+C, `SIGTERM` from a service manager, a restart, an upgrade) ends the server in this order:
 
 1. The server stops accepting connections. A request that arrives on a connection that was already open is answered `503` with `Retry-After`, and the health check (`/tabularius/health`) leaves with it, so a load balancer takes the server out.
 2. Open live-update streams are sent an `event: shutdown` (`{"reason":"restart"}`) and closed. The web client reconnects by itself, with a growing pause, and refreshes when the server is back.
 3. Requests that are running (a long find, a script, a container upload piece) get `TABULARIUS_DRAIN_SECONDS` (20 by default) to finish. A connection that goes idle meanwhile is closed rather than kept for the next request. Anything still busy after that is closed and written to the event log as a warning. A request that is cut may still finish the step it was in; a script's transaction that has not committed is not kept. The wait is for a single-process server; with `--workers` the front process closes its connections at once.
 4. The backup that is running is stopped, the last changes are copied (progressive backups, off-site), every file is saved and closed, and the process exits with code 0.
 
-A **second** signal while this is going on stops the process at once with exit code 1 and the message "stopping now without closing the files". SQLite recovers the files from their logs when the server starts again, so committed changes are kept. With encryption at rest the plain working copies stay on disk until the next clean stop, so avoid it there. The launchd definition waits 30 seconds (`ExitTimeOut`) and the systemd unit 60 (`TimeoutStopSec`), and `tabularius service stop` waits `TABULARIUS_STOP_GRACE_MS` (30 seconds): keep `TABULARIUS_DRAIN_SECONDS` under the one that applies, with room to save the files. `docker stop` waits 10 seconds unless the container is started with `--stop-timeout` (or `stop_grace_period` in Compose), so raise that to match when you raise the drain. On Windows, `tabularius service stop` ends the process outright and does not wait for the drain.
+A **second** signal while this is going on stops the process at once with exit code 1 and the message "stopping now without closing the files". SQLite recovers the files from their logs when the server starts again, so committed changes are kept. With encryption at rest the plain working copies stay on disk until the next clean stop, so avoid it there. The launchd definition waits 40 seconds (`ExitTimeOut`) and the systemd unit 60 (`TimeoutStopSec`), and a restart or upgrade waits `TABULARIUS_STOP_GRACE_MS` (30 seconds) for the server to finish: keep `TABULARIUS_DRAIN_SECONDS` under the one that applies, with room to save the files. `docker stop` waits 10 seconds unless the container is started with `--stop-timeout` (or `stop_grace_period` in Compose), so raise that to match when you raise the drain.
 
 What a restart does not keep: Data API and web client sessions (people sign in again; API tokens last), and scripts that were running. While a single process starts nothing listens on the port, so a proxy in front sees a refused connection until the files are open; with `--workers` the front process answers `503` with `Retry-After` while a worker starts.
 

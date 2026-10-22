@@ -104,7 +104,7 @@ Clients that show MCP prompts offer: **After converting from FileMaker**, **Expl
 
 Clients that attach resources can add a file's schema, overview and conversion guide (`tabularius://FILE/schema`, `tabularius://FILE/overview`, `tabularius://FILE/conversion-guide`).
 
-Five read tools (`find_records`, `get_record`, `describe_database`, `describe_layout` and `summarize_records`) also declare an output schema and send their answer as MCP structured content, next to the same JSON as text for clients that read only text. The other tools answer in text.
+Five read tools (`find_records`, `get_record`, `describe_database`, `describe_layout` and `summarize_records`) also declare an output schema and send their answer as MCP structured content, next to the same JSON as text for clients that read only text. `semantic_find` also declares one when an embedding model is configured. The other tools answer in text.
 
 Clients that support argument completion offer the file names, and the layout names of the chosen file, as you type a prompt's or resource's arguments. Only files and layouts the signed-in account can see are offered.
 
