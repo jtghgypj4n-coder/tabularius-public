@@ -49,6 +49,13 @@ test('web viewer hosts: the names this server answers to are refused when listed
     assert.deepEqual(status.body.hosts, ['maps.example.com']);
     assert.deepEqual(status.body.ignored, ['*.corp-example.org', 'acme.corp-example.net', 'assistant.corp-example.org', 'box.corp-example.io', 'files.corp-example.com']);
 
+    // An entry that is not trusted (a restored file's) is named too, whatever the reason.
+    store.setWebViewerHosts([]);
+    (store as unknown as { sql: { prepare(q: string): { run(...a: unknown[]): void } } }).sql
+      .prepare(`INSERT INTO _fm_meta VALUES ('webViewerHosts', ?) ON CONFLICT(key) DO UPDATE SET json = excluded.json`).run(JSON.stringify(['maps.example.com', '*.co.uk', 'files.corp-example.com']));
+    assert.deepEqual((await hostsOf()).body, { hosts: ['maps.example.com'], ignored: ['*.co.uk', 'files.corp-example.com'] });
+    store.setWebViewerHosts(['maps.example.com', 'files.corp-example.com', 'acme.corp-example.net', 'assistant.corp-example.org', 'box.corp-example.io', '*.corp-example.org']);
+
     // The name check follows the server as it is now, not as it was when the list was saved.
     hosted.host.acmeDomains = [];
     hosted.host.mcpAllowedOrigins = [];

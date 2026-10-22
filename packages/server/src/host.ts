@@ -287,7 +287,7 @@ export class Host {
   webViewerHostsOf(store: Store, extra: readonly string[] = []): { hosts: string[]; ignored: string[] } {
     const own = this.ownHostNames(extra);
     const hosts: string[] = [];
-    const ignored: string[] = [];
+    const ignored: string[] = [...store.webViewerHostsDropped];
     for (const h of store.webViewerHosts) (own.some((n) => webViewerEntryCovers(h, n)) ? ignored : hosts).push(h);
     return { hosts, ignored };
   }
