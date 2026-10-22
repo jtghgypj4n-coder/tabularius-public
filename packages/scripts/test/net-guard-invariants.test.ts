@@ -108,8 +108,8 @@ test('HTTP sockets, cookies and auth are not reused across accounts or files', a
 });
 
 test('proxy environment variables present at startup never divert a guarded HTTP request', async (t) => {
-  // Node reads NODE_USE_ENV_PROXY and HTTP_PROXY when it starts, so the child process gets them at launch. Its control
-  // request, made with the stock http module, must reach the proxy; otherwise this test could pass without proving anything.
+  // Node reads NODE_USE_ENV_PROXY and HTTP_PROXY when it starts, so the child process gets them at launch. Where Node supports it, its
+  // control request, made with the stock http module, must reach the proxy; otherwise this test could pass without proving anything.
   const seen: string[] = [];
   const proxy = await local(t, (req, res) => { seen.push(req.url ?? ''); res.end('proxy'); });
   const guard = fileURLToPath(new URL('../src/net-guard.ts', import.meta.url));
@@ -127,7 +127,10 @@ test('proxy environment variables present at startup never divert a guarded HTTP
     env: { PATH: process.env.PATH ?? '', NODE_USE_ENV_PROXY: '1', HTTP_PROXY: proxy.base, http_proxy: proxy.base, NO_PROXY: '' }, timeout: 20_000,
   });
   assert.equal(JSON.parse(stdout.trim().split('\n').pop()!).body, 'direct');
-  assert.ok(seen.some((url) => url.endsWith('/control')), 'the control request used the proxy');
+  // NODE_USE_ENV_PROXY exists from Node 22.21; on the older 22.20 the stock module ignores it, so there is no control to
+  // prove here. The guarded request must stay direct either way.
+  const [major, minor] = process.versions.node.split('.').map(Number);
+  if (major > 22 || (major === 22 && minor >= 21)) assert.ok(seen.some((url) => url.endsWith('/control')), 'the control request used the proxy');
   assert.ok(!seen.some((url) => url.endsWith('/guarded')), 'the guarded request did not');
 });
 
@@ -325,6 +328,6 @@ test('bodyless responses that still name a content coding are not decoded', asyn
 test('IPv6 forms that carry an IPv4 address are classified by that address', () => {
   for (const [address, expected] of [
     ['::ffff:0:7f00:1', 'own'], ['::ffff:0:a9fe:a9fe', 'never'], ['::ffff:0:808:808', 'public'], ['::ffff:0:a00:1', 'own'],
-    ['64:ff9b:1:a9fe:a9:fe00::', 'never'], ['64:ff9b:1:808:8:800::', 'own'], ['64:ff9b::808:808', 'public'], ['64:ff9b::a9fe:a9fe', 'never'],
+    ['64:ff9b:1:a9fe:a9:fe00::', 'never'], ['64:ff9b:1::a9fe:a9fe', 'never'], ['64:ff9b:1::7f00:1', 'own'], ['64:ff9b:1::808:808', 'own'], ['64:ff9b:1::1', 'own'], ['64:ff9b:1::fe80:1', 'never'], ['64:ff9b:1:808:8:800::', 'own'], ['64:ff9b::808:808', 'public'], ['64:ff9b::a9fe:a9fe', 'never'],
   ] as const) assert.equal(classifyAddress(address), expected, address);
 });
