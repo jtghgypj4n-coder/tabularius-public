@@ -1,9 +1,9 @@
 import { lstatSync, mkdirSync, opendirSync, readlinkSync, realpathSync, statSync } from 'node:fs';
-import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
+import { dirname, relative, resolve, sep } from 'node:path';
+import { commonParent, storageRelative, withinPath } from './portable-path.ts';
 
 function within(root: string, path: string): boolean {
-  const rel = relative(root, path);
-  return rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
+  return withinPath(root, path);
 }
 
 type DirectoryLink = { link: string; target?: string };
@@ -36,8 +36,8 @@ export function existingDirectoryLinks(roots: string[]): ReadonlyMap<string, Dir
   const MAX_ENTRIES = 1024;
   // Roots share the hosted folder. Inspect symlinks below it, without mistaking
   // a system path alias (for example /var -> /private/var) for a container mount.
-  let common = dirname(resolve(roots[0] ?? '/'));
-  while (roots.some((root) => !within(common, resolve(root)))) common = dirname(common);
+  const common = commonParent(roots);
+  if (common === undefined) return links;
   for (const root of roots) {
     let component = common;
     let linked = false;
@@ -78,7 +78,9 @@ export function existingDirectoryLinks(roots: string[]): ReadonlyMap<string, Dir
 
 /** Resolve a file below a root, allowing only directory links captured when the store opened. */
 export function safeExistingPath(root: string, rel: string, allowedLinks: ReadonlyMap<string, DirectoryLink> = new Map()): string | undefined {
-  if (!rel || isAbsolute(rel)) return undefined;
+  const normalized = storageRelative(rel);
+  if (!normalized) return undefined;
+  rel = normalized;
   try {
     const base = realpathSync(root);
     const lexical = resolve(base, rel);
@@ -110,7 +112,9 @@ export function safeExistingPath(root: string, rel: string, allowedLinks: Readon
 
 /** Prepare a path below a root without traversing directory links or a linked final component. */
 export function safeWritePath(root: string, rel: string, allowedLinks: ReadonlyMap<string, DirectoryLink> = new Map()): string | undefined {
-  if (!rel || isAbsolute(rel)) return undefined;
+  const normalized = storageRelative(rel);
+  if (!normalized) return undefined;
+  rel = normalized;
   try {
     mkdirSync(root, { recursive: true });
     const base = realpathSync(root);

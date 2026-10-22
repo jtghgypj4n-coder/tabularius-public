@@ -1,3 +1,4 @@
+import { renameFileSync as renameSync, removeFileSync as rmSync } from '../../store/src/file-ops.ts';
 // Running the server as a service, and upgrading it in place.
 //
 //   tabularius service install <folder> [--port 8080] [--host 127.0.0.1] [--system] [-- serve options]
@@ -35,7 +36,7 @@ import { validatePublicUrl, urlHostname } from '../../server/src/public-origin.t
 import { plainHttpRefusal } from './loopback.ts';
 import { crashPoint } from '../../store/src/crash-point.ts';
 import { spawnSync } from 'node:child_process';
-import { closeSync, cpSync, existsSync, fchmodSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { closeSync, cpSync, existsSync, fchmodSync, mkdirSync, openSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { homedir, networkInterfaces, tmpdir, userInfo } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { request as httpsRequest } from 'node:https';
@@ -45,6 +46,7 @@ import { readJsonStateSync, updateJsonStateSync } from '../../store/src/durable.
 import { nodeSupports } from './node-version.cjs';
 import { closedBy, refusalFor } from './newer-files.ts';
 import { readSecretFile } from './secret-file.ts';
+import { requestStop } from './stop-request.ts';
 
 export type Platform = 'darwin' | 'linux' | 'win32';
 
@@ -340,6 +342,7 @@ export function installService(o: ServiceOptions): void {
     mkdirSync(dirname(f.path), { recursive: true });
     // Task Scheduler reads its XML as UTF-16.
     writeFileSync(f.path, Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(f.text, 'utf16le')]));
+    stopOwnServer(was?.folder ?? o.folder, o.platform);
     run('schtasks', ['/End', '/TN', TASK], { ok: true });
     if (!run('schtasks', ['/Create', '/TN', TASK, '/XML', f.path, '/F'], { ok: true })) {
       throw new Error(o.system ? 'could not create the task: run this from an administrator prompt for --system' : 'could not create the task');
@@ -403,7 +406,7 @@ export function servicePlainRefusal(o: Pick<ServiceOptions, 'host' | 'extra'>): 
  * options say, on this machine and, when it listens on every address, on the
  * local network; with --https local, the page each device trusts it from.
  */
-export function serviceSummary(o: Pick<ServiceOptions, 'folder' | 'port' | 'host' | 'extra'>, lan: string[] = lanAddresses()): string[] {
+export function serviceSummary(o: Pick<ServiceOptions, 'folder' | 'port' | 'host' | 'extra'> & { platform?: Platform }, lan: string[] = lanAddresses()): string[] {
   const opt = (name: string) => serveOption(o.extra, name);
   const https = opt('--https');
   const local = https === 'local' || https === 'lan';
@@ -420,7 +423,7 @@ export function serviceSummary(o: Pick<ServiceOptions, 'folder' | 'port' | 'host
   }
   const inline = ['--mcp-token', '--replication-token'].filter((n) => opt(n) !== undefined);
   const files = ['--mcp-token-file', '--replication-token-file'].filter((n) => opt(n) !== undefined);
-  if (inline.length) lines.push(`  Note: ${inline.join(' and ')} ${inline.length > 1 ? 'are' : 'is'} written into the service file, which only your account can read. A key file (--ai-key-file, --tls-key) is named by its path, not copied.`);
+  if (inline.length) lines.push(`  Note: ${inline.join(' and ')} ${inline.length > 1 ? 'are' : 'is'} written into the service file. ${(o.platform ?? process.platform) === 'win32' ? 'Restrict its Windows ACL and the task permissions; chmod does not make it private.' : 'Only your account can read it.'} A key file (--ai-key-file, --tls-key) is named by its path, not copied.`);
   if (files.length) lines.push(`  Note: ${files.join(' and ')} ${files.length > 1 ? 'are' : 'is'} named by path in the service file; the contents are not copied.`);
   if (local) lines.push(`  each device trusts it once from ${at(everywhere && lan[0] ? lan[0] : 'localhost')}tabularius/tls/`);
   return lines;
@@ -452,6 +455,7 @@ export function uninstallService(o: Pick<ServiceOptions, 'platform' | 'home' | '
       else rmSync(f.path, { force: true });
       run(cmd, [...pre, 'daemon-reload'], { ok: true });
     } else {
+      if (which) stopOwnServer(which.folder, o.platform);
       run('schtasks', ['/End', '/TN', TASK], { ok: true });
       run('schtasks', ['/Delete', '/TN', TASK, '/F'], { ok: true });
       rmSync(f.path, { force: true });
@@ -467,7 +471,7 @@ export function uninstallService(o: Pick<ServiceOptions, 'platform' | 'home' | '
  * Asks the server hosting `folder` to stop, when it runs as this user: its
  * process id is in the folder (.openhbam.pid). False when there is none to ask.
  */
-export function stopOwnServer(folder: string): boolean {
+export function stopOwnServer(folder: string, platform: NodeJS.Platform = process.platform, control = { kill: process.kill.bind(process), exited: exitsWithin, request: requestStop }): boolean {
   let pid: number;
   try {
     pid = Number(readFileSync(join(folder, '.openhbam.pid'), 'utf8'));
@@ -476,16 +480,21 @@ export function stopOwnServer(folder: string): boolean {
   }
   if (!Number.isInteger(pid) || pid <= 0 || pid === process.pid) return false;
   try {
-    process.kill(pid, 'SIGTERM'); // finishes saving, then exits
-  } catch {
+    if (platform === 'win32') {
+      control.kill(pid, 0);
+      control.request(folder, pid);
+    } else control.kill(pid, 'SIGTERM'); // finishes saving, then exits on POSIX
+  } catch (e) {
+    if (platform === 'win32' && (e as NodeJS.ErrnoException).code !== 'ESRCH') throw e;
     return false; // gone, or another user's
   }
   // A server busy in one long request can't hear the signal: after a grace
   // period it is stopped outright. Saved edits are safe (each is committed to
   // the database's log as it is made); only the request in progress is lost.
-  if (!exitsWithin(pid, Number(process.env.TABULARIUS_STOP_GRACE_MS) || 30_000)) {
+  if (!control.exited(pid, Number(process.env.TABULARIUS_STOP_GRACE_MS) || 30_000)) {
+    if (platform === 'win32') throw new Error('The Windows server did not stop gracefully; stop it with Ctrl-C and retry. The task was not forcibly ended.');
     try {
-      process.kill(pid, 'SIGKILL');
+      control.kill(pid, 'SIGKILL');
     } catch {
       // It exited just now.
     }
@@ -528,6 +537,7 @@ export function restartService(s: Installed): void {
     if (s.system) run('sudo', ['systemctl', 'restart', 'openhbam.service']);
     else run('systemctl', ['--user', 'restart', 'openhbam.service']);
   } else {
+    stopOwnServer(s.folder, s.platform);
     run('schtasks', ['/End', '/TN', TASK], { ok: true });
     run('schtasks', ['/Run', '/TN', TASK]);
   }
@@ -547,12 +557,12 @@ export function portFree(port: number, host: string): Promise<boolean> {
  * manager would start it again and again, each time failing. The installed
  * tabularius service itself may hold it (installing again replaces it).
  */
-export async function checkPort(o: Pick<ServiceOptions, 'port' | 'host' | 'home' | 'folder'> & { extra?: string[] }): Promise<void> {
+export async function checkPort(o: Pick<ServiceOptions, 'port' | 'host' | 'home' | 'folder'> & { extra?: string[]; platform?: Platform }): Promise<void> {
   // The service's own address, and this machine's, where a program listening on one address blocks the other.
   // On macOS a program listening on every address doesn't stop another binding
   // one address, though it holds the port there too, so ask for every address as well.
   const v6 = o.host.includes(':');
-  const hosts = [...new Set([o.host, v6 ? '::1' : '127.0.0.1', ...(process.platform === 'darwin' ? [v6 ? '::' : '0.0.0.0'] : [])])];
+  const hosts = [...new Set([o.host, v6 ? '::1' : '127.0.0.1', ...((o.platform ?? process.platform) === 'darwin' ? [v6 ? '::' : '0.0.0.0'] : [])])];
   const free = async (port: number) => {
     // One at a time: two probes of one port at once would find each other.
     for (const h of hosts) if (!await portFree(port, h)) return false;
@@ -649,10 +659,10 @@ const git = (app: string, ...args: string[]) => {
   return r.stdout.trim();
 };
 
-function installDependencies(app: string): void {
-  const local = join(dirname(process.execPath), process.platform === 'win32' ? 'npm.cmd' : 'npm');
-  const npm = existsSync(local) ? local : process.platform === 'win32' ? 'npm.cmd' : 'npm';
-  const r = spawnSync(npm, ['ci', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund'], { cwd: app, stdio: ['ignore', 'ignore', 'inherit'], shell: process.platform === 'win32', env: { ...process.env, PATH: `${dirname(process.execPath)}${process.platform === 'win32' ? ';' : ':'}${process.env.PATH ?? ''}` } });
+function installDependencies(app: string, platform: NodeJS.Platform = process.platform): void {
+  const local = join(dirname(process.execPath), platform === 'win32' ? 'npm.cmd' : 'npm');
+  const npm = existsSync(local) ? local : platform === 'win32' ? 'npm.cmd' : 'npm';
+  const r = spawnSync(npm, ['ci', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund'], { cwd: app, stdio: ['ignore', 'ignore', 'inherit'], shell: platform === 'win32', env: { ...process.env, PATH: `${dirname(process.execPath)}${platform === 'win32' ? ';' : ':'}${process.env.PATH ?? ''}` } });
   if (r.status !== 0) throw new Error(`installing the dependencies failed (npm ci stopped${r.error ? `: ${r.error.message}` : r.status === null ? ' before it finished' : ` with exit code ${r.status}`}); its output is above`);
 }
 
@@ -742,6 +752,19 @@ export function recoverUpgrade(app: string): void {
   if (!existsSync(app) && existsSync(`${app}.previous`)) renameSync(`${app}.previous`, app);
 }
 
+/** Preserve the working app when a Windows sharing violation prevents the second rename. */
+export function publishUpgrade(app: string, staged: string, move = renameSync): void {
+  move(app, `${app}.previous`);
+  crashPoint('upgrade:after-save');
+  try { move(staged, app); }
+  catch (error) {
+    try { move(`${app}.previous`, app); }
+    catch (rollback) { throw new AggregateError([error, rollback], 'Upgrade failed and rollback is incomplete; retain the .previous directory and retry while the service is stopped'); }
+    throw error;
+  }
+  crashPoint('upgrade:after-publish');
+}
+
 function fromFiles(app: string, source: string): Fetched {
   const incoming = `${app}.incoming`;
   const previous = `${app}.previous`;
@@ -768,10 +791,7 @@ function fromFiles(app: string, source: string): Fetched {
   crashPoint('upgrade:after-stage');
   const old = versionOf(app);
   rmSync(previous, { recursive: true, force: true });
-  renameSync(app, previous);
-  crashPoint('upgrade:after-save');
-  renameSync(root, app);
-  crashPoint('upgrade:after-publish');
+  publishUpgrade(app, root);
   rmSync(incoming, { recursive: true, force: true });
   crashPoint('upgrade:after-cleanup');
   return {

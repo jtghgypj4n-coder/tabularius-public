@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { checkSqlExportPath } from '../../store/src/portable-path.ts';
+import { listenForStop } from './stop-request.ts';
 import { auditJsonLine } from '../../store/src/audit-output.ts';
 // tabularius: inspect and convert FileMaker .fmp12 files.
 
@@ -1413,7 +1415,9 @@ function main(argv: string[]): number {
       if (workers > 1) {
         serveCluster({ dir: path, port, hostname, mcpToken, scriptNetwork, scriptNetworkAllow, listFilesPublicly, appConnections, webhooks, inboundHooks, testOutbound, ...(sendMail ? { sendMail } : {}), tlsCert, tlsKey, publicUrl, mcpAllowedOrigins, proxyHeader, trustedProxies, edgeLimits, acme, backups, offsite, progressive, statsInterval, logLimit, replicationToken, sqlPort, ai, aiExclude, oidc, ldap, encryptionKey, background: true }, workers, PASSWORD_POLICY.blankFromNetwork).then(({ url, close }) => {
           // Ready for a stop before anything is printed: whoever sees the first line may signal at once.
-          const stop = () => void close().finally(() => process.exit(0));
+          let stopListening = () => {};
+          const stop = () => { stopListening(); void close().finally(() => process.exit(0)); };
+          stopListening = listenForStop(path, stop);
           process.once('SIGINT', stop);
           process.once('SIGTERM', stop);
           if (exposedPlain) console.warn(`Warning: this server listens on ${hostname} over plain HTTP, so passwords and sign-in tokens cross the network unencrypted. Add --https <your domain> (or --https local for a local network), or put it behind a proxy that does HTTPS and give --public-url https://...`);
@@ -1438,18 +1442,21 @@ function main(argv: string[]): number {
         // closed); a second one stops at once.
         let stopping = false;
         let filesClosed = false;
+        let stopListening = () => {};
         const stop = () => {
           if (stopping) {
             console.error(filesClosed ? 'stopping now' : 'stopping now without closing the files; they recover when the server starts again');
             process.exit(1);
           }
           stopping = true;
+          stopListening();
           console.log('stopping: finishing running requests and saving the files (press Ctrl-C again to stop at once)');
           server.close(() => {
             filesClosed = true;
             void (offsiteSchedule?.stop() ?? Promise.resolve()).finally(() => process.exit(0));
           });
         };
+        stopListening = listenForStop(path, stop);
         process.on('SIGINT', stop);
         process.on('SIGTERM', stop);
         // Told once it is listening, so a start that fails (a bad address, a port in use) gives only its own error.
@@ -2201,6 +2208,7 @@ function main(argv: string[]): number {
       if (!database) throw new Error('export-sql: give a database');
       if (!out) throw new Error('export-sql: give --out file.sql (the script is written there, with container files in a folder beside it)');
       if (dialect !== 'postgres' && dialect !== 'sqlite') throw new Error('export-sql: --dialect is postgres or sqlite');
+      checkSqlExportPath(out);
       if (existsSync(out)) throw new Error(`export-sql: ${out} already exists; choose another name or remove it`);
       const store = openDatabase(path, database);
       let fd: number | undefined;

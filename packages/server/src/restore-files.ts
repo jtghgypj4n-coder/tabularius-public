@@ -1,5 +1,6 @@
+import { removeFileSync as rmSync } from '../../store/src/file-ops.ts';
 import { crashPoint } from '../../store/src/crash-point.ts';
-import { existsSync, lstatSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, lstatSync, readdirSync, readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { atomicWrite, syncPath, writeDurable } from '../../store/src/durable.ts';
@@ -90,7 +91,7 @@ export function recoverRestore(folder: string, publish = writeDurable): void {
 
 /** Publish a verified batch with a durable rollback journal before its first rename. */
 export function commitRestore(folder: string, files: RestoreFile[], publish = writeDurable): void {
-  recoverRestore(folder);
+  recoverRestore(folder, publish);
   if (!files.length) return;
   for (const file of files) if (file.staged) flushTree(file.staged);
   const journal: RestoreJournal = {
@@ -127,13 +128,13 @@ export function commitRestore(folder: string, files: RestoreFile[], publish = wr
     if (committed) {
       console.warn(`Restore committed, but syncing its commit decision failed; durability is uncertain: ${(error as Error).message}`);
     } else {
-      try { recoverRestore(folder); } catch (rollbackError) {
+      try { recoverRestore(folder, publish); } catch (rollbackError) {
         throw new AggregateError([error, rollbackError], 'Restore failed and rollback was incomplete; retain the restore journal and .restore-previous-* copies for recovery');
       }
       throw error;
     }
   }
-  try { recoverRestore(folder); }
+  try { recoverRestore(folder, publish); }
   catch (error) {
     console.warn(`Restore committed, but cleanup is incomplete; retain the restore journal for recovery: ${(error as Error).message}`);
   }

@@ -1,3 +1,4 @@
+import { portableName, checkPathLength } from '../../store/src/portable-path.ts';
 // Externally stored container files in backups, as FileMaker Server backs up
 // RC_Data_FMS: each hosted file's container folders (RC_Data_FMS/<name>/ and
 // Files/<name>/, see Store.externalRoots) go into the set next to its copy.
@@ -55,7 +56,7 @@ export function safePath(root: string, rel: string): string {
   const target = resolve(root, ...parts);
   const inside = relative(resolve(root), target);
   if (isAbsolute(rel) || win32.isAbsolute(rel) || rel.includes('\\') || rel.includes('\0') ||
-      parts.some((p) => !p || p === '.' || p === '..' || p.includes(':')) || !inside || inside === '..' || inside.startsWith('..' + sep) || isAbsolute(inside)) {
+      parts.some((p) => !portableName(p)) || !inside || inside === '..' || inside.startsWith('..' + sep) || isAbsolute(inside)) {
     throw new Error(`unsafe external path: ${rel}`);
   }
   let path = resolve(root);
@@ -67,6 +68,7 @@ export function safePath(root: string, rel: string): string {
       if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
     }
   }
+  checkPathLength(target, 64);
   return target;
 }
 

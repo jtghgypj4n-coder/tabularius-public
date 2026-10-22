@@ -1,3 +1,4 @@
+import { renameFileSync as renameSync } from './file-ops.ts';
 // Converting a hosted file again from its .fmp12, keeping what people changed
 // since it was first converted. For stores made by an older converter (see
 // CONVERTER_VERSION) that a fix changes the result of, such as container
@@ -26,7 +27,7 @@
 // not mean the same records).
 
 import { DatabaseSync, backup } from 'node:sqlite';
-import { existsSync, mkdtempSync, renameSync, rmSync, statSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ACCOUNT_STATUS_META, CONVERTER_VERSION, DESIGN_LOG, applyFileAccountStatus, fileSha256, importFmp12, q, type ImportProgress, type ImportStat } from './import.ts';
