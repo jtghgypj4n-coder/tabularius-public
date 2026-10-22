@@ -106,7 +106,7 @@ function normalize(kind: SqlKind, v: unknown): { v: Norm; unfit?: boolean; nul?:
       return s.includes('\u0000') ? { v: s.replace(/\u0000/g, ''), nul: true } : { v: s };
     }
     case 'number': {
-      const n = typeof v === 'number' ? v : typeof v === 'bigint' ? Number(v) : typeof v === 'string' && /^\s*[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?\s*$/.test(v) ? Number(v) : NaN;
+      const n = typeof v === 'number' ? v : typeof v === 'bigint' ? Number(v) : typeof v === 'string' && /^\s*[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?\s*$/.test(v) ? Number(v) : NaN;
       return Number.isFinite(n) ? { v: n } : { v: null, unfit: true };
     }
     case 'integer': {
@@ -115,7 +115,7 @@ function normalize(kind: SqlKind, v: unknown): { v: Norm; unfit?: boolean; nul?:
     }
     case 'decimal': {
       const s = String(v).trim();
-      return /^[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$/.test(s) ? { v: s.replace(/^\+/, '') } : { v: null, unfit: true };
+      return /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(s) ? { v: s.replace(/^\+/, '') } : { v: null, unfit: true };
     }
     case 'boolean': {
       const s = String(v).trim().toLowerCase();

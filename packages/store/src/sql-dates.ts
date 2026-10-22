@@ -730,7 +730,7 @@ export const SQL_DATE_FUNCTIONS: Record<string, (...args: SQLOutputValue[]) => S
   NUMVAL: (v) => {
     if (typeof v === 'number') return v;
     const t = typeof v === 'string' ? v.trim() : '';
-    if (/^[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?$/.test(t)) return Number(t);
+    if (/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(t)) return Number(t);
     // The Claris page: the function fails when the string is not a valid number (an empty one is just empty).
     if (t) throw new CalcError(ERR.calculation, `NUMVAL: ${JSON.stringify(t)} is not a valid number`);
     return null;

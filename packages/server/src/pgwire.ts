@@ -122,7 +122,7 @@ function rowDescription(cols: Column[], formats?: number[]): Buffer {
 }
 
 /** A value as PostgreSQL's text format for its column's type. */
-function textValue(value: SqlValue, oid: number): Buffer | null {
+export function textValue(value: SqlValue, oid: number): Buffer | null {
   // Containers' bytes and big integers come back too.
   const v = value as unknown;
   if (v === null || v === undefined) return null;
