@@ -37,6 +37,8 @@ export interface ConversionReport {
   steps: {
     /** Script steps the engine can't run yet. */
     notYet: ConversionItem[];
+    /** Show Custom Dialog steps: error 3 when the script runs with no person to answer. */
+    dialogs: ConversionItem[];
     /** Send no email unless the server's administrator switches sending on. */
     blocked: ConversionItem[];
     /** Reach the network: off unless the server allows it. */
@@ -98,6 +100,7 @@ const lower = (s: string) => s.toLowerCase();
 const BROKEN = /<(?:Field|Table|Layout|Script|Value List|Function)? ?Missing>|<unknown>|<missing>/i;
 const COMMENT = 89;
 const SEND_MAIL = 63;
+const SHOW_CUSTOM_DIALOG = 87;
 const INSERT_FROM_URL = 160;
 /** Execute SQL (the step): an ODBC data source outside the solution. */
 const EXECUTE_SQL = 117;
@@ -204,6 +207,7 @@ export function conversionReport(store: Store, hosted: string[] = [], focus?: (w
   const named = (t: Tally) => t.list().map((i) => ({ ...i, name: properName(index.sites, i.name) }));
 
   const stepsNotYet = new Tally(keep);
+  const dialogs = new Tally(keep);
   const blocked = new Tally(keep);
   const network = new Tally(keep);
   const screenOnly = new Tally(keep);
@@ -220,6 +224,7 @@ export function conversionReport(store: Store, hosted: string[] = [], focus?: (w
       const where = `Script "${script.name}", line ${i + 1}`;
       if (focus && !focus(where)) return;
       if (step.stepId === COMMENT) return;
+      if (step.stepId === SHOW_CUSTOM_DIALOG) dialogs.add(step.name, where);
       const canonical = scriptStepName(step.stepId);
       if (canonical.startsWith('Unknown step ')) addUnknown('step', String(step.stepId), canonical, `step(${step.calculations?.length ?? 0} calculations)`);
       for (const c of step.calculations ?? []) {
@@ -279,7 +284,7 @@ export function conversionReport(store: Store, hosted: string[] = [], focus?: (w
     unknownTokens: [...unknown.values()].sort((a, b) => a.kind.localeCompare(b.kind) || a.id.localeCompare(b.id)),
     summary: '',
     functions: { notYet: notYet.list(), undecoded: undecoded.list(), plugIns: named(plugIns).map((item) => item.name.startsWith('unknown plug-in (id only)') ? { ...item, where: [] } : item) },
-    steps: { notYet: stepsNotYet.list(), blocked: blocked.list(), network: network.list(), screenOnly: screenOnly.list(), clientOnly: clientOnly.list() },
+    steps: { notYet: stepsNotYet.list(), dialogs: dialogs.list(), blocked: blocked.list(), network: network.list(), screenOnly: screenOnly.list(), clientOnly: clientOnly.list() },
     unparsed: unparsed.slice(0, LIST),
     broken: broken.slice(0, LIST),
     commentedOut: commentedOut.slice(0, LIST),
@@ -370,6 +375,7 @@ function summarize(r: ConversionReport, unparsed: number, broken: number): strin
   if (r.steps.blocked.length) notes.push(`- **Send mail only when switched on**: ${names(r.steps.blocked)}. Tabularius sends no email unless the server's administrator switches sending on.`);
   if (r.steps.network.length) notes.push(`- **Reach the network** (off unless the server allows it): ${names(r.steps.network)}.`);
   if (broken) notes.push(`- **Already broken in FileMaker** (missing fields, tables or scripts): ${plural(broken, 'place')}.`);
+  if (r.steps.dialogs.length) notes.push(`- **Dialogs in scripts that run without a person**: ${plural(uses(r.steps.dialogs), 'Show Custom Dialog step')}. FileMaker Server and the Data API do not support the step, and here it gives error 3 when no person is there to answer (a schedule, Perform Script on Server, the Data API); a person in the web client still sees the dialog.`);
   if (r.steps.screenOnly.length) notes.push(`- **Screen-only steps**, skipped on the server as FileMaker Server does: ${plural(uses(r.steps.screenOnly), 'step')}.`);
   if (r.steps.clientOnly.length) notes.push(`- **Only FileMaker Pro can do these** (a person choosing, a device, AppleScript); they give error 3 here, as on FileMaker Server: ${names(r.steps.clientOnly)}.`);
   if (r.privileges.sets.length) {
@@ -395,6 +401,7 @@ function summarize(r: ConversionReport, unparsed: number, broken: number): strin
 
 const WHY: [keyof ConversionReport['steps'] | 'notYetFns' | 'plugIns' | 'undecoded', string][] = [
   ['notYet', 'Script steps not available yet: each fails with error 3 and the script carries on, as in FileMaker'],
+  ['dialogs', 'Show Custom Dialog: error 3 when the script runs with no person to answer (a schedule, Perform Script on Server, the Data API)'],
   ['blocked', 'Sends only when switched on: Tabularius sends no email by default'],
   ['network', 'Needs the network, which is off unless the server allows it (AI-run scripts stay offline)'],
   ['screenOnly', 'Only affect a window, so they are skipped when the script runs on the server (as FileMaker Server does)'],

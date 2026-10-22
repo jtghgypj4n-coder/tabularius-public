@@ -234,6 +234,13 @@ export function conversionGuide(store: Store, hosted: string[] = [], report: Con
       ...(online.length ? { instead: 'List the host in the admin console (Hosted files, "Web viewers may load"; https only), build the page in the file as a data: URL ("data:text/html," & a field or variable holding the HTML), or show the address as a link a button opens with Open URL.' } : {}),
     });
   }
+  if (r.steps.dialogs.length) {
+    differs.push({
+      title: 'Dialogs in scripts that run without a person', severity: 'medium', count: uses(r.steps.dialogs), where: places(r.steps.dialogs),
+      what: `${plural(uses(r.steps.dialogs), 'Show Custom Dialog step')}. If a script with one runs with no person to answer (a schedule, Perform Script on Server, the Data API, an AI tool run), the step stops with error 3 and presses no button, as FileMaker Server and the Data API do not support it; the script carries on with the next step. In the web client a person still sees the dialog.`,
+      instead: 'Move the question to a script a person runs on the client, and pass the answer to the server script as its script parameter.',
+    });
+  }
   if (r.steps.screenOnly.length) {
     differs.push({
       title: 'Steps that only change a window', severity: 'low', count: uses(r.steps.screenOnly), where: places(r.steps.screenOnly),

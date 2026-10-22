@@ -120,6 +120,8 @@ export function checkSolution(store: Store, opts: { account?: string } = {}): So
       const where = `Script ${quoted(script.name)}, line ${i + 1}`;
       if (ERROR_3_STEPS.has(step.name)) {
         add({ kind: 'step-unavailable', severity: 'warning', where, message: `${step.name} is not available in this build: it gives error 3 and the script goes on to the next step.`, hint: 'Replace the step, or handle Get ( LastError ) = 3 after it (see docs/script-steps-support.md).' });
+      } else if (step.name === 'Show Custom Dialog') {
+        add({ kind: 'step-needs-setup', severity: 'info', where, message: 'Show Custom Dialog gives error 3 when the script runs without a person to answer (a schedule, Perform Script on Server, the Data API, a command-line run).', hint: 'Ask the question in a script a person runs, and pass the answer on as the script parameter (docs/script-steps-support.md).' });
       } else if (ERROR_3_UNLESS_CONFIGURED.has(step.name)) {
         add({ kind: 'step-needs-setup', severity: 'info', where, message: `${step.name} gives error 3 unless the server is set up for it.`, hint: 'Check the server options for it (docs/script-steps-support.md), or handle error 3 after the step.' });
       }

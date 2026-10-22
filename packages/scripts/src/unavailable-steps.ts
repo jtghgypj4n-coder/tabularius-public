@@ -13,7 +13,10 @@ export const ERROR_3_STEPS: ReadonlySet<string> = new Set([
   'Execute SQL', 'Perform AppleScript', 'Get Folder Path', 'Send Event', 'Configure Machine Learning Model',
 ]);
 
-/** Steps that give error 3 unless the server is set up for them (mail sending, script network access, the embedding model). */
+/**
+ * Steps that give error 3 unless the server is set up for them (mail sending, script network access, the embedding
+ * model), or unless a person is there to answer (Show Custom Dialog).
+ */
 export const ERROR_3_UNLESS_CONFIGURED: ReadonlySet<string> = new Set([
-  'Send Mail', 'Insert from URL', 'Configure RAG Account', 'Perform RAG Action',
+  'Send Mail', 'Insert from URL', 'Configure RAG Account', 'Perform RAG Action', 'Show Custom Dialog',
 ]);

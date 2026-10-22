@@ -134,7 +134,7 @@ A step marked **error 3** is unavailable; **does nothing** means it succeeds wit
 | [Set Web Viewer](146-set-web-viewer.md) | works |
 | [Set Window Title](124-set-window-title.md) | works |
 | [Set Zoom Level](97-set-zoom-level.md) | works |
-| [Show Custom Dialog](87-show-custom-dialog.md) | works |
+| [Show Custom Dialog](87-show-custom-dialog.md) | partly |
 | [Show/Hide Toolbars](29-show-hide-toolbars.md) | works |
 | [View As](30-view-as.md) | works |
 

@@ -82,12 +82,26 @@ test('Commit options change which buttons store the inputs', async () => {
   assert.equal(r.result, '2/kept');
 });
 
-test('with nobody to answer, the first button is chosen and the client is told', async () => {
+test('with nobody to answer, no button is pressed: error 3, the choice is left as it was, the next step runs', async () => {
   const r = await run(`
+    Set Variable [ $account ; Value: "guest" ]
+    Set Error Capture [ On ]
     ${DIALOG}
-    Exit Script [ Text Result: Get ( LastMessageChoice ) & "/" & $account ]`);
-  assert.equal(r.result, '1/');
-  assert.deepEqual(r.actions[0], { step: 'Show Custom Dialog', script: 'test', title: 'Sign in', message: 'Who are you, Ada?', buttons: ['OK', 'Cancel'] });
+    Set Variable [ $error ; Value: Get ( LastError ) ]
+    Exit Script [ Text Result: $error & "/" & Get ( LastMessageChoice ) & "/" & $account ]`);
+  assert.equal(r.result, '3/0/guest');
+  assert.deepEqual(r.actions.filter((a) => a.step === 'Show Custom Dialog'), []);
+  assert.equal(store.query('SELECT Name FROM People ORDER BY _fm_record_id')[0].Name, 'Ada');
+  assert.deepEqual((r.warnings ?? []).filter((w) => w.startsWith('Show Custom Dialog')).length, 1);
+});
+
+test('a headless Show Custom Dialog is error 3 at that step, and the trace says why', async () => {
+  const r = await run(`
+    Show Custom Dialog [ "Delete everything?" ; "This cannot be undone." ; Button 1: "Delete" ; Button 2: "Cancel" ]
+    Exit Script [ Text Result: "reached" ]`, { trace: true });
+  assert.equal(r.error, 3);
+  assert.equal(r.result, 'reached');
+  assert.match(r.trace?.[0].message ?? '', /not supported in scripts run without a person.*nothing was shown/);
 });
 
 test('Show Custom Dialog buttons and inputs survive the script text', () => {
