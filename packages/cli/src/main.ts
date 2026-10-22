@@ -18,7 +18,7 @@ import { startDemo } from './demo.ts';
 import { checkPort, defaults, installed, installService, serviceFile, uninstallService, servicePlainRefusal, defaultServiceHost, upgrade, validateServicePublicUrl, type Platform, type ServiceOptions } from './service.ts';
 import { claimFolder } from '../../server/src/backup.ts';
 import { FmpDatabase, fileSource, encryptionInfo, readLayoutDesigns, segmentOf, inspectText, type Schema } from '../../fmp12/src/index.ts';
-import { BUILT_IN_EXTENDED_PRIVILEGES, addCensus, styleCensus, styleCensusText, calcFidelity, censusText, exportSql, exportSqlSummary, planImportTables, importTables, importTablesSummary, notionMarkdownSheet, MAX_IMPORT_ROWS, type SheetInput, type ColumnOverrides, type ColumnKind, findStaleCalcs, layoutCensus, type LayoutCensus, createStore, designReport, importFmp12, PASSWORD_POLICY, DEFAULT_MIN_PASSWORD_LENGTH, reconvert, reconvertCheck, verifySecurityAudit, verifyRecordAudit, anchorHead, checkAnchor, Store, syncPlan, openForPlanning, applySync, readSyncLog, releaseHeldTables, type ConflictPolicy, writeBackKit, designText, writeDesignText, diffDesigns, planDesignApply, readDesignFolder, type DesignOp, type ReconvertPreview, csvField } from '../../store/src/index.ts';
+import { BUILT_IN_EXTENDED_PRIVILEGES, addCensus, styleCensus, styleCensusText, calcFidelity, censusText, exportSql, exportSqlSummary, planImportTables, importTables, importTablesSummary, notionMarkdownSheet, MAX_IMPORT_ROWS, type SheetInput, type ColumnOverrides, type ColumnKind, findStaleCalcs, layoutCensus, type LayoutCensus, createStore, designReport, importFmp12, PASSWORD_POLICY, DEFAULT_MIN_PASSWORD_LENGTH, reconvert, reconvertCheck, verifySecurityAudit, verifyRecordAudit, anchorHead, checkAnchor, Store, syncPlan, openForPlanning, applySync, readSyncLog, releaseHeldTables, type ConflictPolicy, writeBackKit, designText, writeDesignText, diffDesigns, planDesignApply, readDesignFolder, type DesignOp, type ReconvertPreview, csvField, exitBundle, discardExitBundle } from '../../store/src/index.ts';
 import { xlsxSheetNames } from '../../scripts/src/xlsx.ts';
 import { importFileRowIterator, neverAllowed, parseAllowList, SCREEN_STEPS, SERVER_STEPS, testScripts, type ScriptTestResult } from '../../scripts/src/index.ts';
 import { conversionReport, explainScriptFailure, type ScriptFailure, DEFAULT_MODEL, Host, serve, serveCluster, serveStdio, aiStatus, STORE_EXT, ENCRYPTED_EXT, encryptFileSync, decryptFileSync, setAdminPassword, adminPasswordProblem, tokenExpiry, readLocalMcpToken, backupFolder, backupSets, defaultBackupDir, parseInterval, parseTime, restoreAt, restoreBackup, AccountChangesError, type AccountDifference, type ChangedSince, verifySet, describeCheck, resolveEmbedEndpoint, resolveImageEmbed, localCertificateFiles, Standby, S3, s3FromEnv, mirrorDown, fetchFmsExport, migrateFms, describeMigration, copySize, readSettings, runningServer, dataApiSource, dataApiClient, checkSyncAllowed, describeApply, describePlan, verifySync, describeSyncVerification, parseSyncConfig, CONTAINER_PULL_MAX_BYTES, type FmsExport } from '../../server/src/index.ts';
@@ -368,6 +368,15 @@ Hosting (point it at a folder of .fmp12 files; each is converted once):
                                              relationships and a portal. --preview shows the
                                              plan and writes nothing; --set overrides a kind
                                              (or link:Sheet, or skip). Data only; counts only
+  tabularius exit-bundle <folder> <database> --out <folder> --account A [--discard]
+                                             Take a portable copy of the whole file: every table
+                                             (SQLite and CSV), every container file, globals,
+                                             serial counters, the design and the accounts without
+                                             their secrets, with a manifest of SHA-256 hashes.
+                                             A Full Access account; the password is asked for
+                                             (or TABULARIUS_PASSWORD). PLAINTEXT, even when files
+                                             are encrypted at rest. A stopped copy resumes when run
+                                             again; --discard removes an unfinished one
   tabularius export-sql <folder> <database> --out file.sql [--dialect postgres|sqlite] [--account A]
                                              Leave with your data: tables, records, keys and
                                              value lists as a SQL script (container files go
@@ -2207,6 +2216,33 @@ function main(argv: string[]): number {
         if (fd !== undefined) closeSync(fd);
         store.close();
       }
+      return 0;
+    }
+    case 'exit-bundle': {
+      const out = flag(args, '--out');
+      const account = flag(args, '--account');
+      const discard = bool(args, '--discard');
+      const [database] = args;
+      if (!database) throw new Error('exit-bundle: give a database');
+      if (!out) throw new Error('exit-bundle: give --out <folder> (the copy is written there; it must not exist yet)');
+      if (!account) throw new Error('exit-bundle: give --account <a Full Access account>; you are asked for its password');
+      const store = openDatabase(path, database);
+      later((async () => {
+        try {
+          const password = process.env.TABULARIUS_PASSWORD ?? await readSecret(`Password for ${account} in ${database}`);
+          if (discard) {
+            await discardExitBundle(store, out, { account, password });
+            console.log(`removed the unfinished copy ${resolve(out)}.partial`);
+            return;
+          }
+          const report = await exitBundle(store, out, { account, password });
+          console.log(`${report.tables} table${report.tables === 1 ? '' : 's'}, ${report.rows} row${report.rows === 1 ? '' : 's'}, ${report.containers} container file${report.containers === 1 ? '' : 's'}`);
+          console.log(`wrote ${report.folder}`);
+          console.log('This folder holds the whole file in plaintext, even when the server encrypts files at rest: keep it private, and delete it when you are done.');
+        } finally {
+          store.close();
+        }
+      })());
       return 0;
     }
     case 'layout-census': {
