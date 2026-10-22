@@ -87,7 +87,28 @@ test('upload owners mark distinct spools and live processes protect them', (t) =
     date(spool, Date.now() - 2 * day);
   }
   assert.equal(sweepOrphanUploadFolders({ tmp, now: Date.now() + 2 * day }).kept, 2);
-  assert.equal(sweepOrphanUploadFolders({ tmp, now: Date.now() + 2 * day, alive: () => false }).removed.length, 2);
+  // This process owns them: even a sweep that thinks no one is alive, a week on, leaves them.
+  assert.equal(sweepOrphanUploadFolders({ tmp, now: Date.now() + 8 * day, alive: () => false }).removed.length, 0);
+  assert.equal(readdirSync(tmp).length, 2);
+});
+
+test('a spool folder this process owns survives a week idle and is recreated if it goes missing', (t) => {
+  const tmp = root(); t.after(() => rmSync(tmp, { recursive: true, force: true }));
+  const uploads = new ContainerUploads({ tmp });
+  const target = { layout: 'L', recordId: 1, field: 'F', repetition: 1 };
+  const a = uploads.start({ db: 'D', account: 'A' }, target, { size: 1 });
+  const [name] = readdirSync(tmp);
+  const spool = join(tmp, name!);
+  date(spool, Date.now() - 9 * day);
+  const result = sweepOrphanUploadFolders({ tmp, now: Date.now(), alive: () => false });
+  assert.deepEqual(result.removed, []);
+  assert.equal(existsSync(spool), true);
+  // Whatever removed the folder (a tmp cleaner, say), the next upload makes a fresh one instead of failing.
+  rmSync(spool, { recursive: true, force: true });
+  const b = uploads.start({ db: 'D', account: 'A' }, target, { size: 1 });
+  assert.notEqual(a.id, b.id);
+  assert.equal(existsSync(join(tmp, readdirSync(tmp)[0]!, `${b.id}.part`)), true);
+  assert.equal(readdirSync(tmp).length, 1);
 });
 
 test('server startup sweeps the configured upload folder and close clears its timer', async (t) => {
