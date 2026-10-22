@@ -204,6 +204,8 @@ function adminErrorText(e: unknown, scope: object): string {
 export const ADMIN_LIMIT = { passkeyChallenges: 2000, passkeyChallengesProxyReserve: 100, passkeyChallengesPerAddress: 5, passkeyChallengesPer48: 50, passkeyChallengesUnknown: 100 };
 /** Sent with every JSON answer, so a browser never reads one as anything else. */
 const NOSNIFF = { 'x-content-type-options': 'nosniff' };
+/** The console's calls anyone may make, to sign in (the page is just HTML; its data needs the sign-in). */
+const OPEN_CONSOLE_PATHS = new Set(['sign-in-info', 'sign-in', 'sign-out', 'passkey-sign-in'].map((n) => `/tabularius/admin/v1/${n}`));
 const PAGE = join(import.meta.dirname, '..', 'admin', 'index.html');
 
 /** Canonical IPv4 or IPv6 /64, plus the IPv6 /48 that contains it. */
@@ -689,9 +691,21 @@ export class Admin {
     if (!page && !path.startsWith('/tabularius/admin/')) return false;
     const json = (status: number, body: unknown, headers: Record<string, string> = {}) =>
       res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', ...NOSNIFF, ...headers }).end(JSON.stringify(body));
+    // The refusal for a caller that is not signed in; the console page asks for the password on its own sign-in page, not the browser's box.
+    const refuse = (denied: { status: number; message: string; retryAfter?: number }) => {
+      const fromPage = req.headers['x-tabularius-console'] === '1';
+      res.writeHead(denied.status, {
+        'content-type': 'application/json; charset=utf-8', ...NOSNIFF,
+        ...(denied.status === 401 && !fromPage ? { 'www-authenticate': 'Basic realm="Tabularius admin", charset="UTF-8"' } : {}),
+        ...(denied.retryAfter ? { 'retry-after': String(denied.retryAfter) } : {}),
+      }).end(JSON.stringify({ error: denied.message, signIn: denied.status === 401 || denied.status === 403 }));
+    };
     const allow = consoleMethods(path);
     if (allow && !allow.split(', ').includes(req.method ?? 'GET')) {
-      json(405, { error: 'method not allowed' }, { allow });
+      // Which methods a path answers is told only to a signed-in caller, so a stranger cannot map the routes; the sign-in calls are open to all.
+      const denied = OPEN_CONSOLE_PATHS.has(path) ? null : this.check(req);
+      if (denied) refuse(denied);
+      else json(405, { error: 'method not allowed' }, { allow });
       return true;
     }
     // The sign-in page's own calls, open to everyone (the page is just the console's HTML; its data needs signing in).
@@ -766,18 +780,12 @@ export class Admin {
     }
     const denied = page ? null : this.check(req);
     if (denied) {
-      // The console's page asks for the password on its own sign-in page, not the browser's box.
-      const fromPage = req.headers['x-tabularius-console'] === '1';
-      res.writeHead(denied.status, {
-        'content-type': 'application/json; charset=utf-8', ...NOSNIFF,
-        ...(denied.status === 401 && !fromPage ? { 'www-authenticate': 'Basic realm="Tabularius admin", charset="UTF-8"' } : {}),
-        ...(denied.retryAfter ? { 'retry-after': String(denied.retryAfter) } : {}),
-      }).end(JSON.stringify({ error: denied.message, signIn: denied.status === 401 || denied.status === 403 }));
+      refuse(denied);
       return true;
     }
     if (page) {
       if (path === '/admin') {
-        res.writeHead(301, { location: '/admin/' }).end();
+        res.writeHead(301, { location: '/admin/', ...NOSNIFF }).end();
         return true;
       }
       await sendAsset(req, res, {
@@ -894,7 +902,7 @@ export class Admin {
         const id = decodeURIComponent(path.split('/')[5]);
         send(200, { removed: removeAdminPasskey(this.host.dir, id) });
       } else if (path === '/tabularius/admin/v1/metrics' && req.method === 'GET' && this.metrics) {
-        res.writeHead(200, { 'content-type': 'text/plain; version=0.0.4; charset=utf-8', 'cache-control': 'no-store' }).end(this.metrics.render());
+        res.writeHead(200, { 'content-type': 'text/plain; version=0.0.4; charset=utf-8', 'cache-control': 'no-store', ...NOSNIFF }).end(this.metrics.render());
       } else if (path === '/tabularius/admin/v1/backups' && req.method === 'GET') {
         send(200, { backups: this.status().backups });
       } else if (path === '/tabularius/admin/v1/backup-folder' && req.method === 'POST') {
@@ -1889,7 +1897,7 @@ export class Admin {
       const old = url.searchParams.get('old') === '1';
       const file = old ? logs.file(name).replace(/\.log$/, '-old.log') : logs.file(name);
       res.writeHead(200, {
-        'content-type': 'text/tab-separated-values; charset=utf-8', 'cache-control': 'no-store',
+        'content-type': 'text/tab-separated-values; charset=utf-8', 'cache-control': 'no-store', ...NOSNIFF,
         'content-disposition': `attachment; filename="${name}${old ? '-old' : ''}.log"`,
       }).end(existsSync(file) ? readFileSync(file) : '');
       return;
@@ -2145,7 +2153,7 @@ export class Admin {
     });
     if ((p.get('format') ?? '').toLowerCase() === 'csv') {
       const file = `audit-${name!.replace(/[^\w.-]+/g, '_')}.csv`;
-      res.writeHead(200, { 'content-type': 'text/csv; charset=utf-8', 'cache-control': 'no-store', 'content-disposition': `attachment; filename="${file}"` }).end(auditCsv(entries));
+      res.writeHead(200, { 'content-type': 'text/csv; charset=utf-8', 'cache-control': 'no-store', ...NOSNIFF, 'content-disposition': `attachment; filename="${file}"` }).end(auditCsv(entries));
       return;
     }
     send(200, { database: name, audit: entries });
@@ -2180,7 +2188,7 @@ export class Admin {
     });
     if ((p.get('format') ?? '').toLowerCase() === 'csv') {
       const file = `security-events-${name!.replace(/[^\w.-]+/g, '_')}.csv`;
-      res.writeHead(200, { 'content-type': 'text/csv; charset=utf-8', 'cache-control': 'no-store', 'content-disposition': `attachment; filename="${file}"` }).end(securityEventsCsv(events));
+      res.writeHead(200, { 'content-type': 'text/csv; charset=utf-8', 'cache-control': 'no-store', ...NOSNIFF, 'content-disposition': `attachment; filename="${file}"` }).end(securityEventsCsv(events));
       return;
     }
     send(200, { database: name, categories: Object.keys(SECURITY_EVENT_CATEGORIES), events });
@@ -2408,7 +2416,7 @@ export class Admin {
     const review = accessReview(store, { unusedDays });
     if ((p.get('format') ?? '').toLowerCase() === 'csv') {
       const file = `access-review-${name!.replace(/[^\w.-]+/g, '_')}.csv`;
-      res.writeHead(200, { 'content-type': 'text/csv; charset=utf-8', 'cache-control': 'no-store', 'content-disposition': `attachment; filename="${file}"` }).end(accessReviewCsv(review));
+      res.writeHead(200, { 'content-type': 'text/csv; charset=utf-8', 'cache-control': 'no-store', ...NOSNIFF, 'content-disposition': `attachment; filename="${file}"` }).end(accessReviewCsv(review));
       return;
     }
     send(200, review);
@@ -2428,7 +2436,7 @@ export class Admin {
     const readiness = pluginReadiness(store, this.host.plugins);
     if ((url.searchParams.get('format') ?? '').toLowerCase() === 'csv') {
       const file = `plug-ins-${name!.replace(/[^\w.-]+/g, '_')}.csv`;
-      res.writeHead(200, { 'content-type': 'text/csv; charset=utf-8', 'cache-control': 'no-store', 'content-disposition': `attachment; filename="${file}"` }).end(pluginReadinessCsv(readiness));
+      res.writeHead(200, { 'content-type': 'text/csv; charset=utf-8', 'cache-control': 'no-store', ...NOSNIFF, 'content-disposition': `attachment; filename="${file}"` }).end(pluginReadinessCsv(readiness));
       return;
     }
     send(200, readiness);

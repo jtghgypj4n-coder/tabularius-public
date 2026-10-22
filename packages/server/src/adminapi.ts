@@ -284,13 +284,17 @@ export class AdminApi {
     try {
       const method = req.method ?? 'GET';
       if (path.length > MAX_PATH) throw new AdminApiError(960, 'Parameter is invalid: request path is too long');
-      const numericId = /^\/(?:databases|clients|schedules)\/(\d+)(?:\/|$)/.exec(path)?.[1];
-      if (numericId && numericId.length > 9) throw new AdminApiError(960, 'Parameter is invalid: id is too long');
       const allow = allowedMethods(path);
-      if (allow && !allow.split(', ').includes(method)) throw new AdminApiError(3, 'Unavailable command', 405, allow);
-      if (path === '/user/auth' && method === 'POST') return await this.login(req, send);
+      // The sign-in route is open to everyone; for any other path, which methods it answers and how it reads an id are told only to a signed-in caller.
+      if (path === '/user/auth') {
+        if (method !== 'POST') throw new AdminApiError(3, 'Unavailable command', 405, allow);
+        return await this.login(req, send);
+      }
       const logout = /^\/user\/auth\/([^/]+)$/.exec(path);
       this.authorize(req);
+      const numericId = /^\/(?:databases|clients|schedules)\/(\d+)(?:\/|$)/.exec(path)?.[1];
+      if (numericId && numericId.length > 9) throw new AdminApiError(960, 'Parameter is invalid: id is too long');
+      if (allow && !allow.split(', ').includes(method)) throw new AdminApiError(3, 'Unavailable command', 405, allow);
       done = this.inFlight.enter('admin', res);
       if (!done) {
         busyHeaders(res);
