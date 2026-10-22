@@ -17,7 +17,7 @@ Send Mail is a other steps script step. This page describes how the offline Tabu
 ## What the engine does
 
 The engine handles this step with the limits described in the support notes.
-Error 3: Tabularius sends no email unless the administrator switches sending on (see Partly supported). Outbound test mode captures a test message separately.
+Captures a redirected test copy; it does not send the production message. SMTP credentials are not decoded.
 
 FileMaker comparisons in this note are inferred unless a Claris help page is linked. See the [full support notes](../../script-steps-support.md) for surrounding conditions.
 
