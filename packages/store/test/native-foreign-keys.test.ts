@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import {
   applySync, createStore, designReport, designText, planDesignApply, readSyncLog, Store, StoreError, tableDDL,
   type DesignOp, type RemoteRecord, type RemoteSource, type RemoteWriter,
@@ -312,4 +313,108 @@ test('a live sync pull obeys the key: a pulled record whose key has no parent he
   assert.match(res.tables[0].failed[0].error, /contact_company.*globex/);
   assert.deepEqual(ids(store, 'Contacts', 'Name'), ['Ann']);
   assert.equal(readSyncLog(store, { limit: 100 }).filter((l) => l.status === 'failed').length, 1);
+});
+
+test('a refusal counts the child records only for an account that can see their table', (t) => {
+  const store = open(t);
+  sales(store, 'restrict', 'no-action');
+  const open_ = { view: true, edit: true, create: true, delete: true };
+  store.savePrivilegeSet({ name: 'Clerk', records: open_, tables: { Invoices: { ...open_, view: false }, Lines: { ...open_, view: false } }, layouts: 'modifiable', valueLists: 'none', scripts: 'none', extendedPrivileges: [] });
+  store.setPassword('clerk', 'pw', 'Clerk');
+  const privileges = store.privileges('clerk');
+  const c1 = idOf(store, 'Customers', 'ID', 'c1');
+  assert.throws(() => store.delete('Customers', c1, { privileges }), code(505, /\(on delete restrict\): Invoices records use this record's ID "c1"; delete or change them first/));
+  assert.throws(() => store.update('Customers', c1, { ID: 'c0' }, undefined, { privileges }), code(505, /: Invoices records use ID "c1"/));
+  // Full access still gets the count.
+  assert.throws(() => store.delete('Customers', c1), code(505, /2 Invoices records use/));
+});
+
+const seqOf = (store: Store, table: string, recordId: number, kind: string) =>
+  store.auditLog({ table, recordId, kind, limit: 10 })[0].seq;
+
+test('restoring a parent from the audit log to before it existed follows ON DELETE like a delete', (t) => {
+  const store = open(t);
+  sales(store, 'restrict');
+  const c2 = idOf(store, 'Customers', 'ID', 'c2');
+  assert.throws(() => store.restoreRecord('Customers', c2, 0), code(505, /invoice_customer.*on delete restrict/));
+  assert.deepEqual(ids(store, 'Customers'), ['c1', 'c2']);
+  assert.deepEqual(ids(store, 'Invoices', 'CustomerID'), ['c1', 'c1', 'c2']);
+
+  const cascading = open(t);
+  sales(cascading, 'cascade', 'cascade');
+  assert.equal(cascading.restoreRecord('Customers', idOf(cascading, 'Customers', 'ID', 'c2'), 0).action, 'deleted');
+  assert.deepEqual(ids(cascading, 'Invoices'), ['i1', 'i2']);
+  assert.deepEqual(ids(cascading, 'Lines', 'Item'), ['pen', 'ink']);
+});
+
+test('restoring a deleted child from the audit log needs its parent', (t) => {
+  const store = open(t);
+  sales(store, 'cascade', 'cascade');
+  const i3 = idOf(store, 'Invoices', 'ID', 'i3');
+  store.delete('Customers', idOf(store, 'Customers', 'ID', 'c2'));
+  const gone = seqOf(store, 'Invoices', i3, 'delete');
+  assert.throws(() => store.restoreRecord('Invoices', i3, gone - 1), code(505, /no Customers record has ID "c2"/));
+  assert.deepEqual(ids(store, 'Invoices'), ['i1', 'i2']);
+  // With the parent back first, it can come back too.
+  store.create('Customers', { ID: 'c2' });
+  assert.equal(store.restoreRecord('Invoices', i3, gone - 1).action, 'created');
+  assert.deepEqual(ids(store, 'Invoices'), ['i1', 'i2', 'i3']);
+});
+
+test('restoring an edit from the audit log keeps both ends of the key', (t) => {
+  const store = open(t);
+  sales(store, 'restrict');
+  // A parent's old key: children use its new one now.
+  const c3 = store.create('Customers', { ID: 'c3' }).recordId;
+  store.update('Customers', c3, { ID: 'c4' });
+  store.create('Invoices', { ID: 'i4', CustomerID: 'c4' });
+  const renamed = seqOf(store, 'Customers', c3, 'update');
+  assert.throws(() => store.restoreRecord('Customers', c3, renamed - 1), code(505, /1 Invoices record uses ID "c4"/));
+  assert.deepEqual(ids(store, 'Customers'), ['c1', 'c2', 'c4']);
+  // A child's old key: its parent is gone since.
+  const i3 = idOf(store, 'Invoices', 'ID', 'i3');
+  store.update('Invoices', i3, { CustomerID: 'c1' });
+  store.delete('Customers', idOf(store, 'Customers', 'ID', 'c2'));
+  const moved = seqOf(store, 'Invoices', i3, 'update');
+  assert.throws(() => store.restoreRecord('Invoices', i3, moved - 1), code(505, /no Customers record has ID "c2"/));
+  assert.equal(store.get('Invoices', i3).fieldData.CustomerID, 'c1');
+});
+
+test('a parent\'s delete, edit and truncate check their children under the write lock, so no child can come in between', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'tabularius-native-fk-lock-'));
+  const path = join(dir, 'Sales.sqlite');
+  createStore(path, { mode: 'native' });
+  const store = new Store(path, 'Sales');
+  // Another process's connection, which doesn't wait for a lock.
+  const other = new DatabaseSync(path);
+  other.exec('PRAGMA busy_timeout = 0');
+  t.after(() => { other.close(); store.close(); rmSync(dir, { recursive: true, force: true }); });
+  sales(store, 'restrict');
+  // Whenever the store looks for a parent's children, the other connection tries to add one first.
+  const tried: string[] = [];
+  const sql = store.sql;
+  const prepare = sql.prepare.bind(sql);
+  sql.prepare = ((text: string) => {
+    const statement = prepare(text);
+    if (!/^SELECT _fm_record_id AS id FROM "Invoices" WHERE "CustomerID"/.test(text)) return statement;
+    const all = statement.all.bind(statement);
+    statement.all = ((...params: never[]) => {
+      try {
+        other.prepare('INSERT INTO "Invoices" ("ID", "CustomerID") VALUES (\'sneaked\', ?)').run(params[0] ?? 'c1');
+        tried.push('inserted');
+      } catch (e) {
+        tried.push(/locked|busy/i.test(String(e)) ? 'locked' : String(e));
+      }
+      return all(...params);
+    }) as typeof statement.all;
+    return statement;
+  }) as typeof sql.prepare;
+  const c9 = store.create('Customers', { ID: 'c9' }).recordId;
+  store.delete('Customers', c9);
+  const c8 = store.create('Customers', { ID: 'c8' }).recordId;
+  store.update('Customers', c8, { ID: 'c7' });
+  assert.throws(() => store.truncate('Customers'), code(505, /on delete restrict/));
+  assert.ok(tried.length >= 3, `the seam ran for each (${tried.join(', ')})`);
+  assert.deepEqual([...new Set(tried)], ['locked']);
+  assert.deepEqual(ids(store, 'Invoices').filter((v) => v === 'sneaked'), []);
 });

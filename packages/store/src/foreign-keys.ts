@@ -7,6 +7,7 @@
 // stored. A child field holds one parent key, so a multi-line value (FileMaker's multi-key) is refused there.
 
 import type { Field, ForeignKey, OnDelete, Relationship, Schema, Table, TableOccurrence } from '../../fmp12/src/index.ts';
+import type { StatementSync } from 'node:sqlite';
 import type { SqlValue } from './find.ts';
 import { q } from './import.ts';
 
@@ -152,7 +153,11 @@ export function sameKey(f: Field, a: unknown, b: unknown): boolean {
   return a === b || String(a) === String(b);
 }
 
-interface Prepare { (sql: string): { get(...params: SqlValue[]): unknown; all(...params: SqlValue[]): unknown[] } }
+/**
+ * The store's statement cache. These are internal integrity reads (the read-gate inventory lists them as CORE): they
+ * look at every record, whatever the account may see, because a key holds or not for all of them.
+ */
+type Prepare = (sql: string) => StatementSync;
 
 /** Whether a parent record (other than `except`) holds the key. */
 export function parentHas(prepare: Prepare, fk: ResolvedForeignKey, value: SqlValue, except?: number): boolean {
