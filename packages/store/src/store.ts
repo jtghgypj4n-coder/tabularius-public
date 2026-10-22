@@ -6185,9 +6185,20 @@ export class Store {
 
   /** verify on the thread pool; an optional directory check shares the attempt's single outcome. */
   async verifyAsync(account: string, password: string, from = '', fallback?: () => Promise<boolean>, checkAlive: () => void = () => {}): Promise<boolean> {
-    const hash = this.passwordHash(account, from);
+    let proof = this.passwordState(account, from);
+    if (proof && !proof.identity) {
+      this.accountIdentityId(account);
+      proof = this.passwordState(account, from);
+    }
+    const hash = proof?.hash;
     if (this.spendsScrypt(hash, account, from)) await checkPasswordAsync(password, DUMMY_HASH);
     let valid = hash !== undefined && await checkPasswordAsync(password, hash) && !this.accountInactive(account);
+    if (valid) {
+      // Hashing yields: another worker may replace the identity, change its password, or disable it.
+      // Revalidate both the identity and the usable verifier before accepting the proof.
+      const current = this.passwordState(account, from);
+      valid = !!proof?.identity && current?.hash === hash && current?.identity === proof.identity;
+    }
     if (!valid && fallback && !this.lockedOut(account, from)) {
       const key = this.bucketKey(account, from);
       // Overlapping guesses still count as failures, but cannot multiply LDAP work.
@@ -6218,18 +6229,23 @@ export class Store {
 
   /** The account's password hash; undefined when it has none or the place is locked out. */
   private passwordHash(account: string, from: string): string | undefined {
+    return this.passwordState(account, from)?.hash;
+  }
+
+  /** Read verifier eligibility and identity together, so a peer cannot mix two account generations. */
+  private passwordState(account: string, from: string): { hash: string; identity: string | null } | undefined {
     if (this.lockedOut(account, from)) return undefined;
-    const row = this.sql.prepare('SELECT password_hash, source, inactive, password_disabled FROM _fm_accounts WHERE name = ? COLLATE NOCASE').get(account) as
-      | { password_hash: string | null; source: string; inactive: number; password_disabled: number } | undefined;
+    const row = this.sql.prepare('SELECT password_hash, source, inactive, password_disabled, identity_id FROM _fm_accounts WHERE name = ? COLLATE NOCASE').get(account) as
+      | { password_hash: string | null; source: string; inactive: number; password_disabled: number; identity_id: string | null } | undefined;
     if (row?.inactive || row?.password_disabled) return undefined;
-    if (row?.password_hash) return row.password_hash;
+    if (row?.password_hash) return { hash: row.password_hash, identity: row.identity_id };
     // No password set in Tabularius: the one the file has, as FileMaker checks it.
     if (row?.source !== 'fmp12') return undefined;
     const verifier = this.schema.accounts.find((a) => !a.external && a.name.toLowerCase() === account.toLowerCase())?.passwordVerifier;
     if (!verifier) return undefined;
     // An empty password lets anyone in, so from other computers only when the server allows it.
     if (checkFmp12Password('', verifier) && !LOCAL.has(from) && !PASSWORD_POLICY.blankFromNetwork && !(this.allowBlankPasswordFromLan() && privateAddress(from))) return undefined;
-    return `fmp12$${verifier}`;
+    return { hash: `fmp12$${verifier}`, identity: row.identity_id };
   }
 
   /**
