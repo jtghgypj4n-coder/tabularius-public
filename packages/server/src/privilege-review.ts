@@ -77,67 +77,111 @@ function* calls(n: Node): Generator<string> {
   }
 }
 
+/** What one field or custom function reads itself, and the fields and functions it leads on to. */
+interface Step { tables: Set<number>; dynamic: boolean; next: Edge[] }
+interface Edge { key: string; build: () => Step }
+
 /**
- * What the calculation field reads, by the calculation engine's own parse, and what the calculation fields it names
- * read, and what the custom functions it calls read (each field and function once, so a cycle ends).
+ * What the calculation fields of a review read, by the calculation engine's own parse: the tables a calculation names,
+ * and what the calculation fields (summary fields too) and custom functions it uses read, through any number of steps.
+ * Each field and each function is parsed once for the whole review and each field's answer is kept, so a review of a
+ * long chain of calculations or functions costs one walk of the chain per field, not one parse of it per field and set.
  */
-function calcReads(store: Store, table: Table, field: Field, reads: Reads = { tables: new Set(), dynamic: false }, seen = new Set<string>()): Reads {
-  const key = `${table.id}/${field.id}`;
-  if (seen.has(key)) return reads;
-  seen.add(key);
-  const compiled = store.calc.formula(table, field);
-  if (!compiled) return reads; // a formula the engine can't parse can't be evaluated either
-  const occurrenceNamed = (name: string) => {
-    const to = store.schema.tableOccurrences.find((o) => o.name.toLowerCase() === name.toLowerCase());
-    return to && !to.dataSourceId ? store.schema.tables.find((x) => x.id === to.baseTableId) : undefined;
-  };
-  const follow = (t: Table | undefined, name: string) => {
-    const target = t?.fields.find((x) => x.name.toLowerCase() === name.toLowerCase());
-    if (t && target?.kind === 'calculation') calcReads(store, t, target, reads, seen);
-  };
-  // Its own table's occurrence is no read of another table.
-  const own = store.schema.tableOccurrences.find((o) => o.baseTableId === table.id && !o.dataSourceId);
-  for (const ref of compiled.fields) {
-    if (ref.occurrence === undefined || ref.occurrence.toLowerCase() === own?.name.toLowerCase()) { follow(table, ref.name); continue; }
-    const named = occurrenceNamed(ref.occurrence);
-    if (!named) continue;
-    reads.tables.add(named.id);
-    follow(named, ref.name);
+class ReadGraph {
+  private steps = new Map<string, Step>();
+  private answers = new Map<string, Reads>();
+  private store: Store;
+  constructor(store: Store) { this.store = store; }
+
+  reads(table: Table, field: Field): Reads {
+    const root = this.fieldEdge(table, field);
+    const kept = this.answers.get(root.key);
+    if (kept) return { tables: new Set(kept.tables), dynamic: kept.dynamic };
+    const reads: Reads = { tables: new Set(), dynamic: false };
+    const seen = new Set([root.key]);
+    const todo = [root];
+    for (let e = todo.pop(); e; e = todo.pop()) {
+      let step = this.steps.get(e.key);
+      if (!step) this.steps.set(e.key, (step = e.build()));
+      for (const id of step.tables) reads.tables.add(id);
+      if (step.dynamic) reads.dynamic = true;
+      for (const n of step.next) if (!seen.has(n.key)) { seen.add(n.key); todo.push(n); }
+    }
+    this.answers.set(root.key, reads);
+    return { tables: new Set(reads.tables), dynamic: reads.dynamic };
   }
-  const names = store.calc.names(own?.id ?? -1);
-  const functions = new Set<string>();
-  const visit = (node: Node) => {
+
+  private occurrenceNamed(name: string) {
+    const to = this.store.schema.tableOccurrences.find((o) => o.name.toLowerCase() === name.toLowerCase());
+    return to && !to.dataSourceId ? this.store.schema.tables.find((x) => x.id === to.baseTableId) : undefined;
+  }
+
+  /** The step to a calculation or summary field a formula names, if it is one. */
+  private follow(t: Table | undefined, name: string): Edge[] {
+    const target = t?.fields.find((x) => x.name.toLowerCase() === name.toLowerCase());
+    return t && target && (target.kind === 'calculation' || target.kind === 'summary') ? [this.fieldEdge(t, target)] : [];
+  }
+
+  private fieldEdge(table: Table, field: Field): Edge {
+    return { key: `field/${table.id}/${field.id}`, build: () => this.fieldStep(table, field) };
+  }
+
+  private functionEdge(lower: string, ownId: number): Edge {
+    return { key: `function/${ownId}/${lower}`, build: () => this.functionStep(lower, ownId) };
+  }
+
+  private fieldStep(table: Table, field: Field): Step {
+    const step: Step = { tables: new Set(), dynamic: false, next: [] };
+    if (field.kind === 'summary') {
+      // A summary reads the field it summarises (a calculation, say, that reads another table).
+      const of = table.fields.find((x) => x.id === field.summary?.fieldId);
+      if (of) step.next.push(...this.follow(table, of.name));
+      return step;
+    }
+    const compiled = this.store.calc.formula(table, field);
+    if (!compiled) return step; // a formula the engine can't parse can't be evaluated either
+    // Its own table's occurrence is no read of another table.
+    const own = this.store.schema.tableOccurrences.find((o) => o.baseTableId === table.id && !o.dataSourceId);
+    for (const ref of compiled.fields) {
+      if (ref.occurrence === undefined || ref.occurrence.toLowerCase() === own?.name.toLowerCase()) { step.next.push(...this.follow(table, ref.name)); continue; }
+      const named = this.occurrenceNamed(ref.occurrence);
+      if (!named) continue;
+      step.tables.add(named.id);
+      step.next.push(...this.follow(named, ref.name));
+    }
+    this.callsOf(compiled.node, own?.id ?? -1, step);
+    return step;
+  }
+
+  private callsOf(node: Node, ownId: number, step: Step): void {
     for (const name of calls(node)) {
       const lower = name.toLowerCase();
-      if (DYNAMIC_READERS.has(lower)) reads.dynamic = true;
-      else functions.add(lower);
-    }
-  };
-  visit(compiled.node);
-  // A custom function's body reads what it names, and calls what it calls.
-  for (const lower of functions) {
-    if (seen.has(`function/${lower}`)) continue;
-    seen.add(`function/${lower}`);
-    const cf = store.schema.customFunctions.find((c) => c.name.toLowerCase() === lower);
-    if (cf?.formula === undefined || cf.language === 'javascript') continue;
-    let body: Node;
-    try { body = parse(cf.formula, names, cf.parameters); } catch { continue; }
-    for (const ref of fieldRefs(body)) {
-      const named = ref.occurrence === undefined ? undefined : occurrenceNamed(ref.occurrence);
-      if (named) { reads.tables.add(named.id); follow(named, ref.name); }
-    }
-    for (const name of calls(body)) {
-      if (DYNAMIC_READERS.has(name.toLowerCase())) reads.dynamic = true;
-      else if (!seen.has(`function/${name.toLowerCase()}`)) functions.add(name.toLowerCase());
+      if (DYNAMIC_READERS.has(lower)) step.dynamic = true;
+      else if (this.store.schema.customFunctions.some((c) => c.name.toLowerCase() === lower)) step.next.push(this.functionEdge(lower, ownId));
     }
   }
-  return reads;
+
+  /** A custom function's body reads what it names, and calls what it calls. */
+  private functionStep(lower: string, ownId: number): Step {
+    const step: Step = { tables: new Set(), dynamic: false, next: [] };
+    const cf = this.store.schema.customFunctions.find((c) => c.name.toLowerCase() === lower);
+    if (cf?.formula === undefined || cf.language === 'javascript') return step;
+    let body: Node;
+    try { body = parse(cf.formula, this.store.calc.names(ownId), cf.parameters); } catch { return step; }
+    for (const ref of fieldRefs(body)) {
+      const named = ref.occurrence === undefined ? undefined : this.occurrenceNamed(ref.occurrence);
+      if (named) { step.tables.add(named.id); step.next.push(...this.follow(named, ref.name)); }
+    }
+    this.callsOf(body, ownId, step);
+    return step;
+  }
 }
 
 export function reviewPrivileges(store: Store, opts: { unusedDays?: number } = {}): PrivilegeReview {
   const health = store.securityHealth({ unusedDays: opts.unusedDays });
   const unusedDays = health.unusedDays;
   const findings: PrivilegeFinding[] = [];
+  const graph = new ReadGraph(store);
   const sets = store.privilegeSets();
   const active = store.accounts().filter((a) => !a.inactive);
   const blank = new Set(store.blankPasswordAccounts().map((n) => n.toLowerCase()));
@@ -252,7 +296,7 @@ export function reviewPrivileges(store: Store, opts: { unusedDays?: number } = {
         // A masked field still shows a stand-in of its value (its last four characters), so it is checked too.
         const masked = p.fieldAccess(t.name, f.name) === 'masked';
         // What the calculation engine reads, by its own parser, through the calculations and functions it uses.
-        const read = calcReads(store, t, f);
+        const read = graph.reads(t, f);
         const reads = read.tables;
         // Evaluate, GetField and ExecuteSQL can read any table.
         if (read.dynamic) for (const o of store.schema.tableOccurrences) if (!o.dataSourceId && o.baseTableId !== undefined && o.baseTableId !== t.id) reads.add(o.baseTableId);
