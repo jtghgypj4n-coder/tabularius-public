@@ -1,6 +1,7 @@
 // All inputs originate here. No external corpus or file input is accepted.
 import { zip, type ZipEntry } from '../../packages/calc/src/zip.ts';
-export const TARGETS = ['filemaker-xml', 'fmpxmlresult', 'csv', 'tsv', 'merge', 'xlsx', 'zip', 'ics', 'json', 'ohplugin', 'clipboard', 'script', 'calc', 'sql', 'odata-filter', 'data-api', 'multipart', 'mime-headers', 'fmp12'] as const;
+import { BINARY_OID, binaryValue, encodeArray, encodeInterval, encodeNumeric } from '../../packages/server/src/pgbinary.ts';
+export const TARGETS = ['filemaker-xml', 'fmpxmlresult', 'csv', 'tsv', 'merge', 'xlsx', 'zip', 'ics', 'json', 'ohplugin', 'clipboard', 'script', 'calc', 'sql', 'odata-filter', 'data-api', 'multipart', 'mime-headers', 'fmp12', 'pgwire-binary'] as const;
 export type Target = typeof TARGETS[number];
 export const MAX_INPUT = 256 * 1024;
 export type Random = (n: number) => number;
@@ -57,6 +58,29 @@ export function seeds(target: Target): Buffer[] {
     case 'multipart': return [bytes('--fuzz\r\nContent-Disposition: form-data; name="upload"; filename="synthetic.txt"\r\nContent-Type: text/plain\r\n\r\nsynthetic\r\n--fuzz--\r\n')];
     case 'mime-headers': return [bytes('--fuzz\r\nContent-Type: application/http\r\nContent-ID: 1\r\n\r\nGET /Synthetic HTTP/1.1\r\nAccept: application/json\r\n\r\n\r\n--fuzz--\r\n')];
     case 'fmp12': return [fmpSeed()];
+    // Binary parameter values as drivers send them; the target reads each input as every type the server knows.
+    case 'pgwire-binary': return [
+      encodeNumeric('-12345.678'), encodeNumeric('NaN'), binaryValue('2024-03-09 00:30:00.5', BINARY_OID.timestamp)!, binaryValue('2024-03-09', BINARY_OID.date)!,
+      encodeInterval({ micros: 14_706_500_000n, days: -3, months: 14 }), binaryValue('0123abcd-4567-89ef-0123-456789abcdef', BINARY_OID.uuid)!,
+      binaryValue('{"synthetic":[1,null]}', BINARY_OID.jsonb)!, encodeArray([1, -2, null], BINARY_OID.int4), encodeArray(['synthetic', 'a b', null], BINARY_OID.text),
+      encodeArray(['-1.5'], BINARY_OID.numeric), encodeArray([16, 17], BINARY_OID.oid),
+    ];
+  }
+}
+
+/** A binary value's mutation: a length, count or header field set to an extreme, a cut, or bytes added. */
+function binaryMutation(input: Buffer, r: Random): Buffer {
+  const out = Buffer.from(input.length ? input : Buffer.alloc(4));
+  switch (r(4)) {
+    case 0: {
+      const at = r(Math.max(1, out.length - 3)) & ~1;
+      if (at + 4 <= out.length) out.writeInt32BE([0, -1, -2, 1, 6, 7, 0x7fffffff, -0x80000000, r(65536)][r(9)], at);
+      else if (at + 2 <= out.length) out.writeUInt16BE([0, 0xffff, 0x4000, 0xc000, 0xd000, 0x3fff, 10000][r(7)], at);
+      return out;
+    }
+    case 1: return out.subarray(0, r(out.length + 1));
+    case 2: return Buffer.concat([out, Buffer.from(Array.from({ length: 1 + r(16) }, () => r(256)))]);
+    default: out[r(out.length)] ^= 1 << r(8); return out;
   }
 }
 const atoms = ['synthetic', '', '0', '-1', '2147483647', '1e999', 'null', '"', "'", '\u0000', '&#1114112;', '&#x110000;', '&amp;', '<![CDATA[x]]>', '__proto__', 'é', '\r\n'];
@@ -86,7 +110,9 @@ function splice(text: string, r: Random): string {
 }
 export function mutate(target: Target, input: Buffer, r: Random): Buffer {
   let out: Buffer;
-  if (r(5) === 0) {
+  if (target === 'pgwire-binary') {
+    out = binaryMutation(input, r);
+  } else if (r(5) === 0) {
     out = Buffer.from(input);
     if (out.length) { const at = r(out.length); if (r(3) === 0) out = out.subarray(0, at); else out[at] ^= 1 << r(8); }
     else out = bytes(atoms[r(atoms.length)]);

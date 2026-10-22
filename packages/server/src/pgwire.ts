@@ -14,7 +14,8 @@
 // certificate, from --tls-cert or --https).
 //
 // Both the simple and the extended query protocols are spoken ($1 parameters,
-// prepared statements, row limits), with results as text.
+// prepared statements, row limits), with parameters and results in the text or
+// the binary format, per value, as Bind asks (pgbinary.ts).
 
 import { isUtf8 } from 'node:buffer';
 import { cleanSql, maskSql, sqlTokens } from '../../store/src/sql-tokens.ts';
@@ -27,7 +28,7 @@ import { addressBucket, spendPasswordCheck, StoreError, writer, type Privileges,
 import { SignInFailures } from '../../store/src/sign-in-failures.ts';
 import type { SqlValue } from '../../store/src/find.ts';
 import type { Host } from './host.ts';
-import { binaryParam, binaryValue, castParamTypes } from './pgbinary.ts';
+import { BinaryFormatError, binaryParam, binaryValue, castParamTypes, isFalse } from './pgbinary.ts';
 import { passwordLoginSecondFactor } from './password-login-policy.ts';
 import { BOOLEAN_COLUMNS, catalogFunctions, FIRST_TABLE_OID, namesCatalogRelation, pgSyntax, readsCatalog, withCatalog, type CatalogData } from './pgcatalog.ts';
 
@@ -118,7 +119,7 @@ function textValue(value: SqlValue, oid: number): Buffer | null {
   // Containers' bytes and big integers come back too.
   const v = value as unknown;
   if (v === null || v === undefined) return null;
-  if (oid === OID.bool) return Buffer.from(v === 0 || v === 0n || v === '0' || v === 'f' || v === false ? 'f' : 't');
+  if (oid === OID.bool) return Buffer.from(isFalse(v) ? 'f' : 't');
   if (oid === OID.bytea) return Buffer.from('\\x' + Buffer.from(v as Uint8Array).toString('hex'));
   if (oid === OID.numeric) {
     // A number field can hold text ("$3750"): FileMaker SQL reads its number, or nothing.
@@ -499,7 +500,7 @@ class Connection {
 
   private sendError(e: unknown): void {
     if (this.transaction === 'T') this.transaction = 'E';
-    const err = e instanceof PgError ? e : e instanceof StoreError ? new PgError(e.code === 212 ? '28000' : '42000', e.message)
+    const err = e instanceof PgError ? e : e instanceof BinaryFormatError ? new PgError(e.code, e.message) : e instanceof StoreError ? new PgError(e.code === 212 ? '28000' : '42000', e.message)
       : isFault(e, { sql: true }) ? (logFault(e), new PgError('XX000', FAULT_MESSAGE)) : new PgError('42000', (e as Error).message);
     this.send(errorMsg(err.code, err.message));
   }
@@ -788,24 +789,32 @@ class Connection {
       }
       case 'B': {
         const portal = str();
-        const st = this.statements.get(str());
+        const name = str();
+        const st = this.statements.get(name);
         if (!st) throw new PgError('26000', 'no such prepared statement');
         if (st.sql) this.session(st.sql);
         const formats = Array.from({ length: int16() }, () => int16());
         const n = int16();
+        // As PostgreSQL: no format code means text, one applies to every parameter, otherwise one per parameter.
+        if (formats.length > 1 && formats.length !== n) throw new PgError('08P01', `bind message has ${formats.length} parameter formats but ${n} parameters`);
+        if (n !== st.types.length) throw new PgError('08P01', `bind message supplies ${n} parameters, but prepared statement "${name}" requires ${st.types.length}`);
         const params: SqlValue[] = [];
         for (let i = 0; i < n; i++) {
           const len = int32();
-          if (len < 0) {
+          if (len === -1) {
             params.push(null);
             continue;
           }
+          // Any other negative length, or one past the end of the message, is malformed: never read as NULL or as a shorter value.
+          if (len < 0 || pos + len > body.length) throw new PgError('08P01', 'insufficient data left in message');
           const oid = st.types[i] ?? 0;
           const raw = body.subarray(pos, pos + len);
           pos += len;
           const format = formats.length === 1 ? formats[0] : formats[i] ?? 0;
           if (format === 1) {
-            const v = binaryParam(raw, oid);
+            let v: SqlValue | undefined;
+            try { v = binaryParam(raw, oid); }
+            catch (e) { throw e instanceof BinaryFormatError ? new PgError(e.code, `${e.message} in bind parameter ${i + 1}`) : e; }
             if (v === undefined) throw new PgError('0A000', `binary parameters of type ${oid} are not supported: send this one as text`);
             params.push(v);
             continue;
@@ -816,6 +825,12 @@ class Connection {
         }
         const results = Array.from({ length: int16() }, () => int16());
         if (results.some((f) => f !== 0 && f !== 1)) throw new PgError('08P01', 'result formats must be 0 (text) or 1 (binary)');
+        if (pos !== body.length) throw new PgError('08P01', 'invalid message format: bytes after the Bind message\'s result formats');
+        // Several result format codes must be one per column, checked at Bind as PostgreSQL does; a statement with no rows takes any.
+        if (results.length > 1) {
+          const cols = this.describe(st.sql);
+          if (cols && cols.length !== results.length) throw new PgError('08P01', `bind message has ${results.length} result formats but query has ${cols.length} columns`);
+        }
         if (!this.portals.has(portal) && this.portals.size >= MAX_PREPARED) throw new PgError('54000', 'too many portals on this connection; close some');
         this.portals.set(portal, { sql: st.sql, params, formats: results, sent: 0 });
         this.send(message('2'));
