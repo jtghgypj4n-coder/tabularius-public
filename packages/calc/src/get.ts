@@ -121,6 +121,9 @@ const DEFAULTS: Record<string, (env: Env) => Value> = {
   systemnicaddress: () => text([...new Set(Object.values(networkInterfaces()).flat().filter((x) => x && !x.internal && x.mac !== '00:00:00:00:00:00').map((x) => x!.mac))].join('\r')),
 };
 
+/** Lower-case Get parameter names the calculation engine answers on its own, when the host supplies nothing. */
+export const GET_DEFAULT_NAMES: ReadonlySet<string> = new Set(Object.keys(DEFAULTS));
+
 function addresses(): string[] {
   return Object.values(networkInterfaces()).flat().filter((x) => x && !x.internal && x.family === 'IPv4').map((x) => x!.address);
 }
