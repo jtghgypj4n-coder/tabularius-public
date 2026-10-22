@@ -383,13 +383,14 @@ The following reasons apply to the exact enumerated expressions in each named fu
 | [packages/server/src/pgwire.ts:687](../../packages/server/src/pgwire.ts#L687) `Connection/run` | `Store.select` (687) | SQL |
 | [packages/server/src/pgwire.ts:737](../../packages/server/src/pgwire.ts#L737) `Connection/validateSyntax` | `SQLite.prepare` (737); `Store.sql` (737) | SQL |
 | [packages/server/src/pgwire.ts:918](../../packages/server/src/pgwire.ts#L918) `Connection/describe` | `Store.describe` (918) | SQL |
-| [packages/server/src/pii.ts:151](../../packages/server/src/pii.ts#L151) `classifyField` | `Store.query` (151) | REDACTION |
-| [packages/server/src/pii.ts:280](../../packages/server/src/pii.ts#L280) `vaultTable` | `Store.sql` (280, 283) | REDACTION |
-| [packages/server/src/pii.ts:289](../../packages/server/src/pii.ts#L289) `forgetVault` | `Store.sql` (289) | REDACTION |
-| [packages/server/src/pii.ts:328](../../packages/server/src/pii.ts#L328) `PiiMasker/constructor` | `SQLite.get` (328); `SQLite.prepare` (328); `Store.sql` (328) | REDACTION |
-| [packages/server/src/pii.ts:338](../../packages/server/src/pii.ts#L338) `PiiMasker/refresh` | `SQLite.all` (338); `SQLite.prepare` (338); `Store.sql` (338) | REDACTION |
-| [packages/server/src/pii.ts:369](../../packages/server/src/pii.ts#L369) `PiiMasker/token` | `SQLite.prepare` (369, 370); `Store.sql` (369, 370); `SQLite.get` (370) | REDACTION |
-| [packages/server/src/pii.ts:610](../../packages/server/src/pii.ts#L610) `piiPreview` | `Store.find` (610); `SQLite.prepare` (617); `Store.sql` (617) | REDACTION |
+| [packages/server/src/pii.ts:121](../../packages/server/src/pii.ts#L121) `holdsOnlyUuids` | `Store.query` (121) | REDACTION |
+| [packages/server/src/pii.ts:133](../../packages/server/src/pii.ts#L133) `sampledValues` | `Store.query` (133) | REDACTION |
+| [packages/server/src/pii.ts:300](../../packages/server/src/pii.ts#L300) `vaultTable` | `Store.sql` (300, 303) | REDACTION |
+| [packages/server/src/pii.ts:309](../../packages/server/src/pii.ts#L309) `forgetVault` | `Store.sql` (309) | REDACTION |
+| [packages/server/src/pii.ts:348](../../packages/server/src/pii.ts#L348) `PiiMasker/constructor` | `SQLite.get` (348); `SQLite.prepare` (348); `Store.sql` (348) | REDACTION |
+| [packages/server/src/pii.ts:358](../../packages/server/src/pii.ts#L358) `PiiMasker/refresh` | `SQLite.all` (358); `SQLite.prepare` (358); `Store.sql` (358) | REDACTION |
+| [packages/server/src/pii.ts:389](../../packages/server/src/pii.ts#L389) `PiiMasker/token` | `SQLite.prepare` (389, 390); `Store.sql` (389, 390); `SQLite.get` (390) | REDACTION |
+| [packages/server/src/pii.ts:630](../../packages/server/src/pii.ts#L630) `piiPreview` | `Store.find` (630); `SQLite.prepare` (637); `Store.sql` (637) | REDACTION |
 | [packages/server/src/privilege-review.ts:162](../../packages/server/src/privilege-review.ts#L162) `reviewPrivileges` | `Store.previewRecordRule` (162) | DESIGN |
 | [packages/server/src/rag.ts:56](../../packages/server/src/rag.ts#L56) `RagStore/spaces` | `SQLite.all` (56); `SQLite.prepare` (56) | RAG |
 | [packages/server/src/rag.ts:61](../../packages/server/src/rag.ts#L61) `RagStore/info` | `SQLite.all` (61, 66); `SQLite.prepare` (61, 63) | RAG |

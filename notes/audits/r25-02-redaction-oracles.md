@@ -93,7 +93,7 @@ Not performed: full-repository/fixture/corpus tests, live provider calls, backup
 
 A different model reviewed this change. It found no remaining leak path through summaries (including a summary of a summary), the field shapes checked, import headers, or mark ordering and cache invalidation, and it confirmed that human marks always win. Fixed after the review, with tests:
 
-- The usual `Get ( UUID )` primary key became personal, so a find on a child's key field returned zero records with no error. That one formula is now exempt; the other calculation rules are unchanged.
+- The usual `Get ( UUID )` primary key became personal, so a find on a child's key field returned zero records with no error. That one formula is now exempt only while the field has no lookup and every stored value in every record is shaped like a UUID (a first review found that a typed email or a lookup would otherwise have stayed exempt); the other calculation rules are unchanged.
 - The paired-worlds test above runs with the AI-visible policy on, so every probe stopped at the same first policy refusal and the per-channel logic was never reached. A second paired test runs with isolation only and the policy off, over derived-value finds, ranges, a summary and calculation probes.
 
 Documented rather than changed: marking a secret-named field Not personal lifts its protection (a human declassification the console does not warn about); a mark follows a field's name, so a re-created field with the same name inherits it; and `docs/personal-data-isolation.md` now says the calculation rule outranks the key and value-list exemptions.

@@ -111,6 +111,32 @@ const nameKind = (name: string): PiiKind | undefined => NAME_KINDS.find(([re]) =
 
 const SAMPLE = 200;
 
+const HEX = '[0-9A-Fa-f]';
+/** True when the field holds at least one value and every value, in every record, is shaped like a UUID. */
+function holdsOnlyUuids(store: Store, table: string, f: Field): boolean {
+  if (f.options?.global) return false;
+  try {
+    const q = `"${f.name.replace(/"/g, '""')}"`, t = `"${table.replace(/"/g, '""')}"`;
+    const glob = [8, 4, 4, 4, 12].map((n) => HEX.repeat(n)).join('-');
+    const [row] = store.query(`SELECT count(*) AS n, sum(CASE WHEN CAST(${q} AS TEXT) GLOB '${glob}' THEN 0 ELSE 1 END) AS other FROM ${t} WHERE ${q} IS NOT NULL AND ${q} <> ''`, 1);
+    return Number(row?.n) > 0 && Number(row?.other) === 0;
+  } catch {
+    return false;
+  }
+}
+
+/** Up to SAMPLE non-empty stored values of a field, as text; none for a global field or when the table cannot be read. */
+function sampledValues(store: Store, table: string, f: Field): string[] {
+  try {
+    if (f.options?.global) return [];
+    const q = `"${f.name.replace(/"/g, '""')}"`;
+    return store.query(`SELECT ${q} AS v FROM "${table.replace(/"/g, '""')}" WHERE ${q} IS NOT NULL AND ${q} <> '' LIMIT ${SAMPLE}`, SAMPLE)
+      .map((r) => String(r.v ?? '')).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
 /** One field, worked out from its name, type and (for text nothing else decides) a sample of its values. */
 function classifyField(store: Store, table: string, f: Field, valueListFields: Set<number>): FieldClass {
   const byName = nameKind(f.name);
@@ -125,8 +151,11 @@ function classifyField(store: Store, table: string, f: Field, valueListFields: S
   if (byName && byName !== 'PERSON' && byName !== 'ADDRESS' && byName !== 'TEXT') return named(byName);
   // A key the file generates (the usual Get ( UUID ) primary key) reads nothing and says nothing about anyone; hiding it
   // would also turn every lookup by that key, in this table or a child's, into an empty answer.
-  if (/^\s*Get\s*\(\s*UUID\s*\)\s*$/i.test(f.calculation ?? '') && f.options?.autoEnter?.calculation && f.kind !== 'summary') {
-    return { pii: false, why: 'a generated unique key (Get ( UUID )) reads no other field' };
+  // Only while it still holds generated keys: a person can type into it and an import can fill it, and a lookup in its
+  // options copies another record's value. Otherwise it falls through to the rules below.
+  if (/^\s*Get\s*\(\s*UUID\s*\)\s*$/i.test(f.calculation ?? '') && f.options?.autoEnter?.calculation && f.kind !== 'summary'
+    && !f.options?.autoEnter?.lookup) {
+    if (holdsOnlyUuids(store, table, f)) return { pii: false, why: 'a generated unique key (Get ( UUID )) reads no other field, and every stored value is one' };
   }
   // A number/code can encode a personal value or a predicate on it. Do not infer safety from
   // its result type, sampled values or a textual search of its formula: dynamic reads, custom
@@ -144,16 +173,7 @@ function classifyField(store: Store, table: string, f: Field, valueListFields: S
   if (valueListFields.has(f.id)) return { pii: false, why: 'it must be one of a value list\'s values' };
   const safeName = SAFE_NAME.test(words(f.name)) || KEY_NAME.test(words(f.name));
   // Text nothing above decides: look at what it holds.
-  let values: string[] = [];
-  try {
-    if (!f.options?.global) {
-      const q = `"${f.name.replace(/"/g, '""')}"`;
-      values = store.query(`SELECT ${q} AS v FROM "${table.replace(/"/g, '""')}" WHERE ${q} IS NOT NULL AND ${q} <> '' LIMIT ${SAMPLE}`, SAMPLE)
-        .map((r) => String(r.v ?? '')).filter(Boolean);
-    }
-  } catch {
-    values = [];
-  }
+  const values = sampledValues(store, table, f);
   if (!values.length) return { pii: true, kind: 'TEXT', why: 'text with no values to check: counted as personal to be safe' };
   const hits = new Map<PiiKind, number>();
   for (const v of values) {
