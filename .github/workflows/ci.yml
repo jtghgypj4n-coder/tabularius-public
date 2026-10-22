@@ -14,8 +14,10 @@ name: ci
 #   machine that is thrown away, and a fork's run gets no secrets. The repository
 #   setting "Require approval for all outside collaborators" stays on, and a
 #   maintainer reads any change to .github/ or scripts/ before approving a run.
-# - Linux runs on every pull request; macOS (a slower three-core runner) runs on
-#   main, nightly and by hand, so a pull request is not held up by it.
+# - Linux runs on every pull request; macOS (a slower three-core runner, about 35
+#   minutes) runs on main, nightly and by hand, and on a pull request that touches
+#   what has failed there (see the `changes` job) or that carries the label `macos`.
+#   It is not a required check.
 on:
   push:
     branches: [main]
@@ -26,9 +28,33 @@ on:
   schedule:
     - cron: '47 6 * * *'
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name }}
+  # A pull request's newer push replaces the run it supersedes. Every push to main keeps its own run: in one shared group a
+  # newer push cancels the run that is waiting, so merges landing every few minutes during a 35-minute run were never tested.
+  group: ci-${{ github.event.pull_request.number || github.sha }}-${{ github.event_name }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
+  changes:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      macos: ${{ steps.paths.outputs.macos }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: paths
+        env:
+          LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
+          BASE: ${{ github.base_ref }}
+        run: |
+          files=$(git diff --name-only "origin/$BASE...HEAD")
+          pattern='^(packages/store/|packages/cli/|packages/server/src/(standby|replication|logs|backup|host)|packages/server/test/(standby|upload-auth)|packages/calc/(src|test)/(evaluate|complexity)|scripts/test-ci\.ts|docs/|examples/|QUICKSTART\.md|ADMIN\.md|\.github/workflows/ci\.yml)'
+          if echo ",$LABELS," | grep -q ',macos,' || echo "$files" | grep -Eq "$pattern"; then
+            echo "macos=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "macos=false" >> "$GITHUB_OUTPUT"
+          fi
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 45
@@ -44,7 +70,8 @@ jobs:
         env:
           TABULARIUS_SOAK: ${{ github.event_name == 'workflow_dispatch' && '1' || '' }}
   test-macos:
-    if: github.event_name != 'pull_request'
+    needs: changes
+    if: ${{ !cancelled() && (github.event_name != 'pull_request' || needs.changes.outputs.macos == 'true') }}
     runs-on: macos-latest
     timeout-minutes: 60
     steps:
