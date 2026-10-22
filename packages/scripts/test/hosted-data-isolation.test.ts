@@ -95,9 +95,18 @@ test('CSV, Excel and XML imports check executing and destination files before re
       writeFileSync(path, source.bytes);
       let blocked = false, sourceReads = 0, sourceBytes = 0;
       const readFile = fs.readFileSync;
+      const openFile = fs.openSync;
+      // The file is read through a guarded descriptor, so a read is matched to its path by the descriptor's open.
+      const opened = new Map<number, string>();
+      t.mock.method(fs, 'openSync', (...args: Parameters<typeof openFile>) => {
+        const fd = openFile(...args);
+        if (typeof args[0] === 'string') opened.set(fd, args[0]);
+        return fd;
+      });
       t.mock.method(fs, 'readFileSync', (...args: Parameters<typeof readFile>) => {
         const bytes = readFile(...args);
-        if (String(args[0]) === path) { sourceReads++; sourceBytes += Buffer.byteLength(bytes); }
+        const name = typeof args[0] === 'number' ? opened.get(args[0]) : String(args[0]);
+        if (name === path) { sourceReads++; sourceBytes += Buffer.byteLength(bytes); }
         return bytes;
       });
       syncBuiltinESMExports();
