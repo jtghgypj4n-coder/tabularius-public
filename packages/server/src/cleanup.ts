@@ -115,9 +115,30 @@ export function normalAddress(s: string): string {
   return lower(s).replace(/[^\p{L}\p{N} ]+/gu, ' ').split(/\s+/).filter(Boolean).map((w) => STREET[w] ?? w).join(' ');
 }
 
+/**
+ * A number written with an extension at its end: `text` is the number without the blanks before the extension's
+ * marker (x, ext, ext. or extension, and # when `hash`), `digits` the extension. Found from the end of the text,
+ * as `/\s*(?:x|ext\.?|extension)\s*(\d+)\s*$/i` would find it, without trying every start of a long run of blanks.
+ */
+export function splitExtension(s: string, hash = false): { text: string; digits: string } | undefined {
+  let end = s.length;
+  while (end > 0 && /\s/.test(s[end - 1])) end--;
+  let digits = end;
+  while (digits > 0 && s.charCodeAt(digits - 1) >= 48 && s.charCodeAt(digits - 1) <= 57) digits--;
+  if (digits === end) return undefined;
+  let marker = digits;
+  while (marker > 0 && /\s/.test(s[marker - 1])) marker--;
+  const before = s.slice(Math.max(0, marker - 9), marker).toLowerCase();
+  const length = hash && before.endsWith('#') ? 1 : before.endsWith('extension') ? 9 : before.endsWith('ext.') ? 4 : before.endsWith('ext') ? 3 : before.endsWith('x') ? 1 : 0;
+  if (!length) return undefined;
+  let start = marker - length;
+  while (start > 0 && /\s/.test(s[start - 1])) start--;
+  return { text: s.slice(0, start), digits: s.slice(digits, end) };
+}
+
 /** A phone number's digits, without a leading 1 on a North American number. */
 export function phoneDigits(s: string): string {
-  const d = s.replace(/\s*(?:x|ext\.?|extension)\s*\d+\s*$/i, '').replace(/\D/g, '');
+  const d = (splitExtension(s)?.text ?? s).replace(/\D/g, '');
   return d.length === 11 && d.startsWith('1') ? d.slice(1) : d;
 }
 
