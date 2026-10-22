@@ -71,7 +71,7 @@ test('the failing step, what the error means, the steps before it, the values th
   const w = r.data;
   assert.equal(w.outcome, 'error');
   assert.equal(w.error, 201);
-  assert.equal(w.meaning, "Field can't be modified");
+  assert.equal(w.meaning, 'Field is protected from changes');
   assert.deepEqual(w.step, { script: 'Stamp', number: 6, line: 'Set Field [ Congress::Comp_C_Average ; $v ]' });
   assert.deepEqual(w.before.map((b: { number: number }) => b.number), [1, 2, 3, 4, 5]);
   assert.equal(w.variables.locals.$v, 'Temporary');
