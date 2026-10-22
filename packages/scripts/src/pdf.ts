@@ -689,6 +689,11 @@ export function writePdf(pages: Iterable<PdfPage>, sink: (bytes: Buffer) => void
  * other way, a damaged file).
  */
 export function appendPdf(existing: Buffer, pages: PdfPage[]): Buffer {
+  /** Objects the cross-reference sections of a PDF to add to may list in all (a file of a million objects is a large one). */
+  const MAX_XREF_ENTRIES = 1_000_000;
+  /** A cross-reference stream row is at most 24 bytes (three fields of up to 8). */
+  const MAX_XREF_BYTES = 24 * MAX_XREF_ENTRIES;
+  let listed = 0;
   if (!pages.length) return Buffer.alloc(0);
   const text = existing.toString('latin1');
   const fail = (why: string): never => {
@@ -710,13 +715,19 @@ export function appendPdf(existing: Buffer, pages: PdfPage[]): Buffer {
     const head = /^(\d+)\s+(\d+)\s+obj\b/.exec(text.slice(at, at + 40)) ?? fail('a cross-reference section is damaged');
     const dict = dictAt(text, text.indexOf('<<', at + head![0].length)) ?? fail('a cross-reference stream is damaged');
     if (!/\/Type\s*\/XRef\b/.test(dict)) fail('a cross-reference section is damaged');
-    const data = decoded(dict, streamBytes(text.indexOf('<<', at + head![0].length) + dict.length, dict, true));
+    const data = decoded(dict, streamBytes(text.indexOf('<<', at + head![0].length) + dict.length, dict, true), MAX_XREF_BYTES);
     const w = /\/W\s*\[\s*(\d+)\s+(\d+)\s+(\d+)\s*\]/.exec(dict)?.slice(1).map(Number) ?? fail('a cross-reference stream has no field widths');
     const width = w[0] + w[1] + w[2];
     if (!width || w.some((n) => n > 8)) fail('a cross-reference stream is damaged');
     const index = (/\/Index\s*\[([\d\s]*)\]/.exec(dict)?.[1].trim().split(/\s+/).map(Number))
       ?? [0, Number(/\/Size\s+(\d+)/.exec(dict)?.[1] ?? NaN)];
     if (index.length % 2 || index.some((n) => !Number.isFinite(n))) fail('a cross-reference stream is damaged');
+    // Its rows can't be more than the objects it counts (/Size), nor more than this reader keeps in all its sections.
+    let count = 0;
+    for (let i = 1; i < index.length; i += 2) count += index[i];
+    listed += count;
+    if (count > Number(/\/Size\s+(\d+)/.exec(dict)?.[1] ?? NaN)) fail('a cross-reference stream lists more objects than its size');
+    if (listed > MAX_XREF_ENTRIES) fail('it lists too many objects to add to');
     const field = (from: number, size: number) => {
       let v = 0;
       for (let k = 0; k < size; k++) v = v * 256 + data[from + k];
@@ -751,6 +762,8 @@ export function appendPdf(existing: Buffer, pages: PdfPage[]): Buffer {
         const head = /^(\d+)\s+(\d+)$/.exec(lines[i].trim());
         if (!head) fail('a cross-reference section is damaged');
         const [from, count] = [Number(head![1]), Number(head![2])];
+        listed += count;
+        if (listed > MAX_XREF_ENTRIES) fail('it lists too many objects to add to');
         for (let k = 0; k < count; k++) {
           const e = /^(\d{10})\s+(\d{5})\s+([nf])/.exec(lines[i + 1 + k]?.trim() ?? '');
           if (!e) fail('a cross-reference entry is damaged');
@@ -788,14 +801,14 @@ export function appendPdf(existing: Buffer, pages: PdfPage[]): Buffer {
     return existing.subarray(from, from + n);
   }
   /** A stream's data, inflated and un-predicted (the PNG predictors cross-reference streams use). */
-  function decoded(dict: string, raw: Buffer): Buffer {
+  function decoded(dict: string, raw: Buffer, limit = 256 * 1024 * 1024): Buffer {
     const list = /\/Filter\s*\[([^\]]*)\]/.exec(dict);
     const filters = list ? list[1].match(/\/\w+/g) ?? [] : (/\/Filter\s*(\/\w+)/.exec(dict)?.slice(1) ?? []);
     if (!filters.length) return raw;
     if (filters.length > 1 || filters[0] !== '/FlateDecode') fail('it uses a compression it cannot read');
     let data: Buffer;
     try {
-      data = inflateSync(raw, { maxOutputLength: 256 * 1024 * 1024 });
+      data = inflateSync(raw, { maxOutputLength: limit });
     } catch {
       return fail('a compressed stream is damaged');
     }
