@@ -279,7 +279,7 @@ test('a second signal stops a server that is waiting for a running request, with
     // A request that never ends: headers promise a body that does not arrive (the transport's own timers are far longer).
     const held = connect(s.port, '127.0.0.1');
     held.on('error', () => {});
-    held.write('POST /fmi/data/vLatest/databases/none/sessions HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\nContent-Length: 50\r\nAuthorization: Basic YTpi\r\n\r\n{');
+    held.write(`POST /fmi/data/vLatest/databases/none/sessions HTTP/1.1\r\nHost: 127.0.0.1:${s.port}\r\nContent-Type: application/json\r\nContent-Length: 50\r\nAuthorization: Basic YTpi\r\n\r\n{`);
     await sleep(500);
     s.child.kill('SIGTERM');
     const waiting = await Promise.race([s.exited.then(() => 'exited'), sleep(2_000).then(() => 'waiting')]);
