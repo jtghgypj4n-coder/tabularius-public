@@ -320,6 +320,7 @@
         "docs/remote-connector-exposure.md",
         "docs/security-upload-auth-audit.md",
         "docs/audit-privilege-matrix.md",
+        "docs/audit-secret-sinks.md",
         "docs/token-file-scope-audit.md",
         "docs/execution-refusal-catches.md",
         "docs/versioning.md",
