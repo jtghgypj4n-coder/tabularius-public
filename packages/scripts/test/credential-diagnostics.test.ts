@@ -565,3 +565,17 @@ test('environment-style names and cookie headers are masked', () => {
   assert.equal(isCredentialLabelName('PGPASSWORD'), true);
   assert.equal(isCredentialLabelName('adminpassword'), true);
 });
+
+test('a hostile 30,000-character name or label-like text is judged in time proportional to its length', () => {
+  const hostile = ['a'.repeat(30_000), 'pass '.repeat(6_000), 'x-'.repeat(15_000), 'password='.repeat(3_300), 'a=b '.repeat(7_500), ':'.repeat(30_000)];
+  for (const text of hostile) {
+    const started = performance.now();
+    isCredentialLabelName(text);
+    redactDiagnosticText(`${text}=1`);
+    redactDiagnosticText(`${text}: 1`);
+    const elapsed = performance.now() - started;
+    assert.ok(elapsed < 500, `${text.slice(0, 12)}... took ${elapsed.toFixed(0)} ms`);
+  }
+  assert.equal(isCredentialLabelName(`${'a'.repeat(30_000)}password`), true, 'the end of a long name is still looked at');
+  assert.equal(isCredentialLabelName(`password${'a'.repeat(30_000)}`), false, 'a credential word that is only a prefix of a longer word is not a label');
+});
