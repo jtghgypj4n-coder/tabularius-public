@@ -262,7 +262,8 @@ const clone = (j: Json): Json =>
 
 // --- values from FileMaker ------------------------------------------------------------------
 
-const NUMBER = /^-?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/;
+// \d+(?:\.\d*)? and not \d+\.?\d*: with two ways to split a run of digits the match is quadratic on a long run that ends in a non-digit.
+const NUMBER = /^-?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
 /** A number parameter as a JSON number; FileMaker's ".5" is written 0.5. */
 function number(text: string): Json {
   const t = text.trim();
@@ -275,7 +276,7 @@ const valueOf = (a: Arg): Json => (a.number && NUMBER.test(a.text.trim()) ? numb
 /** JSON text for an item (AddItemTo…), or a reference, copied. */
 const item = (scope: object, text: string): Json => clone(input(scope, text).j);
 const truthy = (s: string | undefined) => s !== undefined && s.trim() !== '' && Number(s) !== 0 && !Number.isNaN(Number(s));
-const int = (s: string | undefined, d = 0) => (s === undefined || !/^\s*[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?\s*$/.test(s) ? d : Math.trunc(Number(s)));
+const int = (s: string | undefined, d = 0) => (s === undefined || !/^\s*[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?\s*$/.test(s) ? d : Math.trunc(Number(s)));
 
 function needArray(j: Json): Extract<Json, { t: 'arr' }> {
   if (j.t !== 'arr') throw new MbsError('The JSON is not an array');

@@ -214,7 +214,14 @@ const columnMatches = (f: (x: string, t: string) => boolean): MbsList => ([list 
   return listOut(valuesOf(list).filter((l) => f(lower(column(l, sep, c)), lower(t)) !== not), sub ? b : a);
 };
 const sub0 = (x: string, t: string) => x.includes(t);
-export const trimValue = (s: string) => s.replace(/^[ \t]+|[ \t]+$/g, '');
+// Scans instead of an end-anchored pattern, which is quadratic on a long run of blanks followed by another character.
+export const trimValue = (s: string) => {
+  let start = 0;
+  let end = s.length;
+  while (start < end && (s[start] === ' ' || s[start] === '\t')) start++;
+  while (end > start && (s[end - 1] === ' ' || s[end - 1] === '\t')) end--;
+  return s.slice(start, end);
+};
 export function removeFix(v: string[], fix: string, post: boolean, sensitive: boolean): string[] {
   const has = (x: string) => (sensitive ? (post ? x.endsWith(fix) : x.startsWith(fix)) : post ? lower(x).endsWith(lower(fix)) : lower(x).startsWith(lower(fix)));
   return v.map((x) => (fix && has(x) ? (post ? x.slice(0, x.length - fix.length) : x.slice(fix.length)) : x));
