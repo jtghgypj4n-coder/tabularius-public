@@ -14,7 +14,7 @@ letter are *canonically* equal (the same letters); the others are *compatibility
 | Unique value | ignored | kept (`e` is not `é`) | equal | not equal |
 | Value-list check ("member of value list") | ignored | kept | equal | not equal |
 | Relationship `=` match | ASCII letters only | kept | not equal | not equal |
-| Calculation `=` | kept (`e` is not `é`) | ignored | equal | equal for ligatures, full-width and half-width forms; `ß` is not `ss` |
+| Calculation `=` | ignored | kept (`e` is not `é`) | equal | equal for ligatures, full-width and half-width forms; `ß` is not `ss` |
 | `Exact` | kept | kept | not equal | not equal |
 | `Position` | ignored | kept | not equal | not equal |
 | SQL `=` and `<` | kept | kept | not equal | not equal |

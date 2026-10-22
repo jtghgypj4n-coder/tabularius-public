@@ -32,7 +32,7 @@ nothing reads. The test checks each name against the pages, not against this tab
 | `TABULARIUS_WORKERS` | `--workers` | The number of worker processes, or `auto` for one per CPU core. |
 | `TABULARIUS_PROGRESSIVE` | `--progressive` | How often changes are saved as a point you can restore to with `tabularius restore --at`; `off` for never. |
 | `TABULARIUS_HOME` | | The folder holding per-user settings (`~/.openhbam` by default): the AI key file, and the service definition's files. |
-| `TABULARIUS_STOP_GRACE_MS` | | How long a restart or upgrade waits for the server to finish before it ends it (30000 by default). |
+| `TABULARIUS_STOP_GRACE_MS` | | How long a restart or upgrade of the macOS system service waits for the server to finish before it ends it (30000 by default). |
 | `TABULARIUS_MCP_TOKEN` | `--mcp-token` | The MCP access token, inline. |
 | `TABULARIUS_MCP_TOKEN_FILE` | `--mcp-token-file` | A private regular file holding the MCP access token. |
 | `TABULARIUS_DRAIN_SECONDS` | | How long a stopping server lets requests that are already running finish before it closes them (1 to 86400, 20 by default; see [Upgrading](upgrading.md), "Stopping and restarting"). |
