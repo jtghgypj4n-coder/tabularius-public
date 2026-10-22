@@ -566,6 +566,10 @@ SQLite database. Tabularius can't yet write a `.fmp12` back, so a change made
 here can't be opened in FileMaker Pro. To bring a design change made in
 FileMaker into Tabularius, use `tabularius reconvert`.
 
+The **Save a Copy as** script step also writes a Tabularius SQLite store (a
+requested `.fmp12` name becomes `<name>.openhbam.sqlite`), not a file FileMaker
+can open. Use the server's `tabularius backup` command for backups.
+
 ### Scripts run on the server; network access is a switch you turn on
 
 Scripts run on the server, as FileMaker Server runs them.

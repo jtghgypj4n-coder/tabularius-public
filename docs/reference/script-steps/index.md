@@ -63,7 +63,7 @@ A step marked **error 3** is unavailable; **does nothing** means it succeeds wit
 | [Perform Find/Replace](128-perform-find-replace.md) | works |
 | [Relookup Field Contents](40-relookup-field-contents.md) | works |
 | [Replace Field Contents](91-replace-field-contents.md) | works |
-| [Save a Copy as](37-save-a-copy-as.md) | works |
+| [Save a Copy as](37-save-a-copy-as.md) | partly |
 | [Save a Copy as Add-on Package](96-save-a-copy-as-add-on-package.md) | error 3 |
 | [Save a Copy as XML](3-save-a-copy-as-xml.md) | works |
 | [Set Field](76-set-field.md) | works |

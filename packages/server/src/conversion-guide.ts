@@ -205,6 +205,13 @@ export function conversionGuide(store: Store, hosted: string[] = [], report: Con
   }
 
   // What works, but differently.
+  if (r.steps.saveCopyAs.length) {
+    differs.push({
+      title: 'Save a Copy as makes Tabularius stores', severity: 'medium', count: uses(r.steps.saveCopyAs), where: places(r.steps.saveCopyAs),
+      what: 'Save a Copy as writes a Tabularius SQLite store, even when the script names a .fmp12 file. Scripts that save .fmp12 backups therefore make a Tabularius store instead, which FileMaker cannot open.',
+      instead: 'Use the server’s own backups instead: `tabularius backup <folder>` makes a backup now, and the server can schedule backups too.',
+    });
+  }
   if (r.steps.blocked.length) {
     differs.push({
       title: 'Send Mail', severity: 'medium', count: uses(r.steps.blocked), where: places(r.steps.blocked),
