@@ -31,7 +31,7 @@ import type { Host } from './host.ts';
 import { decryptFile, encryptFile, ENCRYPTED_EXT } from './encrypt.ts';
 import { checksum, copyVerifiedDatabase, integrity, describeCheck, describeRestore, verifySet, recordChecksum, restoreTestDue, testRestore, verifyAfterBackup } from './backup-verify.ts';
 import type { SetCheck } from './backup-verify.ts';
-import { backupExternal, externalFiles, externalManifest, stageExternal } from './backup-external.ts';
+import { backupExternal, blockReuse, externalFiles, externalManifest, stageExternal, verifyExternal, EXTERNAL_DIRS } from './backup-external.ts';
 import type { ExternalManifest } from './backup-external.ts';
 import { freeBytes, sizeText } from './disk.ts';
 import type { StatFs } from './disk.ts';
@@ -256,7 +256,11 @@ async function backupOnce(folder: string, dest: string, keep: number, passphrase
     check();
     crashPoint('backup:after-external');
     const verified = await verifySet(partial, passphrase);
-    if (!verified.ok) throw new Error(describeCheck(name, verified));
+    if (!verified.ok) {
+      // A container linked from the previous set may be the damaged one: the next backup copies it fresh.
+      if (previous) blockReuse(join(dest, previous), Object.keys(await verifyExternal(partial, passphrase)));
+      throw new Error(describeCheck(name, verified));
+    }
     check();
     // Signed last, over everything a restore will trust (see backup-auth.ts).
     if (passphrase) await signManifest(partial, passphrase);
@@ -286,12 +290,14 @@ export function backupNeeds(folder: string, names: string[], previousSet?: strin
   let bytes = 0;
   for (const f of names) bytes += size(join(folder, f)) + size(join(folder, f + '-wal'));
   const before = previousSet ? externalManifest(previousSet) : {};
+  const checked = previousSet ? readBackupInfo<{ verified?: { files?: Record<string, string> } }>(previousSet, true).verified?.files : undefined;
   for (const rel of externalFiles(folder, names.map((f) => f.slice(0, -STORE_EXT.length)))) {
     const file = join(folder, ...rel.split('/'));
     try {
       const st = statSync(file);
       const old = before[rel];
-      if (!(old && old.size === st.size && old.mtimeMs === st.mtimeMs)) bytes += st.size;
+      const failedCheck = checked?.[rel] !== undefined ? checked[rel] !== 'ok' : checked?.['external container files'] !== undefined;
+      if (!(old && !old.reuseBlocked && !failedCheck && old.size === st.size && old.mtimeMs === st.mtimeMs)) bytes += st.size;
     } catch { /* gone meanwhile */ }
   }
   return bytes;
@@ -593,7 +599,14 @@ export async function restoreBackup(folder: string, set: string, only?: string, 
       if (result !== 'ok') throw new Error(`${f}: ${result}`);
       crashPoint('restore:after-verify');
     }
-    external = await stageExternal(src, folder, files.map((f) => plain(f).slice(0, -STORE_EXT.length)), passphrase, signal, (info.external ?? {}) as ExternalManifest);
+    const names = files.map((f) => plain(f).slice(0, -STORE_EXT.length));
+    // Hand-made database-only sets remain supported. Any container root in
+    // either generation requires a manifest, so missing metadata cannot keep
+    // live containers silently beside a restored database.
+    const containers = [src, folder].some((root) => EXTERNAL_DIRS.some((sub) => names.some((name) => existsSync(join(root, sub, name)))));
+    // The manifest that was checked is the one used; only a set with no backup.json at all is read again, to refuse it.
+    const checked = existsSync(join(src, 'backup.json')) ? (info.external ?? {}) as ExternalManifest : undefined;
+    external = await stageExternal(src, folder, names, passphrase, signal, checked, !containers);
     signal?.throwIfAborted();
     crashPoint('restore:after-external');
     // Reconcile every staged database before atomic publication, so a

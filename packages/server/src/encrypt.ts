@@ -41,15 +41,32 @@ function sealChunk(key: Buffer, prefix: Buffer, n: number, data: Buffer, last: b
   return Buffer.concat([len, cipher.update(data), cipher.final(), cipher.getAuthTag()]);
 }
 
+function writeAllSync(output: number, data: Buffer, path: string): void {
+  for (let offset = 0; offset < data.length;) {
+    const written = writeSync(output, data, offset, data.length - offset);
+    if (written <= 0) throw new Error(`${path}: write made no progress`);
+    offset += written;
+  }
+}
+
+async function writeAll(output: FileHandle, data: Buffer, path: string): Promise<void> {
+  for (let offset = 0; offset < data.length;) {
+    const { bytesWritten } = await output.write(data, offset, data.length - offset);
+    if (bytesWritten <= 0) throw new Error(`${path}: write made no progress`);
+    offset += bytesWritten;
+  }
+}
+
 /** Writes `src` encrypted to `dest`, without giving way to other work: for small files. */
 export function encryptFileSync(src: string, dest: string, passphrase: string, read: typeof readSync = readSync): void {
   const salt = randomBytes(16);
   const prefix = randomBytes(8);
   const key = scryptSync(passphrase, salt, 32, SCRYPT);
   const input = openSync(src, 'r');
-  const output = openSync(dest, 'w');
+  let output: number | undefined;
   try {
-    writeSync(output, Buffer.concat([MAGIC, salt, prefix]));
+    output = openSync(dest, 'w');
+    writeAllSync(output, Buffer.concat([MAGIC, salt, prefix]), dest);
     const size = fstatSync(input).size;
     const buf = Buffer.alloc(CHUNK);
     let pos = 0;
@@ -57,13 +74,12 @@ export function encryptFileSync(src: string, dest: string, passphrase: string, r
       const got = read(input, buf, 0, Math.min(CHUNK, size - pos), pos);
       if (got === 0 && pos < size) throw new Error(`${src} changed while being encrypted`);
       pos += got;
-      writeSync(output, sealChunk(key, prefix, n, buf.subarray(0, got), pos >= size));
+      writeAllSync(output, sealChunk(key, prefix, n, buf.subarray(0, got), pos >= size), dest);
       if (pos >= size) break;
     }
     fsyncSync(output);
   } finally {
-    closeSync(input);
-    closeSync(output);
+    try { closeSync(input); } finally { if (output !== undefined) closeSync(output); }
   }
 }
 
@@ -76,9 +92,10 @@ export async function encryptFile(src: string, dest: string, passphrase: string,
   const prefix = randomBytes(8);
   const key = await deriveKey(passphrase, salt);
   const input = await open(src, 'r');
-  const output = await open(dest, 'w');
+  let output: FileHandle | undefined;
   try {
-    await output.write(Buffer.concat([MAGIC, salt, prefix]));
+    output = await open(dest, 'w');
+    await writeAll(output, Buffer.concat([MAGIC, salt, prefix]), dest);
     const size = (await input.stat()).size;
     const buf = Buffer.alloc(CHUNK);
     let pos = 0;
@@ -87,21 +104,21 @@ export async function encryptFile(src: string, dest: string, passphrase: string,
       if (bytesRead === 0 && pos < size) throw new Error(`${src} changed while being encrypted`);
       pos += bytesRead;
       const last = pos >= size;
-      await output.write(sealChunk(key, prefix, n, buf.subarray(0, bytesRead), last));
+      await writeAll(output, sealChunk(key, prefix, n, buf.subarray(0, bytesRead), last), dest);
       if (last) break;
     }
     await output.sync();
   } finally {
-    await input.close();
-    await output.close();
+    try { await input.close(); } finally { await output?.close(); }
   }
 }
 
 /** Writes the decrypted `src` to `dest`, without giving way to other work: for small files. */
 export function decryptFileSync(src: string, dest: string, passphrase: string): void {
   const input = openSync(src, 'r');
-  const output = openSync(dest, 'w', 0o600); // plaintext: private to this account, whatever the umask
+  let output: number | undefined;
   try {
+    output = openSync(dest, 'w', 0o600); // plaintext: private to this account, whatever the umask
     const head = Buffer.alloc(MAGIC.length + 24);
     const got = readSync(input, head, 0, head.length, 0);
     if (got < head.length || !head.subarray(0, MAGIC.length).equals(MAGIC)) throw new Error(`${src} is not a Tabularius encrypted file`);
@@ -127,21 +144,45 @@ export function decryptFileSync(src: string, dest: string, passphrase: string): 
       } catch {
         throw new Error(n === 0 ? `can't decrypt ${src}: wrong key, or the file is damaged` : `${src} is damaged`);
       }
-      writeSync(output, plain);
+      writeAllSync(output, plain, dest);
       if (last) break;
     }
     fsyncSync(output);
   } finally {
-    closeSync(input);
-    closeSync(output);
+    try { closeSync(input); } finally { if (output !== undefined) closeSync(output); }
   }
+}
+
+/**
+ * Whether this passphrase opens the file's first chunk: a wrong key is found by reading about a megabyte, not the
+ * whole file. (Damage further in is for a full check to find.)
+ */
+export async function opensWithPassphrase(src: string, passphrase: string): Promise<boolean> {
+  const input = await open(src, 'r');
+  try {
+    const head = Buffer.alloc(MAGIC.length + 24);
+    if ((await input.read(head, 0, head.length, 0)).bytesRead < head.length || !head.subarray(0, MAGIC.length).equals(MAGIC)) return false;
+    const key = await deriveKey(passphrase, head.subarray(MAGIC.length, MAGIC.length + 16));
+    const size = (await input.stat()).size;
+    const len = Buffer.alloc(4);
+    if ((await input.read(len, 0, 4, head.length)).bytesRead < 4) return false;
+    const length = len.readUInt32BE();
+    if (length > CHUNK) return false;
+    const body = Buffer.alloc(length + 16);
+    if ((await input.read(body, 0, body.length, head.length + 4)).bytesRead < body.length) return false;
+    const decipher = createDecipheriv('aes-256-gcm', key, nonce(head.subarray(MAGIC.length + 16), 0));
+    decipher.setAAD(Buffer.from([head.length + 4 + body.length >= size ? 1 : 0]));
+    decipher.setAuthTag(body.subarray(length));
+    try { decipher.update(body.subarray(0, length)); decipher.final(); return true; } catch { return false; }
+  } finally { await input.close(); }
 }
 
 /** Writes the decrypted `src` to `dest`; throws on a wrong passphrase or a damaged file. */
 export async function decryptFile(src: string, dest: string, passphrase: string): Promise<void> {
   const input = await open(src, 'r');
-  const output = await open(dest, 'w');
+  let output: FileHandle | undefined;
   try {
+    output = await open(dest, 'w');
     const head = Buffer.alloc(MAGIC.length + 24);
     const got = (await input.read(head, 0, head.length, 0)).bytesRead;
     if (got < head.length || !head.subarray(0, MAGIC.length).equals(MAGIC)) throw new Error(`${src} is not a Tabularius encrypted backup`);
@@ -167,13 +208,12 @@ export async function decryptFile(src: string, dest: string, passphrase: string)
       } catch {
         throw new Error(n === 0 ? `can't decrypt ${src}: wrong passphrase, or the file is damaged` : `${src} is damaged`);
       }
-      await output.write(plain);
+      await writeAll(output, plain, dest);
       if (last) break;
     }
     await output.sync();
   } finally {
-    await input.close();
-    await output.close();
+    try { await input.close(); } finally { await output?.close(); }
   }
 }
 

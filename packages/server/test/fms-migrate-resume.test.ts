@@ -1,16 +1,20 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { fetchFmsExport, FmsMigrationError, migrateFms, type FmsExport } from '../src/fms-migrate.ts';
 
+// Migration checks that a source is a FileMaker file before it publishes it, so the sources here are real ones.
+const fixture = join(import.meta.dirname, '..', '..', '..', 'fixtures', 'fmp12', 'Charts.fmp12');
+const skip = existsSync(fixture) ? false : 'fixtures missing: run npm run fixtures';
+
 const digest = (path: string) => createHash('sha256').update(readFileSync(path)).digest('hex');
 
-test('migration resumes after every completed file and a second run changes no bytes', () => {
+test('migration resumes after every completed file and a second run changes no bytes', { skip }, () => {
   const root = mkdtempSync(join(tmpdir(), 'tabularius-migrate-resume-'));
   try {
     const fms = join(root, 'fms');
@@ -18,7 +22,7 @@ test('migration resumes after every completed file and a second run changes no b
     const source = join(fms, 'Data', 'Databases');
     for (const name of ['Alpha', 'Beta', 'Gamma']) {
       mkdirSync(join(source, 'RC_Data_FMS', name, 'Files'), { recursive: true });
-      writeFileSync(join(source, `${name}.fmp12`), `generated-${name}`);
+      copyFileSync(fixture, join(source, `${name}.fmp12`));
       writeFileSync(join(source, 'RC_Data_FMS', name, 'Files', 'data.bin'), `generated-container-${name}`);
     }
     const exp: FmsExport = {
