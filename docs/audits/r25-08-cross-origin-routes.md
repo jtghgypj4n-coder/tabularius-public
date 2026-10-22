@@ -501,7 +501,7 @@ Handler: `packages/server/src/admin.ts`.
 | POST | `/tabularius/admin/v1/field-access` | A: console origin + auth; mutation header |
 | GET | `/tabularius/admin/v1/who-can` | A: console origin + auth; mutation header |
 | GET | `/tabularius/admin/v1/usage` | A: console origin + auth; mutation header |
-| POST | `/tabularius/admin/v1/relax-unverified` | A: console origin + auth; mutation header |
+| POST | `/tabularius/admin/v1/relax-unverified` | A: console origin + auth; mutation header | <!-- known-difference-ok: the route name contains the word -->
 
 ## admin-accounts
 
