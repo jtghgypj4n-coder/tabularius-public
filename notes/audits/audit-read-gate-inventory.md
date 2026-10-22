@@ -165,6 +165,10 @@ The following reasons apply to the exact enumerated expressions in each named fu
 | `packages/store/src/store.ts` / `Store/runningSummaryValues` | GATED-STORE | viewableIds filters rows before accumulation and source fields are checked with fieldHidden. Repaired: hidden restart fields in supplied sort state suppress the running result before calc.value; pass privileges follow calculations. related.clear only clears a cache. |
 | `packages/store/src/store.ts` / `Store/getCurrent` | GATED-STORE | checkLayout and checkRecordRule precede pending-edit overlay; running-summary ids use viewFilter and toRecord masks output. opts.row references are typed row-supply capability references, not additional SQL reads. |
 | `packages/store/src/store.ts` / `Store/groupSummariesCurrent` | GATED-STORE | Layout/table/group-key checks and viewableIds filter supplied ids before fraction totals collect rowsById; visible summary definitions and a privilege-bearing calculation pass govern aggregation. |
+| `packages/server/src/pgwrite.ts` / `executeWrite/reader` | SQL | SQL writes (`--sql-writes`) read the table to find the records a WHERE names and to work out each new value. They run as the signed-in account, which already passed the SQL connection's gate (fmxdbc, reads every record and field) and the table's create, edit or delete privilege and the written fields' modify rights before the first read. The changes themselves go through Store.create, update and delete with the account's privileges, so every record rule and audit entry applies there. |
+| `packages/server/src/pgwrite.ts` / `returningColumns` | SQL | Describes the columns RETURNING gives back (names and declared types only, no rows) for the account's own table. |
+| `packages/store/src/store.ts` / `Store/selectIn` | CORE | Reads through Store.select, or, for the caller that holds the file's open transaction, through the connection holding it. No account gate here: the PostgreSQL connection checks fmxdbc and reads-everything before it calls. |
+| `packages/store/src/store.ts` / `Store/selectHeldCurrent` | CORE | The same query screening as Store.select (readOnlyChecked), run on the writable connection so a transaction sees its own uncommitted changes. Only text that passed the read-only screening reaches that connection. |
 
 <!-- generated read-gate inventory -->
 | Function | Store read / capability (source lines) | Gate |
@@ -172,9 +176,9 @@ The following reasons apply to the exact enumerated expressions in each named fu
 | [packages/cli/src/diagnostics.ts:204](../../packages/cli/src/diagnostics.ts#L204) `designCopy` | `SQLite.all` (204); `SQLite.prepare` (204, 207) | OPERATOR |
 | [packages/cli/src/diagnostics.ts:443](../../packages/cli/src/diagnostics.ts#L443) `diagnostics` | `SQLite.get` (443); `SQLite.prepare` (443, 447); `SQLite.all` (447) | OPERATOR |
 | [packages/cli/src/doctor.ts:139](../../packages/cli/src/doctor.ts#L139) `accountChecks` | `SQLite.all` (139); `SQLite.prepare` (139) | OPERATOR |
-| [packages/cli/src/main.ts:671](../../packages/cli/src/main.ts#L671) `accountsWithPasswordOff` | `SQLite.all` (671); `SQLite.prepare` (671) | OPERATOR |
-| [packages/cli/src/main.ts:700](../../packages/cli/src/main.ts#L700) `hostedRead` | `SQLite.all` (700, 703); `SQLite.prepare` (700, 703); `Store.sql` (700, 703) | OPERATOR |
-| [packages/cli/src/main.ts:2296](../../packages/cli/src/main.ts#L2296) `main` | `Store.orphanContainerReport` (2296); `Store.auditLog` (2759); `SQLite.get` (2975); `SQLite.prepare` (2975) | OPERATOR |
+| [packages/cli/src/main.ts:673](../../packages/cli/src/main.ts#L673) `accountsWithPasswordOff` | `SQLite.all` (673); `SQLite.prepare` (673) | OPERATOR |
+| [packages/cli/src/main.ts:702](../../packages/cli/src/main.ts#L702) `hostedRead` | `SQLite.all` (702, 705); `SQLite.prepare` (702, 705); `Store.sql` (702, 705) | OPERATOR |
+| [packages/cli/src/main.ts:2300](../../packages/cli/src/main.ts#L2300) `main` | `Store.orphanContainerReport` (2300); `Store.auditLog` (2763); `SQLite.get` (2979); `SQLite.prepare` (2979) | OPERATOR |
 | [packages/scripts/src/data-api-step.ts:103](../../packages/scripts/src/data-api-step.ts#L103) `respond` | `Store.get` (103, 130, 139); `Store.find` (104, 116) | SCRIPT |
 | [packages/scripts/src/engine.ts:1940](../../packages/scripts/src/engine.ts#L1940) `ScriptEngine/goToLayout` | `Store.findIds` (1940) | SCRIPT |
 | [packages/scripts/src/engine.ts:2284](../../packages/scripts/src/engine.ts#L2284) `ScriptEngine/foundSet` | `Store.findIds` (2284) | SCRIPT |
@@ -379,11 +383,13 @@ The following reasons apply to the exact enumerated expressions in each named fu
 | [packages/server/src/optimization.ts:315](../../packages/server/src/optimization.ts#L315) `sizes` | `SQLite.all` (315); `SQLite.prepare` (315); `Store.sql` (315) | DESIGN |
 | [packages/server/src/optimization.ts:419](../../packages/server/src/optimization.ts#L419) `speedFindings` | `Store.recordCount` (419, 462, 480) | DESIGN |
 | [packages/server/src/optimization.ts:534](../../packages/server/src/optimization.ts#L534) `heldBytes` | `SQLite.get` (534); `SQLite.prepare` (534); `Store.sql` (534) | DESIGN |
-| [packages/server/src/pgwire.ts:660](../../packages/server/src/pgwire.ts#L660) `Connection/translate` | `Calculations.translateSQL` (660) | SQL |
-| [packages/server/src/pgwire.ts:686](../../packages/server/src/pgwire.ts#L686) `Connection/catalog` | `Store.describe` (686) | SQL |
-| [packages/server/src/pgwire.ts:696](../../packages/server/src/pgwire.ts#L696) `Connection/run` | `Store.select` (696) | SQL |
-| [packages/server/src/pgwire.ts:746](../../packages/server/src/pgwire.ts#L746) `Connection/validateSyntax` | `SQLite.prepare` (746); `Store.sql` (746) | SQL |
-| [packages/server/src/pgwire.ts:943](../../packages/server/src/pgwire.ts#L943) `Connection/describe` | `Store.describe` (943) | SQL |
+| [packages/server/src/pgwire.ts:772](../../packages/server/src/pgwire.ts#L772) `Connection/translate` | `Calculations.translateSQL` (772) | SQL |
+| [packages/server/src/pgwire.ts:798](../../packages/server/src/pgwire.ts#L798) `Connection/catalog` | `Store.describe` (798) | SQL |
+| [packages/server/src/pgwire.ts:809](../../packages/server/src/pgwire.ts#L809) `Connection/run` | `Store.selectIn` (809) | SQL |
+| [packages/server/src/pgwire.ts:936](../../packages/server/src/pgwire.ts#L936) `Connection/validateSyntax` | `SQLite.prepare` (936); `Store.sql` (936) | SQL |
+| [packages/server/src/pgwire.ts:1155](../../packages/server/src/pgwire.ts#L1155) `Connection/describe` | `Store.describe` (1155) | SQL |
+| [packages/server/src/pgwrite.ts:404](../../packages/server/src/pgwrite.ts#L404) `returningColumns` | `Store.describe` (404) | SQL |
+| [packages/server/src/pgwrite.ts:431](../../packages/server/src/pgwrite.ts#L431) `executeWrite/reader` | `Store.selectIn` (431) | SQL |
 | [packages/server/src/pii.ts:121](../../packages/server/src/pii.ts#L121) `holdsOnlyUuids` | `Store.query` (121) | REDACTION |
 | [packages/server/src/pii.ts:133](../../packages/server/src/pii.ts#L133) `sampledValues` | `Store.query` (133) | REDACTION |
 | [packages/server/src/pii.ts:300](../../packages/server/src/pii.ts#L300) `vaultTable` | `Store.sql` (300, 303) | REDACTION |
@@ -860,10 +866,12 @@ The following reasons apply to the exact enumerated expressions in each named fu
 | [packages/store/src/store.ts:9447](../../packages/store/src/store.ts#L9447) `Store/refreshDecimalSqlViews` | `SQLite.get` (9447); `SQLite.prepare` (9447, 9452); `SQLite.all` (9452) | CORE |
 | [packages/store/src/store.ts:9466](../../packages/store/src/store.ts#L9466) `Store/internalRoots` | `SQLite.get` (9466); `SQLite.prepare` (9466, 9468); `SQLite.all` (9468) | CORE |
 | [packages/store/src/store.ts:9501](../../packages/store/src/store.ts#L9501) `Store/selectCurrent` | `SQLite.iterate` (9501) | CORE |
-| [packages/store/src/store.ts:9522](../../packages/store/src/store.ts#L9522) `Store/query` | `SQLite.iterate` (9522) | CORE |
-| [packages/store/src/store.ts:9556](../../packages/store/src/store.ts#L9556) `Store/queryWithOriginsCurrent` | `SQLite.iterate` (9556); `SQLite.all` (9563, 9566); `SQLite.prepare` (9563, 9566) | CORE |
+| [packages/store/src/store.ts:9550](../../packages/store/src/store.ts#L9550) `Store/query` | `SQLite.iterate` (9550) | CORE |
+| [packages/store/src/store.ts:9584](../../packages/store/src/store.ts#L9584) `Store/queryWithOriginsCurrent` | `SQLite.iterate` (9584); `SQLite.all` (9591, 9594); `SQLite.prepare` (9591, 9594) | CORE |
 | [packages/store/src/store.ts:1183](../../packages/store/src/store.ts#L1183) `Store/ensureNativeIds` | `SQLite.all` (1183, 1195); `SQLite.prepare` (1183, 1186, 1194, 1195); `Store.sql` (1183, 1186, 1189, 1193, 1194, 1195, 1198, 1200) | CORE |
 | [packages/store/src/store.ts:1208](../../packages/store/src/store.ts#L1208) `Store/nativeIdGuards` | `Store.sql` (1208, 1209, 1211) | CORE |
+| [packages/store/src/store.ts:9517](../../packages/store/src/store.ts#L9517) `Store/selectIn` | `Store.select` (9517) | CORE |
+| [packages/store/src/store.ts:9525](../../packages/store/src/store.ts#L9525) `Store/selectHeldCurrent` | `Store.sql` (9525, 9526); `SQLite.prepare` (9526); `SQLite.iterate` (9529) | CORE |
 | [packages/store/src/sync-apply.ts:170](../../packages/store/src/sync-apply.ts#L170) `logRow` | `SQLite.prepare` (170); `Store.sql` (170) | OPERATOR |
 | [packages/store/src/sync-apply.ts:177](../../packages/store/src/sync-apply.ts#L177) `finishRow` | `SQLite.prepare` (177); `Store.sql` (177) | OPERATOR |
 | [packages/store/src/sync-apply.ts:184](../../packages/store/src/sync-apply.ts#L184) `atomically` | `Store.sql` (184, 187, 190, 191) | OPERATOR |

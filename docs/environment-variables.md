@@ -29,6 +29,9 @@ nothing reads. The test checks each name against the pages, not against this tab
 | `TABULARIUS_ACME_DIRECTORY` | `--acme-directory` | A different certificate authority's directory address, for testing. |
 | `TABULARIUS_PROXY_HEADER` | `--proxy-header` | The header a trusted proxy puts the client address in. |
 | `TABULARIUS_SQL_PORT` | `--sql-port` | The port for the PostgreSQL-compatible SQL connection. |
+| `TABULARIUS_SQL_WRITES` | `--sql-writes` | `1` lets the SQL connection run `INSERT`, `UPDATE` and `DELETE` (off by default); needs the SQL port. See [pgwire-writes.md](pgwire-writes.md). |
+| `TABULARIUS_PGWIRE_TX_IDLE_MS` | | How long a SQL connection may sit idle inside `BEGIN`, in milliseconds, before it is rolled back and closed (30000 when unset; `0` for no limit). Only matters with `--sql-writes`. |
+| `TABULARIUS_PGWIRE_TX_MAX_MS` | | The longest a SQL connection may keep one transaction open, however busy it is, in milliseconds (300000 when unset; `0` for no limit). Only matters with `--sql-writes`. |
 | `TABULARIUS_WORKERS` | `--workers` | The number of worker processes, or `auto` for one per CPU core. |
 | `TABULARIUS_PROGRESSIVE` | `--progressive` | How often changes are saved as a point you can restore to with `tabularius restore --at`; `off` for never. |
 | `TABULARIUS_HOME` | | The folder holding per-user settings (`~/.openhbam` by default): the AI key file, and the service definition's files. |

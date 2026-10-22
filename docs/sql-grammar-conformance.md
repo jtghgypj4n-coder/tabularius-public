@@ -99,7 +99,7 @@ Other choices that the pages do not settle, and what was done:
 
 The check asks that a documented error case is an error on both paths. It does not compare the code or the text. Claris's errors have codes of the form `FQL0001` to `FQL0056` and wording of their own; here the engine's messages come back (`ExecuteSQL` as the text, the SQL connection as SQLSTATE `42000`, or `42601` for a syntax error). Matching Claris's codes would need each rewrite and each SQLite error mapped to one; that is not done.
 
-The statements that write (`INSERT`, `UPDATE`, `DELETE`, `CREATE TABLE`, `ALTER TABLE`, `CREATE INDEX`, `DROP INDEX`, `TRUNCATE`) are refused on both paths. The Claris pages say `ExecuteSQL` supports only `SELECT`, and that the ODBC and JDBC drivers support the others; the SQL connection is read-only by design (SQLSTATE `25006`), so these are a difference from the ODBC and JDBC drivers, not a gap in the grammar.
+The statements that write (`INSERT`, `UPDATE`, `DELETE`, `CREATE TABLE`, `ALTER TABLE`, `CREATE INDEX`, `DROP INDEX`, `TRUNCATE`) are refused on both paths. The Claris pages say `ExecuteSQL` supports only `SELECT`, and that the ODBC and JDBC drivers support the others; the SQL connection is read-only by design (SQLSTATE `25006`), so these are a difference from the ODBC and JDBC drivers, not a gap in the grammar. Started with `--sql-writes`, the SQL connection can run `INSERT`, `UPDATE` and `DELETE` in a narrow grammar ([pgwire-writes.md](pgwire-writes.md)); `CREATE`, `ALTER`, `DROP` and `TRUNCATE` stay refused.
 
 ## How the pages were read
 

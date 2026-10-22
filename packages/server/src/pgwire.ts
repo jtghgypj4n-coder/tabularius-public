@@ -7,7 +7,8 @@
 //   psql "host=server port=5432 dbname=Contacts user=Ann sslmode=require"
 //
 // The database is the hosted file; queries are FileMaker SQL, as in
-// ExecuteSQL and the HTTP SQL endpoint (sql.ts), and read-only. Sign in with
+// ExecuteSQL and the HTTP SQL endpoint (sql.ts), and read-only unless the
+// server was started with --sql-writes (see docs/pgwire-writes.md). Sign in with
 // the file's account name and password; the account needs fmxdbc and must be
 // able to view every record and field. The password crosses the connection as
 // typed, so off this machine the connection must use TLS (the server's
@@ -24,7 +25,9 @@ import { FAULT_MESSAGE, isFault, logFault } from './fault-log.ts';
 import { createServer, type Server, type Socket } from 'node:net';
 import { createSecureContext, TLSSocket } from 'node:tls';
 import { randomBytes } from 'node:crypto';
-import { addressBucket, spendPasswordCheck, StoreError, writer, type Privileges, type Store } from '../../store/src/index.ts';
+import { addressBucket, endTransaction, PrivilegeError, spendPasswordCheck, StoreError, writer, type Privileges, type Store, type Transaction } from '../../store/src/index.ts';
+import { monotonicClock } from '../../store/src/monotonic.ts';
+import { executeWrite, parseWrite, returningColumns, WriteRefusal, type WritePlan, type WriteResult } from './pgwrite.ts';
 import { SignInFailures } from '../../store/src/sign-in-failures.ts';
 import type { SqlValue } from '../../store/src/find.ts';
 import type { Host } from './host.ts';
@@ -105,6 +108,7 @@ type TransactionStatus = 'I' | 'T' | 'E';
 const ready = (status: TransactionStatus) => message('Z', Buffer.from(status));
 const complete = (tag: string) => message('C', cstr(tag));
 const errorMsg = (code: string, text: string) => message('E', Buffer.from('S'), cstr('ERROR'), Buffer.from('V'), cstr('ERROR'), Buffer.from('C'), cstr(code), Buffer.from('M'), cstr(text), Buffer.from([0]));
+const fatalMsg = (code: string, text: string) => message('E', Buffer.from('S'), cstr('FATAL'), Buffer.from('V'), cstr('FATAL'), Buffer.from('C'), cstr(code), Buffer.from('M'), cstr(text), Buffer.from([0]));
 const warningMsg = (code: string, text: string) => message('N', Buffer.from('S'), cstr('WARNING'), Buffer.from('V'), cstr('WARNING'), Buffer.from('C'), cstr(code), Buffer.from('M'), cstr(text), Buffer.from([0]));
 
 interface Column {
@@ -214,7 +218,35 @@ interface Portal {
   /** Result format codes from Bind. */
   formats: number[];
   result?: { cols: Column[]; rows: SqlValue[][] };
+  /** A write's command tag, once it has run. */
+  tag?: string;
   sent: number;
+}
+
+/** How long a connection may sit idle inside BEGIN, in ms (TABULARIUS_PGWIRE_TX_IDLE_MS, default 30,000; 0 for no limit). Read per BEGIN. */
+export function txIdleMs(): number {
+  const given = process.env.TABULARIUS_PGWIRE_TX_IDLE_MS?.trim();
+  const n = given ? Number(given) : 30_000;
+  return Number.isInteger(n) && n >= 0 ? n : 30_000;
+}
+
+/** The longest a connection may keep one transaction open, in ms, however busy it is (TABULARIUS_PGWIRE_TX_MAX_MS, default 300,000; 0 for no limit). Read per BEGIN. */
+export function txMaxMs(): number {
+  const given = process.env.TABULARIUS_PGWIRE_TX_MAX_MS?.trim();
+  const n = given ? Number(given) : 300_000;
+  return Number.isInteger(n) && n >= 0 ? n : 300_000;
+}
+
+/** The SQLSTATE of a store error on a connection that can write (error code, then what the client can act on). */
+function writeState(code: number): string {
+  if (code === 212) return '28000';
+  if (code === 200 || code === 201) return '42501';
+  if (code === 504) return '23505';
+  if (code === 509) return '23502';
+  if (code >= 500 && code <= 511) return '23514';
+  if (code === 301) return '55P03';
+  if (code === 812) return '54000';
+  return '42000';
 }
 
 class Connection {
@@ -236,6 +268,14 @@ class Connection {
   private transaction: TransactionStatus = 'I';
   private busy: Promise<void> = Promise.resolve();
   private tls = false;
+  /** With --sql-writes: the storage transaction a BEGIN opened; every file it changes is held until COMMIT or ROLLBACK. */
+  private tx?: Transaction;
+  /** The transaction a statement, or a query made of writes, is running in outside BEGIN; undone if the connection goes. */
+  private unit?: Transaction;
+  private idleTimer?: ReturnType<typeof setInterval>;
+  private lastActive = 0;
+  /** A message is being handled: the idle limit counts only the time between messages. */
+  private working = false;
 
   constructor(socket: Socket, server: PgServer) {
     this.socket = socket;
@@ -257,9 +297,47 @@ class Connection {
     socket.once('close', () => {
       clearTimeout(timer);
       this.closed = true;
+      this.rollback();
       this.releaseUnsigned();
       this.releaseSigned();
+      this.server.forget(this);
     });
+  }
+
+  /** Undoes whatever this connection holds open (a BEGIN's transaction, a statement in flight) and stops the idle clock. */
+  rollback(): void {
+    clearInterval(this.idleTimer);
+    this.idleTimer = undefined;
+    for (const tx of [this.tx, this.unit]) {
+      if (!tx) continue;
+      try { endTransaction(tx, false); } catch (e) { this.server.log(`sql connection: rolling back a transaction failed: ${(e as Error).message}`); }
+    }
+    this.tx = undefined;
+    this.unit = undefined;
+  }
+
+  /** From BEGIN: roll the transaction back and close the connection when it sits idle too long, so the file it holds is not held for good. */
+  private watchIdle(): void {
+    const limit = txIdleMs();
+    const age = txMaxMs();
+    clearInterval(this.idleTimer);
+    this.idleTimer = undefined;
+    if (!limit && !age) return;
+    const began = monotonicClock.now();
+    this.lastActive = began;
+    this.idleTimer = setInterval(() => {
+      if (this.working || !this.tx) return;
+      const now = monotonicClock.now();
+      const idle = limit > 0 && now - this.lastActive >= limit;
+      const old = age > 0 && now - began >= age;
+      if (!idle && !old) return;
+      this.rollback();
+      this.send(fatalMsg('25P03', idle
+        ? `terminating connection: idle in a transaction for more than ${limit} ms; the transaction was rolled back`
+        : `terminating connection: a transaction was open for more than ${age} ms, however busy; it was rolled back`));
+      this.socket.end();
+    }, Math.min(1000, Math.max(5, Math.floor(Math.min(limit || age, age || limit) / 4))));
+    this.idleTimer.unref();
   }
 
   private unsignedKey?: string;
@@ -428,7 +506,7 @@ class Connection {
       server_version: '14.0 (Tabularius)', server_encoding: 'UTF8', client_encoding: 'UTF8', DateStyle: 'ISO, MDY',
       integer_datetimes: 'on', standard_conforming_strings: 'on', TimeZone: 'UTC', IntervalStyle: 'postgres',
       is_superuser: 'off', session_authorization: this.user, application_name: this.settings.application_name,
-      default_transaction_read_only: 'on', in_hot_standby: 'off',
+      default_transaction_read_only: this.server.writes ? 'off' : 'on', in_hot_standby: 'off',
     };
     this.send(
       message('R', i32(0)),
@@ -468,6 +546,15 @@ class Connection {
   }
 
   private async handle(type: string, body: Buffer): Promise<void> {
+    this.working = true;
+    try { await this.handleMessage(type, body); }
+    finally {
+      this.working = false;
+      this.lastActive = monotonicClock.now();
+    }
+  }
+
+  private async handleMessage(type: string, body: Buffer): Promise<void> {
     if (type === 'X') {
       this.socket.end();
       return;
@@ -491,7 +578,7 @@ class Connection {
     }
     if (type === 'H') return;
     try {
-      this.extended(type, body);
+      await this.extended(type, body);
     } catch (e) {
       this.skipping = true;
       this.sendError(e);
@@ -507,7 +594,11 @@ class Connection {
 
   private sendError(e: unknown): void {
     if (this.transaction === 'T') this.transaction = 'E';
-    const err = e instanceof PgError ? e : e instanceof BinaryFormatError ? new PgError(e.code, e.message) : e instanceof StoreError ? new PgError(e.code === 212 ? '28000' : '42000', e.message)
+    const writes = this.server.writes;
+    const err = e instanceof PgError ? e
+      : e instanceof BinaryFormatError ? new PgError(e.code, e.message)
+      : e instanceof WriteRefusal ? new PgError('0A000', e.message)
+      : (e instanceof StoreError || (writes && e instanceof PrivilegeError)) ? new PgError(writes ? writeState(e.code) : e.code === 212 ? '28000' : '42000', writes && e.code !== 212 && writeState(e.code) !== '42000' ? `FileMaker ${e.code}: ${e.message}` : e.message)
       : isFault(e, { sql: true }) ? (logFault(e), new PgError('XX000', FAULT_MESSAGE)) : new PgError('42000', (e as Error).message);
     this.send(errorMsg(err.code, err.message));
   }
@@ -541,22 +632,33 @@ class Connection {
   }
 
   /** Statements the session answers itself; Parse and Describe must not execute them. */
-  private session(sql: string, execute = false): { tag: string; cols?: Column[]; rows?: SqlValue[][] } | undefined {
+  private session(sql: string, execute = false): { tag: string; cols?: Column[]; rows?: SqlValue[][]; write?: WritePlan } | undefined {
     const s = sql.trim();
     let m: RegExpExecArray | null;
     const end = this.transactionEnd(s);
     if (end) {
       const tag = this.transaction === 'E' ? 'ROLLBACK' : end;
       if (execute) {
-        if (this.transaction === 'I') this.send(warningMsg('25P01', 'there is no transaction in progress'));
+        const held = this.tx;
+        // The session state ends first: whatever the storage transaction answers, the block is over.
+        const keep = tag === 'COMMIT';
+        const noBlock = this.transaction === 'I';
+        if (noBlock) this.send(warningMsg('25P01', 'there is no transaction in progress'));
         else {
-          this.send(warningMsg('01000', `${end} does not ${end === 'COMMIT' ? 'commit' : 'roll back'} a storage transaction on this read-only connection`));
+          if (!this.server.writes) this.send(warningMsg('01000', `${end} does not ${end === 'COMMIT' ? 'commit' : 'roll back'} a storage transaction on this read-only connection`));
           if (tag === 'ROLLBACK') this.settings = this.transactionSettings!;
         }
         this.transactionSettings = undefined;
         this.localSettings.clear();
         this.transaction = 'I';
         this.portals.clear();
+        clearInterval(this.idleTimer);
+        this.idleTimer = undefined;
+        this.tx = undefined;
+        if (held) {
+          this.unit = held;
+          try { endTransaction(held, keep); } finally { this.unit = undefined; }
+        }
       }
       return { tag };
     }
@@ -568,7 +670,10 @@ class Connection {
         else {
           this.transactionSettings = { ...this.settings };
           this.transaction = 'T';
-          this.send(warningMsg('01000', 'BEGIN tracks session state only; this read-only connection has no storage transaction'));
+          if (this.server.writes) {
+            this.tx = { files: new Map() };
+            this.watchIdle();
+          } else this.send(warningMsg('01000', 'BEGIN tracks session state only; this read-only connection has no storage transaction'));
         }
       }
       return { tag: 'BEGIN' };
@@ -616,9 +721,9 @@ class Connection {
       const name = showing.replace(/\s+/g, ' ').toLowerCase();
       const known: Record<string, string> = {
         'transaction isolation level': 'read committed', server_version: '14.0 (Tabularius)', server_encoding: 'UTF8',
-        standard_conforming_strings: 'on', timezone: 'UTC', datestyle: 'ISO, MDY', transaction_read_only: 'on',
+        standard_conforming_strings: 'on', timezone: 'UTC', datestyle: 'ISO, MDY', transaction_read_only: this.server.writes ? 'off' : 'on',
         integer_datetimes: 'on', intervalstyle: 'postgres', is_superuser: 'off', session_authorization: this.user,
-        default_transaction_read_only: 'on', in_hot_standby: 'off',
+        default_transaction_read_only: this.server.writes ? 'off' : 'on', in_hot_standby: 'off',
         search_path: 'public', statement_timeout: '0',
       };
       const value = this.localSettings.get(name) ?? Object.entries(this.settings).find(([k]) => k.toLowerCase() === name)?.[1] ?? known[name];
@@ -632,7 +737,14 @@ class Connection {
       throw new PgError('0A000', 'SQL-level PREPARE and EXECUTE are not supported on this connection; send the statement with parameters through the extended protocol (Parse, Bind, Execute), as drivers do');
     }
     if (!/^(SELECT|WITH|VALUES|TABLE)\b/i.test(s) && !/^\(/.test(s)) {
-      throw new PgError('25006', 'this connection is read-only: only SELECT queries run');
+      if (this.server.writes) {
+        const write = parseWrite(s);
+        if (write) return { tag: write.kind.toUpperCase(), write };
+        throw new PgError('0A000', 'this connection runs SELECT, INSERT, UPDATE and DELETE only: DDL, TRUNCATE, COPY and other commands are not supported');
+      }
+      throw new PgError('25006', /^(INSERT|UPDATE|DELETE)\b/i.test(s)
+        ? 'this connection is read-only; start the server with --sql-writes to allow INSERT, UPDATE and DELETE'
+        : 'this connection is read-only: only SELECT queries run');
     }
     return undefined;
   }
@@ -693,11 +805,57 @@ class Connection {
   private run(sql: string, params: SqlValue[]): { cols: Column[]; rows: SqlValue[][] } {
     const { text, target, catalog } = this.translate(sql);
     const cap = maxRows();
-    const r = target.select(text, params, cap === 0 ? Infinity : cap + 1);
+    // Inside BEGIN a read sees the transaction's own uncommitted changes.
+    const r = target.selectIn(this.tx, text, params, cap === 0 ? Infinity : cap + 1);
     if (cap > 0 && r.rows.length > cap) throw new PgError('54000', `SQL results are limited to ${cap} rows; use LIMIT and page through the result with a stable ORDER BY`);
     // Clients read the catalog on connect and for every autocomplete; only queries of the file's own tables are reads of its data.
     if (!catalog) writer.run({ account: this.user, surface: 'sql' }, () => target.logQuery(text, r.rows.length, { privileges: this.privileges }));
     return { cols: booleans(columnsOf(r.names, r.types, r.rows), catalog), rows: r.rows };
+  }
+
+  /**
+   * Runs `work` in the connection's transaction: the one BEGIN opened, or else a transaction of its own that is kept when
+   * the work ends and undone when it throws. Outside BEGIN that makes each write, or one query made only of writes, one
+   * unit.
+   */
+  private async inUnit<T>(work: (tx: Transaction) => Promise<T>): Promise<T> {
+    if (this.tx) return work(this.tx);
+    const tx: Transaction = { files: new Map() };
+    this.unit = tx;
+    let result: T;
+    try {
+      result = await work(tx);
+    } catch (e) {
+      this.unit = undefined;
+      try { endTransaction(tx, false); } catch { /* the cause of the failure is the one to report */ }
+      throw e;
+    }
+    try { endTransaction(tx, true); } finally { this.unit = undefined; }
+    return result;
+  }
+
+  /** Runs one write (checks again, at this moment, who the account is and what it may do) and gives back its tag and any RETURNING rows. */
+  private async runWrite(plan: WritePlan, params: SqlValue[], tx: Transaction): Promise<{ result: WriteResult; cols?: Column[] }> {
+    this.authorize();
+    const store = this.store!;
+    const cap = maxRows();
+    const result = await executeWrite(plan, store, this.privileges!, params, cap, () => this.closed || this.socket.destroyed, tx);
+    if (!result.names) return { result };
+    const described = returningColumns(plan, store)!;
+    return { result, cols: columnsOf(result.names, described.types, result.rows!) };
+  }
+
+  /** The columns of a statement's RETURNING, from the table's declared types. */
+  private returningOf(plan: WritePlan): Column[] | undefined {
+    const described = returningColumns(plan, this.store!);
+    return described && columnsOf(described.names, described.types, []);
+  }
+
+  /** Whether each of the statements is an INSERT, UPDATE or DELETE this connection takes. */
+  private writesOnly(statements: string[]): boolean {
+    return this.server.writes && statements.every((sql) => {
+      try { return !!parseWrite(sql); } catch { return false; }
+    });
   }
 
   private async simpleQuery(query: string): Promise<void> {
@@ -716,9 +874,22 @@ class Connection {
       this.send(message('I'));
       return;
     }
+    // Outside BEGIN, a query made only of writes is one unit: a later statement that fails undoes the earlier ones.
+    if (this.transaction === 'I' && statements.length > 1 && this.writesOnly(statements)) {
+      try {
+        await this.inUnit(async (tx) => {
+          for (const sql of statements) await this.simpleWrite(this.session(sql, true)!.write!, tx);
+        });
+      } catch (e) { this.sendError(e); }
+      return;
+    }
     for (const sql of statements) {
       try {
         const own = this.session(sql, true);
+        if (own?.write) {
+          await this.inUnit((tx) => this.simpleWrite(own.write!, tx));
+          continue;
+        }
         if (own) {
           if (own.cols) this.send(rowDescription(own.cols), ...own.rows!.map((r) => dataRow(r, own.cols!)));
           this.send(complete(own.tag));
@@ -737,7 +908,26 @@ class Connection {
     }
   }
 
+  /** A write sent as a simple query: its RETURNING rows, then its tag. */
+  private async simpleWrite(plan: WritePlan, tx: Transaction): Promise<void> {
+    const { result, cols } = await this.runWrite(plan, [], tx);
+    if (cols) {
+      this.send(rowDescription(cols));
+      for (let i = 0; i < result.rows!.length; i += 1000) this.send(...result.rows!.slice(i, i + 1000).map((row) => dataRow(row, cols)));
+    }
+    this.send(complete(result.tag));
+  }
+
   private validateSyntax(sql: string): void {
+    if (this.server.writes) {
+      // A write is read in full before anything runs; a shape this connection does not take is refused with its reason.
+      if (/^\s*(INSERT|UPDATE|DELETE)\b/i.test(sql)) {
+        try { parseWrite(sql); } catch (e) { throw e instanceof WriteRefusal ? new PgError('0A000', e.message) : e instanceof StoreError ? e : new PgError('42601', (e as Error).message); }
+        return;
+      }
+      // DDL, TRUNCATE and the like are refused when they run, with one plain message, not as a syntax error.
+      if (!/^\s*(SELECT|WITH|VALUES|TABLE|\()/i.test(sql)) return;
+    }
     // These commands use PostgreSQL session syntax rather than SQLite syntax.
     if (/^(BEGIN|START\s+TRANSACTION|SET|RESET|SHOW|DISCARD|DEALLOCATE|DECLARE|FETCH|MOVE|CLOSE|PREPARE|EXECUTE|COPY|LISTEN|UNLISTEN|NOTIFY)\b/i.test(sql)) return;
     try {
@@ -755,7 +945,7 @@ class Connection {
     }
   }
 
-  private extended(type: string, body: Buffer): void {
+  private async extended(type: string, body: Buffer): Promise<void> {
     let pos = 0;
     const str = () => {
       const end = body.indexOf(0, pos);
@@ -861,6 +1051,13 @@ class Connection {
         }
         const p = this.portals.get(name);
         if (!p) throw new PgError('34000', 'no such portal');
+        // Describing a write answers from its table's columns; it is not run.
+        const write = p.sql ? this.session(p.sql)?.write : undefined;
+        if (write) {
+          const cols = this.returningOf(write);
+          this.send(cols ? rowDescription(cols, p.formats) : message('n'));
+          return;
+        }
         const r = this.resultOf(p);
         this.send(r ? rowDescription(r.cols, p.formats) : message('n'));
         return;
@@ -874,6 +1071,20 @@ class Connection {
           return;
         }
         const own = this.session(p.sql, true);
+        if (own?.write) {
+          // Run once: a portal asked again (a row limit) is served from what the first run gave back.
+          if (!p.result) {
+            const { result, cols } = await this.inUnit((tx) => this.runWrite(own.write!, p.params, tx));
+            this.keepPortalResult(p, { cols: cols ?? [], rows: result.rows ?? [] });
+            p.tag = result.tag;
+          }
+          const r = p.result!;
+          const end = max > 0 ? Math.min(r.rows.length, p.sent + max) : r.rows.length;
+          for (let i = p.sent; i < end; i += 1000) this.send(...r.rows.slice(i, Math.min(end, i + 1000)).map((row) => dataRow(row, r.cols, p.formats)));
+          p.sent = end;
+          this.send(end < r.rows.length ? message('s') : complete(p.tag!));
+          return;
+        }
         if (own && !own.cols) {
           this.send(complete(own.tag));
           return;
@@ -938,6 +1149,7 @@ class Connection {
   private describe(sql: string): Column[] | undefined {
     if (!sql) return undefined;
     const own = this.session(sql);
+    if (own?.write) return this.returningOf(own.write);
     if (own) return own.cols;
     const { text, target, catalog } = this.translate(sql);
     const cols = target.describe(text);
@@ -951,6 +1163,8 @@ export interface PgServerOptions {
   /** The certificate to offer TLS with, current at the time (renewals included). */
   tls?: () => { cert: string | Buffer; key: string | Buffer } | undefined;
   log?: (m: string) => void;
+  /** Let INSERT, UPDATE and DELETE run (`--sql-writes`); off, the connection is read-only. */
+  writes?: boolean;
 }
 
 export class PgServer {
@@ -959,6 +1173,7 @@ export class PgServer {
   private readonly opts: PgServerOptions;
   private readonly server: Server;
   private readonly sockets = new Set<Socket>();
+  private readonly conns = new Set<Connection>();
   private readonly unsigned = new Map<string, number>();
   private readonly signed = new Map<string, number>();
   private signedCount = 0;
@@ -1018,8 +1233,17 @@ export class PgServer {
       this.sockets.add(socket);
       socket.on('close', () => this.sockets.delete(socket));
       socket.setNoDelay(true);
-      new Connection(socket, this);
+      this.conns.add(new Connection(socket, this));
     });
+  }
+
+  /** Whether INSERT, UPDATE and DELETE run on this server's connections. */
+  get writes(): boolean {
+    return this.opts.writes === true;
+  }
+
+  forget(conn: Connection): void {
+    this.conns.delete(conn);
   }
 
   tlsContext(): { cert: string | Buffer; key: string | Buffer } | undefined {
@@ -1039,6 +1263,8 @@ export class PgServer {
 
   close(): void {
     this.server.close();
+    // What a connection holds open is undone first, so no file stays held while the sockets go.
+    for (const c of this.conns) c.rollback();
     for (const s of this.sockets) s.destroy();
   }
 }

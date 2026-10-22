@@ -300,6 +300,7 @@
         "docs/standby-guarantees.md",
         "docs/in-memory-lease-clocks.md",
         "docs/pgwire-session.md",
+        "docs/pgwire-writes.md",
         "docs/pgwire-bi-tools.md",
         "docs/sql-grammar-conformance.md",
         "docs/pgwire-results.md",

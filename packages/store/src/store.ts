@@ -9377,7 +9377,7 @@ export class Store {
     return this.readOnlyChecked(sqlText).statement;
   }
 
-  private readOnlyChecked(sqlText: string): { statement: StatementSync; opened: { opcode: string; p2: number; p3: number }[] } {
+  private readOnlyChecked(sqlText: string): { statement: StatementSync; opened: { opcode: string; p2: number; p3: number }[]; text: string } {
     sqlText = cleanSql(sqlText);
     if (!oneStatement(sqlText)) throw new StoreError(8310, 'SQL runs one statement at a time');
     const tokens = sqlTokens(sqlText).filter((t) => t.kind !== 'space');
@@ -9438,7 +9438,7 @@ export class Store {
         if (table) throw new StoreError(8310, `The internal table "${table}" can't be read through SQL`);
       }
     }
-    return { statement, opened };
+    return { statement, opened, text: sqlText };
   }
 
   /** SQL's native decimal projection uses REAL for numeric WHERE, ORDER BY and aggregates. */
@@ -9496,6 +9496,34 @@ export class Store {
     const wanted = placeholders(sqlText);
     if (wanted > params.length) throw new StoreError(8310, `The query has ${wanted} ? placeholder${wanted === 1 ? '' : 's'} but ${params.length} value${params.length === 1 ? ' was' : 's were'} given`);
     const st = this.readOnly(sqlText);
+    st.setReturnArrays(true);
+    const rows: SqlValue[][] = [];
+    for (const r of st.iterate(...params) as Iterable<SqlValue[]>) {
+      rows.push(r);
+      if (rows.length >= limit) break;
+    }
+    const columns = st.columns();
+    return { names: columns.map((c) => c.name), types: columns.map((c) => c.type), rows };
+  }
+
+  /**
+   * `select`, for a caller holding `tx` open on this file (the PostgreSQL port's BEGIN, a script's Open Transaction): the
+   * query runs on the connection that holds the transaction, so it sees the changes the transaction has made and not yet
+   * kept. The same screening as `select` decides what may run. One limit remains: this connection has no REAL view of
+   * native decimal columns, so a comparison on one inside the transaction reads the stored text (see known-differences).
+   * A file the transaction does not hold is read as `select` does.
+   */
+  selectIn(tx: Transaction | undefined, ...args: Parameters<Store['selectCurrent']>): { names: string[]; types: (string | null)[]; rows: SqlValue[][] } {
+    if (!tx || this.heldBy !== tx) return this.select(...args);
+    return this.withDesignRead(() => this.selectHeldCurrent(...args));
+  }
+
+  private selectHeldCurrent(sqlText: string, params: SqlValue[] = [], limit = 500): { names: string[]; types: (string | null)[]; rows: SqlValue[][] } {
+    const wanted = placeholders(sqlText);
+    if (wanted > params.length) throw new StoreError(8310, `The query has ${wanted} ? placeholder${wanted === 1 ? '' : 's'} but ${params.length} value${params.length === 1 ? ' was' : 's were'} given`);
+    const { text } = this.readOnlyChecked(sqlText);
+    for (const [name, fn] of this.queryFunctions) this.sql.function(name, { varargs: true }, fn);
+    const st = this.sql.prepare(text);
     st.setReturnArrays(true);
     const rows: SqlValue[][] = [];
     for (const r of st.iterate(...params) as Iterable<SqlValue[]>) {

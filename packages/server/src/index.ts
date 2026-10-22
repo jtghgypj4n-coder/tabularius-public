@@ -229,8 +229,10 @@ export interface ServeOptions {
   logLimit?: number;
   /** Copy the backups folder to S3-compatible storage after each backup and every few minutes. */
   offsite?: S3Options & { every?: number };
-  /** Port for PostgreSQL clients (BI tools, ODBC/JDBC drivers): read-only FileMaker SQL. Off when omitted. */
+  /** Port for PostgreSQL clients (BI tools, ODBC/JDBC drivers): FileMaker SQL, read-only unless sqlWrites. Off when omitted. */
   sqlPort?: number;
+  /** Let INSERT, UPDATE and DELETE run over the PostgreSQL port (`--sql-writes`); needs sqlPort. Off by default. */
+  sqlWrites?: boolean;
   /** HTTPS with certificates got and renewed automatically (Let's Encrypt), instead of tlsCert/tlsKey. */
   acme?: Omit<AcmeOptions, 'httpsPort' | 'log'>;
   /** Let standby servers follow this one (tabularius standby), signing in with this token. */
@@ -795,7 +797,7 @@ export async function serve(opts: ServeOptions): Promise<{ server: Server; host:
     if (tls && !link) redirectPlainHttp(server as unknown as import('node:tls').Server, opts.edgeLimits, { proxyHeader: opts.proxyHeader, trustedProxies });
     // PostgreSQL clients, with the same certificate (renewals included).
     const pg = opts.sqlPort === undefined ? undefined : new PgServer(host, {
-      port: opts.sqlPort, hostname: opts.hostname, log,
+      port: opts.sqlPort, hostname: opts.hostname, log, writes: opts.sqlWrites === true,
       tls: () => auto?.current ? { cert: auto.current.cert, key: auto.current.key } : tls ?? (link?.tls && { cert: link.tls.cert, key: link.tls.key }),
     });
     if (pg) disposers.push(() => pg.close());
