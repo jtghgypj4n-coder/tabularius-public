@@ -2008,9 +2008,10 @@ export class WebClient {
 
   /** The response for what the script did next; a script waiting for a file is kept until the client answers. */
   private outcome(run: Paused, step: Step) {
-    if (!this.api.alive(run.token)) {
+    // A script that has finished reports how it ended, even if its account was turned off on the way; one still waiting on the client does not.
+    if (!('done' in step) && !('failed' in step) && !this.api.alive(run.token)) {
       run.abandoned = true;
-      if (!('done' in step) && !('failed' in step)) run.answer('pause' in step ? false : undefined);
+      run.answer('pause' in step ? false : undefined);
       return { script: run.script, result: '', error: 952, message: 'Session has ended', actions: [] };
     }
     if ('ask' in step || 'pause' in step || 'dialog' in step || 'sort' in step || 'index' in step || 'device' in step || 'locate' in step || 'checkpoint' in step || 'clipboard' in step) {
