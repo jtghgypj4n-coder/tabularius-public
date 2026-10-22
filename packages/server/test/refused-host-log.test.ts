@@ -69,7 +69,7 @@ test('refused host names: a name longer than any host name is counted, never wri
   const quiet: string[] = [];
   const only = new RefusedHostLog((line) => quiet.push(line));
   for (let i = 0; i < 10; i++) only.note('b'.repeat(300) + i, 0);
-  assert.deepEqual(quiet, []);
+  assert.equal(quiet.length, 0);
   only.note('c'.repeat(300), 20 * 60_000);
   assert.equal(quiet.length, 1);
   assert.match(quiet[0], /^10 requests named a host longer than a host name can be/);
