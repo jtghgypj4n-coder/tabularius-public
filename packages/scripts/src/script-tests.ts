@@ -226,6 +226,7 @@ async function runCase(store: Store, script: Script, given: ScriptTestGiven, wan
         ...(given.parameter !== undefined ? { parameter: given.parameter } : {}),
         ...(given.ai?.length ? { ai: cannedAi(given.ai) } : {}),
         ...(opts.profile ? { profile: opts.profile } : {}),
+        previewDialogs: true,
         trace: true,
         ...(opts.stop ? { stop: opts.stop } : {}),
       });

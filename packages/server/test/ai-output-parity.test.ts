@@ -238,10 +238,12 @@ test('MCP scripts that read a secret field return no output, even through comput
   const sql = await call('DynamicSqlPassword');
   assert.match(sql.note, /ExecuteSQL query may have read a secret field/);
   assert.equal(sql.result, undefined, 'SQL output is withheld when field reads cannot be traced');
+  // A dialog with no person to answer is not shown at all (error 3), so the secret in its text is never read or sent.
   const dialog = await call('DialogPassword');
-  assert.match(dialog.note, /the script read a secret field/);
-  assert.equal(dialog.actions, undefined);
-  assert.equal(dialog.result, undefined);
+  assert.equal(dialog.error, 3);
+  assert.deepEqual(dialog.actions, []);
+  assert.equal(dialog.note, undefined);
+  assert.match(dialog.warnings[0], /^Show Custom Dialog is not supported in scripts run without a person/);
   assert.equal((await call('MentionToken')).result, 'token is a word');
 });
 

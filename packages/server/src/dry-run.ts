@@ -90,7 +90,7 @@ export async function dryRunChanges(store: Store, changes: unknown[], scripts: s
   async function runOnce(copy: Store, script: Script): Promise<DryRun> {
     const layout = startingPoints(copy).get(script.id)?.layout;
     const before = copy.auditLog({ limit: 1 }).at(-1)?.seq ?? 0;
-    const r = await runScript(copy, script, offlineScriptOptions({ ...(layout ? { layout } : {}), documents, timeoutMs: 5_000, maxSteps: 20_000, trace: true }));
+    const r = await runScript(copy, script, offlineScriptOptions({ previewDialogs: true, ...(layout ? { layout } : {}), documents, timeoutMs: 5_000, maxSteps: 20_000, trace: true }));
     let changed: DryRun['changes'];
     if (opts.changes) {
       const entries = copy.auditLog({ afterSeq: before, limit: 10_000 });
