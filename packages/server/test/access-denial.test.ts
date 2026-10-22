@@ -321,16 +321,25 @@ test('multi-phase Data API requests retain phase extensions and audit only their
 for (const timeout of [false, true]) test(`interactive web run flushes after ${timeout ? 'timeout abandonment' : 'resume'}, not at pause`, async (t) => {
   const { store, id, request, login, app } = await setup(t);
   scripts(store); const token = await login();
+  // The pause's abandonment timer (10 minutes) is held back and fired by hand, so a slow machine cannot reach it before the check at the pause.
+  let abandon: (() => void) | undefined;
   if (timeout) {
     const timer = globalThis.setTimeout;
-    t.mock.method(globalThis, 'setTimeout', (fn: (...args: unknown[]) => void, ms?: number, ...args: unknown[]) => timer(fn, ms === 600_000 ? 80 : ms, ...args));
+    t.mock.method(globalThis, 'setTimeout', (fn: (...args: unknown[]) => void, ms?: number, ...args: unknown[]) => {
+      if (ms !== 600_000) return timer(fn, ms, ...args);
+      abandon = () => fn(...args);
+      return timer(() => {}, 600_000).unref();
+    });
   }
   const scriptId = store.schema.scripts.find((s) => s.name === 'Interactive')!.id;
   const r = await request(`${app}/layouts/T/button`, 'POST', { scriptId, ids: [id], recordId: id }, token);
   assert.equal(r.status, 200); assert.equal(r.body.waiting.step, 'Pause');
   assert.equal(store.securityEvents({ kind: 'privilege-denied' }).length, 0);
-  if (timeout) await new Promise((resolve) => setTimeout(resolve, 150));
-  else {
+  if (timeout) {
+    assert.ok(abandon, 'the paused run has an abandonment timer');
+    abandon();
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  } else {
     const done = await request(`${app}/runs/${r.body.waiting.run}/file`, 'POST', {}, token);
     assert.equal(done.body.error, 0); assert.ok(!done.body.denial);
   }
