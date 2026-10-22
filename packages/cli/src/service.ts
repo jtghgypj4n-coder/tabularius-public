@@ -44,6 +44,7 @@ import { createServer as createNetServer } from 'node:net';
 import { readJsonStateSync, updateJsonStateSync } from '../../store/src/durable.ts';
 import { nodeSupports } from './node-version.cjs';
 import { closedBy, refusalFor } from './newer-files.ts';
+import { readSecretFile } from './secret-file.ts';
 
 export type Platform = 'darwin' | 'linux' | 'win32';
 
@@ -312,6 +313,7 @@ export function installed(home = defaults().home): Installed | undefined {
 }
 
 export function installService(o: ServiceOptions): void {
+  o = { ...o, extra: normalizedSecretFiles(o.extra) };
   const f = serviceFile(o);
   mkdirSync(o.folder, { recursive: true });
   // Switching between a personal and a system service: the other one goes.
@@ -350,6 +352,25 @@ export function installService(o: ServiceOptions): void {
   // Installing the service replaces its one complete configuration; no independent records live in this file.
   updateJsonStateSync(record(o.home), kept, () => kept, { mode: 0o600 });
   for (const line of serviceSummary(o)) say(line);
+}
+
+/** Resolve file options before any service record or manager file is written. */
+function normalizedSecretFiles(extra: readonly string[]): string[] {
+  const result = [...extra];
+  for (const [inline, file] of [['--mcp-token', '--mcp-token-file'], ['--replication-token', '--replication-token-file']]) {
+    if (result.some((a) => a.startsWith(`${file}=`))) throw new Error(`serve: ${file}=value is not read; write ${file} and its path as two words`);
+    const i = result.indexOf(file);
+    if (i < 0) continue;
+    if (result.indexOf(file, i + 1) >= 0) throw new Error(`serve: ${file} was given more than once`);
+    if (result.includes(inline)) throw new Error(`serve: give either ${inline} or ${file}, not both`);
+    const path = result[i + 1];
+    if (!path || path.startsWith('--')) throw new Error(`serve: ${file} needs a file path`);
+    const fullPath = resolve(path);
+    const value = readSecretFile(fullPath, file);
+    if (file === '--replication-token-file' && value.length < 16) throw new Error('serve: --replication-token must be at least 16 characters');
+    result[i + 1] = fullPath;
+  }
+  return result;
 }
 
 /** The value of a serve option in `extra` (`--name value` or `--name=value`). */
@@ -398,7 +419,9 @@ export function serviceSummary(o: Pick<ServiceOptions, 'folder' | 'port' | 'host
     lines.push(`  Warning: it listens on ${o.host} over plain HTTP, so passwords and sign-in tokens cross the network unencrypted. Add --https <your domain> (or --https local) after the folder, or set --host 127.0.0.1 and put a proxy that does HTTPS in front.`);
   }
   const inline = ['--mcp-token', '--replication-token'].filter((n) => opt(n) !== undefined);
+  const files = ['--mcp-token-file', '--replication-token-file'].filter((n) => opt(n) !== undefined);
   if (inline.length) lines.push(`  Note: ${inline.join(' and ')} ${inline.length > 1 ? 'are' : 'is'} written into the service file, which only your account can read. A key file (--ai-key-file, --tls-key) is named by its path, not copied.`);
+  if (files.length) lines.push(`  Note: ${files.join(' and ')} ${files.length > 1 ? 'are' : 'is'} named by path in the service file; the contents are not copied.`);
   if (local) lines.push(`  each device trusts it once from ${at(everywhere && lan[0] ? lan[0] : 'localhost')}tabularius/tls/`);
   return lines;
 }

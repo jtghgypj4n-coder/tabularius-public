@@ -52,7 +52,9 @@ The stop timeout and what Windows sends a console program on stop are not covere
 
 ## Secrets
 
-`--mcp-token` and `--replication-token` are written into the service file as given, and the file can be read only by its owner. Key files (`--ai-key-file`, `--tls-key`) are named by path and not copied. Install prints a note when an option holds a secret.
+Use `--mcp-token-file F` or `--replication-token-file F` after `--` to read a token from a private regular file. Install checks that the file exists, contains one nonempty line, and on Unix cannot be read by group or others (`chmod 600 F`). Relative paths become absolute paths at install time because the service starts in another working directory. The service file names the path; it does not copy the token. A symlink to a regular file is followed and its target is checked. The service account must be able to read the file when it starts. Key files (`--ai-key-file`, `--tls-key`) are also named by path.
+
+Inline `--mcp-token` and `--replication-token` remain supported. Their values appear in the process list and are written into the service file, which only its owner can read. Install prints the "written into the service file" note only for inline token options. The environment alternatives are `TABULARIUS_MCP_TOKEN_FILE` and `TABULARIUS_REPLICATION_TOKEN_FILE` for `serve`; `standby` reads the replication file with `--token-file` or `TABULARIUS_REPLICATION_TOKEN_FILE`.
 
 ## What install refuses
 

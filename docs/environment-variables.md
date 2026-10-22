@@ -2,7 +2,10 @@
 
 Most `tabularius serve` options can be set in the environment instead of on the
 command line, which suits a service definition or a container. A command-line
-flag wins over the variable. Secrets (`TABULARIUS_OIDC_CLIENT_SECRET`,
+flag wins over the variable. For MCP and replication tokens, a file flag wins
+over an inline environment value, and an inline flag wins over a file environment
+value. At the same level, giving both forms is an error. Inline token flags
+remain supported but expose their values in the process list. Secrets (`TABULARIUS_OIDC_CLIENT_SECRET`,
 `TABULARIUS_LDAP_SEARCH_PASSWORD`, `TABULARIUS_BACKUP_KEY`, `TABULARIUS_ENCRYPTION_KEY`,
 `TABULARIUS_SECRETS_KEY`, `TABULARIUS_S3_SECRET_KEY`) are read only from the
 environment, never from a flag, so they stay out of process listings; they are
@@ -29,6 +32,8 @@ nothing reads, so this list and the code cannot drift apart.
 | `TABULARIUS_PROGRESSIVE` | `--progressive` | How often changes are saved as a point you can restore to with `tabularius restore --at`; `off` for never. |
 | `TABULARIUS_HOME` | | The folder holding per-user settings (`~/.openhbam` by default): the AI key file, and the service definition's files. |
 | `TABULARIUS_STOP_GRACE_MS` | | How long `tabularius service stop` waits for the server to finish before it ends it (30000 by default). |
+| `TABULARIUS_MCP_TOKEN` | `--mcp-token` | The MCP access token, inline. |
+| `TABULARIUS_MCP_TOKEN_FILE` | `--mcp-token-file` | A private regular file holding the MCP access token. |
 | `TABULARIUS_DRAIN_SECONDS` | | How long a stopping server lets requests that are already running finish before it closes them (1 to 86400, 20 by default; see [Upgrading](upgrading.md), "Stopping and restarting"). |
 | `TABULARIUS_UPLOAD_TMP` | | The folder files wait in while they arrive in a container upload (the system's temporary folder by default). It needs room for the biggest files being uploaded at once. |
 | `TABULARIUS_UPLOAD_IDLE_HOURS` | | How many hours an upload in pieces (`container-uploads`) may receive nothing before it is dropped (24 by default; `0` keeps them until the server restarts). |
@@ -43,7 +48,8 @@ nothing reads, so this list and the code cannot drift apart.
 | `TABULARIUS_BACKUP_S3` | `--backup-s3` | A `s3://bucket/prefix` address that backups are also copied to. |
 | `TABULARIUS_S3_ENDPOINT` | `--s3-endpoint` | An S3-compatible service's address, for other providers than Amazon. |
 | `TABULARIUS_S3_REGION` | `--s3-region` | The bucket's region (`AWS_REGION` is used when this is not set). |
-| `TABULARIUS_REPLICATION_TOKEN` | `--replication-token`, `--token` | The token a standby presents to the primary. |
+| `TABULARIUS_REPLICATION_TOKEN` | `--replication-token`, `--token` | The token a standby presents to the primary, inline. |
+| `TABULARIUS_REPLICATION_TOKEN_FILE` | `--replication-token-file`, `--token-file` | A private regular file holding that token; the primary requires at least 16 characters. |
 | `TABULARIUS_PRIMARY` | `--primary` | The primary server a `standby` follows. |
 
 ## Sign-in providers
