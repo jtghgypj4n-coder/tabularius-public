@@ -9,7 +9,7 @@ import { StoreError, type FindRequest, type Privileges, type Store } from '../..
 import type { SqlValue } from '../../store/src/find.ts';
 import { asText } from '../../calc/src/index.ts';
 import { unhostedFileOf } from './insight.ts';
-import { containsSecret, HIDDEN_VALUE, SECRET_EMBEDDED_CHARS, SECRET_MIN_CHARS, secretName, secretValues } from './ai-output.ts';
+import { containsSecret, HIDDEN_VALUE, secretName, secretValues } from './ai-output.ts';
 
 export type Measure = 'count' | 'sum' | 'average' | 'min' | 'max' | 'distinct';
 
@@ -57,6 +57,8 @@ const SQL: Record<Measure, (col: string) => string> = {
   distinct: (c) => `count(DISTINCT ${c})`,
 };
 
+const secretQueries = new WeakSet<Store>();
+
 export function summarizeRecords(store: Store, req: SummaryRequest, privileges?: Privileges, onRead?: (ids: number[]) => void, forModel = false): SummaryResult {
   const info = store.layout(req.layout);
   const groupBy = req.groupBy ?? [];
@@ -99,12 +101,14 @@ export function summarizeRecords(store: Store, req: SummaryRequest, privileges?:
   }
   const keys = groupBy.map((g) => column(g, false));
   const secretColumns = forModel ? table.fields.filter((f) => secretName(f.name) && f.kind !== 'summary' && !f.options?.unstored && f.type !== 'container').map((f) => q(f.name)) : [];
+  if (secretColumns.length && !secretQueries.has(owner)) {
+    // SQLite lower/trim/length disagree with JS on non-ASCII case, whitespace
+    // and UTF-16 lengths. Use the record-output policy for SQL summaries too.
+    owner.defineQueryFunction('tabularius_contains_secret', (value, secret) => Number(containsSecret(value, [secret == null ? '' : String(secret)])));
+    secretQueries.add(owner);
+  }
   const copiedSecret = (value: string) => secretColumns.length
-    ? secretColumns.map((secret) => {
-      const s = `lower(trim(CAST(${secret} AS TEXT)))`;
-      const v = `lower(trim(CAST(${value} AS TEXT)))`;
-      return `(length(${s}) >= ${SECRET_MIN_CHARS} AND (${v} = ${s} OR (length(${s}) >= ${SECRET_EMBEDDED_CHARS} AND instr(${v}, ${s}) > 0)))`;
-    }).join(' OR ')
+    ? secretColumns.map((secret) => `tabularius_contains_secret(${value}, ${secret})`).join(' OR ')
     : '0';
   // Min, max, sum and average of a secret field are the secret itself; of another field they are left out where the value is a copy.
   const hiddenMeasure = (m: { field: string; fn: Measure }) => forModel && secretName(m.field) && m.fn !== 'count' && m.fn !== 'distinct';

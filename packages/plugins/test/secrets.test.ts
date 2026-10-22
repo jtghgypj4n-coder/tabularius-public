@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { inspect } from 'node:util';
 import { readPluginSecrets, writePluginSecret } from '../src/secrets.ts';
 import { pluginStatus, readPlugin } from '../src/index.ts';
 import { evaluate } from '../../calc/src/index.ts';
@@ -145,4 +146,34 @@ test('AR-cli-plugins-tooling-04 consumers', () => withData((dir) => {
     assert.equal(e.message.includes('SENTINEL_SECRET'), false);
     return true;
   });
+}));
+
+test('round2: malformed secret files never quote content in messages, stacks or causes', () => withData((dir) => {
+  const canary = 'Q9x7Z4v2';
+  for (const [i, content] of [canary, `{"K":${canary}}`, `{"K":"${canary}"} trailing`].entries()) {
+    const id = `org.example.broken${i}`;
+    put(dir, id, content);
+    for (const action of [() => readPluginSecrets(dir, id), () => writePluginSecret(dir, id, 'K', 'replacement')]) {
+      // Repeated reads exercise the damaged-state cache as well as the first parse.
+      for (let attempt = 0; attempt < 2; attempt++) assert.throws(action, (error: Error) => {
+        assert.match(error.message, /isn't JSON/);
+        assert.ok(!inspect(error, { depth: 10 }).includes(canary));
+        return true;
+      });
+    }
+    assert.equal(readFileSync(join(dir, 'plugins', 'secrets', `${id}.json`), 'utf8'), content);
+  }
+}));
+
+test('round2: damaged secret recovery copies remain private under a permissive umask', posix, () => withData((dir) => {
+  const content = '{"K":"synthetic-recovery-value"';
+  put(dir, 'org.example.private', content);
+  const previous = process.umask(0o022);
+  try { assert.throws(() => readPluginSecrets(dir, 'org.example.private')); }
+  finally { process.umask(previous); }
+  const folder = join(dir, 'plugins', 'secrets');
+  const copies = readdirSync(folder).filter((name) => name.includes('.damaged-'));
+  assert.equal(copies.length, 1);
+  assert.equal(readFileSync(join(folder, copies[0]), 'utf8'), content);
+  assert.equal(statSync(join(folder, copies[0])).mode & 0o077, 0);
 }));
