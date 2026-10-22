@@ -170,6 +170,13 @@ export class OAuthServer {
           const present = (this.db.prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).some((c) => c.name === 'identity');
           if (!present) this.db.exec(`ALTER TABLE ${table} ADD COLUMN identity TEXT`);
         }
+        // Added later: the sign-in a refresh token belongs to, kept across rotations. A refresh token that has been used is kept (retired) with it, and
+        // a sign-in ended is remembered (revoked_grants), so a sign-out made while another worker rotates the token still ends the new one.
+        if (!cols('refresh').includes('grant_id')) this.db.exec('ALTER TABLE refresh ADD COLUMN grant_id TEXT');
+        this.db.exec(`
+          CREATE TABLE IF NOT EXISTS retired (hash TEXT PRIMARY KEY, client_id TEXT NOT NULL, database TEXT NOT NULL, grant_id TEXT NOT NULL, access_id TEXT NOT NULL, expires INTEGER NOT NULL);
+          CREATE INDEX IF NOT EXISTS retired_access ON retired (access_id);
+          CREATE TABLE IF NOT EXISTS revoked_grants (grant_id TEXT PRIMARY KEY, expires INTEGER NOT NULL)`);
         break;
       } catch (e) {
         if (tries >= 50 || !/locked|busy/i.test((e as Error).message)) throw e;
@@ -624,11 +631,21 @@ p strong { color: var(--text); }
       }
       // A code given out just before new users were blocked doesn't become a grant after.
       if (this.host.config.blockNewUsers()) throw new OAuthError('invalid_grant', BLOCKED);
-      return this.issue(client, row.database, row.account, clientAddress(req), row.who ? `${plain(row.who)} via AI app: ${plain(client.name)}` : undefined, undefined, identity, false, row.mark);
+      return this.issue(client, row.database, row.account, clientAddress(req), row.who ? `${plain(row.who)} via AI app: ${plain(client.name)}` : undefined, undefined, identity, false, row.mark, undefined, token('og_'));
     }
     if (grant === 'refresh_token') {
-      const row = this.db.prepare('DELETE FROM refresh WHERE hash = ? AND client_id = ? RETURNING client_id, database, account, access_id, expires, password, identity').get(hash(form.get('refresh_token') ?? ''), client.id) as
-        { client_id: string; database: string; account: string; access_id: string; expires: number; password: string; identity: string | null } | undefined;
+      // Taken out as it is used, and kept as a retired token of the same sign-in, so signing out with it afterwards still ends the new ones.
+      const used = hash(form.get('refresh_token') ?? '');
+      const row = this.inTransaction(() => {
+        const taken = this.db.prepare('DELETE FROM refresh WHERE hash = ? AND client_id = ? RETURNING client_id, database, account, access_id, expires, password, identity, grant_id').get(used, client.id) as
+          { client_id: string; database: string; account: string; access_id: string; expires: number; password: string; identity: string | null; grant_id: string | null } | undefined;
+        if (!taken) return undefined;
+        taken.grant_id ??= token('og_');
+        this.db.prepare('INSERT OR REPLACE INTO retired (hash, client_id, database, grant_id, access_id, expires) VALUES (?, ?, ?, ?, ?, ?)').run(used, taken.client_id, taken.database, taken.grant_id, taken.access_id, taken.expires);
+        // Only the latest few are kept per sign-in: an app that has refreshed hourly for a month would otherwise leave hundreds.
+        this.db.prepare('DELETE FROM retired WHERE grant_id = ? AND rowid NOT IN (SELECT rowid FROM retired WHERE grant_id = ? ORDER BY rowid DESC LIMIT 5)').run(taken.grant_id, taken.grant_id);
+        return taken as typeof taken & { grant_id: string };
+      });
       if (!row || row.expires <= expiryClock.now() || row.client_id !== client.id) throw new OAuthError('invalid_grant', 'The refresh token is not valid; sign in again');
       const store = this.host.get(row.database);
       const identity = row.identity ? JSON.parse(row.identity) as { issuer: string; sub: string; person?: string; mapping: string } : undefined;
@@ -645,7 +662,7 @@ p strong { color: var(--text); }
         throw new OAuthError('invalid_grant', 'This account\'s password or access changed since it signed in; sign in again');
       }
       try {
-        return this.issue(client, row.database, row.account, clientAddress(req), label, identity ? row.expires : undefined, identity, true, row.password, row.access_id);
+        return this.issue(client, row.database, row.account, clientAddress(req), label, identity ? row.expires : undefined, identity, true, row.password, row.access_id, row.grant_id);
       } catch (e) {
         // Whatever stopped the refresh, the access token it was renewing does not stay in use: its refresh token is already used up.
         store.revokeApiToken(row.access_id);
@@ -655,7 +672,7 @@ p strong { color: var(--text); }
     throw new OAuthError('unsupported_grant_type', 'Only authorization_code and refresh_token are supported');
   }
 
-  private issue(client: Client, database: string, account: string, from: string, label?: string, keepExpiry?: number, identity?: { issuer: string; sub: string; person?: string; mapping: string }, refreshing = false, signedInMark: string | null = null, replacing?: string): Record<string, unknown> {
+  private issue(client: Client, database: string, account: string, from: string, label?: string, keepExpiry?: number, identity?: { issuer: string; sub: string; person?: string; mapping: string }, refreshing = false, signedInMark: string | null = null, replacing?: string, grantId = token('og_')): Record<string, unknown> {
     const store = this.host.get(database);
     if (!store) throw new OAuthError('invalid_grant', `${database} is no longer hosted`);
     if (identity && (identity.mapping !== account || !store.canonicalAccount(identity.mapping) || !store.isExternalAccount(identity.mapping) || (identity.person && store.accountInactive(identity.person)))) throw new OAuthError('invalid_grant', 'This federated sign-in is no longer valid; sign in again');
@@ -675,8 +692,17 @@ p strong { color: var(--text); }
     });
     const accessId = /^ohbt_([0-9a-f]+)\./.exec(access)![1];
     const refresh = token('ohrt_');
-    this.db.prepare('INSERT INTO refresh (hash, client_id, database, account, access_id, expires, password, identity) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(hash(refresh), client.id, store.name, account, accessId, keepExpiry ?? expiryClock.now() + (identity ? REFRESH_EXTERNAL_MS : REFRESH_MS), mark, identity ? JSON.stringify(identity) : null);
-    this.db.prepare('UPDATE clients SET used = ? WHERE id = ?').run(Date.now(), client.id);
+    // Written only if the sign-in has not been ended meanwhile (the app signed out through another worker): then the token just made goes too.
+    const ended = this.inTransaction(() => {
+      if (this.db.prepare('SELECT 1 FROM revoked_grants WHERE grant_id = ?').get(grantId)) return true;
+      this.db.prepare('INSERT INTO refresh (hash, client_id, database, account, access_id, expires, password, identity, grant_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(hash(refresh), client.id, store.name, account, accessId, keepExpiry ?? expiryClock.now() + (identity ? REFRESH_EXTERNAL_MS : REFRESH_MS), mark, identity ? JSON.stringify(identity) : null, grantId);
+      this.db.prepare('UPDATE clients SET used = ? WHERE id = ?').run(Date.now(), client.id);
+      return false;
+    });
+    if (ended) {
+      store.revokeApiToken(accessId);
+      throw new OAuthError('invalid_grant', 'This sign-in was ended; sign in again');
+    }
     return { access_token: access, token_type: 'Bearer', expires_in: ACCESS_SECONDS, refresh_token: refresh, scope: 'mcp' };
   }
 
@@ -685,23 +711,56 @@ p strong { color: var(--text); }
     const old = this.db.prepare('DELETE FROM refresh WHERE expires < ? RETURNING database, access_id').all(expiryClock.now()) as { database: string; access_id: string }[];
     for (const r of old) this.host.get(r.database)?.revokeApiToken(r.access_id);
     this.db.prepare('DELETE FROM codes WHERE expires < ?').run(expiryClock.now());
+    this.db.prepare('DELETE FROM retired WHERE expires < ?').run(expiryClock.now());
+    this.db.prepare('DELETE FROM revoked_grants WHERE expires < ?').run(expiryClock.now());
+  }
+
+  /** Runs `work` as one write transaction on the OAuth file, which other workers wait for. */
+  private inTransaction<T>(work: () => T): T {
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const result = work();
+      this.db.exec('COMMIT');
+      return result;
+    } catch (e) {
+      this.db.exec('ROLLBACK');
+      throw e;
+    }
+  }
+
+  /** Ends a sign-in: its refresh tokens go, it is remembered as ended (so a rotation under way ends too), and its access tokens are revoked. */
+  private endGrant(grantId: string): void {
+    const live = this.inTransaction(() => {
+      this.db.prepare('INSERT OR REPLACE INTO revoked_grants (grant_id, expires) VALUES (?, ?)').run(grantId, expiryClock.now() + REFRESH_MS);
+      return this.db.prepare('DELETE FROM refresh WHERE grant_id = ? RETURNING database, access_id').all(grantId) as { database: string; access_id: string }[];
+    });
+    for (const r of live) this.host.get(r.database)?.revokeApiToken(r.access_id);
   }
 
   private revoke(req: IncomingMessage, form: URLSearchParams): void {
     const client = this.callingClient(req, form);
     const value = form.get('token') ?? '';
+    type Found = { database: string; access_id: string; grant_id: string | null };
     if (value.startsWith('ohrt_')) {
-      const row = this.db.prepare('DELETE FROM refresh WHERE hash = ? AND client_id = ? RETURNING database, access_id').get(hash(value), client.id) as { database: string; access_id: string } | undefined;
-      if (row) this.host.get(row.database)?.revokeApiToken(row.access_id);
+      // One still to be used, or one already used (the app may sign out with the token it holds while the new one is on its way): either ends the whole sign-in.
+      const h = hash(value);
+      const row = (this.db.prepare('SELECT database, access_id, grant_id FROM refresh WHERE hash = ? AND client_id = ?').get(h, client.id)
+        ?? this.db.prepare('SELECT database, access_id, grant_id FROM retired WHERE hash = ? AND client_id = ?').get(h, client.id)) as Found | undefined;
+      if (!row) return;
+      if (row.grant_id) this.endGrant(row.grant_id);
+      else this.db.prepare('DELETE FROM refresh WHERE hash = ? AND client_id = ?').run(h, client.id);
+      this.host.get(row.database)?.revokeApiToken(row.access_id);
       return;
     }
     const id = /^ohbt_([0-9a-f]+)\./.exec(value)?.[1];
     if (!id) return;
     // An access token: only one this app was given, and only the whole token (its id alone is in the security log).
-    const row = this.db.prepare('SELECT database FROM refresh WHERE access_id = ? AND client_id = ?').get(id, client.id) as { database: string } | undefined;
+    const row = (this.db.prepare('SELECT database, grant_id FROM refresh WHERE access_id = ? AND client_id = ?').get(id, client.id)
+      ?? this.db.prepare('SELECT database, grant_id FROM retired WHERE access_id = ? AND client_id = ?').get(id, client.id)) as Omit<Found, 'access_id'> | undefined;
     const store = row && this.host.get(row.database);
-    if (!store?.apiToken(value)) return;
-    this.db.prepare('DELETE FROM refresh WHERE access_id = ? AND client_id = ?').run(id, client.id);
+    if (!row || !store?.apiToken(value)) return;
+    if (row.grant_id) this.endGrant(row.grant_id);
+    else this.db.prepare('DELETE FROM refresh WHERE access_id = ? AND client_id = ?').run(id, client.id);
     store.revokeApiToken(id);
   }
 }
