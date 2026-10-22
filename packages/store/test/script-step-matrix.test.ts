@@ -47,3 +47,48 @@ test('every script step ID has decoder, engine and text coverage in the support 
     }
   }
 });
+
+test('seeded parameter probes never accept a step that loses options on save', () => {
+  const probes = [
+    'With dialog: Off', 'With dialog: On', 'Select', 'On', 'Off', 'Toggle', '1', '"matrix"',
+    'Lock', 'Next', 'Start Position: 1', 'File ID: 1', 'Create folders: On', 'Restore',
+    'Skip data entry validation', 'Write as: UTF-8', 'Wait for completion: Off',
+    'Parameter: "matrix"', 'Account Name: "matrix"', 'Input: "matrix"',
+    'Amount: 1', 'Name: "matrix"', 'Pause: Off', 'Currently open PDF', 'Unknown option: 1',
+  ];
+  let seed = 0x5eed;
+  const next = () => ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) % probes.length);
+  let accepted = 0;
+  for (const row of rows) {
+    if (row.id !== 89) {
+      const generated = scriptText([{ stepId: row.id, name: row.name, enabled: true, params: {} }]);
+      let parsed: ReturnType<typeof parseScriptText>[number] | undefined;
+      try { parsed = parseScriptText(generated, schema)[0]; }
+      catch (error) { assert.match(String(error), /Line 1:/, `generated parameter set for ${row.id} ${row.name}`); }
+      if (parsed) assert.equal(scriptText([{ ...parsed, stepId: row.id, name: row.name, enabled: true }]), generated,
+        `generated parameter set for ${row.id} ${row.name}`);
+    }
+    const start = next();
+    for (let i = 0; i < probes.length; i++) {
+      const line = `${row.name} [ ${probes[(start + i) % probes.length]} ]`;
+      let parsed: ReturnType<typeof parseScriptText>;
+      try { parsed = parseScriptText(line, schema); }
+      catch (error) {
+        assert.match(String(error), /Line 1:/, `${row.name}: ${line}`);
+        continue;
+      }
+      accepted++;
+      const step = parsed[0];
+      const printed = scriptText([{ ...step, stepId: row.id, name: row.name, enabled: true }]);
+      const reparsed = parseScriptText(printed, schema);
+      for (const [key, value] of Object.entries(step.params ?? {})) {
+        if (value === false && (key === 'noDialog' || key === 'exitAfterLast')) continue;
+        assert.deepEqual(reparsed[0].params?.[key as keyof NonNullable<typeof step.params>], value,
+          `${row.name}: ${line} lost ${key}`);
+      }
+      const reprinted = scriptText([{ ...reparsed[0], stepId: row.id, name: row.name, enabled: true }]);
+      assert.equal(reprinted, printed, `${row.name}: ${line}`);
+    }
+  }
+  assert.ok(accepted > rows.length, `only ${accepted} parameter probes were accepted`);
+});

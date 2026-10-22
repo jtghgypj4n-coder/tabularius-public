@@ -127,6 +127,8 @@ export interface StepParams {
   exitAfterLast?: boolean;
   /** Stored find requests or sort order are used (the step's Restore option). */
   restore?: boolean;
+  /** Enter Find Mode text: Pause: Off; Pause: On is not implemented and binary encoding is unverified. */
+  pause?: false;
   requests?: StoredFindRequest[];
   sort?: SortField[];
   /** Sort Records by Field's order when the active field is used. */
@@ -1356,6 +1358,7 @@ export function stepLine(name: string, p: StepParams | undefined, comment?: stri
     case 'Save Records as PDF':
       add(`With dialog: ${p.noDialog ? 'Off' : 'On'}`);
       if (p.appendPdf) add('Append');
+      if (p.toOpenPdf) add('Currently open PDF');
       if (p.filePaths) add(q(p.filePaths.join(' ')));
       add(p.pdfRecords === 'current' ? 'Current record' : p.pdfRecords === 'blank' ? 'Blank record' : 'Records being browsed');
       add(`Create folders: ${p.createFolders ? 'On' : 'Off'}`);
@@ -1426,10 +1429,11 @@ export function stepLine(name: string, p: StepParams | undefined, comment?: stri
     case 'Enter Find Mode':
     case 'Constrain Found Set':
     case 'Extend Found Set':
-      if (p.requests?.length) {
-        add('Restore; ' + p.requests.map((r) =>
+      if (name === 'Enter Find Mode' && p.pause === false) add('Pause: Off');
+      if (p.restore || p.requests?.length) {
+        add('Restore' + (p.requests?.length ? '; ' + p.requests.map((r) =>
           `${r.omit ? 'Omit' : 'Find'}: ${r.criteria.map((c) => `${fieldText(c.field)}: ${q(c.criteria)}`).join(' AND ')}${
-            r.unread && !r.criteria.length ? ` /* not read: ${r.unread.join(', ')} */` : ''}`).join('; '));
+            r.unread && !r.criteria.length ? ` /* not read: ${r.unread.join(', ')} */` : ''}`).join('; ') : ''));
       }
       break;
     case 'Sort Records by Field':
@@ -1464,7 +1468,7 @@ export function stepLine(name: string, p: StepParams | undefined, comment?: stri
     case 'Insert Text':
       if (p.selectEntireContents !== false) add('Select');
       add(fieldOrVar());
-      add(p.text !== undefined ? q(p.text) : undefined);
+      add(q(p.text ?? ''));
       break;
     case 'Insert from URL':
       add(p.selectEntireContents === false ? 'Select: Off' : 'Select');
@@ -1761,7 +1765,7 @@ export function stepLine(name: string, p: StepParams | undefined, comment?: stri
       break;
     }
     case 'Commit Records/Requests':
-      if (p.noDialog) add('With dialog: Off');
+      if (p.noDialog !== undefined) add(`With dialog: ${p.noDialog ? 'Off' : 'On'}`);
       if (p.skipValidation) add('Skip data entry validation');
       break;
     case 'Open Transaction':
@@ -1772,7 +1776,7 @@ export function stepLine(name: string, p: StepParams | undefined, comment?: stri
       add(p.calculation);
       add(p.objectName);
       for (const v of Object.values(p.slots ?? {})) add(v);
-      if (p.noDialog && !parts.length) add('With dialog: Off');
+      if (p.noDialog !== undefined) add(`With dialog: ${p.noDialog ? 'Off' : 'On'}`);
   }
   if (!parts.length && name === 'Insert Text' && p.selectEntireContents === false) return `${name} [ ; ]`;
   if (!parts.length && ['Insert Calculated Result', 'Copy', 'Cut', 'Paste', 'Clear'].includes(name) && p.selectEntireContents === false) return `${name} [ ; ]`;

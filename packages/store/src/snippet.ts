@@ -634,8 +634,8 @@ function stepParams(name: string, el: XmlElement, ctx: StepContext): StepParams 
     case 'Constrain Found Set':
     case 'Extend Found Set': {
       const query = take('Query');
+      if (state(el, 'Restore')) p.restore = true;
       if (state(el, 'Restore') && query) {
-        p.restore = true;
         p.requests = kids(query, 'RequestRow').map((r): StoredFindRequest => ({
           omit: r.attrs.operation === 'Exclude',
           criteria: kids(r, 'Criteria').map((c) => ({ field: fieldRef(kid(c, 'Field') ?? { name: 'Field', attrs: {}, children: [] }, ctx, name), criteria: text(kid(c, 'Text')) ?? '' })),

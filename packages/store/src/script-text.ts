@@ -8,6 +8,7 @@
 // imported script never loses what the others held.
 
 import { displayedStepLine, DEVICE_TYPES, WEB_VIEWER_ACTIONS, scriptStepId, scriptStepName, stepLine, type FieldRef, type Ref, type Schema, type ScriptStep, type StepParams, type StoredFindRequest, type SortField } from '../../fmp12/src/index.ts';
+import { isDeepStrictEqual } from 'node:util';
 import { DesignError, type StepSpec } from './design.ts';
 
 const COMMENT = 89;
@@ -551,9 +552,11 @@ function params(ctx: Ctx, name: string, parts: string[]): StepParams | undefined
     case 'Set Revert Transaction on Error':
     case 'Allow Formatting Bar':
     case 'Set Layout Object Animation':
+      if (parts.length !== 1 || !/^(on|off)$/i.test(parts[0].trim())) throw fail(ctx, `${name} takes only On or Off`);
       p.on = onOff(parts[0]);
       break;
     case 'Enable Touch Keyboard':
+      if (parts.length !== 1 || !/^(on|off|toggle)$/i.test(parts[0].trim())) throw fail(ctx, 'Enable Touch Keyboard takes only On, Off or Toggle');
       if (/^toggle$/i.test(parts[0]?.trim() ?? '')) p.toggle = true;
       else p.on = onOff(parts[0]);
       break;
@@ -692,9 +695,17 @@ function params(ctx: Ctx, name: string, parts: string[]): StepParams | undefined
     case 'Enter Find Mode':
     case 'Constrain Found Set':
     case 'Extend Found Set': {
-      if (!/^restore$/i.test(parts[0])) break;
+      const findParts = name === 'Enter Find Mode' ? parts.filter((part) => {
+        const pause = labelled(part, 'Pause');
+        if (pause === undefined) return true;
+        if (!/^off$/i.test(pause.trim())) throw fail(ctx, 'Enter Find Mode supports only Pause: Off');
+        p.pause = false;
+        return false;
+      }) : parts;
+      if (!findParts.length) break;
+      if (!/^restore$/i.test(findParts[0])) throw fail(ctx, `${name} takes Restore${name === 'Enter Find Mode' ? ' and Pause: Off' : ''}`);
       p.restore = true;
-      p.requests = parts.slice(1).map((r): StoredFindRequest => {
+      p.requests = findParts.slice(1).map((r): StoredFindRequest => {
         const m = /^(Find|Omit)\s*:\s*([\s\S]*)$/i.exec(r);
         if (!m) throw fail(ctx, `"${r}" should read Find: Table::Field: “criteria”`);
         return {
@@ -927,7 +938,8 @@ function params(ctx: Ctx, name: string, parts: string[]): StepParams | undefined
       for (const part of parts) {
         const info = labelled(part, 'Custom debug info');
         if (info !== undefined) p.calculation = info;
-        else p.on = onOff(part);
+        else if (/^(on|off)$/i.test(part.trim())) p.on = onOff(part);
+        else throw fail(ctx, `Set Error Logging has no option "${part}"`);
       }
       break;
     case 'Import Records': {
@@ -1213,7 +1225,37 @@ export function parseScriptText(text: string, schema: Schema, current: ScriptSte
     if (stepId === undefined) throw fail(ctx, `Unknown script step "${m[1].trim()}"`);
     const name = scriptStepName(stepId);
     const parts = m[2] !== undefined ? splitParts(m[2]) : [];
+    const authoredParts = [...parts];
     let p = params(ctx, name, parts);
+    if (authoredParts.length && p) {
+      // Authored options must survive the same printer used by design export.
+      // Parse the printed parameter list directly to avoid recursing through this check.
+      // Literal API keys are masked in display text, so validate that shape
+      // using a variable formula while retaining the authored value in p.
+      const checked = p.ai?.apiKey?.startsWith('"')
+        ? { ...p, ai: { ...p.ai, apiKey: '$scriptKey' } } : p;
+      const printed = stepLine(name, checked);
+      const bracket = /^.*?\s\[\s*([\s\S]*?)\s\]$/.exec(printed);
+      const roundTrip = bracket ? params(ctx, name, splitParts(bracket[1])) : undefined;
+      const original = { ...checked };
+      const restored = { ...roundTrip };
+      // These false values can be omitted when the step's default means the same thing.
+      for (const key of ['noDialog', 'exitAfterLast'] as const) {
+        if (original[key] === false) delete original[key];
+        if (restored[key] === false) delete restored[key];
+      }
+      // These two printers make the legacy implicit replacement choice explicit.
+      if (['Insert from URL', 'Execute FileMaker Data API'].includes(name)
+        && original.selectEntireContents === undefined && restored.selectEntireContents === true) {
+        delete restored.selectEntireContents;
+      }
+      const printedParts = bracket ? splitParts(bracket[1]) : [];
+      const sameEmptyOptions = authoredParts.join(';').toLowerCase() === printedParts.join(';').toLowerCase();
+      if (Object.keys(original).some((key) => !isDeepStrictEqual(original[key as keyof StepParams], restored[key as keyof StepParams]))
+        || (!Object.keys(original).length && !sameEmptyOptions && !(name === 'Pause/Resume Script' && /^indefinitely$/i.test(authoredParts[0] ?? '')))) {
+        throw fail(ctx, `${name} has an option that script text cannot preserve`);
+      }
+    }
     out.push({ stepId, enabled, ...(p ? { params: p } : {}) });
   }
   return keepUndecodedImportMarks(current, out, (step) => keptSteps.has(step));

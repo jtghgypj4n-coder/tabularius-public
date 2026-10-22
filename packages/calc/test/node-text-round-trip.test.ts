@@ -23,3 +23,18 @@ test('nodeText keeps a line feed inside a string apart from a carriage return', 
     assert.deepEqual(parse(nodeText(tree)), tree, JSON.stringify(source));
   }
 });
+
+test('seeded nested expressions keep their parse trees through display text', () => {
+  const atoms = ['0', '1e999', '12345678901234567890', 'Pi()', 'not 0',
+    'While([x=0];x<2;[x=x+1];x)', 'Let([x=2];x+1)', '"a¶b"'];
+  const operators = ['+', '-', '*', '/', '^', '&', '=', 'and', 'or'];
+  let seed = 0x5eed;
+  const next = (limit: number) => ((seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0) % limit);
+  for (let i = 0; i < 128; i++) {
+    const left = atoms[next(atoms.length)];
+    const right = atoms[next(atoms.length)];
+    const source = `(${left}) ${operators[next(operators.length)]} (${right})`;
+    const tree = parse(source);
+    assert.deepEqual(parse(nodeText(tree)), tree, source);
+  }
+});
