@@ -94,3 +94,21 @@ test('redaction preserves absent step metadata', () => {
   assert.equal(redactStep(undefined), undefined);
   assert.equal(redactStep(null), null);
 });
+
+test('redactStep hides credentials carried inside a step option, whatever the option is called', () => {
+  const secret = 'Zq9xHunterSecret';
+  for (const value of [
+    `curl -H "Authorization: Basic dXNlcjpaWjk5eHl6" https://example.test/x`,
+    `Cookie: sid=${secret}`,
+    `Set-Cookie: sid=${secret}; Path=/`,
+    `https://example.test/path?password=${secret}&x=1`,
+    `https://example.test/path?token=${secret}&x=1`,
+    `api_key=${secret}`,
+    `X-API-Key: ${secret}`,
+  ]) {
+    const hidden = JSON.stringify(redactStep({ params: { Url: value }, other: [value] }));
+    assert.ok(!hidden.includes(secret) && !hidden.includes('dXNlcjpaWjk5eHl6'), value);
+  }
+  const plain = { params: { Url: 'https://example.test/path?page=2', Note: 'Okapi Key' } };
+  assert.deepEqual(redactStep(plain), plain);
+});

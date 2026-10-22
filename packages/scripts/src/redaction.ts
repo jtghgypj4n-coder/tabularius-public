@@ -522,7 +522,7 @@ export class CredentialRedactor {
   value(value: string, name?: string, suppress = false, scriptLiteral = false, textRule = true): string {
     if (name && this.sensitiveName(name)) this.remember(value);
     // Once either source exceeds its cap, unknown derived values may contain a credential.
-    if (this.rememberFull || this.sqlRememberFull || suppress || (name !== undefined && this.sensitiveName(name)) || (textRule && sensitiveText(value))) return REDACTED;
+    if (this.rememberFull || this.sqlRememberFull || suppress || (name !== undefined && this.sensitiveName(name)) || (textRule ? sensitiveText(value) : authenticationText(value) || MBS_CURL_CREDENTIAL.test(value))) return REDACTED;
     const folded = value.toLowerCase();
     if (this.values.has(folded)) return REDACTED;
     if (!scriptLiteral && folded.length >= FRAGMENT_LENGTH && folded.length <= MAX_VALUE_BYTES && !/^\p{L}{1,4}$/u.test(folded)) {
@@ -541,7 +541,7 @@ export class CredentialRedactor {
     return value;
   }
   /** Preserve field types and repetitions; discover named secrets before emitting sibling aliases. */
-  /** `textRule: false` leaves a value alone just because it reads like a credential name (script text that names a field); named secrets and their copies are still hidden. */
+  /** `textRule: false` leaves a value alone just because it reads like a credential name (script text that names a field); named secrets and their copies, and values that carry a credential in a header, cookie, name=value or address shape, are still hidden. */
   data(value: unknown, name?: string, textRule = true): unknown {
     const discover = (v: unknown, key?: string): void => {
       if (key && this.sensitiveName(key)) strings(v).forEach((s) => this.remember(s));
