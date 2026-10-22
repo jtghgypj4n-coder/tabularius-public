@@ -7183,10 +7183,10 @@ export class Store {
    * Server keeps them), where FileMaker and backups of that folder find it. Undefined for fields stored in the file,
    * and for secure storage, whose files are kept in the database instead (encrypted at rest with it).
    */
-  private addExternalContainer(info: LayoutInfo, recordId: number, field: string, file: ContainerFile, created?: string[]): number | undefined {
+  private addExternalContainer(info: LayoutInfo, recordId: number, field: string, file: ContainerFile, created?: (() => void)[]): number | undefined {
     const written = this.writeExternalFile(info, recordId, field, file);
     if (!written) return undefined;
-    created?.push(written.full);
+    created?.push(written.cleanup);
     const rel = written.rel;
     const kind = file.mime.startsWith('image/') ? 'image' : 'file';
     return Number(this.sql.prepare("INSERT INTO _fm_containers (filename, mime, kind, data, external, external_size, stored) VALUES (?, ?, ?, x'', ?, ?, ?)")
@@ -7194,7 +7194,7 @@ export class Store {
   }
 
   /** Writes a container file into its field's external folder; the path it is kept at (under the container folder) and where on disk, or undefined where the field doesn't store files outside. */
-  private writeExternalFile(info: LayoutInfo, recordId: number, field: string, file: ContainerFile, beforeWrite?: (root: string, rel: string) => void): { rel: string; full: string } | undefined {
+  private writeExternalFile(info: LayoutInfo, recordId: number, field: string, file: ContainerFile, beforeWrite?: (root: string, rel: string) => void): { rel: string; full: string; cleanup: () => void } | undefined {
     const table = info.table;
     const es = this.schema.tables.find((t) => t.name === table)?.fields.find((f) => f.name === field)?.options?.externalStorage;
     if (!es || es.secure) return undefined;
@@ -7254,7 +7254,7 @@ export class Store {
       try { closeSync(fd); } catch (error) { complete = false; throw error; } finally { if (!complete) cleanup(); }
     }
     if (this.heldBy) this.heldFiles.push(cleanup);
-    return { rel, full };
+    return { rel, full, cleanup };
   }
 
   /** The container files a field holds that are stored in the database, each with the first record that shows it. */
@@ -7470,7 +7470,8 @@ export class Store {
     this.checkContainerWrite(info, recordId, field, repetition, opts);
     if (info.owner !== this) return info.owner.setContainer(info, recordId, field, repetition, file, opts);
     this.joinTransaction();
-    const createdExternal: string[] = [];
+    // Each removes only the file this call created (the boundary's cleanup checks it is still that entry).
+    const createdExternal: (() => void)[] = [];
     try { return this.withWriteTransaction(() => {
       this.sql.exec('SAVEPOINT set_container');
       try {
@@ -7495,11 +7496,11 @@ export class Store {
         return { modId: Number(current._fm_mod_id) + 1 };
       } catch (error) {
         if (this.sql.isTransaction) this.sql.exec('ROLLBACK TO set_container; RELEASE set_container');
-        for (const path of createdExternal) rmSync(path, { force: true });
+        for (const remove of createdExternal) remove();
         throw error;
       }
     }); } catch (error) {
-      for (const path of createdExternal) rmSync(path, { force: true });
+      for (const remove of createdExternal) remove();
       throw error;
     }
   }
