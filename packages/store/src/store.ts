@@ -956,13 +956,33 @@ export class Store {
     const [account, from, factor] = key.split('\u0000');
     if (account === '') this.logSecurity('locked-out', { from: factor, detail: { scope: 'address' } });
     else this.logSecurity('locked-out', { account, from: address ?? from, ...(factor === 'totp' ? { detail: { factor: 'two-factor' } } : {}) });
-  }, (key) => {
-    // A lock that ran out by itself leaves one audit event, like an administrator's unlock does.
-    const [account, from, factor] = key.split('\u0000');
-    this.logSecurity('lockout-cleared', account === ''
-      ? { target: factor, detail: { scope: 'address', via: 'timer' } }
-      : { target: account, from, detail: { scope: 'account', via: 'timer', ...(factor === 'totp' ? { factor: 'two-factor' } : {}) } });
+  }, (key, endedAt) => {
+    // A lock that ran out by itself leaves one audit event, like an administrator's unlock does. The sweep that notices
+    // it runs inside sign-in checks, so recording it must never throw out of one: a failed write waits and is retried.
+    if (this.expiredLocks.length >= 256) this.expiredLocks.shift();
+    this.expiredLocks.push({ key, endedAt });
+    this.flushExpiredLocks();
   });
+  /** Locks that ran out and whose audit event could not be written yet (a transaction held the file, or it was busy). */
+  private readonly expiredLocks: { key: string; endedAt: number }[] = [];
+  private flushingExpired = false;
+  private flushExpiredLocks(): void {
+    if (this.flushingExpired || !this.expiredLocks.length) return;
+    this.flushingExpired = true;
+    try {
+      while (this.expiredLocks.length) {
+        const { key, endedAt } = this.expiredLocks[0];
+        const [account, from, factor] = key.split('\u0000');
+        const expiredAt = new Date(endedAt).toISOString();
+        try {
+          this.logSecurity('lockout-cleared', account === ''
+            ? { target: factor, detail: { scope: 'address', via: 'timer', expiredAt } }
+            : { target: account, from, detail: { scope: 'account', via: 'timer', expiredAt, ...(factor === 'totp' ? { factor: 'two-factor' } : {}) } });
+        } catch { return; }
+        this.expiredLocks.shift();
+      }
+    } finally { this.flushingExpired = false; }
+  }
   /** Called after design mode changes this file (the host refreshes the other files that may use it). */
   onDesignChange: () => void = () => {};
 
@@ -5610,11 +5630,13 @@ export class Store {
 
   /** When sign-ins to an account from a place are blocked until (epoch ms), if they are. */
   lockedOut(account: string, from = ''): number | undefined {
+    this.flushExpiredLocks();
     return this.failures.lockedOut(this.bucketKey(account, from), from, this.knownSharedAccount(account, from));
   }
 
   /** When an address is blocked from signing in to anything (epoch ms), if it is. */
   addressLockedOut(from: string): number | undefined {
+    this.flushExpiredLocks();
     return this.failures.addressLockedOut(from);
   }
 
@@ -5628,6 +5650,7 @@ export class Store {
     const key = `\u0000address\u0000${addressBucket(from)}`;
     // Observe timer expiry (and its audit event) before an administrator removes the entry.
     this.failures.blocked(key);
+    this.flushExpiredLocks();
     const until = this.failures.get(key)?.until;
     const cleared = until !== undefined && until > performance.now();
     this.failures.delete(key);
