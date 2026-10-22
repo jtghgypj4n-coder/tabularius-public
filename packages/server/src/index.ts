@@ -317,6 +317,7 @@ export async function serve(opts: ServeOptions): Promise<{ server: Server; host:
     host.publicUrl = opts.publicUrlIsDefault ? undefined : opts.publicUrl;
     host.listFilesPublicly = !!opts.listFilesPublicly;
     const api = new DataApi(host);
+    host.userCountForFile = (name) => api.sessionCountForFile(name);
     const web = new WebClient(host, api);
     disposers.push(() => web.stop());
     const live = new Live(host, api);

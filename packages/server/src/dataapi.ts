@@ -864,6 +864,7 @@ export class DataApi {
 
   private readonly host: Host;
   private readonly sessions = new Map<string, Session>();
+  private readonly sessionCounts = new Map<string, number>();
   private readonly containerUploads = new ContainerUploads();
   readonly endListeners = new Set<(token: string) => void>();
   private swept = performance.now();
@@ -1167,6 +1168,9 @@ export class DataApi {
     const s = this.sessions.get(token);
     this.sessions.delete(token);
     if (!s) return;
+    const count = this.sessionCountForFile(s.db) - 1;
+    if (count) this.sessionCounts.set(s.db, count);
+    else this.sessionCounts.delete(s.db);
     s.scripts.close();
     for (const listener of this.endListeners) listener(token);
     if (!token.startsWith('ohbt_')) this.host.logs?.write('Access', 'Information', '', `${s.account} ${why} of ${s.db}`);
@@ -1179,6 +1183,11 @@ export class DataApi {
   /** Sessions held in memory, timed-out ones not yet swept included. */
   get sessionCount(): number {
     return this.sessions.size;
+  }
+
+  /** Open local sessions for one hosted file, including web and Data API sessions. */
+  sessionCountForFile(name: string): number {
+    return this.sessionCounts.get(name) ?? 0;
   }
 
   /**
@@ -1487,6 +1496,7 @@ export class DataApi {
     const session: Session = { token, db: store.name, account: bound.account, started: Date.now(), lastUsed: performance.now(), scripts: new ScriptSession(), client: 'rest', readOnly: bound.readOnly, ...(bound.identity ? { via: bound.identity.mapping, externalIdentity: bound.identity } : {}), ...(bound.layouts ? { layoutScope: bound.layouts } : {}) };
     sessionPrivileges(store, session);
     this.sessions.set(token, session);
+    this.sessionCounts.set(session.db, this.sessionCountForFile(session.db) + 1);
     return session;
   }
 
@@ -1533,6 +1543,7 @@ export class DataApi {
       }
     }
     this.sessions.set(token, session);
+    this.sessionCounts.set(session.db, this.sessionCountForFile(session.db) + 1);
     this.host.logs?.write('Access', 'Information', from, `${account} signed in to ${store.name} (${client === 'web' ? 'web client' : 'Data API'}${via ? `, as ${via}` : ''})`);
     return token;
   }

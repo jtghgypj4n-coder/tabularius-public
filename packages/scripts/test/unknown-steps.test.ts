@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { createStore, Store } from '@tabularius/store';
 import { scriptStepName, type Script } from '@tabularius/fmp12';
 import { runScript } from '../src/index.ts';
+import { APPLICATION_VERSION } from '../../calc/src/get.ts';
 
 test('unknown step IDs are skipped with notices and error 3; their calculations never run', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'unknown-steps-'));
@@ -21,6 +22,21 @@ test('unknown step IDs are skipped with notices and error 3; their calculations 
       assert.equal(result.result, '3/1');
       assert.ok(result.warnings?.some((w) => w.includes(`Unknown step ${id}`) && /skipped/i.test(w)));
     }
+  } finally { store.close(); rmSync(dir, { recursive: true }); }
+});
+
+test('script Get options use the shared version and supplied user count and language', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'get-options-'));
+  createStore(join(dir, 'test.sqlite'));
+  const store = new Store(join(dir, 'test.sqlite'));
+  try {
+    const script: Script = { id: 1, name: 'test', steps: [
+      { stepId: 103, name: 'Exit Script', enabled: true, params: { calculation: 'Get ( ApplicationVersion ) & "|" & Get ( HostApplicationVersion ) & "|" & Get ( UserCount ) & "|" & Get ( SystemLanguage ) & "|" & Get ( ApplicationLanguage )' } },
+    ] };
+    const supplied = await runScript(store, script, { userCount: () => 3, language: 'French' });
+    assert.equal(supplied.result, `${APPLICATION_VERSION}|${APPLICATION_VERSION}|3|French|French`);
+    const defaults = await runScript(store, script);
+    assert.equal(defaults.result, `${APPLICATION_VERSION}|${APPLICATION_VERSION}|1|English|English`);
   } finally { store.close(); rmSync(dir, { recursive: true }); }
 });
 
