@@ -378,11 +378,11 @@ The following reasons apply to the exact enumerated expressions in each named fu
 | [packages/server/src/optimization.ts:315](../../packages/server/src/optimization.ts#L315) `sizes` | `SQLite.all` (315); `SQLite.prepare` (315); `Store.sql` (315) | DESIGN |
 | [packages/server/src/optimization.ts:419](../../packages/server/src/optimization.ts#L419) `speedFindings` | `Store.recordCount` (419, 462, 480) | DESIGN |
 | [packages/server/src/optimization.ts:534](../../packages/server/src/optimization.ts#L534) `heldBytes` | `SQLite.get` (534); `SQLite.prepare` (534); `Store.sql` (534) | DESIGN |
-| [packages/server/src/pgwire.ts:652](../../packages/server/src/pgwire.ts#L652) `Connection/translate` | `Calculations.translateSQL` (652) | SQL |
-| [packages/server/src/pgwire.ts:678](../../packages/server/src/pgwire.ts#L678) `Connection/catalog` | `Store.describe` (678) | SQL |
-| [packages/server/src/pgwire.ts:688](../../packages/server/src/pgwire.ts#L688) `Connection/run` | `Store.select` (688) | SQL |
-| [packages/server/src/pgwire.ts:738](../../packages/server/src/pgwire.ts#L738) `Connection/validateSyntax` | `SQLite.prepare` (738); `Store.sql` (738) | SQL |
-| [packages/server/src/pgwire.ts:935](../../packages/server/src/pgwire.ts#L935) `Connection/describe` | `Store.describe` (935) | SQL |
+| [packages/server/src/pgwire.ts:660](../../packages/server/src/pgwire.ts#L660) `Connection/translate` | `Calculations.translateSQL` (660) | SQL |
+| [packages/server/src/pgwire.ts:686](../../packages/server/src/pgwire.ts#L686) `Connection/catalog` | `Store.describe` (686) | SQL |
+| [packages/server/src/pgwire.ts:696](../../packages/server/src/pgwire.ts#L696) `Connection/run` | `Store.select` (696) | SQL |
+| [packages/server/src/pgwire.ts:746](../../packages/server/src/pgwire.ts#L746) `Connection/validateSyntax` | `SQLite.prepare` (746); `Store.sql` (746) | SQL |
+| [packages/server/src/pgwire.ts:943](../../packages/server/src/pgwire.ts#L943) `Connection/describe` | `Store.describe` (943) | SQL |
 | [packages/server/src/pii.ts:121](../../packages/server/src/pii.ts#L121) `holdsOnlyUuids` | `Store.query` (121) | REDACTION |
 | [packages/server/src/pii.ts:133](../../packages/server/src/pii.ts#L133) `sampledValues` | `Store.query` (133) | REDACTION |
 | [packages/server/src/pii.ts:300](../../packages/server/src/pii.ts#L300) `vaultTable` | `Store.sql` (300, 303) | REDACTION |
