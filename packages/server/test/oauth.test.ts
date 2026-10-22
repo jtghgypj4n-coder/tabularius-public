@@ -460,3 +460,12 @@ test('revoking a sign-in in Manage Security while it is being refreshed does not
   assert.equal(body.error, 'invalid_grant', JSON.stringify(body));
   assert.equal(store.apiTokens().filter((k) => k.account === 'sam').length, 0, 'the revoked sign-in has no token left');
 });
+
+test('a refresh that fails for any reason still ends the access token it was renewing', { skip }, async (t) => {
+  store.setPassword('tess', 'tess-pw', 'Bot');
+  const c = await connect('tess', 'tess-pw');
+  t.mock.method(store, 'createApiToken', () => { throw new Error('disk full'); });
+  const r = await post('/oauth/token', form({ grant_type: 'refresh_token', refresh_token: c.refresh_token, client_id: c.client_id }));
+  assert.equal(r.status, 500);
+  assert.equal(store.apiToken(c.access_token), undefined, 'the used-up sign-in leaves no usable access token');
+});

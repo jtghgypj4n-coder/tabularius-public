@@ -345,9 +345,9 @@ The following reasons apply to the exact enumerated expressions in each named fu
 | [packages/server/src/oauth.ts:410](../../packages/server/src/oauth.ts#L410) `OAuthServer/authorize/done` | `SQLite.prepare` (410, 411) | AUTH |
 | [packages/server/src/oauth.ts:428](../../packages/server/src/oauth.ts#L428) `OAuthServer/authorize` | `SQLite.get` (428); `SQLite.prepare` (428, 432, 434, 441, 464, 465) | AUTH |
 | [packages/server/src/oauth.ts:609](../../packages/server/src/oauth.ts#L609) `OAuthServer/token` | `SQLite.get` (609, 630); `SQLite.prepare` (609, 630) | AUTH |
-| [packages/server/src/oauth.ts:669](../../packages/server/src/oauth.ts#L669) `OAuthServer/issue` | `SQLite.prepare` (669, 670) | AUTH |
-| [packages/server/src/oauth.ts:676](../../packages/server/src/oauth.ts#L676) `OAuthServer/sweep` | `SQLite.all` (676); `SQLite.prepare` (676, 678) | AUTH |
-| [packages/server/src/oauth.ts:685](../../packages/server/src/oauth.ts#L685) `OAuthServer/revoke` | `SQLite.get` (685, 692); `SQLite.prepare` (685, 692, 695) | AUTH |
+| [packages/server/src/oauth.ts:678](../../packages/server/src/oauth.ts#L678) `OAuthServer/issue` | `SQLite.prepare` (678, 679) | AUTH |
+| [packages/server/src/oauth.ts:685](../../packages/server/src/oauth.ts#L685) `OAuthServer/sweep` | `SQLite.all` (685); `SQLite.prepare` (685, 687) | AUTH |
+| [packages/server/src/oauth.ts:694](../../packages/server/src/oauth.ts#L694) `OAuthServer/revoke` | `SQLite.get` (694, 701); `SQLite.prepare` (694, 701, 704) | AUTH |
 | [packages/server/src/odata-crossjoin-worker.ts:40](../../packages/server/src/odata-crossjoin-worker.ts#L40) `join` | `SQLite.prepare` (40, 49, 58, 73); `SQLite.get` (58); `SQLite.all` (73) | JOIN |
 | [packages/server/src/odata.ts:926](../../packages/server/src/odata.ts#L926) `ODataEndpoint/resource` | `Store.countIds` (926); `Store.get` (966, 973, 1080) | ODATA |
 | [packages/server/src/odata.ts:1212](../../packages/server/src/odata.ts#L1212) `ODataEndpoint/lambdaFor` | `Store.selectIds` (1212); `Store.row` (1221); `relatedIdList` (1222) | ODATA |

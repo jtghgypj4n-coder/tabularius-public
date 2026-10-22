@@ -647,8 +647,8 @@ p strong { color: var(--text); }
       try {
         return this.issue(client, row.database, row.account, clientAddress(req), label, identity ? row.expires : undefined, identity, true, row.password, row.access_id);
       } catch (e) {
-        // Whatever stopped the refresh, the access token it was renewing does not stay in use.
-        if (e instanceof OAuthError) store.revokeApiToken(row.access_id);
+        // Whatever stopped the refresh, the access token it was renewing does not stay in use: its refresh token is already used up.
+        store.revokeApiToken(row.access_id);
         throw e;
       }
     }
