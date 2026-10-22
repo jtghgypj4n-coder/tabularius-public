@@ -265,21 +265,21 @@ test('defensive: a calculation without a script session cannot create handles or
   assert.equal(s.mbs('JS.Evaluate', s.make(), '6 * 7'), '42');
 });
 
-/** Children of this process that have exited but were never waited for (Linux only; undefined elsewhere). */
-function zombieChildren(): number | undefined {
+/** Every child of this process, running or exited but never waited for (Linux only; undefined elsewhere). */
+function childProcesses(): string[] | undefined {
   if (process.platform !== 'linux') return undefined;
-  let n = 0;
+  const found: string[] = [];
   for (const pid of readdirSync('/proc').filter(name => /^\d+$/.test(name))) {
     try {
-      const [state, ppid] = readFileSync(`/proc/${pid}/stat`, 'utf8').replace(/^.*\) /s, '').split(' ');
-      if (state === 'Z' && Number(ppid) === process.pid) n++;
+      const [, ppid] = readFileSync(`/proc/${pid}/stat`, 'utf8').replace(/^.*\) /s, '').split(' ');
+      if (Number(ppid) === process.pid) found.push(pid);
     } catch { /* the process went away while listing */ }
   }
-  return n;
+  return found;
 }
 
 test('defensive: stopping a handle reaps its sandbox process instead of leaving a zombie until the server exits', { skip: process.platform !== 'linux' }, async () => {
-  const before = zombieChildren()!;
+  const before = childProcesses()!;
   const contexts = Array.from({ length: 5 }, () => new JavaScriptContext());
   for (const context of contexts) assert.deepEqual(context.call({ op: 'json', source: '1' }), text('1'));
   // Release, idle expiry, session end, timeouts and crashes all stop a handle this way; one process each, over the server's life.
@@ -287,7 +287,9 @@ test('defensive: stopping a handle reaps its sandbox process instead of leaving 
   const hung = new JavaScriptContext();
   assert.throws(() => hung.call({ op: 'json', source: 'for (;;) {}' }), /longer than/);
   await stopJavaScript();
-  // (A timed-out handle is stopped in the background, so give its thread a moment to wait for the process.)
-  for (let i = 0; i < 100 && zombieChildren() !== before; i++) await new Promise(resolve => setTimeout(resolve, 20));
-  assert.equal(zombieChildren(), before);
+  // (A timed-out handle is stopped in the background, so give its thread a moment to kill the process and wait for it.
+  // A process that is still dying is not yet a zombie, so wait until none of the new ones is left, running or not.)
+  const left = () => childProcesses()!.filter(pid => !before.includes(pid));
+  for (let i = 0; i < 100 && left().length; i++) await new Promise(resolve => setTimeout(resolve, 20));
+  assert.deepEqual(left(), []);
 });
