@@ -179,32 +179,32 @@ The following reasons apply to the exact enumerated expressions in each named fu
 | [packages/scripts/src/engine.ts:1936](../../packages/scripts/src/engine.ts#L1936) `ScriptEngine/goToLayout` | `Store.findIds` (1936) | SCRIPT |
 | [packages/scripts/src/engine.ts:2273](../../packages/scripts/src/engine.ts#L2273) `ScriptEngine/foundSet` | `Store.findIds` (2273) | SCRIPT |
 | [packages/scripts/src/engine.ts:2338](../../packages/scripts/src/engine.ts#L2338) `ScriptEngine/semanticFind` | `Store.findIds` (2338, 2359) | SCRIPT |
-| [packages/scripts/src/engine.ts:3252](../../packages/scripts/src/engine.ts#L3252) `ScriptEngine/sqlByNaturalLanguage` | `Calculations.translateSQL` (3252); `Calculations.executeSQL` (3259) | SCRIPT |
-| [packages/scripts/src/engine.ts:3291](../../packages/scripts/src/engine.ts#L3291) `ScriptEngine/sortIds` | `Store.sortIds` (3291); `Store.valueListItems` (3297) | SCRIPT |
-| [packages/scripts/src/engine.ts:3388](../../packages/scripts/src/engine.ts#L3388) `ScriptEngine/revertTransaction` | `Store.findIds` (3388) | SCRIPT |
-| [packages/scripts/src/engine.ts:3936](../../packages/scripts/src/engine.ts#L3936) `ScriptEngine/step` | `Store.fieldIndex` (3936); `Store.findIds` (4070, 4165) | SCRIPT |
-| [packages/scripts/src/engine.ts:5186](../../packages/scripts/src/engine.ts#L5186) `ScriptEngine/newCalcContext/executeSQL` | `Calculations.executeSQL` (5186) | SCRIPT |
-| [packages/scripts/src/engine.ts:5194](../../packages/scripts/src/engine.ts#L5194) `ScriptEngine/newCalcContext/persistentData` | `Store.persistentData` (5194) | SCRIPT |
-| [packages/scripts/src/engine.ts:5195](../../packages/scripts/src/engine.ts#L5195) `ScriptEngine/newCalcContext/persistentDataIds` | `Store.persistentDataIds` (5195) | SCRIPT |
-| [packages/scripts/src/engine.ts:5342](../../packages/scripts/src/engine.ts#L5342) `ScriptEngine/get` | `Store.findIds` (5342); `Store.canViewRecord` (5433); `Store.get` (5469) | SCRIPT |
-| [packages/scripts/src/engine.ts:5500](../../packages/scripts/src/engine.ts#L5500) `ScriptEngine/design` | `Store.valueListItems` (5500) | SCRIPT |
-| [packages/scripts/src/engine.ts:5554](../../packages/scripts/src/engine.ts#L5554) `ScriptEngine/record` | `Store.get` (5554) | SCRIPT |
-| [packages/scripts/src/engine.ts:5586](../../packages/scripts/src/engine.ts#L5586) `ScriptEngine/valueOf` | `Store.findIds` (5586); `Store.containerId` (5594) | SCRIPT |
-| [packages/scripts/src/engine.ts:5611](../../packages/scripts/src/engine.ts#L5611) `ScriptEngine/lookupNext` | `Store.get` (5611); `Store.row` (5612); `Calculations.context` (5614) | SCRIPT |
-| [packages/scripts/src/engine.ts:5714](../../packages/scripts/src/engine.ts#L5714) `ScriptEngine/relatedIds` | `Store.findIds` (5714); `rowsById` (5722); `Store.select` (5726); `Store.matchIds` (5740); `Store.viewableIds` (5763) | SCRIPT |
-| [packages/scripts/src/engine.ts:5748](../../packages/scripts/src/engine.ts#L5748) `ScriptEngine/relatedIds/matching` | `Store.matchIds` (5748) | SCRIPT |
-| [packages/scripts/src/engine.ts:6237](../../packages/scripts/src/engine.ts#L6237) `ScriptEngine/exportField` | `Store.get` (6237); `Store.containerId` (6238); `Store.container` (6240) | SCRIPT |
-| [packages/scripts/src/engine.ts:6386](../../packages/scripts/src/engine.ts#L6386) `ScriptEngine/relookup` | `Store.get` (6386) | SCRIPT |
-| [packages/scripts/src/engine.ts:6804](../../packages/scripts/src/engine.ts#L6804) `ScriptEngine/goToList` | `Store.findIds` (6804) | SCRIPT |
-| [packages/scripts/src/engine.ts:7120](../../packages/scripts/src/engine.ts#L7120) `ScriptEngine/sourceValue` | `Store.get` (7120); `Store.containerId` (7121); `Store.container` (7122) | SCRIPT |
-| [packages/scripts/src/engine.ts:7828](../../packages/scripts/src/engine.ts#L7828) `ScriptEngine/containerFile` | `Store.get` (7828); `Store.containerId` (7829); `Store.container` (7830) | SCRIPT |
-| [packages/scripts/src/engine.ts:7989](../../packages/scripts/src/engine.ts#L7989) `ScriptEngine/importRecords` | `Store.findIds` (7989); `Store.get` (8009) | SCRIPT |
-| [packages/scripts/src/engine.ts:8215](../../packages/scripts/src/engine.ts#L8215) `ScriptEngine/fileMakerRows` | `Store.findIds` (8215); `Store.get` (8220) | SCRIPT |
-| [packages/scripts/src/engine.ts:8255](../../packages/scripts/src/engine.ts#L8255) `ScriptEngine/newRecord` | `Store.findIds` (8255) | SCRIPT |
-| [packages/scripts/src/engine.ts:8552](../../packages/scripts/src/engine.ts#L8552) `ScriptEngine/performFind` | `Store.findIds` (8552) | SCRIPT |
-| [packages/scripts/src/engine.ts:8577](../../packages/scripts/src/engine.ts#L8577) `ScriptEngine/findRelated` | `Store.findIds` (8577, 8587, 8590) | SCRIPT |
-| [packages/scripts/src/engine.ts:8609](../../packages/scripts/src/engine.ts#L8609) `ScriptEngine/quickFind` | `Store.findIds` (8609, 8610, 8613) | SCRIPT |
-| [packages/scripts/src/engine.ts:8994](../../packages/scripts/src/engine.ts#L8994) `clearRecords` | `SQLite.all` (8994); `SQLite.prepare` (8994) | SCRIPT |
+| [packages/scripts/src/engine.ts:3251](../../packages/scripts/src/engine.ts#L3251) `ScriptEngine/sqlByNaturalLanguage` | `Calculations.translateSQL` (3251); `Calculations.executeSQL` (3258) | SCRIPT |
+| [packages/scripts/src/engine.ts:3290](../../packages/scripts/src/engine.ts#L3290) `ScriptEngine/sortIds` | `Store.sortIds` (3290); `Store.valueListItems` (3296) | SCRIPT |
+| [packages/scripts/src/engine.ts:3387](../../packages/scripts/src/engine.ts#L3387) `ScriptEngine/revertTransaction` | `Store.findIds` (3387) | SCRIPT |
+| [packages/scripts/src/engine.ts:3935](../../packages/scripts/src/engine.ts#L3935) `ScriptEngine/step` | `Store.fieldIndex` (3935); `Store.findIds` (4069, 4164) | SCRIPT |
+| [packages/scripts/src/engine.ts:5185](../../packages/scripts/src/engine.ts#L5185) `ScriptEngine/newCalcContext/executeSQL` | `Calculations.executeSQL` (5185) | SCRIPT |
+| [packages/scripts/src/engine.ts:5193](../../packages/scripts/src/engine.ts#L5193) `ScriptEngine/newCalcContext/persistentData` | `Store.persistentData` (5193) | SCRIPT |
+| [packages/scripts/src/engine.ts:5194](../../packages/scripts/src/engine.ts#L5194) `ScriptEngine/newCalcContext/persistentDataIds` | `Store.persistentDataIds` (5194) | SCRIPT |
+| [packages/scripts/src/engine.ts:5341](../../packages/scripts/src/engine.ts#L5341) `ScriptEngine/get` | `Store.findIds` (5341); `Store.canViewRecord` (5432); `Store.get` (5468) | SCRIPT |
+| [packages/scripts/src/engine.ts:5499](../../packages/scripts/src/engine.ts#L5499) `ScriptEngine/design` | `Store.valueListItems` (5499) | SCRIPT |
+| [packages/scripts/src/engine.ts:5553](../../packages/scripts/src/engine.ts#L5553) `ScriptEngine/record` | `Store.get` (5553) | SCRIPT |
+| [packages/scripts/src/engine.ts:5585](../../packages/scripts/src/engine.ts#L5585) `ScriptEngine/valueOf` | `Store.findIds` (5585); `Store.containerId` (5593) | SCRIPT |
+| [packages/scripts/src/engine.ts:5610](../../packages/scripts/src/engine.ts#L5610) `ScriptEngine/lookupNext` | `Store.get` (5610); `Store.row` (5611); `Calculations.context` (5613) | SCRIPT |
+| [packages/scripts/src/engine.ts:5713](../../packages/scripts/src/engine.ts#L5713) `ScriptEngine/relatedIds` | `Store.findIds` (5713); `rowsById` (5721); `Store.select` (5725); `Store.matchIds` (5739); `Store.viewableIds` (5762) | SCRIPT |
+| [packages/scripts/src/engine.ts:5747](../../packages/scripts/src/engine.ts#L5747) `ScriptEngine/relatedIds/matching` | `Store.matchIds` (5747) | SCRIPT |
+| [packages/scripts/src/engine.ts:6236](../../packages/scripts/src/engine.ts#L6236) `ScriptEngine/exportField` | `Store.get` (6236); `Store.containerId` (6237); `Store.container` (6239) | SCRIPT |
+| [packages/scripts/src/engine.ts:6385](../../packages/scripts/src/engine.ts#L6385) `ScriptEngine/relookup` | `Store.get` (6385) | SCRIPT |
+| [packages/scripts/src/engine.ts:6803](../../packages/scripts/src/engine.ts#L6803) `ScriptEngine/goToList` | `Store.findIds` (6803) | SCRIPT |
+| [packages/scripts/src/engine.ts:7119](../../packages/scripts/src/engine.ts#L7119) `ScriptEngine/sourceValue` | `Store.get` (7119); `Store.containerId` (7120); `Store.container` (7121) | SCRIPT |
+| [packages/scripts/src/engine.ts:7827](../../packages/scripts/src/engine.ts#L7827) `ScriptEngine/containerFile` | `Store.get` (7827); `Store.containerId` (7828); `Store.container` (7829) | SCRIPT |
+| [packages/scripts/src/engine.ts:7988](../../packages/scripts/src/engine.ts#L7988) `ScriptEngine/importRecords` | `Store.findIds` (7988); `Store.get` (8008) | SCRIPT |
+| [packages/scripts/src/engine.ts:8214](../../packages/scripts/src/engine.ts#L8214) `ScriptEngine/fileMakerRows` | `Store.findIds` (8214); `Store.get` (8219) | SCRIPT |
+| [packages/scripts/src/engine.ts:8254](../../packages/scripts/src/engine.ts#L8254) `ScriptEngine/newRecord` | `Store.findIds` (8254) | SCRIPT |
+| [packages/scripts/src/engine.ts:8551](../../packages/scripts/src/engine.ts#L8551) `ScriptEngine/performFind` | `Store.findIds` (8551) | SCRIPT |
+| [packages/scripts/src/engine.ts:8576](../../packages/scripts/src/engine.ts#L8576) `ScriptEngine/findRelated` | `Store.findIds` (8576, 8586, 8589) | SCRIPT |
+| [packages/scripts/src/engine.ts:8608](../../packages/scripts/src/engine.ts#L8608) `ScriptEngine/quickFind` | `Store.findIds` (8608, 8609, 8612) | SCRIPT |
+| [packages/scripts/src/engine.ts:8993](../../packages/scripts/src/engine.ts#L8993) `clearRecords` | `SQLite.all` (8993); `SQLite.prepare` (8993) | SCRIPT |
 | [packages/scripts/src/recorder.ts:72](../../packages/scripts/src/recorder.ts#L72) `lastSeq` | `Store.auditLog` (72) | DESIGN |
 | [packages/scripts/src/recorder.ts:104](../../packages/scripts/src/recorder.ts#L104) `recordRun` | `Store.auditLog` (104) | DESIGN |
 | [packages/scripts/src/script-tests.ts:211](../../packages/scripts/src/script-tests.ts#L211) `runCase` | `Store.findIds` (211); `Store.auditLog` (218, 219, 262); `Store.evaluateEach` (246) | DESIGN |
