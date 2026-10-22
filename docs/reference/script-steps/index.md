@@ -234,7 +234,7 @@ A step marked **error 3** is unavailable; **does nothing** means it succeeds wit
 | [Open Transaction](205-open-transaction.md) | partly |
 | [Perform Find](28-perform-find.md) | works |
 | [Perform Quick Find](150-perform-quick-find.md) | works |
-| [Refresh Portal](180-refresh-portal.md) | does nothing |
+| [Refresh Portal](180-refresh-portal.md) | partly |
 | [Revert Record/Request](51-revert-record-request.md) | works |
 | [Revert Transaction](207-revert-transaction.md) | partly |
 | [Save Records as Excel](143-save-records-as-excel.md) | partly |

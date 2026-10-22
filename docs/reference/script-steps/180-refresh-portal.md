@@ -3,7 +3,7 @@ id: script-step-180
 title: "Refresh Portal"
 area: script-steps
 since: unknown
-status: not-yet
+status: partly
 verified: f200448e0
 ---
 
@@ -11,13 +11,13 @@ verified: f200448e0
 
 Refresh Portal is a records and finds script step. This page describes how the offline Tabularius engine handles it.
 
-- **Support:** does nothing
+- **Support:** partly
 - **Registry ID:** 180
 
 ## What the engine does
 
-The engine accepts this step but does not perform its named action.
-Returns successfully without an action.
+The engine handles this step with the limits described in the support notes.
+Clears the read cache and asks the web client to refresh the portal; error 116 for a missing object.
 
 FileMaker comparisons in this note are inferred unless a Claris help page is linked. See the [full support notes](../../script-steps-support.md) for surrounding conditions.
 
@@ -31,14 +31,15 @@ Permission to run the script; access to any named record, field, layout or file 
 
 ## Error codes
 
-Known codes from the engine and the [script error-code reference](../../error-codes.md): `0`, `116`. Other failures can arise from calculations or targets used by the step.
+Known codes from the engine and the [script error-code reference](../../error-codes.md): `0`, `3`, `116`. Other failures can arise from calculations or targets used by the step.
 
 ## Offline script example
 
 Use a synthetic local solution with an empty `Examples` table and a text field named `Name`. The example uses no mail, network or plug-ins.
 
 ```script
-Refresh Portal
+Refresh Portal [ Object Name: "Missing" ]
+Exit Script [ Text Result: Get ( LastError ) ]
 ```
 
-**Expected end state:** With no target supplied, the step returns `116` and leaves the synthetic file’s records unchanged.
+**Expected end state:** On a layout with no object named `Missing`, the step returns error `116` and the records are unchanged; the script result is `116`.

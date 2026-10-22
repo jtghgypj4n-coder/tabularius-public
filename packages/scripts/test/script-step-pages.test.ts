@@ -33,9 +33,10 @@ test('support classifications agree with the engine availability list', () => {
     assert.ok(p.codes.includes(3), p.name);
     assert.match(pageText(p), /## Replacement/);
   }
-  for (const name of ['Refresh Portal', 'Print Setup', 'Open Help'])
+  for (const name of ['Print Setup', 'Open Help'])
     assert.equal(pages.find((p) => p.name === name)?.status, 'does nothing');
-  for (const name of ['Import Records', 'Save Records as PDF', 'Send Mail'])
+  // Refresh Portal clears the read cache and asks the client to refresh, so it is partly supported.
+  for (const name of ['Refresh Portal', 'Import Records', 'Save Records as PDF', 'Send Mail'])
     assert.equal(pages.find((p) => p.name === name)?.status, 'partly');
 });
 
