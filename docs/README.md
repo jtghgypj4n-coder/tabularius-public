@@ -8,6 +8,7 @@ To read these pages offline with search, build the site: `npm run docs:build` wr
 
 - [Moving a solution](moving-a-solution.md) — Bring a FileMaker solution, accounts and workflows to Tabularius.
 - [FileMaker Server migration and sync runbook](fms-migration-runbook.md) — Copy hosted files and container folders from FileMaker Server, and keep a trial copy in step through the Data API.
+- [FileMaker glossary and menu map](filemaker-glossary.md) — Look up a FileMaker term or menu name and see what it is called and where it lives in Tabularius.
 - [For FileMaker developers](for-filemaker-developers.md) — Find where each FileMaker menu path, tool and habit lives in Tabularius, and whether it matches.
 - [Known differences](known-differences.md) — See every place Tabularius differs from FileMaker or is not settled yet, and what would settle it.
 - [Starter solutions](starter-solutions.md) — Start a new database from a ready-to-use contacts, stock, invoicing, tasks or booking app.

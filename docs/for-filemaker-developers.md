@@ -55,13 +55,4 @@ How to read the **Here** column:
 
 ## Words that mean something else here
 
-| Word | In FileMaker | Here |
-| --- | --- | --- |
-| **Database** | A file, as people say it, or the Manage Database dialog | The word for a hosted file in the routes (`/databases/{database}`) and the tools. Each one is a single SQLite file, `<name>.openhbam.sqlite`, made from a `.fmp12` the first time you host it. |
-| **File** | A `.fmp12` | Either the `.fmp12` you started from or the hosted file made from it; the page says which. |
-| **Hosting** | Opening a file on FileMaker Server | `tabularius serve <folder>`: the server converts each `.fmp12` in the folder once and serves what it made. The `.fmp12` stays as it was. |
-| **Privilege set** | A named bundle of rights for accounts | The same. [Full Access] is the set with every right. |
-| **Extended privilege** | A keyword that lets a set use a way in (`fmapp`, `fmrest`) | The same keywords: `fmapp` and `fmwebdirect` for the web client, `fmrest` for the Data API, `fmodata`, `fmxml`, `fmxdbc`, `fmurlscript`, and `fmmcp` for AI apps, which is new. See [moving a solution](moving-a-solution.md#extended-privileges). |
-| **Client** | FileMaker Pro, Go or WebDirect | A browser tab on the web client, or a program calling the Data API or MCP. |
-| **Server script** | A script run by a schedule or Perform Script on Server | Scripts run on the server, as FileMaker Server runs them, and reach the network once an administrator turns on Script network for the file (it starts off). See [moving a solution](moving-a-solution.md#scripts-run-on-the-server-network-access-is-a-switch-you-turn-on). |
-| **Layout** | What a person sees, tied to a table occurrence | The same, and the Data API addresses data by layout. |
+The generated [FileMaker glossary and menu map](filemaker-glossary.md) explains these terms and includes the searchable menu-path table. Mark FileMaker vocabulary in a guide with an `fm-term` marker so `npm run docs:check` reports any term that has not been added to the maintained list in `scripts/filemaker-glossary.ts`.
