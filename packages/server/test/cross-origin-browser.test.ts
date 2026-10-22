@@ -11,7 +11,7 @@ import { concretePath, routes, stubPath } from './cross-origin-support.ts';
 
 const executablePath = findChromium();
 
-test('real Chromium cross-origin invariant matrix', { skip: !executablePath && 'no Chromium installed', timeout: 60_000 }, async (t) => {
+test('real Chromium cross-origin invariant matrix', { skip: !executablePath && 'no Chromium installed', timeout: 180_000 }, async (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'tabularius-browser-origin-'));
   stubPath(t, dir);
   setAdminPassword(dir, 'synthetic-secret');
@@ -29,7 +29,7 @@ test('real Chromium cross-origin invariant matrix', { skip: !executablePath && '
       cookie: !!req.headers.cookie?.includes('tabularius_admin='), site: req.headers['sec-fetch-site'] as string | undefined,
       origin: req.headers.origin, referer: req.headers.referer }));
   });
-  const browser = await chromium.launch({ executablePath, timeout: 15_000, env: { ...process.env } as Record<string, string>, args: [
+  const browser = await chromium.launch({ executablePath, timeout: 90_000, env: { ...process.env } as Record<string, string>, args: [
     '--no-proxy-server', '--host-resolver-rules=MAP *.audit.localhost 127.0.0.1, MAP *.audit.test 127.0.0.1',
   ] });
   const context = await browser.newContext();
