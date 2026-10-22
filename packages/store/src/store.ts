@@ -4342,15 +4342,18 @@ export class Store {
    * every surface the account's extended privileges already allow. Unlike a
    * password it can be revoked on its own and never has to be stored in the
    * integration's config in a form that logs in as the person. Returns the
-   * token once; only its hash is kept.
+   * token once; only its hash is kept. `guard` runs under the lock the token is
+   * written under, and refuses it by throwing.
    */
-  createApiToken(account: string, opts: { label?: string; readOnly?: boolean; expires?: Date; surfaces?: string[]; layouts?: string[]; identity?: { issuer: string; sub: string; person?: string; mapping: string }; provenance?: 'service' | 'delegated' } = {}): string {
+  createApiToken(account: string, opts: { label?: string; readOnly?: boolean; expires?: Date; surfaces?: string[]; layouts?: string[]; identity?: { issuer: string; sub: string; person?: string; mapping: string }; provenance?: 'service' | 'delegated'; guard?: () => void } = {}): string {
     // opts.expires is an absolute date; relative-lifetime callers use expiryClock.now().
     return this.securityChange(() => {
       // Matched as sign-in matches it (SQLite's case folding), and kept under the name the file has for it.
       const found = this.sql.prepare('SELECT name FROM _fm_accounts WHERE name = ? COLLATE NOCASE').get(account) as { name: string } | undefined;
       if (!found) throw new StoreError(960, `No account "${account}"`);
       account = found.name;
+      // Run under the same lock as the insert, so a password or privilege change made in between (by another worker, say) is seen, not missed.
+      opts.guard?.();
       let surfaces: string[] | undefined;
       if (opts.surfaces && opts.surfaces.length) {
         surfaces = [...new Set(opts.surfaces.map((s) => s.toLowerCase()))];

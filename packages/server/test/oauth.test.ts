@@ -411,3 +411,35 @@ test('blocking new users stops AI app sign-ins; an app already signed in refresh
   }
   await connect();
 });
+
+test('a password reset made while a refresh is being issued does not leave the new access token alive', { skip }, async (t) => {
+  store.setPassword('quinn', 'quinn-pw', 'Bot');
+  const c = await connect('quinn', 'quinn-pw');
+  // The reset lands after the refresh has checked the account and before the new access token is written, as it can
+  // when another worker handles it.
+  const real = store.createApiToken.bind(store);
+  t.mock.method(store, 'createApiToken', (...args: Parameters<Store['createApiToken']>) => {
+    store.setPassword('quinn', 'quinn-pw2', 'Bot');
+    return real(...args);
+  });
+  const r = await post('/oauth/token', form({ grant_type: 'refresh_token', refresh_token: c.refresh_token, client_id: c.client_id }));
+  const body = await r.json();
+  assert.equal(body.error, 'invalid_grant', JSON.stringify(body));
+  assert.equal(store.apiTokens().filter((k) => k.account === 'quinn').length, 0, 'no token of the old password survives');
+});
+
+test('a password reset made while a sign-in code is being exchanged does not leave the access token alive', { skip }, async (t) => {
+  store.setPassword('rhea', 'rhea-pw', 'Bot');
+  const { client_id } = await register();
+  const { verifier, challenge } = pkce();
+  const r = await signIn(client_id, challenge, { account: 'rhea', password: 'rhea-pw' });
+  const code = new URL(r.headers.get('location')!).searchParams.get('code')!;
+  const real = store.createApiToken.bind(store);
+  t.mock.method(store, 'createApiToken', (...args: Parameters<Store['createApiToken']>) => {
+    store.setPassword('rhea', 'rhea-pw2', 'Bot');
+    return real(...args);
+  });
+  const tr = await post('/oauth/token', form({ grant_type: 'authorization_code', code, code_verifier: verifier, client_id, redirect_uri: REDIRECT }));
+  assert.equal((await tr.json()).error, 'invalid_grant');
+  assert.equal(store.apiTokens().filter((k) => k.account === 'rhea').length, 0);
+});
