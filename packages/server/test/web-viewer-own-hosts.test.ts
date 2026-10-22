@@ -83,7 +83,8 @@ test('web viewer hosts: the name a request came in by is ignored for that reques
       r.end();
     });
     const layoutHosts = async (host: string) => {
-      const login = await get(host, '/fmi/data/vLatest/databases/Shop/sessions', { authorization: 'Basic ' + btoa('Ann:pw') });
+      // Basic credentials are ambient, so the server refuses them under a name it was not told; the token is not, and it is used under the proxy's name.
+      const login = await get(`127.0.0.1:${u.port}`, '/fmi/data/vLatest/databases/Shop/sessions', { authorization: 'Basic ' + btoa('Ann:pw') });
       const auth = { authorization: `Bearer ${JSON.parse(login.body).response.token}` };
       return (JSON.parse((await get(host, '/tabularius/app/v1/databases/Shop/layouts/Notes', auth)).body) as { webViewerHosts: string[] }).webViewerHosts;
     };
@@ -98,6 +99,23 @@ test('web viewer hosts: the name a request came in by is ignored for that reques
     assert.match(await policy(`127.0.0.1:${u.port}`), /https:\/\/\*\.corp-example\.dev https:\/\/app\.corp-example\.dev https:\/\/maps\.example\.com;/);
   } finally {
     await new Promise<void>((r) => hosted.server.close(() => r()));
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('web viewer hosts: a --browser-origin name is one the server answers to', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'web-viewer-browser-origin-'));
+  createStore(join(dir, 'Shop.openhbam.sqlite'));
+  const hosted = await serve({ dir, port: 0, log: () => {} });
+  try {
+    hosted.host.browserOrigins = ['https://proxy.corp-example.org'];
+    assert.ok(hosted.host.ownHostNames().includes('proxy.corp-example.org'));
+    const r = await fetch(`${hosted.url}/tabularius/admin/v1/web-viewer-hosts/Shop`, { method: 'POST', headers: admin, body: JSON.stringify({ hosts: ['*.corp-example.org'] }) });
+    assert.equal(r.status, 400);
+    assert.match((await r.json()).error, /address of this server itself/);
+    assert.deepEqual(hosted.host.get('Shop')!.webViewerHosts, []);
+  } finally {
+    await new Promise<void>((x) => hosted.server.close(() => x()));
     rmSync(dir, { recursive: true, force: true });
   }
 });
