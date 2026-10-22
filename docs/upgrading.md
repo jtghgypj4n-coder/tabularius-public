@@ -40,6 +40,27 @@ and puts the old version back if it does not start (ADMIN.md, "Upgrade"). Two th
 - The health check says the server is up, not that every file is open. After an upgrade, open the admin console's file
   list or run `tabularius doctor <folder>`: a file that failed to open is listed with the reason.
 
+### Files the server writes are private to its account
+
+Files the server writes or appends (the server logs, exported record files, encrypted files and backup copies, upload
+spool files and service-install staging files) are now created and kept with mode `0600`: readable and writable by the account
+the server runs as, and by no one else. Earlier versions left the mode to the umask, so a log could be group- or
+world-readable.
+
+- **Who is affected:** anything that reads those files as another user, such as a log shipper, a monitoring agent or a
+  web server that serves exported files. After the upgrade it gets "permission denied".
+- **What to do:** run the reader as the server's account, or give it access on purpose with the file system rather than
+  with the mode: put the reader in a group and set an ACL on the log folder (for example
+  `setfacl -m u:shipper:r <folder>/Logs/*`, and a default ACL `setfacl -d -m u:shipper:r <folder>/Logs` for new
+  files), or copy the files out with a job that runs as the server's account. Changing a file's mode by hand does not
+  last: the next write sets it back to `0600`.
+- **A symbolic link or hard link in place of one of these files is refused.** A log (or another file in the list above)
+  that is a symlink, or has more than one hard link, is no longer appended to or rotated through: the write fails with
+  a refusal naming the path instead of following the link. If you pointed a log at another place with a symlink, point
+  the log folder there instead (a symlinked folder is fine; a symlinked file is not), and remove extra hard links.
+- A plug-in install that is interrupted can leave a staging folder named `.installing-<plug-in id>-<random>` in the
+  plug-ins folder. It is not swept automatically; remove it by hand once no install is running.
+
 ## Stopping and restarting
 
 A stop signal (Ctrl+C, `SIGTERM` from a service manager, `tabularius service stop`, an upgrade) ends the server in this order:
