@@ -250,7 +250,8 @@ class LdapConnection {
     const w = this.waiting.get(id);
     if (!w) { r.skip(); return; }
     if (op === APP.searchResEntry) {
-      w.entries.push(readEntry(r));
+      // A search asks for one entry and uses the first; a directory that sends more is not kept in memory until the search is done.
+      if (!w.entries.length) w.entries.push(readEntry(r));
     } else if (op === APP.searchResDone || op === APP.bindResponse) {
       this.waiting.delete(id);
       const res = readResult(r);
