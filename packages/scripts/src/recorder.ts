@@ -17,6 +17,15 @@ const FOUND_IDS = 100;
 /** Variables kept for each scope at each step, and characters of each value. */
 const VARIABLES = 200;
 const VALUE_CHARS = 500;
+/**
+ * A value is kept whole until the run is over (a secret learned later is redacted from every earlier snapshot first),
+ * but only its first CAPTURE_CHARS characters: a script that builds a huge text can't fill the memory with copies of it.
+ */
+const CAPTURE_CHARS = 100_000;
+/** The characters of all variable snapshots kept for a run: a run that would keep more stops there, as at RECORD_STEPS. */
+export const RECORD_SNAPSHOT_CHARS = 32_000_000;
+/** The heap a recorded run may use, in bytes, when the caller sets no limit. */
+const RECORD_MEMORY = 1024 * 1024 * 1024;
 
 export interface RecordedStep {
   script: string;
@@ -48,13 +57,15 @@ export interface Recording {
   steps: RecordedStep[];
   /** How it ended: as the run ended, without its client actions or trace. */
   done: Omit<RunResult, 'actions' | 'trace' | 'foundSet'> & { foundSet: number[] };
-  /** It went past RECORD_STEPS steps and was stopped there. */
+  /** It went past RECORD_STEPS steps, or kept more than RECORD_SNAPSHOT_CHARS characters of variables, and was stopped there. */
   stopped?: boolean;
   /** Record changes that couldn't all be listed (the audit had more than were read). */
   incomplete?: boolean;
 }
 
-const capture = (vars: Record<string, string>): Record<string, string> => Object.fromEntries(Object.entries(vars).slice(0, VARIABLES));
+const capture = (vars: Record<string, string>): Record<string, string> =>
+  Object.fromEntries(Object.entries(vars).slice(0, VARIABLES).map(([k, v]) => [k, v.length > CAPTURE_CHARS ? `${v.slice(0, CAPTURE_CHARS)}…` : v]));
+const weight = (vars: Record<string, string>) => Object.entries(vars).reduce((n, [k, v]) => n + k.length + v.length, 0);
 const clip = (vars: Record<string, string>, redact: (value: string, name: string) => string): Record<string, string> => {
   const out: Record<string, string> = {};
   for (const [k, raw] of Object.entries(vars)) {
@@ -80,10 +91,16 @@ export async function recordRun(store: Store, script: string | Script, opts: Run
   const pendings: ReturnType<DebugPoint['pending']>[] = [];
   const start = lastSeq(store);
   let previous: RecordedStep['variables'];
-  const record = (p: DebugPoint) => {
+  let kept = 0;
+  let overBudget = false;
+  const record = (p: DebugPoint): 'halt' | void => {
     const vars = p.variables();
     const variables = { locals: capture(vars.locals), globals: capture(vars.globals) };
     const changed = !previous || !same(previous.locals, variables.locals) || !same(previous.globals, variables.globals);
+    if (changed) {
+      kept += weight(variables.locals) + weight(variables.globals);
+      if (kept > RECORD_SNAPSHOT_CHARS) { overBudget = true; return 'halt'; }
+    }
     previous = variables;
     seqs.push(lastSeq(store));
     pendings.push(p.pending());
@@ -94,7 +111,7 @@ export async function recordRun(store: Store, script: string | Script, opts: Run
       ...(changed ? { variables } : {}),
     });
   };
-  const engine = new ScriptEngine({ ...opts, maxSteps: Math.min(opts.maxSteps ?? RECORD_STEPS, RECORD_STEPS), debug: record, profile: undefined, trace: false });
+  const engine = new ScriptEngine({ ...opts, memoryLimit: opts.memoryLimit ?? RECORD_MEMORY, maxSteps: Math.min(opts.maxSteps ?? RECORD_STEPS, RECORD_STEPS), debug: record, profile: undefined, trace: false });
   const done = await engine.run(store, script);
 
   // Each step's record changes: the audit entries written between it and the next step.
@@ -159,7 +176,7 @@ export async function recordRun(store: Store, script: string | Script, opts: Run
     script: typeof script === 'string' ? script : script.name,
     steps,
     done: { ...ended, foundSet: (foundSet ?? []).slice(0, FOUND_IDS) },
-    ...(done.halted && done.steps >= RECORD_STEPS ? { stopped: true } : {}),
+    ...(overBudget || (done.halted && done.steps >= RECORD_STEPS) ? { stopped: true } : {}),
     ...(incomplete ? { incomplete: true } : {}),
   };
 }
