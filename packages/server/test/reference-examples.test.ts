@@ -498,7 +498,7 @@ test('REST reference examples match live status and response shape', async () =>
       }
       if (method === 'DELETE' && url.pathname.startsWith('/tabularius/admin/v1/uploads/')) {
         for (let attempt = 0; attempt < 100; attempt++) {
-          const progress = await fetch(url, { method: 'GET', headers: { cookie: f.adminCookie }, signal: AbortSignal.timeout(5000) });
+          const progress = await fetch(url, { method: 'GET', headers: { cookie: f.adminCookie, 'x-tabularius-admin': '1' }, signal: AbortSignal.timeout(5000) });
           const state = await progress.json() as { phase?: string };
           if (progress.status !== 200 || !['waiting', 'converting'].includes(state.phase ?? '')) break;
           await new Promise((resolve) => setTimeout(resolve, 100));
