@@ -554,3 +554,14 @@ test('SQL results learn into their own budget and a full budget hides every late
   assert.equal(fields.value('an ordinary later value'), 'an ordinary later value');
   assert.equal(fields.value(cells[0]!), REDACTED);
 });
+
+test('environment-style names and cookie headers are masked', () => {
+  for (const text of [`PGPASSWORD=${before}`, `adminpassword=${before}`, `MYSQL_PWD=${before}`, `Cookie: sid=${before}; theme=dark`, `Set-Cookie: sid=${before}; Path=/; HttpOnly`]) {
+    const safe = redactDiagnosticText(`failed: ${text}`);
+    assert.ok(!safe.includes(before), text);
+    assert.ok(safe.startsWith('failed: '), text);
+  }
+  assert.equal(redactDiagnosticText('compass=north secretary=Ann'), 'compass=north secretary=Ann', 'a name that only contains a short credential word is not one');
+  assert.equal(isCredentialLabelName('PGPASSWORD'), true);
+  assert.equal(isCredentialLabelName('adminpassword'), true);
+});

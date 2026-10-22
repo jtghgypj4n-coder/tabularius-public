@@ -24,7 +24,8 @@ export function sqlMayReadSecret(query: string, secretText: (text: string) => bo
 }
 
 // URL parameters and diagnostic labels need word boundaries: "secretary" is not a secret.
-const CREDENTIAL_LABEL = new RegExp(`(?:^|[^a-z0-9])(?:(?:container|plugin)[ _-]?)?(?:${CREDENTIAL_NAME}|credentials|pass|pw)(?:$|[^a-z0-9])`, 'i');
+// The longer names may follow other letters (PGPASSWORD, adminpassword); the short "pass" and "pw" and the end of every name keep their boundary.
+const CREDENTIAL_LABEL = new RegExp(`(?:(?:^|[^a-z0-9])(?:(?:container|plugin)[ _-]?)?(?:credentials|pass|pw)|[a-z0-9]*(?:${CREDENTIAL_NAME}))(?:$|[^a-z0-9])`, 'i');
 export const isCredentialLabelName = (name: string): boolean => CREDENTIAL_LABEL.test(name.replace(/([a-z0-9])([A-Z])/g, '$1 $2'));
 export const isCredentialParameterName = (name: string): boolean => isCredentialLabelName(name) || /^(?:sig|signature|key|code|state|x-amz-signature)$/i.test(name);
 

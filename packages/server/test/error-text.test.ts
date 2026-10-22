@@ -81,7 +81,7 @@ test('an MCP tool that fails inside the server says so without the cause, which 
   const r = await text('find_records', { database: 'Sales', layout: 'Orders', query: [{ A: '*' }] });
   assert.equal(r.error, true);
   assert.equal(r.text, FAULT_MESSAGE);
-  assert.ok(logged.some((x) => x instanceof Error && /private\.png/.test(x.message)), 'the cause is in the log');
+  assert.ok(logged.some((x) => /private\.png/.test(x instanceof Error ? x.message : String(x))), 'the cause is in the log');
 });
 
 test('errors the code throws on purpose, and a caller\'s own SQL errors, still reach the caller', async (t) => {
@@ -103,6 +103,8 @@ test('callerText and scrubKeys: faults are replaced, written text stays, key tai
     console.error = log;
   }
   assert.equal(callerText(new Error('Layout "Nope" is missing')), 'Layout "Nope" is missing');
+  assert.equal(callerText(new Error('Invalid token: signature mismatch')), 'Invalid token: signature mismatch', 'readable caller messages are not turned into nonsense');
+  assert.ok(!callerText(new Error('failed token=abcdef123456')).includes('abcdef123456'));
   assert.equal(providerText(403, 'This model is not available in your region'), 'This model is not available in your region');
   assert.equal(scrubKeys('bad key ********abcd and AIzaSyA1234567890abcdef'), 'bad key (key) and (key)');
 });

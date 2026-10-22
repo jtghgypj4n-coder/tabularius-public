@@ -107,5 +107,6 @@ export function callerText(e: unknown): string {
     logFault(e);
     return FAULT_MESSAGE;
   }
-  return redactDiagnosticText(e instanceof Error ? e.message : String(e));
+  // Assignments only (name=value, "name": value): a mask on every "label: word" would turn "Invalid token: signature mismatch" into nonsense.
+  return redactDiagnosticText(e instanceof Error ? e.message : String(e), { labels: 'assignments' });
 }
