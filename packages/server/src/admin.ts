@@ -150,6 +150,7 @@ import { aiStatus } from './ai-access.ts';
 import { solutionMap } from './solution-map.ts';
 import { BUILTIN_PACKS, pluginStatus, setPluginEnabled, setPluginSecret } from '../../plugins/src/index.ts';
 import type { Host } from './host.ts';
+import { requestHostName } from './public-origin.ts';
 import { PassphraseNeeded, STORE_EXT } from './host.ts';
 import { BackupStopped, backupFolder, backupKey, backupRunning, stopBackups, backupSets, defaultBackupDir, parseTime, checkRestorePoint, restorePoint, restorePointTo, restoreRange, type BackupSchedule, type ProgressiveSchedule } from './backup.ts';
 import { ENCRYPTED_EXT } from './encrypt.ts';
@@ -1177,7 +1178,7 @@ export class Admin {
           else {
             const before = store.webViewerHosts;
             // A page of this server's own host would run beside the app with scripts and same-origin together.
-            const ownNames = this.host.ownHostNames([String(req.headers.host ?? '').replace(/:\d+$/, '')]);
+            const ownNames = this.host.ownHostNames([requestHostName(req)]);
             const ownHost = (body.hosts as unknown[]).find((h) => typeof h === 'string' && ownNames.some((n) => webViewerEntryCovers(h, n)));
             try {
               if (ownHost) throw new StoreError(960, `"${String(ownHost).trim()}" is the address of this server itself, which a web viewer can't be given: allow other sites' hosts`);

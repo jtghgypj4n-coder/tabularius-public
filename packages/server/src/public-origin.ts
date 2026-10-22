@@ -20,6 +20,11 @@ export function acmeOrigins(domains: readonly string[], port: number): string[] 
   return domains.map((d) => `https://${d}${port === 443 ? '' : `:${port}`}`);
 }
 
+/** The host name a request was addressed to: the Host header without its port. */
+export function requestHostName(req: { headers: { host?: string | string[] } }): string {
+  return String(req.headers.host ?? '').replace(/:\d+$/, '');
+}
+
 /** A hostname in a URL authority needs brackets around an IPv6 literal. */
 export function urlHostname(host: string): string {
   return host.includes(':') && !host.startsWith('[') ? `[${host}]` : host;

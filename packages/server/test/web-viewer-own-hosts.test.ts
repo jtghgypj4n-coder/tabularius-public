@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { request } from 'node:http';
 import { createStore } from '../../store/src/index.ts';
 import { serve } from '../src/index.ts';
 
@@ -55,6 +56,46 @@ test('web viewer hosts: the names this server answers to are refused when listed
     hosted.host.publicUrl = undefined;
     assert.equal(hosted.host.webViewerHostsAll().length, 6);
     assert.equal((await hostsOf()).body.ignored, undefined);
+  } finally {
+    await new Promise<void>((r) => hosted.server.close(() => r()));
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('web viewer hosts: the name a request came in by is ignored for that request, as the list is read', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'web-viewer-own-hosts-'));
+  createStore(join(dir, 'Shop.openhbam.sqlite'));
+  const hosted = await serve({ dir, port: 0, log: () => {} });
+  try {
+    const store = hosted.host.get('Shop')!;
+    store.applyDesign([{ op: 'createTable', name: 'Notes', fields: [{ name: 'Title' }] }]);
+    store.setPassword('Ann', 'pw', '[Full Access]');
+    store.setWebViewerHosts(['maps.example.com', 'app.corp-example.dev', '*.corp-example.dev']);
+    const u = new URL(hosted.url);
+    // Reached by a name the server was never told (a proxy in front, no --public-url): the Host header is the only place it shows.
+    const get = (host: string, path: string, headers: Record<string, string> = {}) => new Promise<{ status: number; headers: Record<string, unknown>; body: string }>((resolve, reject) => {
+      const r = request({ host: u.hostname, port: u.port, path, method: path.includes('sessions') ? 'POST' : 'GET', headers: { host, ...headers } }, (res) => {
+        let body = '';
+        res.on('data', (c) => { body += c; });
+        res.on('end', () => resolve({ status: res.statusCode ?? 0, headers: res.headers, body }));
+      });
+      r.on('error', reject);
+      r.end();
+    });
+    const layoutHosts = async (host: string) => {
+      const login = await get(host, '/fmi/data/vLatest/databases/Shop/sessions', { authorization: 'Basic ' + btoa('Ann:pw') });
+      const auth = { authorization: `Bearer ${JSON.parse(login.body).response.token}` };
+      return (JSON.parse((await get(host, '/tabularius/app/v1/databases/Shop/layouts/Notes', auth)).body) as { webViewerHosts: string[] }).webViewerHosts;
+    };
+    const policy = async (host: string) => String((await get(host, '/app/')).headers['content-security-policy']);
+
+    for (const host of [`app.corp-example.dev:${u.port}`, 'APP.corp-example.dev.']) {
+      assert.deepEqual(await layoutHosts(host), ['maps.example.com'], host);
+      assert.match(await policy(host), /frame-src 'self' about: data: blob: https:\/\/maps\.example\.com;/, host);
+    }
+    // By another name, the wildcard that would cover that one stays, and by the address everything listed is used.
+    assert.deepEqual(await layoutHosts(`127.0.0.1:${u.port}`), ['*.corp-example.dev', 'app.corp-example.dev', 'maps.example.com']);
+    assert.match(await policy(`127.0.0.1:${u.port}`), /https:\/\/\*\.corp-example\.dev https:\/\/app\.corp-example\.dev https:\/\/maps\.example\.com;/);
   } finally {
     await new Promise<void>((r) => hosted.server.close(() => r()));
     rmSync(dir, { recursive: true, force: true });
