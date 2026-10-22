@@ -1,3 +1,4 @@
+import { renameFileSync as renameSync, removeFileSync as rmSync } from '../../store/src/file-ops.ts';
 // Plug-in packages: <id>-<version>.ohplugin is a zip of plugin.json, the file it names as main, and optionally a
 // README and LICENSE, signed by its publisher. The signature (signature.json: { publisherKey, sig }) is Ed25519 over
 // the SHA-256 of every other file in the package, so it proves who published it, not that it is safe: the sandbox and
@@ -5,7 +6,7 @@
 // install.json beside it, so a file changed by hand afterwards isn't loaded.
 
 import { createHash, createPrivateKey, createPublicKey, generateKeyPairSync, sign, verify } from 'node:crypto';
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { readJsonStateSync, updateJsonStateSync } from '../../store/src/durable.ts';
 import { join } from 'node:path';
 import { unzip, zip, type ZipEntry } from '../../calc/src/zip.ts';
@@ -85,10 +86,12 @@ export function readPackage(bytes: Uint8Array): PackageInfo {
   }
   const files = new Map<string, Uint8Array>();
   let total = 0;
+  const spellings = new Set<string>();
   for (const { name, data } of entries) {
     if (name.endsWith('/')) continue;
     if (name.includes('/') || name.includes('\\') || name.startsWith('.')) throw new Error(`the package holds ${name}, and a plug-in is files at the top of the package only`);
-    if (files.has(name)) throw new Error(`the package holds ${name} twice`);
+    if (spellings.has(name.toLowerCase())) throw new Error(`the package holds ${name} twice (ignoring case)`);
+    spellings.add(name.toLowerCase());
     total += data.length;
     if (total > MAX_PACKAGE_BYTES) throw new Error(`the package is over ${MAX_PACKAGE_BYTES / 1024 / 1024} MB unpacked`);
     files.set(name, data);

@@ -1,7 +1,8 @@
 import { chmodSync, closeSync, existsSync, fsyncSync, lstatSync, openSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
-import { basename, dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve, win32, posix } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { retryFileSync } from './file-ops.ts';
 
 /** Injectable operations for testing the durability boundary and failure order. */
 export interface DurableFs {
@@ -25,11 +26,12 @@ export function syncPath(path: string, fs: DurableFs = disk, platform: NodeJS.Pl
 }
 
 /** Publish a completed file only after flushing it, then persist its directory entry. */
-export function writeDurable(staged: string, target: string, fs: DurableFs = disk): void {
-  syncPath(staged, fs);
-  fs.renameSync(staged, target);
-  syncPath(dirname(target), fs);
-  if (dirname(staged) !== dirname(target)) syncPath(dirname(staged), fs);
+export function writeDurable(staged: string, target: string, fs: DurableFs = disk, platform: NodeJS.Platform = process.platform, wait?: (ms: number) => void): void {
+  const paths = platform === 'win32' ? win32 : posix;
+  syncPath(staged, fs, platform);
+  retryFileSync(() => fs.renameSync(staged, target), platform, wait);
+  syncPath(paths.dirname(target), fs, platform);
+  if (paths.dirname(staged) !== paths.dirname(target)) syncPath(paths.dirname(staged), fs, platform);
 }
 
 /** Same-directory, exclusive temporary file: readers see either complete version. */
@@ -46,6 +48,7 @@ export function atomicWrite(path: string, data: string): void {
 const damagedStates = new Map<string, { hash: string; message: string; cause: unknown }>();
 
 export interface StateWriteOptions {
+  platform?: NodeJS.Platform;
   /** Redact parse diagnostics and keep recovery copies private for credential state. */
   sensitive?: boolean;
   mode?: number;
@@ -187,8 +190,8 @@ export function writeStateFileSync(file: string, data: string | Uint8Array, opti
     const opened = fd;
     fd = undefined;
     closeSync(opened);
-    renameSync(tmp, file);
-    if (process.platform !== 'win32') {
+    retryFileSync(() => renameSync(tmp, file), options.platform);
+    if ((options.platform ?? process.platform) !== 'win32') {
       let dirFd: number | undefined;
       try {
         dirFd = openSync(dirname(file), 'r');
@@ -214,7 +217,7 @@ export function writeStateFileSync(file: string, data: string | Uint8Array, opti
 }
 
 /** Preserve malformed state once per distinct content before reporting it; never silently turn it into an empty value. */
-export function readJsonStateSync<T>(file: string, options: Pick<StateWriteOptions, 'sensitive'> = {}): T {
+export function readJsonStateSync<T>(file: string, options: Pick<StateWriteOptions, 'sensitive' | 'platform'> = {}): T {
   sweepStateDirectoryOnce(file);
   let bytes: string;
   try { bytes = readFileSync(file, 'utf8'); }
@@ -231,7 +234,7 @@ export function readJsonStateSync<T>(file: string, options: Pick<StateWriteOptio
   const privateError = () => new Error(`${basename(file)} could not be read: not valid JSON`, { cause: new SyntaxError('Invalid JSON') });
   if (cached?.hash === hash) {
     if (options.sensitive) {
-      if (process.platform !== 'win32') {
+      if ((options.platform ?? process.platform) !== 'win32') {
         try { chmodSync(damaged, 0o600); }
         catch (e) {
           // The operator may have removed the recovery copy since the first read.
@@ -243,7 +246,7 @@ export function readJsonStateSync<T>(file: string, options: Pick<StateWriteOptio
     throw new Error(cached.message, { cause: cached.cause });
   }
   try {
-    const value = JSON.parse(bytes) as T;
+    const value = JSON.parse(bytes.replace(/^\uFEFF/, '')) as T;
     damagedStates.delete(file);
     return value;
   }
@@ -253,7 +256,7 @@ export function readJsonStateSync<T>(file: string, options: Pick<StateWriteOptio
     catch (copyError) {
       if ((copyError as NodeJS.ErrnoException).code !== 'EEXIST') throw new Error(`${file} could not be read: ${(copyError as Error).message}`, { cause: error.cause });
     }
-    if (options.sensitive && process.platform !== 'win32') chmodSync(damaged, 0o600);
+    if (options.sensitive && (options.platform ?? process.platform) !== 'win32') chmodSync(damaged, 0o600);
     damagedStates.set(file, { hash, message: error.message, cause: error.cause });
     throw error;
   }

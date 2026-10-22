@@ -1,3 +1,5 @@
+import { checkPathLength } from '../../store/src/portable-path.ts';
+import { renameFileSync as renameSync, removeFileSync as rmSync } from '../../store/src/file-ops.ts';
 // Backups of a hosted folder, safe while the server runs.
 //
 // Each run writes a backup set: Backups/2026-10-11_174500/<name>.openhbam.sqlite
@@ -23,7 +25,7 @@ import { crashPoint } from '../../store/src/crash-point.ts';
 import { isDamageError } from '../../store/src/damage.ts';
 import { refuseNewer, storedFormat } from '../../store/src/store-format.ts';
 import { DatabaseSync, backup } from 'node:sqlite';
-import { accessSync, chmodSync, constants, copyFileSync, existsSync, linkSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { accessSync, chmodSync, constants, copyFileSync, existsSync, linkSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { basename, dirname, join, resolve } from 'node:path';
 import { STORE_EXT } from './host.ts';
@@ -120,8 +122,8 @@ async function trustSet(setDir: string, passphrase: string | undefined, acceptUn
 }
 
 /** Gives a staged copy the permissions of the file it replaces (or owner-only for a file with none), not whatever the backup copy carried. */
-function giveLiveMode(staged: string, target: string): void {
-  if (process.platform === 'win32') return;
+function giveLiveMode(staged: string, target: string, platform: NodeJS.Platform = process.platform): void {
+  if (platform === 'win32') return;
   let mode = 0o600;
   try { mode = statSync(target).mode & 0o666; } catch { /* a file that is not there yet */ }
   chmodSync(staged, mode);
@@ -169,14 +171,14 @@ function recordFinished(setDir: string, file: string, at: number): void {
  * Backs up every hosted database in `folder` into a new set under `dest`,
  * keeping the newest `keep` sets; encrypted when there is a passphrase.
  */
-export function backupFolder(folder: string, dest = defaultBackupDir(folder), keep = 7, passphrase = backupKey(), options: { now?: () => number; stoppable?: boolean; signal?: AbortSignal; statfs?: StatFs } = {}): Promise<BackupResult> {
+export function backupFolder(folder: string, dest = defaultBackupDir(folder), keep = 7, passphrase = backupKey(), options: { now?: () => number; stoppable?: boolean; signal?: AbortSignal; statfs?: StatFs; platform?: NodeJS.Platform } = {}): Promise<BackupResult> {
   // One at a time per destination (a scheduled backup and "Back up now" at once would pick the same name).
-  const key = resolve(dest);
+  const key = options.platform === 'win32' || (!options.platform && process.platform === 'win32') ? resolve(dest).toLowerCase() : resolve(dest);
   // A backup the administrator may stop (the scheduled ones and Back up now; not the one taken before a restore).
   const stop = options.stoppable ? new AbortController() : undefined;
   if (stop) stoppable.add(stop);
   const scope = cancellationScope([stop?.signal, options.signal]);
-  const run = (backingUp.get(key) ?? Promise.resolve()).then(() => backupOnce(folder, dest, keep, passphrase, options.now ?? Date.now, scope.signal, options.statfs)).finally(() => {
+  const run = (backingUp.get(key) ?? Promise.resolve()).then(() => backupOnce(folder, dest, keep, passphrase, options.now ?? Date.now, scope.signal, options.statfs, options.platform)).finally(() => {
     scope.dispose();
     if (stop) stoppable.delete(stop);
   });
@@ -209,7 +211,7 @@ export function backupRunning(): boolean {
   return stoppable.size > 0;
 }
 
-async function backupOnce(folder: string, dest: string, keep: number, passphrase: string | undefined, now: () => number, signal?: AbortSignal, statfs?: StatFs): Promise<BackupResult> {
+async function backupOnce(folder: string, dest: string, keep: number, passphrase: string | undefined, now: () => number, signal?: AbortSignal, statfs?: StatFs, platform: NodeJS.Platform = process.platform): Promise<BackupResult> {
   const check = () => {
     if (signal?.aborted) throw new BackupStopped();
   };
@@ -223,6 +225,8 @@ async function backupOnce(folder: string, dest: string, keep: number, passphrase
   if (latest && name <= latest) name = afterStamp(latest);
   while (existsSync(join(dest, name)) || existsSync(join(dest, `${name}.partial`))) name = afterStamp(name);
   const partial = join(dest, `${name}.partial`);
+  // Refuse before creating any part of a backup, including manifest staging and database sidecars.
+  for (const f of [...names, 'backup.json']) checkPathLength(join(partial, f), 90, platform);
   mkdirSync(partial, { recursive: true });
   try {
     writeBackupInfo(partial, { finished: {}, sha256: {} });

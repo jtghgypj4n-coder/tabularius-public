@@ -1,3 +1,4 @@
+import { renameFileSync as renameSync } from '../../store/src/file-ops.ts';
 // Statistics logs in FileMaker Server's layout, so the tools people already
 // point at a FileMaker Server's Logs folder (Zabbix and Splunk templates,
 // log viewers, the Admin Console's statistics charts' data) read this server's:
@@ -20,7 +21,7 @@
 //
 // Off with `statsInterval: 0`; `serve --stats-interval 30s` changes the minute.
 
-import { appendFileSync, existsSync, mkdirSync, readFileSync, renameSync, statSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import type { FinishedCall, Metrics } from './metrics.ts';
 import { DEFAULT_LOG_LIMIT, logTime, redactPath } from './server-logs.ts';

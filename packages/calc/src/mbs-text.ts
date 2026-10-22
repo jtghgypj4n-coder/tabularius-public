@@ -31,7 +31,7 @@ const windows1252 = () => (windows ??= singleByte('windows-1252'));
 
 type Encoding = 'utf8' | 'utf16le' | 'utf16be' | 'latin1' | 'windows' | 'mac' | 'hex' | 'base64';
 
-export function encodingOf(name: string): Encoding {
+export function encodingOf(name: string, platform: NodeJS.Platform = process.platform): Encoding {
   const n = name.trim().toLowerCase().replace(/[-_\s]/g, '');
   switch (n) {
     case 'utf8': return 'utf8';
@@ -42,7 +42,7 @@ export function encodingOf(name: string): Encoding {
     case 'mac': case 'macroman': return 'mac';
     case 'hex': return 'hex';
     case 'base64': return 'base64';
-    case '': case 'native': return process.platform === 'darwin' ? 'mac' : process.platform === 'win32' ? 'windows' : 'utf8';
+    case '': case 'native': return platform === 'darwin' ? 'mac' : platform === 'win32' ? 'windows' : 'utf8';
     default: throw new MbsError(`Unknown text encoding "${name}"`);
   }
 }

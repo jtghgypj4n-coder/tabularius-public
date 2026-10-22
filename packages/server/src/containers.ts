@@ -1,3 +1,4 @@
+import path from 'node:path';
 // Container files over HTTP: streamed in pieces, with range requests (so
 // video and audio play and seek, and big downloads resume), ETags, and
 // thumbnails of images and PDFs.
@@ -14,9 +15,9 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { Worker } from 'node:worker_threads';
 import { execFile } from 'node:child_process';
-import { accessSync, constants, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { accessSync, statSync, constants, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { delimiter, join } from 'node:path';
+import { join } from 'node:path';
 import { CONTAINER_CHUNK } from '../../store/src/index.ts';
 import type { Store } from '../../store/src/index.ts';
 import { imageSize } from './thumbnails.ts';
@@ -109,8 +110,10 @@ export class ContainerFiles {
 
   private readonly createWorker: () => Worker;
   private readonly workerTimeoutMs: number;
+  private readonly platform: NodeJS.Platform;
 
-  constructor(options: { createWorker?: () => Worker; workerTimeoutMs?: number } = {}) {
+  constructor(options: { createWorker?: () => Worker; workerTimeoutMs?: number; platform?: NodeJS.Platform } = {}) {
+    this.platform = options.platform ?? process.platform;
     this.createWorker = options.createWorker ?? (() => new Worker(new URL('./thumbnail-worker.ts', import.meta.url)));
     this.workerTimeoutMs = options.workerTimeoutMs ?? WORKER_TIMEOUT_MS;
   }
@@ -435,7 +438,7 @@ export class ContainerFiles {
   /** A thumbnail from pdftoppm or sips, when the machine has one of them. */
   private async withTool(data: Uint8Array, pdf: boolean, size: number, signal?: AbortSignal): Promise<Uint8Array | undefined> {
     if (this.stopped || signal?.aborted) return undefined;
-    this.tools ??= process.env.TABULARIUS_THUMBNAILS === 'builtin' ? {} : { pdftoppm: which('pdftoppm'), sips: process.platform === 'darwin' ? which('sips') : undefined };
+    this.tools ??= process.env.TABULARIUS_THUMBNAILS === 'builtin' ? {} : { pdftoppm: findExecutable('pdftoppm', this.platform), sips: this.platform === 'darwin' ? findExecutable('sips', this.platform) : undefined };
     const run = pdf && this.tools.pdftoppm
       ? (dir: string) => [this.tools!.pdftoppm!, ['-png', '-singlefile', '-f', '1', '-l', '1', '-scale-to', String(size), join(dir, 'in'), join(dir, 'out')]] as const
       : this.tools.sips
@@ -530,14 +533,18 @@ function matches(header: string | undefined, etag: string): boolean {
   return !!header && (header.trim() === '*' || header.split(',').some((t) => t.trim().replace(/^W\//, '') === etag));
 }
 
-function which(cmd: string): string | undefined {
-  for (const dir of (process.env.PATH ?? '').split(delimiter)) {
+/** Native tools only: batch files would require a shell, which thumbnail inputs never enter. */
+export function findExecutable(cmd: string, platform: NodeJS.Platform = process.platform, env: NodeJS.ProcessEnv = process.env, usable: (file: string) => boolean = (file) => {
+  try { accessSync(file, constants.X_OK); return statSync(file).isFile(); } catch { return false; }
+}): string | undefined {
+  const paths = platform === 'win32' ? path.win32 : path.posix;
+  const names = platform === 'win32' ? [`${cmd}.exe`, `${cmd}.com`] : [cmd];
+  for (const entry of (env.PATH ?? env.Path ?? '').split(paths.delimiter)) {
+    const dir = entry.replace(/^"|"$/g, '');
     if (!dir) continue;
-    try {
-      accessSync(join(dir, cmd), constants.X_OK);
-      return join(dir, cmd);
-    } catch {
-      // not here
+    for (const name of names) {
+      const file = paths.join(dir, name);
+      if (usable(file)) return file;
     }
   }
   return undefined;

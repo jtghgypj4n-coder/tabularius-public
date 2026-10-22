@@ -10,7 +10,7 @@ import { substituteText } from './text-budget.ts';
 import { ComplexityError } from './complexity-error.ts';
 import { constants as cryptoConstants, createCipheriv, createDecipheriv, createHash, createHmac, createPrivateKey, createPublicKey, generateKeyPairSync, pbkdf2Sync, privateDecrypt, publicEncrypt, randomBytes, sign, verify } from 'node:crypto';
 import { gunzipSync, gzipSync, inflateSync } from 'node:zlib';
-import { hostname } from 'node:os';
+import { hostname, tmpdir } from 'node:os';
 import type { Env } from './evaluate.ts';
 import { compare } from './evaluate.ts';
 import { knownJavaScript } from './bejs.ts';
@@ -1309,7 +1309,7 @@ const MBS: Record<string, (v: Value[], env: Env) => Value> = {
   'register': () => text('OK'),
   'isregistered': () => num(1),
   'path.lastpathcomponent': (v, env) => text(T(v[0], env).replace(/[/\\]+$/, '').replace(/^.*[/\\:]/, '')),
-  'path.filemakerpathtonativepath': (v, env) => text(convertFromFileMakerPath(T(v[0], env), process.platform === 'win32' ? 2 : 1)),
+  'path.filemakerpathtonativepath': (v, env) => text(convertFromFileMakerPath(T(v[0], env), (env.ctx.platform ?? process.platform) === 'win32' ? 2 : 1)),
   'files.fileextension': (v, env) => text(extensionOf(fileNameOf(v[0], env))),
   'container.getbase64': (v, env) => text(Buffer.from(bytesOf(v[0], env)).toString('base64')),
   'container.gettotalsize': (v, env) => num(bytesOf(v[0], env).length),
@@ -1321,7 +1321,7 @@ const MBS: Record<string, (v: Value[], env: Env) => Value> = {
     const mime = MIME[extensionOf(fileNameOf(v[0], env)).toLowerCase()] ?? 'application/octet-stream';
     return text(`data:${mime};base64,` + Buffer.from(bytesOf(v[0], env)).toString('base64'));
   },
-  'folders.systemtemporary': () => text('/tmp'),
+  'folders.systemtemporary': () => text(tmpdir()),
 };
 // The Text functions (mbs-text.ts): each takes its parameters as text and gives text or a number.
 for (const [name, f] of Object.entries(MBS_TEXT)) {

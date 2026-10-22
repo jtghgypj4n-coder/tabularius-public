@@ -1,3 +1,4 @@
+import { portableName } from '../../store/src/portable-path.ts';
 // A new solution from a description: the assistant plans the whole file (tables, fields, relationships, value lists,
 // layouts and starter scripts) against an empty scratch file, so the plan is checked and its scripts dry-run before
 // anything exists; the server administrator reviews it in the admin console, and only then is the file created, with
@@ -19,7 +20,7 @@ const lower = (s: string) => s.toLowerCase();
 /** Why a name can't be a database's: it must start with a letter or digit and use only letters, digits, spaces, - and _ (so it cannot name a path). */
 export function databaseNameProblem(name: unknown): string | undefined {
   const clean = typeof name === 'string' ? name.trim() : '';
-  return /^[\p{L}\p{N}][\p{L}\p{N} _-]{0,99}$/u.test(clean) ? undefined : 'Database names use letters, digits, spaces, - and _';
+  return portableName(clean) && /^[\p{L}\p{N}][\p{L}\p{N} _-]{0,99}$/u.test(clean) ? undefined : 'Database names use letters, digits, spaces, - and _ and cannot be Windows device names';
 }
 
 /** A database name the server could host: not taken, letters, digits, spaces, - and _. */

@@ -1,3 +1,4 @@
+import { sanitize } from './fmexport.ts';
 import type { Field, FieldType, Table } from '../../fmp12/src/index.ts';
 import type { Privileges } from './privileges.ts';
 import { Store, StoreError } from './store.ts';
@@ -408,9 +409,14 @@ export function exportSql(store: Store, sink: ExportSqlSink, opts: ExportSqlOpti
 
   // Records.
   const filesFolder = opts.filesFolder ?? 'files';
-  const safe = (s: string) => s.replace(/[^A-Za-z0-9._-]+/g, '_').slice(0, 80) || 'file';
+  const safe = sanitize;
+  const folders = new Set<string>();
   for (const t of tabs) {
     if (!t.cols.length && !t.rows) continue;
+    const baseFolder = safe(t.table.name);
+    let tableFolder = baseFolder;
+    for (let n = 2; folders.has(tableFolder.toLowerCase()); n++) tableFolder = `${baseFolder}-${n}`;
+    folders.add(tableFolder.toLowerCase());
     const insert = `INSERT INTO ${q(t.name)} (${[q(t.idColumn), ...t.cols.map((c) => q(c.column))].join(', ')}) VALUES\n`;
     let pending: string[] = [];
     const flush = () => {
@@ -428,7 +434,7 @@ export function exportSql(store: Store, sink: ExportSqlSink, opts: ExportSqlOpti
             if (raw === null || raw === undefined || raw === '') return 'NULL';
             const file = store.container(Number(raw));
             if (!file) { report.unfittingValues++; return 'NULL'; }
-            const path = `${filesFolder}/${safe(t.table.name)}/${last}-${c.field.id}-${safe(file.filename ?? 'container')}`;
+            const path = `${filesFolder}/${tableFolder}/${last}-${c.field.id}-${safe(file.filename ?? 'container')}`;
             sink.file(path, file.data);
             report.containerFiles++;
             return str(path);

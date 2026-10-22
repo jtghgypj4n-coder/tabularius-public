@@ -2,7 +2,7 @@
 
 `tabularius service install` writes one file for the system's own service manager; `tabularius service print <folder>` shows it without installing. This page says what each setting in those files is for, so you can judge a change before making it. Tests check every file against a strict reader for its format (`packages/cli/test/service-validators.ts`), compare it with a saved copy (`packages/cli/test/golden/service/`), and check that the arguments, the working folder and the writable folders read back as given, even for a folder called `My Data/$HOME/100%` or `Bob's`.
 
-What is **not** checked: that macOS or Windows accepts the file when it loads it. The tests run on Linux; the launchd and Task Scheduler files have been read against Apple's and Microsoft's published formats, not loaded on those systems. Run `tabularius service install` once on each system you rely on and look at the result.
+What is **not** checked: that macOS or Windows accepts the file when it loads it. The files have static and simulated tests; the launchd and Task Scheduler files have been read against Apple's and Microsoft's published formats, not loaded on those systems. Run `tabularius service install` once on each system you rely on and look at the result.
 
 ## systemd (Linux)
 
@@ -48,13 +48,13 @@ Left out on purpose:
 | `RestartOnFailure` 1 minute, 255 times | Starts again a minute after it stops unexpectedly. Microsoft's schema allows 1 to 255 for the count (an earlier version of this file said 999, which the schema does not allow). |
 | `ExecutionTimeLimit` `PT0S`, `MultipleInstancesPolicy` `IgnoreNew` | A server runs for good, and never twice. |
 
-The stop timeout and what Windows sends a console program on stop are not covered here; see the Windows lifecycle audit when it exists.
+The CLI requests graceful shutdown through a PID-specific file in the hosted folder and waits before task restart/removal. A timeout refuses forced termination. Direct Task Scheduler End, logoff and OS shutdown are still unverified; use the [Windows readiness checklist](audits/audit-windows.md). An older server without this listener must be stopped cleanly before upgrading. <!-- known-difference: Windows hosting ;; Direct Task Scheduler End, logoff and OS shutdown are unverified ;; The server may stop without its graceful cleanup ;; Try each on a Windows machine with the scheduled task installed -->
 
 ## Secrets
 
 Use `--mcp-token-file F` or `--replication-token-file F` after `--` to read a token from a private regular file. Install checks that the file exists, contains one nonempty line, and on Unix cannot be read by group or others (`chmod 600 F`). Relative paths become absolute paths at install time because the service starts in another working directory. The service file names the path; it does not copy the token. A symlink to a regular file is followed and its target is checked. The service account must be able to read the file when it starts. Key files (`--ai-key-file`, `--tls-key`) are also named by path.
 
-Inline `--mcp-token` and `--replication-token` remain supported. Their values appear in the process list and are written into the service file, which only its owner can read. Install prints the "written into the service file" note only for inline token options. The environment alternatives are `TABULARIUS_MCP_TOKEN_FILE` and `TABULARIUS_REPLICATION_TOKEN_FILE` for `serve`; `standby` reads the replication file with `--token-file` or `TABULARIUS_REPLICATION_TOKEN_FILE`.
+Inline `--mcp-token` and `--replication-token` remain supported. Their values appear in the process list and are written into the service file. POSIX modes restrict that file to its owner; on Windows, modes do not enforce or verify that privacy, so restrict the file and task ACLs, including inherited permissions, to the service identity and trusted administrators. Install prints the "written into the service file" note only for inline token options. The environment alternatives are `TABULARIUS_MCP_TOKEN_FILE` and `TABULARIUS_REPLICATION_TOKEN_FILE` for `serve`; `standby` reads the replication file with `--token-file` or `TABULARIUS_REPLICATION_TOKEN_FILE`.
 
 ## What install refuses
 

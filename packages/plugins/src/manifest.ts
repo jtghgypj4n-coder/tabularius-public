@@ -2,6 +2,7 @@
 // function index the file reader decodes), and the permissions it asks for. Design: research/plugins/plugin-system.md.
 
 import { z } from 'zod';
+import { portableName } from '../../store/src/portable-path.ts';
 
 /** The plug-in API this Tabularius offers. A plug-in's `api` range must include it. */
 export const HOST_API = '1.0';
@@ -45,7 +46,7 @@ export const PluginFunctionSpec = z.object({
 
 export const PluginManifest = z.object({
   /** Reverse-DNS, unique: org.example.troi-file. */
-  id: z.string().regex(/^[a-z0-9]+(?:[.-][a-z0-9]+)+$/),
+  id: z.string().regex(/^[a-z0-9]+(?:[.-][a-z0-9]+)+$/).max(100).refine(portableName, 'not a portable file name'),
   name: z.string().min(1),
   version: z.string().regex(SEMVER),
   /** Host API range it was written for, e.g. "^1.0". */
@@ -53,7 +54,7 @@ export const PluginManifest = z.object({
   publisher: z.string().min(1),
   license: z.string().optional(),
   runtime: z.enum(['js', 'wasm']).default('js'),
-  main: z.string().regex(/^[^/\\]+\.(?:js|mjs|wasm)$/),
+  main: z.string().regex(/^[^/\\]+\.(?:js|mjs|wasm)$/).refine(portableName, 'not a portable file name'),
   /** FileMaker plug-in ids it stands in for. */
   owners: z.array(z.string().regex(OWNER)).default([]),
   functions: z.array(PluginFunctionSpec).min(1),

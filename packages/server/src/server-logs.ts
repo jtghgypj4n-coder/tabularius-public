@@ -1,3 +1,5 @@
+import { renameFile as rename } from '../../store/src/file-ops.ts';
+import { renameFileSync as renameSync } from '../../store/src/file-ops.ts';
 // The server's logs, like FileMaker Server's Logs folder: tab-separated text
 // files in <folder>/Logs, each renamed <name>-old.log when it reaches the size
 // limit and started again, so a log never fills the disk.
@@ -23,8 +25,8 @@
 
 import { isCredentialParameterName } from '../../scripts/src/credentials.ts';
 import { redactDiagnosticText } from '../../scripts/src/redaction.ts';
-import { appendFile, mkdir, rename, stat } from 'node:fs/promises';
-import { existsSync, mkdirSync, readFileSync, statSync, appendFileSync, renameSync } from 'node:fs';
+import { appendFile, mkdir, stat } from 'node:fs/promises';
+import { existsSync, mkdirSync, readFileSync, statSync, appendFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 export const LOGS = ['Event', 'Access', 'ScriptEvent', 'fmdapi', 'Admin'] as const;

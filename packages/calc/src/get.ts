@@ -4,9 +4,13 @@
 // through ctx.now. Layout {{CurrentDate}}/{{CurrentTime}} read the browser clock.
 
 import { randomUUID } from 'node:crypto';
-import { hostname, networkInterfaces, release } from 'node:os';
+import { hostname, networkInterfaces, release, tmpdir } from 'node:os';
 import type { Env } from './evaluate.ts';
 import { EMPTY, num, text, timestampFromDate, dayNumber, type Value } from './values.ts';
+
+function systemPlatform(platform: NodeJS.Platform = process.platform): number {
+  return platform === 'win32' ? -2 : platform === 'darwin' ? 1 : 5;
+}
 
 function localParts(d: Date) {
   return { day: dayNumber(d.getFullYear(), d.getMonth() + 1, d.getDate()), seconds: d.getHours() * 3600 + d.getMinutes() * 60 + d.getSeconds() };
@@ -35,7 +39,7 @@ const DEFAULTS: Record<string, (env: Env) => Value> = {
   lasterrorlocation: () => EMPTY,
   applicationversion: () => text('tabularius 0.1'),
   applicationlanguage: () => text('English'),
-  systemplatform: () => num(process.platform === 'win32' ? -2 : process.platform === 'darwin' ? 1 : 5),
+  systemplatform: (env) => num(systemPlatform(env.ctx.platform)),
   systemlanguage: () => text('English'),
   // Empty, as FileMaker gives in WebDirect and on a Linux host.
   systemappearance: () => EMPTY,
@@ -51,7 +55,8 @@ const DEFAULTS: Record<string, (env: Env) => Value> = {
   scriptresult: () => EMPTY,
   scriptname: () => EMPTY,
   documentspath: () => text('/'),
-  temporarypath: () => text('/tmp/'),
+  // Host temporary path; vendor-specific spelling is unverified. Scripts override this with their sandbox.
+  temporarypath: () => text(tmpdir().replace(/\\/g, '/').replace(/\/$/, '') + '/'),
   desktoppath: () => text('/'),
   preferencespath: () => text('/'),
   multiuserstate: () => num(2),
@@ -104,7 +109,7 @@ const DEFAULTS: Record<string, (env: Env) => Value> = {
     const plugins = env.ctx.installedPlugins?.() ?? [];
     return text(JSON.stringify({
       APIVers: 2,
-      environment: { architecture: process.arch === 'x64' ? 'x86_64' : process.arch, platform: process.platform === 'win32' ? -2 : process.platform === 'darwin' ? 1 : 5, version: release() },
+      environment: { architecture: process.arch === 'x64' ? 'x86_64' : process.arch, platform: systemPlatform(env.ctx.platform), version: release() },
       plugins: plugins.length ? plugins.map((p) => ({ name: p.name, id: p.id, version: p.version, state: p.state, filepath: '', description: p.description ?? '' })) : null,
     }));
   },

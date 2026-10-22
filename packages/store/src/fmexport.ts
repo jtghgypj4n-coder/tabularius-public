@@ -16,6 +16,8 @@ import type { Field, Table } from '../../fmp12/src/index.ts';
 import type { Store } from './store.ts';
 import { saveAsXml } from './save-as-xml.ts';
 import { esc } from './snippet-xml.ts';
+import { createHash } from 'node:crypto';
+import { portableName } from './portable-path.ts';
 
 /** FileMaker's FMPXMLRESULT field-type vocabulary (TYPE attribute). */
 const FIELD_TYPE: Record<Field['type'], string> = {
@@ -139,7 +141,12 @@ export interface FmExportOptions {
 }
 
 /** Make an arbitrary name safe for a path segment. Exported so tests use the same rule. */
-export const sanitize = (s: string) => s.replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^_+|_+$/g, '') || 'x';
+export const sanitize = (s: string): string => {
+  let name = s.replace(/[^A-Za-z0-9._-]+/g, '_').replace(/^_+|[_. ]+$/g, '') || 'x';
+  // Bounded components leave room for a record id, field name and staging suffix.
+  if (name.length > 48) name = `${name.slice(0, 32)}-${createHash('sha256').update(s).digest('hex').slice(0, 12)}`;
+  return portableName(name) ? name : `_${name}`;
+};
 
 /**
  * Stringify one stored value as FMPXMLRESULT DATA text. Timestamps are stored
@@ -172,8 +179,8 @@ const repetitionValues = (raw: unknown, repeating: boolean): unknown[] => {
 
 /** Reserve a unique path, appending -2, -3… when a sanitised name collides. */
 const uniquePath = (used: Set<string>, path: string): string => {
-  if (!used.has(path)) {
-    used.add(path);
+  if (!used.has(path.toLowerCase())) {
+    used.add(path.toLowerCase());
     return path;
   }
   const dot = path.lastIndexOf('.');
@@ -181,8 +188,8 @@ const uniquePath = (used: Set<string>, path: string): string => {
   const ext = dot > path.lastIndexOf('/') ? path.slice(dot) : '';
   for (let n = 2; ; n++) {
     const candidate = `${stem}-${n}${ext}`;
-    if (!used.has(candidate)) {
-      used.add(candidate);
+    if (!used.has(candidate.toLowerCase())) {
+      used.add(candidate.toLowerCase());
       return candidate;
     }
   }

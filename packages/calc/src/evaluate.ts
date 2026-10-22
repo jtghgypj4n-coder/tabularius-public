@@ -36,6 +36,8 @@ export interface CustomFunctionDef {
 }
 
 export interface CalcContext {
+  /** Host platform override for deterministic evaluation and platform tests. */
+  platform?: NodeJS.Platform;
   /** Repetition being evaluated in a repeating calculation field; defaults to 1. */
   calculationRepetition?: number;
   /** Field and occurrence names, so names with spaces parse. Build once with `new NameTable(...)` and reuse. */

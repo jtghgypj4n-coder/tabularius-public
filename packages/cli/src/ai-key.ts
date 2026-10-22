@@ -21,7 +21,7 @@ export interface AiKey {
 export const defaultKeyFile = () => join(process.env.TABULARIUS_HOME ?? join(homedir(), '.openhbam'), 'anthropic-key');
 
 /** The key to use, or throws saying what to fix. `file` is an explicit path (an error if it is missing). */
-export function resolveAiKey(env: NodeJS.ProcessEnv, file?: string, workspaceId?: string): AiKey {
+export function resolveAiKey(env: NodeJS.ProcessEnv, file?: string, workspaceId?: string, platform: NodeJS.Platform = process.platform): AiKey {
   if (workspaceId !== undefined && !/^wrkspc_[A-Za-z0-9_-]+$/.test(workspaceId)) {
     throw new Error('serve: --ai-workspace-id looks like wrkspc_… (find it in the Console under Settings > Workspaces)');
   }
@@ -33,8 +33,9 @@ export function resolveAiKey(env: NodeJS.ProcessEnv, file?: string, workspaceId?
       ? `serve: --ai-key-file ${path} does not exist`
       : `serve: --ai needs an Anthropic API key: put it in ${path} (chmod 600) or set ANTHROPIC_API_KEY`);
   }
-  // Group- or world-readable means other users on this computer could read the key.
-  if (process.platform !== 'win32' && statSync(path).mode & 0o077) {
+  // Windows privacy depends on the folder/file ACL, which Node mode bits cannot verify.
+  // On POSIX, group- or world-readable means other users could read the key.
+  if (platform !== 'win32' && statSync(path).mode & 0o077) {
     throw new Error(`serve: ${path} can be read by other users; run: chmod 600 ${path}`);
   }
   const apiKey = readFileSync(path, 'utf8').trim();

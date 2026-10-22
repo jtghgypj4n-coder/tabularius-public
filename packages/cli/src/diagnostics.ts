@@ -1,3 +1,5 @@
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 // `tabularius diagnostics <folder> [--out file.zip|folder] [--include-names] [--full]`: a bundle of facts for a bug report
 // that cannot carry what must not be sent. Two layers hold it to that:
 //
@@ -377,7 +379,7 @@ function safeFlags(args: string[]): string[] {
 
 function commitOfThisInstall(): string {
   try {
-    const root = resolve(dirname(new URL(import.meta.url).pathname), '..', '..', '..');
+    const root = diagnosticRoot();
     if (!existsSync(join(root, '.git'))) return 'not a git checkout';
     return execFileSync('git', ['-C', root, 'rev-parse', 'HEAD'], { encoding: 'utf8', timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'] }).trim();
   } catch {
@@ -647,4 +649,10 @@ export function writeBundle(bundle: Map<string, string>, out: string, now = new 
 /** `tabularius-diagnostics-20261017-153000.zip`, in UTC. */
 export function defaultBundleName(now = new Date()): string {
   return `tabularius-diagnostics-${now.toISOString().replace(/[-:]/g, '').replace(/\..*$/, '').replace('T', '-')}.zip`;
+}
+
+/** Resolve module URLs without treating escaped spaces or drive letters as POSIX paths. */
+export function diagnosticRoot(url = import.meta.url, platform: NodeJS.Platform = process.platform): string {
+  const paths = platform === 'win32' ? path.win32 : path.posix;
+  return paths.resolve(paths.dirname(fileURLToPath(url, { windows: platform === 'win32' })), '..', '..', '..');
 }

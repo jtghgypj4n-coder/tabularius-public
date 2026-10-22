@@ -129,3 +129,7 @@ who made it.
    `curl -fsSL https://github.com/sitotisai/tabularius/releases/download/v<version>-rc.1/get.sh | sh -s -- --version <version>-rc.1`
    on a clean machine, and `tabularius demo`. Delete the pre-release and its tag when done.
 4. Tag the commit: `git tag v<version> && git push origin v<version>`. Read the draft release, then publish it.
+
+## Windows readiness
+
+Windows execution is unverified. See the [Windows readiness audit](audits/audit-windows.md) for the offline findings, simulated tests, installer trust boundary, and the native install/service/upgrade/backup checklist required before claiming Windows support. The PowerShell source installer requires trusted local source and verifies any Node download before extraction. <!-- known-difference: Windows hosting ;; Windows execution is unverified ;; A Windows build or install can fail where the offline tests pass ;; Follow the Windows readiness checklist on a real Windows machine -->
