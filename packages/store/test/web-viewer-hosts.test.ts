@@ -182,3 +182,13 @@ test('a stored list that cannot be read allows nothing, on every read, and says 
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('cloud storage, static hosting and platform names are public suffixes too', () => {
+  for (const bad of [
+    '*.blob.core.windows.net', '*.web.core.windows.net', '*.file.core.windows.net', '*.dfs.core.windows.net', '*.storage.googleapis.com', '*.firebaseio.com', '*.amplifyapp.com',
+    '*.azureedge.net', '*.sharepoint.com', '*.up.railway.app', '*.ondigitalocean.app', '*.s3.dualstack.us-east-1.amazonaws.com', '*.s3-fips.us-gov-west-1.amazonaws.com',
+    '*.s3.cn-north-1.amazonaws.com.cn', '*.compute.amazonaws.com.cn', '*.Blob.Core.Windows.NET',
+  ]) assert.throws(() => normalizeWebViewerHost(bad), /public suffix/, bad);
+  // One storage account, one bucket or one project is one party's.
+  for (const ok of ['*.myaccount.blob.core.windows.net', '*.mybucket.s3.us-east-1.amazonaws.com', '*.mybucket.s3.dualstack.us-east-1.amazonaws.com', '*.myproject.firebaseio.com', '*.myorg.sharepoint.com', 'storage.googleapis.com']) assert.equal(normalizeWebViewerHost(ok), ok, ok);
+});
