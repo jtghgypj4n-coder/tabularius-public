@@ -2223,7 +2223,8 @@ export class ScriptEngine {
       // A trigger that can't run (its parameter fails, it is skipped) leaves the script that set it off going on.
       return undefined;
     } finally {
-      if (w !== caller && this.windows.includes(caller)) this.current = caller;
+      // Unless the trigger script selected another window itself: that one stays selected, as after a subscript.
+      if (w !== caller && this.current === w && this.windows.includes(caller)) this.current = caller;
       f.window = this.current;
       running.delete(key);
       this.lastError = kept.error;

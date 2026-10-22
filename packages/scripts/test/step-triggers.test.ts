@@ -623,6 +623,26 @@ test('a trigger set off by another window\'s script reads its own window: name, 
   }
 });
 
+test('a trigger set off by another window\'s script that selects a third window leaves that window selected', async () => {
+  store.applyDesign([{ op: 'createScript', name: 'Hop', text: 'If [ $$hop ]\nSelect Window [ Name: "Third" ]\nEnd If' }]);
+  const people = store.design('People')!.triggers!;
+  store.applyDesign([{ op: 'updateLayout', layout: 'People', design: { triggers: [trigger('People', 'OnLayoutExit', 'Hop')] } }]);
+  try {
+    const r = await run(`
+      Set Variable [ $first ; Value: Get ( WindowName ) ]
+      New Window [ "Third" ]
+      New Window [ "Second" ]
+      Go to Layout [ "Places" ]
+      Set Variable [ $$hop ; Value: True ]
+      Close Window [ Name: $first ]
+      Set Variable [ $$hop ; Value: False ]
+      Exit Script [ Text Result: Get ( WindowName ) ]`);
+    assert.equal(r.result, 'Third');
+  } finally {
+    store.applyDesign([{ op: 'updateLayout', layout: 'People', design: { triggers: people } }]);
+  }
+});
+
 test('Insert Text, Insert Calculated Result, Paste, Cut and Clear set off the field object\'s OnObjectModify; Set Field does not', async () => {
   store.applyDesign([{ op: 'createScript', name: 'Seen', text: 'Set Variable [ $$log ; Value: $$log & Get ( ScriptParameter ) & "=" & People::Name & ";" ]' }]);
   await withTriggers([trigger('People', 'OnObjectModify', 'Seen', { parameter: 'Get ( ActiveFieldName )' })], [], async () => {
