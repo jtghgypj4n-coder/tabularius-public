@@ -198,7 +198,21 @@ function dataRows(sheet: SheetInput, width: number): { rows: string[][]; ragged:
   return { rows, ragged };
 }
 
-const stripNotionLink = (s: string) => s.replace(/\s*\(https?:\/\/[^)\s]*\)\s*$/, '');
+/** The cell without a link in brackets at its end, `Name (https://...)`: found from the end, not by trying every start. */
+export function stripNotionLink(s: string): string {
+  let end = s.length;
+  while (end > 0 && /\s/.test(s[end - 1])) end--;
+  if (s[end - 1] !== ')') return s;
+  // The link holds no `)` and no blank, so it lies in the last stretch of such characters.
+  let from = end - 1;
+  while (from > 0 && s[from - 1] !== ')' && !/\s/.test(s[from - 1])) from--;
+  const stretch = s.slice(from, end - 1);
+  const starts = ['(http://', '(https://'].map((p) => stretch.indexOf(p)).filter((i) => i >= 0);
+  if (!starts.length) return s;
+  let start = from + Math.min(...starts);
+  while (start > 0 && /\s/.test(s[start - 1])) start--;
+  return s.slice(0, start);
+}
 
 /** The linked names in a cell: the whole value if it names a row, otherwise its comma-separated parts. */
 function linkNames(value: string, known: ReadonlySet<string>): string[] {

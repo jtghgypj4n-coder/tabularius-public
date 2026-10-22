@@ -41,6 +41,23 @@ const FIELD_KEYS = new Set(['name', 'type', 'nullable', 'primary', 'unique', 'gl
 
 const bad = (message: string) => new ApiError(8310, message, 400);
 
+/**
+ * The name and length in a SQL field type ("VARCHAR(100)", "double precision"): the name in capitals with one space
+ * between words, or undefined when the text is not a name with an optional length in brackets. Read from the end,
+ * not by backtracking (the pattern for it was cubic on a long run of blanks).
+ */
+export function sqlType(type: string): { name: string; length?: string } | undefined {
+  let name = type.trim();
+  let length: string | undefined;
+  if (name.endsWith(')')) {
+    const open = name.lastIndexOf('(');
+    length = open < 0 ? undefined : /^\s*(\d+)\s*$/.exec(name.slice(open + 1, -1))?.[1];
+    if (length === undefined) return undefined;
+    name = name.slice(0, open).trimEnd();
+  }
+  return /^[a-z][a-z ]*$/i.test(name) ? { name: name.toUpperCase().replace(/ +/g, ' '), length } : undefined;
+}
+
 /** One field of a request, as a design change's field. */
 function fieldSpec(raw: unknown, native = false): FieldSpec {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw bad('Each field is an object with a "name" and a "type"');
@@ -48,8 +65,8 @@ function fieldSpec(raw: unknown, native = false): FieldSpec {
   for (const k of Object.keys(f)) if (!FIELD_KEYS.has(k)) throw bad(`A field has no "${k}" property`);
   if (typeof f.name !== 'string' || !f.name.trim()) throw bad('Each field needs a "name"');
   if (typeof f.type !== 'string') throw bad(`${f.name}: give a "type", such as "VARCHAR(100)", "NUMERIC" or "DATE"`);
-  const m = /^\s*([a-z][a-z ]*?)\s*(?:\(\s*(\d+)\s*\))?\s*$/i.exec(f.type);
-  const sqlName = m?.[1].toUpperCase().replace(/\s+/g, ' ');
+  const parsed = sqlType(f.type);
+  const sqlName = parsed?.name;
   const nativeTypes: Record<string, FieldType> = { BOOLEAN: 'boolean', BOOL: 'boolean', INTEGER: 'integer', INT: 'integer', BIGINT: 'integer', DECIMAL: 'decimal', NUMERIC: 'decimal', JSON: 'json', JSONB: 'json', UUID: 'uuid' };
   const type = sqlName ? (native ? nativeTypes[sqlName] ?? TYPES[sqlName] : TYPES[sqlName]) : undefined;
   if (!type) throw bad(`${f.name}: "${f.type}" is not a field type`);
@@ -61,7 +78,7 @@ function fieldSpec(raw: unknown, native = false): FieldSpec {
   if (f.nullable === false || f.primary) validation.notEmpty = true;
   if (f.unique || f.primary) validation.unique = true;
   // VARCHAR(n): FileMaker keeps the length as a maximum-characters check (inferred from its SQL DDL).
-  if (m![2] !== undefined && type === 'text') validation.maxLength = Number(m![2]);
+  if (parsed?.length !== undefined && type === 'text') validation.maxLength = Number(parsed.length);
   if (Object.keys(validation).length) options.validation = { strict: true, ...validation };
   if (f.global) options.global = true;
   if (f.repetitions !== undefined) {

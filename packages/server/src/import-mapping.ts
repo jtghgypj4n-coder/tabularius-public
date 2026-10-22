@@ -10,7 +10,7 @@ import { PendingApprovalError, PrivilegeError, StoreError, stripFormulaGuard, wr
 import { q } from '../../store/src/import.ts';
 import { excelDate } from '../../scripts/src/index.ts';
 import { redactSecrets, secretName } from './ai-output.ts';
-import { CleanupError, journalFieldChange, snapshotFields, undoCleanup } from './cleanup.ts';
+import { CleanupError, journalFieldChange, snapshotFields, splitExtension, undoCleanup } from './cleanup.ts';
 import { layoutProfile } from './insight.ts';
 
 export type Cell = string | number;
@@ -449,10 +449,13 @@ export function partOf(v: string, part: Part): string | undefined {
  */
 export function phone(v: string): string | undefined {
   // A cell with a line break in it holds more than one number (or a note): not a phone number to tidy.
-  const m = /[\r\n]/.test(v.trim()) ? null : /^(.*?)(?:\s*(?:x|ext\.?|extension|#)\s*(\d+))?\s*$/i.exec(v.trim());
-  if (!m) return undefined;
-  const body = m[1];
-  const ext = m[2] ? ` x${m[2]}` : '';
+  const trimmed = v.trim();
+  if (/[\r\n]/.test(trimmed)) return undefined;
+  const split = splitExtension(trimmed, true);
+  const body = split ? split.text : trimmed;
+  // A line break (U+2028, U+2029) is not part of a number, the way a `.` does not match one.
+  if (/[\u2028\u2029]/.test(body)) return undefined;
+  const ext = split ? ` x${split.digits}` : '';
   const d = body.replace(/\D/g, '');
   if (/[^\d\s()+.\-/]/.test(body) || d.length < 7) return undefined;
   const intl = /^\s*(\+|00)/.test(body);
