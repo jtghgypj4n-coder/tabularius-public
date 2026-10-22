@@ -15,6 +15,7 @@ import { parseAllowList } from '../../scripts/src/net-guard.ts';
 import { trustedProxyAddresses, useForwardedFor, type ProxyHeader } from './client-address.ts';
 import { acmeOrigins, mcpOriginAllowed, onForwardedWithoutPublicUrl, validatePublicUrl, urlHostname } from './public-origin.ts';
 import { readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { certificateManaged, ImportedCertificates } from './cert-import.ts';
 import { guideIndex, guidePage } from './docs.ts';
@@ -86,6 +87,7 @@ import { ConversionGuides } from './conversion-guide.ts';
 import { SecurityApi } from './security.ts';
 import { DebugApi } from './debug.ts';
 import { sendError, wantsPage } from './pages.ts';
+import { sweepOrphanUploadFolders } from './container-uploads.ts';
 
 export { Host, STORE_EXT } from './host.ts';
 export { DataApi } from './dataapi.ts';
@@ -784,6 +786,12 @@ export async function serve(opts: ServeOptions): Promise<{ server: Server; host:
     }, 3_600_000);
     auditPruning.unref();
     disposers.push(() => clearInterval(auditPruning));
+    const uploadTmp = process.env.TABULARIUS_UPLOAD_TMP || tmpdir();
+    const uploadSweepTimer = setInterval(() => {
+      sweepOrphanUploadFolders({ tmp: uploadTmp, log: (message) => logs.write('Event', 'Warning', '', message) });
+    }, 6 * 60 * 60 * 1000);
+    uploadSweepTimer.unref();
+    disposers.push(() => clearInterval(uploadSweepTimer));
     // Live event streams stay open; closing the server ends them.
     let finishedClosing!: () => void;
     const closing = new Promise<void>((resolve) => { finishedClosing = resolve; });
@@ -834,6 +842,11 @@ export async function serve(opts: ServeOptions): Promise<{ server: Server; host:
       const listening = () => {
         server.off('error', failed);
         try {
+          // Startup cleanup is best-effort and runs outside the listen callback's critical path.
+          const firstUploadSweep = setImmediate(() => {
+            sweepOrphanUploadFolders({ tmp: uploadTmp, log: (message) => logs.write('Event', 'Warning', '', message) });
+          });
+          firstUploadSweep.unref();
           const addr = server.address();
           const port = typeof addr === 'object' && addr ? addr.port : opts.port;
           if (auto && port) auto.httpsPort = port;

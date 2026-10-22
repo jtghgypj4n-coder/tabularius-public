@@ -13,7 +13,7 @@
 // (before a byte is taken in) and again when it finishes, with the account's privileges at that moment.
 
 import { createHash, randomBytes, type Hash } from 'node:crypto';
-import { closeSync, mkdirSync, mkdtempSync, openSync, rmSync, writeSync } from 'node:fs';
+import { closeSync, mkdirSync, mkdtempSync, openSync, rmSync, writeFileSync, writeSync, lstatSync, readdirSync, readSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ContainerFile } from '../../store/src/index.ts';
@@ -28,6 +28,84 @@ export const MAX_CONTAINER_UPLOADS_PER_ACCOUNT = 4;
 export const MAX_CONTAINER_UPLOAD_BYTES = 8 * 1024 * 1024 * 1024;
 /** An upload that has received nothing for this long is abandoned (TABULARIUS_UPLOAD_IDLE_HOURS, default 24; 0 keeps them). */
 const IDLE_MS = Math.max(0, Number(process.env.TABULARIUS_UPLOAD_IDLE_HOURS ?? 24) || 0) * 60 * 60 * 1000;
+
+const UPLOAD_PREFIX = 'tabularius-container-uploads-';
+const DAY_MS = 24 * 60 * 60 * 1000;
+const WEEK_MS = 7 * DAY_MS;
+
+export interface UploadSweepOptions {
+  tmp: string;
+  now?: number;
+  olderThanMs?: number;
+  alive?: (pid: number) => boolean;
+  log?: (message: string) => void;
+}
+
+function processAlive(pid: number): boolean {
+  try { process.kill(pid, 0); return true; }
+  catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    return code === 'EPERM' ? true : code === 'ESRCH' ? false : false;
+  }
+}
+
+/** Removes stale upload spools left by an interrupted server, without following links outside the temp folder. */
+export function sweepOrphanUploadFolders(opts: UploadSweepOptions): { removed: string[]; kept: number; failed: number } {
+  const result = { removed: [] as string[], kept: 0, failed: 0 };
+  const now = opts.now ?? Date.now();
+  const olderThanMs = opts.olderThanMs ?? DAY_MS;
+  const alive = opts.alive ?? processAlive;
+  const log = opts.log ?? (() => {});
+  let names: string[];
+  try { names = readdirSync(opts.tmp); }
+  catch {
+    try { log('upload sweep: could not list the temporary folder'); } catch { /* Logging cannot stop cleanup. */ }
+    return { ...result, failed: 1 };
+  }
+  for (const name of names) {
+    if (!new RegExp(`^${UPLOAD_PREFIX}[A-Za-z0-9]{6}$`).test(name)) continue;
+    const path = join(opts.tmp, name);
+    try {
+      const before = lstatSync(path);
+      if (!before.isDirectory() || (typeof process.getuid === 'function' && before.uid !== process.getuid())) { result.kept++; continue; }
+      let newest = before.mtimeMs;
+      for (const child of readdirSync(path)) {
+        try { newest = Math.max(newest, lstatSync(join(path, child)).mtimeMs); }
+        catch (error) { throw error; }
+      }
+      const age = now - newest;
+      if (age <= olderThanMs) { result.kept++; continue; }
+      let marker: { pid?: unknown } | undefined;
+      try {
+        const markerPath = join(path, 'owner.json');
+        const markerStat = lstatSync(markerPath);
+        if (markerStat.isFile() && markerStat.size <= 4096) {
+          const fd = openSync(markerPath, 'r');
+          let text: string;
+          try {
+            const bytes = Buffer.alloc(4097);
+            const length = readSync(fd, bytes, 0, bytes.length, 0);
+            if (length > 4096) throw new Error('owner marker is too large');
+            text = bytes.subarray(0, length).toString('utf8');
+          } finally { closeSync(fd); }
+          const parsed = JSON.parse(text) as unknown;
+          if (parsed && typeof parsed === 'object') marker = parsed as { pid?: unknown };
+        }
+      } catch { /* Missing, unreadable, oversized or malformed marker means age decides. */ }
+      const dirAge = now - before.mtimeMs;
+      if (typeof marker?.pid === 'number' && Number.isSafeInteger(marker.pid) && marker.pid > 0 && dirAge < WEEK_MS && alive(marker.pid)) { result.kept++; continue; }
+      const again = lstatSync(path);
+      if (!again.isDirectory() || again.dev !== before.dev || again.ino !== before.ino) { result.kept++; continue; }
+      rmSync(path, { recursive: true, force: true });
+      result.removed.push(name);
+      if (result.removed.length >= 100) break;
+    } catch (error) {
+      result.failed++;
+      try { log(`${name}: cleanup failed`); } catch { /* Logging cannot stop cleanup. */ }
+    }
+  }
+  return result;
+}
 
 /** What a refused step says, with an HTTP status; the Data API turns it into its own error. */
 export class ContainerUploadError extends Error {
@@ -100,6 +178,8 @@ export class ContainerUploads {
       mkdirSync(this.tmp, { recursive: true });
       this.dir = mkdtempSync(join(this.tmp, 'tabularius-container-uploads-'));
       folders.add(this.dir);
+      try { writeFileSync(join(this.dir, 'owner.json'), JSON.stringify({ pid: process.pid, started: Date.now(), version: 1 }), { flag: 'wx', mode: 0o600 }); }
+      catch { /* Age-based sweep remains available if the marker cannot be written. */ }
     }
     return join(this.dir, `${id}.part`);
   }
