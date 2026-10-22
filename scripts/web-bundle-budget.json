@@ -2,32 +2,32 @@
   "generatedFrom": "measured source bytes + 20%",
   "assets": {
     "packages/web/src/main.ts": {
-      "raw": 539822,
-      "gzip": 147977
+      "raw": 541934,
+      "gzip": 148624
     },
     "packages/web/src/layout.ts": {
-      "raw": 100386,
-      "gzip": 30770
+      "raw": 103370,
+      "gzip": 31674
     },
     "packages/web/src/assistant.ts": {
       "raw": 68448,
       "gzip": 20685
     },
     "packages/web/src/api.ts": {
-      "raw": 54400,
-      "gzip": 15455
+      "raw": 54425,
+      "gzip": 15461
     },
     "packages/web/src/menubar.ts": {
-      "raw": 29295,
-      "gzip": 8704
+      "raw": 29482,
+      "gzip": 8735
     },
     "packages/web/src/offline.ts": {
       "raw": 26822,
       "gzip": 7937
     },
     "packages/web/src/import-dialog.ts": {
-      "raw": 23716,
-      "gzip": 7678
+      "raw": 25077,
+      "gzip": 8051
     },
     "packages/web/src/preview.ts": {
       "raw": 14428,
@@ -38,8 +38,8 @@
       "gzip": 4728
     },
     "packages/web/src/calendar-dialog.ts": {
-      "raw": 13876,
-      "gzip": 4589
+      "raw": 14019,
+      "gzip": 4665
     },
     "packages/web/src/assistant-chat.ts": {
       "raw": 12311,
@@ -90,16 +90,16 @@
       "gzip": 3536
     },
     "packages/web/src/web-viewer.ts": {
-      "raw": 7804,
-      "gzip": 2734
+      "raw": 8004,
+      "gzip": 2829
     },
     "packages/web/src/styled.ts": {
       "raw": 7649,
       "gzip": 2900
     },
     "packages/web/src/connection-card.ts": {
-      "raw": 7385,
-      "gzip": 2739
+      "raw": 7588,
+      "gzip": 2853
     },
     "packages/web/src/styles.ts": {
       "raw": 7314,
@@ -109,6 +109,10 @@
       "raw": 6810,
       "gzip": 2483
     },
+    "packages/web/src/automation-view.ts": {
+      "raw": 6400,
+      "gzip": 2362
+    },
     "packages/web/src/import-tables-model.ts": {
       "raw": 5974,
       "gzip": 2403
@@ -116,10 +120,6 @@
     "packages/web/src/responsive.ts": {
       "raw": 5949,
       "gzip": 2360
-    },
-    "packages/web/src/automation-view.ts": {
-      "raw": 5910,
-      "gzip": 2200
     },
     "packages/web/src/macro-view.ts": {
       "raw": 5565,
@@ -140,6 +140,10 @@
     "packages/web/src/prefs-merge.ts": {
       "raw": 3438,
       "gzip": 1316
+    },
+    "packages/web/src/import-result.ts": {
+      "raw": 3266,
+      "gzip": 1162
     },
     "packages/web/src/finds.ts": {
       "raw": 3084,
@@ -210,8 +214,8 @@
       "gzip": 2028
     },
     "packages/web/app.css": {
-      "raw": 107526,
-      "gzip": 22420
+      "raw": 108356,
+      "gzip": 22484
     }
   },
   "largest": [
