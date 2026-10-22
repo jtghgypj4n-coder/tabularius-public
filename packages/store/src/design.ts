@@ -269,6 +269,13 @@ export class DesignError extends Error {
 
 const invalid = (msg: string) => new DesignError(960, msg);
 
+/** A CSS color a design may keep: #hex, rgb()/rgba() of numbers, or a name. Nothing that could add a declaration or a url(). */
+const isColor = (v: unknown): v is string => typeof v === 'string' && /^(#[0-9a-f]{3,8}|rgba?\([0-9.,/ %]+\)|[a-z]+)$/i.test(v.trim());
+const occurrenceColor = (v: unknown): string => {
+  if (!isColor(v)) throw invalid('A table occurrence\'s color is #rrggbb, rgb(…) or a color name');
+  return v.trim();
+};
+
 /** A script's own limits from a design op: whole numbers from 1 up; none at all takes them off. */
 function scriptLimits(limits: unknown): Script['limits'] | undefined {
   if (limits === null) return undefined;
@@ -1148,7 +1155,7 @@ function checkChart(c: LayoutObject['chart']): void {
   if (!CHART_TYPES.has(c.type)) throw invalid(`"${c.type}" isn't a chart type: use ${[...CHART_TYPES].join(', ')}`);
   if (!['record', 'found-set', 'related'].includes(c.source)) throw invalid('A chart\'s data comes from the current record, the found set or related records');
   if (!Array.isArray(c.series) || c.series.some((s) => !s || typeof s.data !== 'string')) throw invalid('A chart\'s series each need a data formula');
-  const color = (v: unknown) => typeof v === 'string' && /^(#[0-9a-f]{3,8}|rgba?\([0-9.,/ %]+\)|[a-z]+)$/i.test(v.trim());
+  const color = isColor;
   if (c.background !== undefined && (!Array.isArray(c.background) || c.background.length !== 2 || !c.background.every(color))) throw invalid('A chart\'s background is two colors (top and bottom)');
   if (c.text !== undefined) {
     if (!c.text || typeof c.text !== 'object') throw invalid('A chart\'s text is a size and color per part');
@@ -1639,7 +1646,7 @@ function applyOneOp(st: DesignState, op: DesignOp, deleted?: DeletedLookup): { o
         to.baseTableId = table.id;
         resolved = { ...op, id, table: table.id };
       }
-      if (op.color) to.color = op.color;
+      if (op.color) to.color = occurrenceColor(op.color);
       if (op.graph) to.graph = op.graph;
       s.tableOccurrences.push(to);
       return { op: resolved, effects };
@@ -1661,7 +1668,7 @@ function applyOneOp(st: DesignState, op: DesignOp, deleted?: DeletedLookup): { o
         delete to.dataSourceId;
         (resolved as { table?: Ref }).table = table.id;
       }
-      if (op.color !== undefined) to.color = op.color;
+      if (op.color !== undefined) to.color = op.color === '' ? '' : occurrenceColor(op.color);
       if (op.graph !== undefined) to.graph = op.graph;
       return { op: resolved, effects };
     }
