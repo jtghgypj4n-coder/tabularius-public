@@ -1151,7 +1151,8 @@ test('binary parameters read as their text form would, and casts name parameter 
   assert.equal(binaryParam(ts, 1114), '2024-03-09 00:30:00.5');
   assert.equal(binaryParam(encodeNumeric('-2.50'), 1700), -2.5);
   assert.equal(binaryParam(Buffer.from('hé'), 25), 'hé');
-  assert.equal(binaryParam(Buffer.alloc(16), 2950), undefined, 'a uuid is not read');
+  assert.equal(binaryParam(Buffer.alloc(16), 2950), '00000000-0000-0000-0000-000000000000', 'a uuid is read as its text');
+  assert.equal(binaryParam(Buffer.alloc(16), 600), undefined, 'a point is not read');
   assert.deepEqual([...castParamTypes('SELECT * FROM t WHERE a < $1::numeric AND b = $2 :: date AND c = $3::double precision')], [[1, 1700], [2, 1082], [3, 701]]);
 });
 
@@ -1188,11 +1189,11 @@ test('extended queries in the binary format, as asyncpg and Npgsql ask', { skip 
     assert.equal(rows[0][0].toString(), 'Barbara Lee', 'text is UTF-8 in either format');
     assert.equal(decodeNumeric(rows[0][1]), '1', 'numbers are numeric\'s binary form');
     // An unknown binary parameter type is refused and the connection carries on.
-    c.send('P', Buffer.concat([cstr(''), cstr('SELECT $1 AS v'), i16(1), i32(2950)]));
+    c.send('P', Buffer.concat([cstr(''), cstr('SELECT $1 AS v'), i16(1), i32(600)]));
     c.send('B', Buffer.concat([cstr(''), cstr(''), i16(1), i16(1), i16(1), i32(16), Buffer.alloc(16), i16(0)]));
     c.send('E', Buffer.concat([cstr(''), i32(0)]));
     c.send('S');
-    assert.match(c.results(await c.until('Z')).error ?? '', /^0A000 binary parameters of type 2950/);
+    assert.match(c.results(await c.until('Z')).error ?? '', /^0A000 binary parameters of type 600/);
     assert.deepEqual((await c.query('SELECT 1 AS ok')).rows, [['1']]);
   } finally {
     c.close();

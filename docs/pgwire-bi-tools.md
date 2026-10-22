@@ -61,6 +61,35 @@ Problems from the SQL engine itself (an unknown table or function) come back as 
 - A data read with a `pg_` name in it that is not a catalog table (`pg_has_role(...)`, an alias called `pg_x`) skipped the read log. Only a query that names one of the catalog's tables or views is left out of it now.
 - Found by a second-opinion review of this change and fixed in it: `ORDER BY name LIMIT n` lost the space before `LIMIT`, nested `array_agg` produced broken SQL, and the new rewrites took quadratic time on very long queries (many `array_agg` calls, unclosed comments); they are linear now, and `array_agg` nested more than 20 deep is refused.
 
+## Binary formats
+
+asyncpg, Npgsql, psycopg 3, pgx and pgjdbc in binary mode ask for values in PostgreSQL's binary format instead of text. The server reads and writes it per value, as Bind asks: no format code means text, one code applies to every parameter (or every column), otherwise there is one code per parameter (or column). Code lives in `packages/server/src/pgbinary.ts`; the byte-level tests are `packages/server/test/pgbinary.test.ts` (each type) and `packages/server/test/pgwire-binary.test.ts` (over the protocol, against a file the test makes).
+
+| Type | Binary parameter | Binary result |
+| --- | --- | --- |
+| `bool`, `int2`, `int4`, `int8`, `oid`, `float4`, `float8` | Read | Written |
+| `numeric` (NaN and the infinities included) | Read | Written; a number field holding text that is not a number is NULL, as in the text format |
+| `text`, `varchar`, `bpchar`, `name`, `json`, unspecified | Read; invalid UTF-8 or a NUL byte is `22021`, as in the text format | Written |
+| `jsonb` | Read (version 1) | Written |
+| `uuid` | Read | Written; a stored value that is not a uuid is `22P02` and not written short |
+| `bytea` | Read, as the text format's `\x` form | Written |
+| `date`, `time`, `timestamp`, `timestamptz` | Read, BC dates and `infinity` included; outside PostgreSQL's range is `22008` | Written (no column is described with these types: dates and times are `text`, as the file keeps them) |
+| `interval` | Read, as PostgreSQL's default interval text (`1 year 2 mons 3 days 04:05:06`) | None: no column is an interval |
+| Arrays of every type above (`int4[]`, `text[]`, `oid[]` and the rest) | Read, as PostgreSQL's array text (`{1,"a b",NULL}`), up to 6 dimensions | None: `array_agg` gives text |
+| Anything else (`point`, `timetz`, ...) | `0A000`, saying to send the value as text | Never described |
+
+A parameter is read into the value its text format gives, so a query finds the same rows whichever format the client picked; the tests check that for every type in the table. A cast in the query (`$1::numeric`, `$2::oid[]`) names a parameter's type when Parse leaves it unspecified, and Describe tells the client, so a driver that encodes by type sends that type.
+
+The rules of the extended protocol that drivers rely on hold as in PostgreSQL, each with a byte-level test: a Bind with more than one format code but fewer than its parameters, with a different number of parameters than the statement, or with more than one result format code but not one per column is refused with `08P01` at Bind; a statement with no rows takes any number of result codes; Describe of a statement before Bind gives its parameter types and text formats, Describe of the portal the formats Bind asked for.
+
+Malformed binary input is answered with an error, and the connection goes on after Sync: a value shorter than its type or a length below -1 or past the end of the message is `08P01`, a value longer than its type or with a bad header (numeric sign, scale or digit, jsonb version, array flags) is `22P03`, an array of another element type is `42804`, more than 6 dimensions is `54000`. An array that claims more elements than its bytes can hold is refused before any is read. The decoders are a target of the repository's fuzzer (`npm run fuzz -- --target pgwire-binary`), and the fixed-seed smoke in `packages/server/test/fuzz.test.ts` runs it.
+
+Binary results come from the same rows as text ones and go through the same checks. This connection has no field masks: SQL reads every record and field, so a privilege set that hides a field, masks one (last four characters or a placeholder), hides fields by default, limits records by a calculation or cannot view a table is refused at sign-in, and if it is narrowed to one of those while connected, the next Execute of a portal that already holds rows, in either format, is refused with `42501` and sends none. The tests run each of those six kinds.
+
+What these tests do not show: no driver named above was run against the server in this change, so none is claimed to work beyond the bytes the tests send, which follow the PostgreSQL protocol documentation and source. Where a float element of an array switches to exponent notation follows JavaScript, which can differ from PostgreSQL for very large and very small values; an interval of -1 of a unit is written `-1 days`, as PostgreSQL's interval code reads, which was not checked against a running server. <!-- known-difference: PostgreSQL connection ;; Binary array parameters with float elements, and intervals of exactly -1 of a unit, are read into text that may differ from PostgreSQL's (exponent notation thresholds; singular or plural) and is unverified against a running server ;; A query comparing such a parameter with stored text could find different rows than on PostgreSQL ;; A run of asyncpg or Npgsql against PostgreSQL and this server with the same parameters -->
+
+Three things the binary format does not change, and which are the same in the text format: a container field reads as its reference number, not its bytes; a decimal field is described as `text` by the extended protocol (Describe reads declared types, and the decimal's column has none) where a simple query describes it as `numeric` from its values; and a decimal with more significant digits than a double holds comes back rounded to a double in either protocol.
+
 ## Read log
 
 With read logging on, a query is logged as a read of each table of the file it names, unless it names one of the catalog's tables or views. A query that joins a table of the file with a catalog table (`FROM Customers, pg_class`) is treated as a catalog query and is not logged. This was so before this change and is not changed by it.

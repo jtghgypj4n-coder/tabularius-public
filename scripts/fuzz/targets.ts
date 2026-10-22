@@ -28,6 +28,7 @@ import { MultipartLimits, MultipartLimitError } from '../../packages/server/src/
 import { batchRequests, BatchError } from '../../packages/server/src/odata-batch.ts';
 import { parseRange } from '../../packages/server/src/containers.ts';
 import { etagMatches } from '../../packages/server/src/conditional.ts';
+import { ARRAY_ELEMENT, BINARY_OID, BinaryFormatError, binaryParam, decodeNumeric } from '../../packages/server/src/pgbinary.ts';
 import type { Target } from './generate.ts';
 const schema = { tables: [], tableOccurrences: [], relationships: [], layouts: [], layoutOrder: [], scripts: [], scriptOrder: [], valueLists: [], customFunctions: [], accounts: [], privilegeSets: [], extendedPrivileges: [], dataSources: [], themes: [], fonts: [], customMenus: [], customMenuSets: [] } as unknown as Schema;
 const props = [{ name: 'Name', field: 'Name', type: 'text', edm: 'Edm.String', queryable: true, writable: true }, { name: 'Count', field: 'Count', type: 'number', edm: 'Edm.Decimal', queryable: true, writable: true }];
@@ -39,6 +40,7 @@ export function expected(target: Target, e: unknown): boolean {
   if (!(e instanceof Error)) return false;
   if (e instanceof TypeError || e instanceof RangeError) return false;
   if (e instanceof DesignError || e instanceof CalcError || e instanceof FmpError || e instanceof XPathError || e instanceof ScriptError || e instanceof ApiError || e instanceof MultipartLimitError || e instanceof BatchError || e instanceof MissingSheetError || e instanceof SheetLimitError) return true;
+  if (target === 'pgwire-binary') return e instanceof BinaryFormatError;
   if (['json', 'data-api'].includes(target) && e instanceof SyntaxError) return true;
   if (target === 'odata-filter' && e.constructor.name === 'ODataError') return true;
   if (e.constructor !== Error) return false;
@@ -85,6 +87,12 @@ export async function exercise(target: Target, data: Buffer): Promise<{ accepted
         for (const t of db.schema.tables) { for (const _ of db.rawRecords(t.id)) { /* consume */ } db.containers(t.id); }
       } finally { db.close(); }
     }, () => decodePayload(data.subarray(20)), () => decodeScsu(data), () => pbParse(data)); break;
+    // Every type a Bind parameter can name; an array's header is also pointed at its own element type so the element readers run.
+    case 'pgwire-binary': for (const oid of [...Object.values(BINARY_OID), ...Object.keys(ARRAY_ELEMENT).map(Number)]) {
+      checks.push(() => binaryParam(data, oid));
+      if (ARRAY_ELEMENT[oid] !== undefined && data.length >= 12) checks.push(() => { const b = Buffer.from(data); b.writeUInt32BE(ARRAY_ELEMENT[oid], 8); return binaryParam(b, oid); });
+    }
+    checks.push(() => decodeNumeric(data)); break;
   }
   let accepted = 0, rejected = 0;
   for (const check of checks) {
