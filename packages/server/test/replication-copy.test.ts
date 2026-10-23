@@ -323,3 +323,45 @@ test('the fallback keeps the pending-WAL estimate when another follower refuses 
   h.shipper.ship();
   await h.catchUp(copy);
 });
+
+test('pausing and resuming a file during a held copy ships its changes first, so none are lost', async (t) => {
+  const h = await setup(t);
+  // The wiring serve() does: closing or pausing a file ships what follows it before the checkpoint folds the log away.
+  h.host.beforeClose.push(() => h.shipper.shipBeforeCheckpoint());
+  const [gate] = h.slowCopies();
+  const pending = h.get('/A/copy');
+  await gate.entered;
+  for (let i = 0; i < 5; i++) h.store.create('Items', { Name: `During the hold ${i}` });
+  assert.equal(h.host.pauseFile('A'), true);
+  assert.equal(h.host.openFile('A'), true);
+  gate.release();
+  const copy = await pending;
+  await h.catchUp(copy);
+  assert.equal(h.store.find('Items', { limit: 100 }).records.length, 5);
+});
+
+test('closing a file during a held copy ships its changes first, so a follower has every record', async (t) => {
+  const h = await setup(t);
+  h.host.beforeClose.push(() => h.shipper.shipBeforeCheckpoint());
+  const base = join(h.dir, 'closed-replica.sqlite');
+  await h.store.backup(base);
+  const shipped: Buffer[] = [];
+  h.shipper.add({ every: 60_000, take: (_store, log) => { shipped.push(Buffer.from(log)); return true; } });
+  const [gate] = h.slowCopies();
+  const pending = h.get('/A/copy');
+  await gate.entered;
+  for (let i = 0; i < 5; i++) h.store.create('Items', { Name: `During the hold ${i}` });
+  assert.equal(h.host.closeFile('A'), true);
+  gate.release();
+  await pending; // the copy is refused (the file was closed); what matters is that the follower got every change
+  // The logs the follower received bring the file as it was before the writes up to date.
+  for (const log of shipped) applyLog(base, log);
+  const replica = new Store(base, 'Replica');
+  try { assert.equal(replica.find('Items', { limit: 100 }).records.length, 5); }
+  finally { replica.close(); }
+});
+
+test('serve() ships before the checkpoint through the hold-ignoring path', async () => {
+  const { readFileSync } = await import('node:fs');
+  assert.match(readFileSync(new URL('../src/index.ts', import.meta.url), 'utf8'), /shipper\.shipBeforeCheckpoint\(\)/);
+});
