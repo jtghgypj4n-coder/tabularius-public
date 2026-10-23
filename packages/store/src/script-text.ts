@@ -1257,7 +1257,8 @@ export function parseScriptText(text: string, schema: Schema, current: ScriptSte
       const printedParts = bracket ? splitParts(bracket[1]) : [];
       const sameEmptyOptions = authoredParts.join(';').toLowerCase() === printedParts.join(';').toLowerCase();
       if (Object.keys(original).some((key) => !isDeepStrictEqual(original[key as keyof StepParams], restored[key as keyof StepParams]))
-        || (!Object.keys(original).length && !sameEmptyOptions && !(name === 'Pause/Resume Script' && /^indefinitely$/i.test(authoredParts[0] ?? '')))) {
+        // Options that read to nothing at all must print as they were written. A false that only states the default (With dialog: On) read to something, and was compared above.
+        || (!Object.keys(checked).length && !sameEmptyOptions && !(name === 'Pause/Resume Script' && /^indefinitely$/i.test(authoredParts[0] ?? '')))) {
         throw fail(ctx, `${name} has an option that script text cannot preserve`);
       }
     }
