@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { HISTORY, Schedules } from '../src/schedules.ts';
+import { HISTORY, nextRun, Schedules } from '../src/schedules.ts';
 import type { Host } from '../src/host.ts';
 
 process.env.TZ = 'UTC';
@@ -29,6 +29,53 @@ test('AR-server-backup-ops-08: a capped timer keeps its original interval deadli
   } finally {
     schedules.stop();
     t.mock.timers.reset();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('daily next run resolves skipped and repeated hours and crosses short months', () => {
+  const previous = process.env.TZ;
+  try {
+    process.env.TZ = 'America/New_York';
+    const daily = { everyMinutes: 1440, at: '02:30' };
+    assert.equal(nextRun(daily, time('2026-03-08T05:00:00Z')), time('2026-03-08T07:30:00Z'));
+    assert.equal(nextRun(daily, time('2026-03-08T07:30:01Z')), time('2026-03-09T06:30:00Z'));
+    const repeated = { everyMinutes: 1440, at: '01:30' };
+    assert.equal(nextRun(repeated, time('2026-11-01T05:00:00Z')), time('2026-11-01T05:30:00Z'));
+    assert.equal(nextRun(repeated, time('2026-11-01T06:00:00Z')), time('2026-11-01T06:30:00Z'));
+    assert.equal(nextRun(daily, new Date(2024, 1, 29, 3).getTime()), new Date(2024, 2, 1, 2, 30).getTime());
+    assert.equal(nextRun(daily, new Date(2026, 0, 31, 3).getTime()), new Date(2026, 1, 1, 2, 30).getTime());
+    assert.equal(nextRun(daily, new Date(2026, 11, 31, 3).getTime()), new Date(2027, 0, 1, 2, 30).getTime());
+    process.env.TZ = 'Europe/London';
+    assert.equal(nextRun({ everyMinutes: 1440, at: '01:30' }, time('2026-03-29T00:00:00Z')), time('2026-03-29T01:30:00Z'));
+    process.env.TZ = 'Australia/Sydney';
+    assert.equal(nextRun(daily, new Date(2026, 9, 4, 0).getTime()), new Date(2026, 9, 4, 3, 30).getTime());
+  } finally {
+    if (previous === undefined) delete process.env.TZ;
+    else process.env.TZ = previous;
+  }
+});
+
+test('run history stays in creation order after a wall-clock rollback and restart', async () => {
+  let clock = time('2026-11-01T05:30:00Z');
+  const dir = mkdtempSync(join(tmpdir(), 'tabularius-schedule-history-'));
+  const host = { dir, onAdd: [], names: () => [], scriptOptions: () => ({}) } as unknown as Host;
+  const schedules = new Schedules(host, () => {}, () => clock);
+  let restarted: Schedules | undefined;
+  try {
+    schedules.broadcast = () => 1;
+    const made = schedules.create({ kind: 'message', name: 'History', message: 'sent', everyMinutes: 60, enabled: false });
+    const first = await schedules.run(made.id);
+    clock = time('2026-11-01T04:30:00Z');
+    const second = await schedules.run(made.id);
+    assert.ok(second.at > first.at, 'a later run has a later stamp');
+    assert.ok(second.ms >= 0 && second.ms < 1000, 'duration is elapsed time, even when the wall clock rolls back');
+    assert.deepEqual(schedules.runs(made.id).map((r) => r.at), [second.at, first.at]);
+    schedules.stop();
+    restarted = new Schedules(host, () => {}, () => clock);
+    assert.deepEqual(restarted.runs(made.id).map((r) => r.at), [second.at, first.at]);
+  } finally {
+    schedules.stop(); restarted?.stop();
     rmSync(dir, { recursive: true, force: true });
   }
 });
