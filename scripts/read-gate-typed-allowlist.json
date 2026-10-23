@@ -1857,6 +1857,14 @@
  },
  {
   "file": "packages/store/src/store.ts",
+  "within": "Store.failureAuditRoom",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "no-record-data",
+  "why": "Counts the security rows of the audit table (total and sign-in failures) to decide whether one more failed sign-in row may be written; it reads no record data and returns only two numbers, and no caller supplies a table or a filter."
+ },
+ {
+  "file": "packages/store/src/store.ts",
   "within": "Store.fieldIndexCurrent",
   "api": "sql.prepare",
   "count": 2,
