@@ -31,7 +31,7 @@ test('round2: JWT verification rotates JWKS and rejects wrong bindings after a c
   t.mock.method(expiryClock, 'now', () => now);
   const initial = now;
   const token = (claims: Record<string, unknown> = {}) => {
-    const parts = [{ alg: 'ES256', kid: `key-${active}` }, { iss: issuer, aud: provider.clientId, sub: 'person-α', nonce: 'nonce-🦊', exp: initial / 1000 + 120, ...claims }].map((value) => Buffer.from(JSON.stringify(value)).toString('base64url')).join('.');
+    const parts = [{ alg: 'ES256', kid: `key-${active}` }, { iss: issuer, aud: provider.clientId, sub: 'person-α', nonce: 'nonce-🦊', iat: Math.floor(initial / 1000), exp: initial / 1000 + 120, ...claims }].map((value) => Buffer.from(JSON.stringify(value)).toString('base64url')).join('.');
     return parts + '.' + sign('sha256', Buffer.from(parts), { key: pairs[active].privateKey, dsaEncoding: 'ieee-p1363' }).toString('base64url');
   };
   const verify = (jwt: string) => verifier.verify(state, jwt, discovery, 'nonce-🦊');
