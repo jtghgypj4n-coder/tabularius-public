@@ -222,7 +222,7 @@ function stress(target: Target): Case[] {
     add(`F2 many sheets: ${sheets} <sheet r:id> and <Relationship Id> pairs`, { bytes: book('<row/>', [
       { name: 'xl/workbook.xml', data: enc('<workbook><sheets>' + Array.from({ length: sheets }, (_, i) => `<sheet name="s${i}" r:id="r${i}"/>`).join('') + '</sheets></workbook>') },
       { name: 'xl/_rels/workbook.xml.rels', data: enc('<Relationships>' + Array.from({ length: sheets }, (_, i) => `<Relationship Id="r${i}" Target="worksheets/sheet1.xml"/>`).join('') + '</Relationships>') },
-    ]) });
+    ]), rejects: /^The workbook has 20000 sheets; more than 256 are not read$/ });
     add('F3 far column: <c r="ZZZZZZZZZZ1">', { bytes: book('<row r="1"><c r="ZZZZZZZZZZ1"><v>1</v></c></row>'), rejects: /^cell ZZZZZZZZZZ1 is past Excel's last column, XFD$/ });
     add('F3 far row: <row r="99999999999">', { bytes: book('<row r="99999999999"><c><v>1</v></c></row>'), rejects: /^row 99999999999 is past Excel's last row, 1048576$/ });
     add('F3 every row at column XFD: \'<row><c r="XFD1"/></row>\'.repeat(4096)', { bytes: book('<row><c r="XFD1"/></row>'.repeat(4096)), rejects: /^the sheet comes to more than 50000000 cells/ });
@@ -287,7 +287,7 @@ async function checker(target: Target): Promise<(c: Case) => boolean> {
   }
   if (target === 'xlsx') {
     const { readXlsx, xlsxSheetNames, MissingSheetError, SheetLimitError } = await import('../src/xlsx.ts');
-    const DOMAIN = /^(not a zip file|bad zip directory|bad zip entry |the zip file expands to more than |the workbook has no sheet)/;
+    const DOMAIN = /^(not a zip file|bad zip directory|bad zip entry |the zip file expands to more than |the workbook has no sheet|The workbook has \d+ sheets; more than \d+ are not read)/;
     return (c) => {
       let rows: unknown;
       try {
