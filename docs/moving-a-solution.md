@@ -665,7 +665,7 @@ calculation, the MCP `evaluate_calculation` tool, a formula preview) gets
 nothing there would end a handle.
 Each session can hold eight handles; each server process can hold 32 across
 all sessions. At global capacity, `JS.New` drops the least recently used
-handle (of any session) to make room, and the dropped handle's reference
+handle of the same account (or, when that account holds none, of any account) to make room, and the dropped handle's reference
 then answers like an expired one (`[MBS] ERROR: Invalid JavaScript reference`)
 and its state is gone; a session that already holds eight is still refused.
 A handle expires after **60 seconds idle**, measured from
