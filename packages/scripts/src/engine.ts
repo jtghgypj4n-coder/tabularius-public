@@ -1322,6 +1322,8 @@ export class ScriptEngine {
   private readonly warnings: string[] = [];
   /** Each AI configuration warning once per script in this run, even across repeated subscript calls. */
   private readonly aiWarnings = new WeakMap<Store, Map<number, Set<number>>>();
+  /** Save a Copy as is warned once for each script, even when it writes several files. */
+  private readonly warnedSaveCopies = new Set<Script>();
   private readonly trace?: TraceLine[];
   private executionStore?: Store;
   private identityStore?: Store;
@@ -7987,6 +7989,10 @@ export class ScriptEngine {
       this.resumeAfter(left);
     }
     if (p.copyKind === 'clone') clearRecords(path, f.store.schema);
+    if (!this.warnedSaveCopies.has(f.script)) {
+      this.warnedSaveCopies.add(f.script);
+      this.warnings.push(`Save a Copy as wrote ${basename(path)}, a Tabularius store, not a .fmp12; FileMaker cannot open it.`);
+    }
   }
 
   /**
