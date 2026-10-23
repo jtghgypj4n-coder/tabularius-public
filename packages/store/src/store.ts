@@ -6,7 +6,7 @@ import { ownKeyed } from './own-keys.ts';
 import { checkStoredWebViewerHosts, normalizeWebViewerHosts } from './web-viewer-hosts.ts';
 import { isCredentialName } from '../../scripts/src/credentials.ts';
 import { cleanSql, sqlName, sqlTokens } from './sql-tokens.ts';
-import { SignInFailures, LOCKOUT, noAddressBudget, sharedSource, addressBucket, accountsSharingLockout, lockoutName } from './sign-in-failures.ts';
+import { SignInFailures, LOCKOUT, SIGN_IN_FAILURE_AUDIT_FLOOR, signInFailureAuditShare, noAddressBudget, sharedSource, addressBucket, accountsSharingLockout, lockoutName } from './sign-in-failures.ts';
 import { expiryClock } from './clock.ts';
 import { crashPoint } from './crash-point.ts';
 import { atomicWrite, syncPath } from './durable.ts';
@@ -329,7 +329,7 @@ const USAGE_COUNTED_BEFORE = new Set(['rest', 'web']);
 /** Layouts opened and scripts run, by account and day (Store.recordObjectUse). */
 const OBJECT_USAGE = '_fm_object_usage';
 
-export { LOCKOUT, addressBucket } from './sign-in-failures.ts';
+export { LOCKOUT, addressBucket, SIGN_IN_FAILURE_AUDIT_FLOOR, signInFailureAuditShare } from './sign-in-failures.ts';
 
 /**
  * A file's password policy, matching FileMaker's account options: how short a
@@ -2651,6 +2651,36 @@ export class Store {
     return result;
   }
 
+  /** How many security rows and how many of them are failed sign-ins and lockouts, as of `at` (then counted on from the rows this process writes). */
+  private failureAudit = { at: -Infinity, failures: 0, total: 0 };
+  /** How long a count of the audit is trusted before it is made again (rows written by other processes show up then). A test sets 0. */
+  failureAuditRecountMs = 60_000;
+
+  /**
+   * Whether one more failed sign-in or lockout row may be written: the first SIGN_IN_FAILURE_AUDIT_FLOOR always may, then they
+   * may be at most signInFailureAuditShare() of the security rows, so a flood of wrong passwords cannot fill the audit or hide
+   * the rows that matter, and cannot make a sign-in or a security change refuse for want of room. Nothing is removed.
+   */
+  private failureAuditRoom(): boolean {
+    const share = signInFailureAuditShare();
+    if (share >= 1) return true;
+    const counts = this.failureAudit;
+    const now = performance.now();
+    if (now - counts.at >= this.failureAuditRecountMs) {
+      try {
+        const r = this.sql.prepare(`SELECT COUNT(*) AS total, COALESCE(SUM(kind IN ('sign-in-failed', 'locked-out')), 0) AS failures FROM _fm_audit WHERE security = 1`).get() as { total: number; failures: number };
+        this.failureAudit = { at: now, failures: Number(r.failures), total: Number(r.total) };
+      } catch {
+        // The count could not be made now (a busy file): keep the last one, which still limits what this process writes.
+      }
+    }
+    const { failures, total } = this.failureAudit;
+    if (failures + 1 > Math.max(SIGN_IN_FAILURE_AUDIT_FLOOR, share * (total + 1))) return false;
+    this.failureAudit.failures++;
+    this.failureAudit.total++;
+    return true;
+  }
+
   /**
    * Records a security or authentication event in the audit log, so the trail
    * covers who signed in (and who failed), who was locked out, and every change
@@ -2658,6 +2688,8 @@ export class Store {
    * schema — not only record edits. `target` names the object acted on.
    */
   private logSecurity(kind: SecurityEventKind, opts: { account?: string | null; target?: string; from?: string; detail?: Record<string, unknown> } = {}): void {
+    // A failed sign-in or a lockout that would take the audit past its share for failures is not written (the lockout still locks).
+    if ((kind === 'sign-in-failed' || kind === 'locked-out') && !this.failureAuditRoom()) return;
     const payload: Record<string, unknown> = { ...(opts.detail ?? {}) };
     if (opts.target !== undefined) payload.target = opts.target;
     if (opts.from) payload.from = opts.from;
