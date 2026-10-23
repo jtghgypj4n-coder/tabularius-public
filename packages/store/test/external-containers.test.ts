@@ -291,3 +291,53 @@ test('a move that fails leaves the database and the folder as they were; a missi
     store.close();
   }
 });
+
+test('a file written to external storage inside a refused foreign-key step is removed, in a transaction or not', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'tabularius-external-keystep-'));
+  const path = join(dir, 'Media.openhbam.sqlite');
+  createStore(path);
+  const store = new Store(path, 'Media');
+  try {
+    store.applyDesign([
+      { op: 'createTable', name: 'Items', fields: [{ name: 'Name' }, { name: 'Doc', type: 'container' }] },
+      { op: 'updateField', table: 'Items', field: 'Doc', options: { externalStorage: { path: '"Items/Docs/"' } } },
+    ] as never);
+    const id = Number(store.create('Items', { Name: 'One' }).recordId);
+    const file = (name: string) => ({ filename: name, mime: 'application/pdf', data: new Uint8Array(Buffer.from(`%PDF ${name}`)) });
+    const at = join(dir, 'RC_Data_FMS', 'Media', 'Items', 'Docs');
+    const step = (store as unknown as { keyStep: <T>(run: () => T) => T }).keyStep.bind(store);
+    const refused = (name: string, then?: () => void) => assert.throws(() => step(() => {
+      store.setContainer('Items', id, 'Doc', 1, file(name));
+      assert.ok(existsSync(join(at, name)), 'written while the step runs');
+      then?.();
+      throw new Error('refused');
+    }), /refused/);
+
+    // On its own, the step is its own write transaction.
+    refused('alone.pdf');
+    assert.equal(existsSync(join(at, 'alone.pdf')), false);
+    assert.equal(store.containerId('Items', id, 'Doc'), undefined);
+
+    // In a transaction that goes on to commit, only the step's file goes; a file written before it stays, and so does one after.
+    const tx: Transaction = { files: new Map() };
+    writer.run({ transaction: { open: tx } }, () => {
+      store.setContainer('Items', id, 'Doc', 1, file('before.pdf'));
+      refused('inside.pdf');
+      // Steps inside a step: a refusal of the outer one takes the inner one's file too.
+      assert.throws(() => step(() => {
+        step(() => { store.setContainer('Items', id, 'Doc', 1, file('nested.pdf')); });
+        assert.ok(existsSync(join(at, 'nested.pdf')));
+        throw new Error('outer refused');
+      }), /outer refused/);
+      store.setContainer('Items', id, 'Doc', 1, file('after.pdf'));
+    });
+    endTransaction(tx, true);
+    assert.equal(existsSync(join(at, 'inside.pdf')), false);
+    assert.equal(existsSync(join(at, 'nested.pdf')), false);
+    assert.ok(existsSync(join(at, 'before.pdf')));
+    assert.ok(existsSync(join(at, 'after.pdf')));
+    assert.equal(Buffer.from(store.container(store.containerId('Items', id, 'Doc')!)!.data).toString(), '%PDF after.pdf');
+  } finally {
+    store.close();
+  }
+});
