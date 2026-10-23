@@ -724,8 +724,10 @@ back by Undo or a revert, so this is off until chosen. The log is append-only
 and tamper-evident: each entry is linked to the one before it by a SHA-256 hash,
 and `GET /tabularius/admin/v1/audit/verify?database=` finds an entry that was
 edited, removed, added behind its back or cut off the end. `retentionDays` in
-the same settings removes entries older than that, hourly, and the chain
-records where it now starts and the removal is logged as a security event.
+the same settings removes record entries older than that, hourly (400 days
+unless set; 0 keeps every entry), and the chain records where it now starts and
+the removal is logged as a security event. Security events (sign-ins, lockouts,
+account and privilege changes) are not removed.
 Read it with `npm run tabularius -- audit ~/FileMakerFiles Contacts --table
 Invoices --record 42`, the `audit_log` AI tool, or `GET
 /tabularius/design/v1/databases/{db}/audit`; the last two need [Full Access].

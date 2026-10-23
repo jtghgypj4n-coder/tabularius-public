@@ -706,6 +706,9 @@ export function generateTempPassword(minLength = 0): string {
  */
 export const PASSWORD_POLICY = { blankFromNetwork: false };
 
+/** How long record audit entries are kept when a file's audit settings do not say (days). A saved 0 keeps every entry. */
+export const AUDIT_RETENTION_DEFAULT_DAYS = 400;
+
 const LOCAL = new Set(['', 'mcp', '127.0.0.1', '::1', '::ffff:127.0.0.1']);
 
 const PASSKEY_REFUSED = 'That passkey was not accepted; try again';
@@ -2353,7 +2356,9 @@ export class Store {
         redactSensitive: stored?.redactSensitive === true,
         excludeFields: Object.fromEntries(Object.entries(stored?.excludeFields ?? {}).map(([t, fs]) => [t, [...new Set((fs ?? []).map(String))]])),
         logReads: stored?.logReads === true,
-        retentionDays: Number.isFinite(stored?.retentionDays) && stored!.retentionDays! > 0 ? Math.floor(stored!.retentionDays!) : 0,
+        // No saved choice: the default. A saved 0 is the choice to keep every entry.
+        retentionDays: stored?.retentionDays === undefined || stored.retentionDays === null ? AUDIT_RETENTION_DEFAULT_DAYS
+          : Number.isFinite(stored.retentionDays) && stored.retentionDays > 0 ? Math.floor(stored.retentionDays) : 0,
       } };
     }
     return this.auditConfig.value;
