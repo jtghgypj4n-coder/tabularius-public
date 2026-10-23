@@ -30,7 +30,7 @@ test('Stop lets a backpressured export finish cleanup without drain or socket cl
   try {
     store.applyDesign([{ op: 'createTable', name: 'Items', fields: [{ name: 'Name' }] }]);
     store.sql.prepare('INSERT INTO Items (Name) VALUES (?)').run('Synthetic row');
-    const client = new WebClient({} as Host, {} as DataApi);
+    const client = new WebClient({} as Host, { endListeners: new Set() } as unknown as DataApi);
     const internal = client as unknown as {
       streamExportRecords: (store: Store, session: Session, layout: string, body: Record<string, unknown>, privileges: Privileges, res: ServerResponse) => Promise<void>;
       running: Map<string, Set<EventTarget>>;
