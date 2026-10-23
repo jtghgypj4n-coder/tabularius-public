@@ -469,6 +469,7 @@ Hosting (point it at a folder of .fmp12 files; each is converted once):
   tabularius plugins <folder> [list]         Plug-ins in <folder>/plugins/ and the files each is on for
   tabularius plugins <folder> enable|disable <database> <plugin-id>
   tabularius ai-policy <folder> <name> on|off     Set the per-file AI-visible policy
+  tabularius sql-privilege <folder> <name> on|off  Whether SQL reaching <name> through another file needs the fmxdbc privilege in <name> too (off by default)
   tabularius plugins <folder> secret <plugin-id> <NAME> [--clear]   Set a plug-in's secret from standard input
   tabularius plugins <folder> install <package.ohplugin> [--trust <fingerprint>] [--allow-unsigned] [--replace]
   tabularius plugins <folder> uninstall <plugin-id>
@@ -2733,6 +2734,16 @@ function main(argv: string[]): number {
       finally { store.close(); }
       return 0;
     }
+    case 'sql-privilege': {
+      const [database, action] = args;
+      if (!database || !['on', 'off'].includes(action)) throw new Error('sql-privilege: give a database and on|off');
+      const store = openDatabase(path, database);
+      try {
+        store.setSqlRequiresFmxdbc(action === 'on', { account: 'command line' });
+        console.log(`SQL through another file ${store.sqlRequiresFmxdbc ? 'now needs' : 'does not need'} the fmxdbc privilege: ${store.sqlRequiresFmxdbc ? 'on' : 'off'} for ${store.name}`);
+      } finally { store.close(); }
+      return 0;
+    }
     case 'ai': {
       const aiExclude = aiExcludeFrom(args);
       const [database, action, sub] = args;
@@ -2954,7 +2965,7 @@ function main(argv: string[]): number {
     const store = openDatabase(folder, database);
     try {
       if (cmd === 'info') {
-        console.log(JSON.stringify({ tabularius: SERVER_VERSION, openhbam: SERVER_VERSION, file: basename(store.path), fileMode: store.fileMode, aiPolicy: store.aiPolicy, dateOrder: store.dateOrder, ...counts(store.schema) }, null, 2));
+        console.log(JSON.stringify({ tabularius: SERVER_VERSION, openhbam: SERVER_VERSION, file: basename(store.path), fileMode: store.fileMode, aiPolicy: store.aiPolicy, sqlRequiresFmxdbc: store.sqlRequiresFmxdbc, dateOrder: store.dateOrder, ...counts(store.schema) }, null, 2));
         return 0;
       }
       return hostedRead(cmd, store, args);

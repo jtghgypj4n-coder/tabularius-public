@@ -19876,6 +19876,8 @@ Source: `packages/server/src/admin.ts`
 | --- | --- | --- |
 | GET | [`/tabularius/admin/v1/ai-policy/{database}`](#admin-ai-get-tabularius-admin-v1-ai-policy-database) | Reads the per-file AI-visible policy. New solutions default on; imported and existing files without the setting default off. |
 | POST | [`/tabularius/admin/v1/ai-policy/{database}`](#admin-ai-post-tabularius-admin-v1-ai-policy-database) | Sets the AI-visible policy in file metadata. When on, AI refuses secret-bearing sources without explicit privilege-set exceptions and refuses uncertain read sets. |
+| GET | [`/tabularius/admin/v1/sql-privilege/{database}`](#admin-ai-get-tabularius-admin-v1-sql-privilege-database) | Whether a SQL query that reaches this file through another hosted file needs the account to have the fmxdbc extended privilege in this file too. Off by default. |
+| POST | [`/tabularius/admin/v1/sql-privilege/{database}`](#admin-ai-post-tabularius-admin-v1-sql-privilege-database) | Requires (or stops requiring) the fmxdbc extended privilege in this file for SQL that reaches it through another hosted file. Kept in the file and recorded in its security log. |
 | GET | [`/tabularius/admin/v1/ai-usage`](#admin-ai-get-tabularius-admin-v1-ai-usage) | The assistant's tokens and approximate cost: today against its limit, this month against its budget, the latest questions (never their text) and the models in use. |
 | GET | [`/tabularius/admin/v1/ai-access/{database}`](#admin-ai-get-tabularius-admin-v1-ai-access-database) | Whether AI apps and the assistant may read the file, and why not. |
 | POST | [`/tabularius/admin/v1/ai-access/{database}`](#admin-ai-post-tabularius-admin-v1-ai-access-database) | Turns AI on or off for a file; off keeps its data from AI apps, the assistant, digests' summaries and AI matching, whatever an account's privileges. Logged in the file's security events as "admin console". |
@@ -19956,6 +19958,73 @@ Response `200`:
 ```
 
 Manage Security edits aiVisible on a privilege set: {"Payroll":["Password"]} marks fields; {"Payroll":true} marks a whole base table. Ordinary privileges still apply. The AI access switch is separate.
+
+<a id="admin-ai-get-tabularius-admin-v1-sql-privilege-database"></a>
+
+### `GET /tabularius/admin/v1/sql-privilege/{database}`
+
+Whether a SQL query that reaches this file through another hosted file needs the account to have the fmxdbc extended privilege in this file too. Off by default.
+
+**Permissions:** Admin console: a console sign-in (the tabularius_admin cookie from POST /tabularius/admin/v1/sign-in), or the admin password by HTTP Basic (any user name), or the folder's local channel token in x-tabularius-local (Tabularius commands on the server machine). With no admin password set, only requests from this machine (loopback) are let in.
+
+**Parameters:**
+
+| Name | In | Type | Required | Description |
+| --- | --- | --- | --- | --- |
+| `database` | path | string | yes | Hosted file (404 "No such hosted file"). |
+
+**Example:**
+
+```http
+GET /tabularius/admin/v1/sql-privilege/Invoices
+Cookie: tabularius_admin=6b1f0c2e6b1f0c2e6b1f0c2e6b1f0c2e6b1f0c2e6b1f0c2e6b1f0c2e6b1f0c2e
+```
+
+Response `200`:
+
+```json
+{
+  "on": false
+}
+```
+
+<a id="admin-ai-post-tabularius-admin-v1-sql-privilege-database"></a>
+
+### `POST /tabularius/admin/v1/sql-privilege/{database}`
+
+Requires (or stops requiring) the fmxdbc extended privilege in this file for SQL that reaches it through another hosted file. Kept in the file and recorded in its security log.
+
+**Permissions:** Admin console: a console sign-in (the tabularius_admin cookie from POST /tabularius/admin/v1/sign-in), or the admin password by HTTP Basic (any user name), or the folder's local channel token in x-tabularius-local (Tabularius commands on the server machine). With no admin password set, only requests from this machine (loopback) are let in. Not a GET, so it also needs the header x-tabularius-admin: 1 (403 "missing x-tabularius-admin header" without it).
+
+**Parameters:**
+
+| Name | In | Type | Required | Description |
+| --- | --- | --- | --- | --- |
+| `database` | path | string | yes | Hosted file. |
+| `on` | body | boolean | yes | true or false; other values return 400. |
+
+**Example:**
+
+```http
+POST /tabularius/admin/v1/sql-privilege/Invoices
+Cookie: tabularius_admin=6b1f0c2e6b1f0c2e6b1f0c2e6b1f0c2e6b1f0c2e6b1f0c2e6b1f0c2e6b1f0c2e
+x-tabularius-admin: 1
+Content-Type: application/json
+
+{
+  "on": true
+}
+```
+
+Response `200`:
+
+```json
+{
+  "on": true
+}
+```
+
+Off, a query through a user-interface file reaches this file with the account's record and field privileges here and no check of its extended privileges. On, an account whose privilege set here lacks fmxdbc is refused (error 9 over HTTP, 42501 over the PostgreSQL port) and the HTTP table list leaves the file's tables out. A connection made directly to this file always needs fmxdbc, whatever this says.
 
 <a id="admin-ai-get-tabularius-admin-v1-ai-usage"></a>
 

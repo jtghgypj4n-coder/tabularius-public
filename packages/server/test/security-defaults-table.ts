@@ -33,7 +33,7 @@ export interface Ctx {
   /** What a token made with no options looks like. */
   apiTokenShape(): string;
   /** A setting a file made now starts with. */
-  newStoreSetting(key: 'aiPolicy'): string;
+  newStoreSetting(key: 'aiPolicy' | 'sqlRequiresFmxdbc'): string;
   /** Whether the folder's settings turn on scripts installing plug-ins. */
   scriptPluginInstall(): boolean;
   /** How the file's audit trail is set. */
@@ -406,6 +406,14 @@ export const ROWS: Row[] = [
     risk: 'A reporting or ETL account can change records, within its record and field privileges and the audit log; a connection inside BEGIN holds the file until it ends, goes idle for 30 seconds or reaches 5 minutes',
     how: 'read from code', expect: 'off',
     observe: async (c) => (grep(c.source('packages/server/src/index.ts'), /(writes: opts\.sqlWrites === true)/) && grep(c.source('packages/server/src/pgwire.ts'), /(return this\.opts\.writes === true;)/) ? 'off' : 'on'),
+  },
+  {
+    id: 'sql-second-file', section: 'What can reach outside', setting: 'SQL through another hosted file needs the SQL privilege in that file',
+    default: 'Off: an account that reads every record of a data file can be queried through a user-interface file whatever the data file\'s extended privileges say',
+    changedBy: '`tabularius sql-privilege <folder> <name> on|off`; the console; `POST /tabularius/admin/v1/sql-privilege/{database}`',
+    risk: 'Off, an account with the SQL privilege (`fmxdbc`) in the interface file reaches the data file\'s tables with only its record and field privileges there. On, its set in the data file must hold `fmxdbc` too',
+    how: 'probed', expect: 'off',
+    observe: async (c) => (c.newStoreSetting('sqlRequiresFmxdbc') === 'true' ? 'on' : 'off'),
   },
   {
     id: 'standby', section: 'What can reach outside', setting: 'Standby servers following this one (replication)',
