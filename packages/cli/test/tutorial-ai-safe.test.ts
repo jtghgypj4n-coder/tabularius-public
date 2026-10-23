@@ -21,13 +21,16 @@ const freePort = () => new Promise<number>((ok, no) => {
 
 test('the let-an-ai-use-your-file-safely tutorial works as written', { skip: !hasCurl && 'curl missing', timeout: 240_000 }, async () => {
   const work = mkdtempSync(join(tmpdir(), 'tabularius-tutorial-ai-'));
-  const port = await freePort();
   const folder = join(work, 'tabularius');
-  const adapt = (s: string) => s.replaceAll('~/tabularius', folder).replace(/\b8080\b/g, String(port)).replaceAll('examples/support-desk', join(root, 'examples', 'support-desk'));
-  const blocks = [...page.matchAll(/^```(\w+)(?: (run|serve))?\n([\s\S]*?)^```$/gm)].map((m) => ({ lang: m[1], run: m[2] === 'run', code: adapt(m[3]) }));
+  const blocksFor = (port: number) => {
+    const adapt = (s: string) => s.replaceAll('~/tabularius', folder).replace(/\b8080\b/g, String(port)).replaceAll('examples/support-desk', join(root, 'examples', 'support-desk'));
+    return [...page.matchAll(/^```(\w+)(?: (run|serve))?\n([\s\S]*?)^```$/gm)].map((m) => ({ lang: m[1], run: m[2] === 'run', code: adapt(m[3]) }));
+  };
+  let port = await freePort();
+  let blocks = blocksFor(port);
   const setup = blocks.filter((b) => b.lang === 'sh' && b.run).slice(0, 2);
   const serve = blocks.find((b) => b.lang === 'sh' && !b.run && /tabularius serve/.test(b.code));
-  const examples = blocks.filter((b) => b.lang === 'sh' && b.run).slice(2);
+  let examples = blocks.filter((b) => b.lang === 'sh' && b.run).slice(2);
   let server: ReturnType<typeof spawn> | undefined;
   try {
     assert.equal(setup.length, 2, 'the page has its store creation and privacy setup blocks');
@@ -37,10 +40,23 @@ test('the let-an-ai-use-your-file-safely tutorial works as written', { skip: !ha
     const made = run(setup.map((b) => b.code).join('\n'));
     assert.equal(made.status, 0, made.stdout + made.stderr);
 
-    server = spawn(process.execPath, ['--no-warnings', main, 'serve', folder, '--port', String(port)], { stdio: 'ignore', env: { ...process.env, HOME: work } });
-    for (const end = Date.now() + 60_000; ; await new Promise((ok) => setTimeout(ok, 200))) {
-      if (await fetch(`http://127.0.0.1:${port}/fmi/data/vLatest/databases`).then((r) => r.status < 500, () => false)) break;
-      assert.ok(Date.now() < end, 'the server came up');
+    // The port was free a moment ago, not now: another test's server may have taken it (and answers 400 to every request
+    // that carries no proxy header). A server that exits at start-up, or an answer that is not the health page's, is that.
+    for (let attempt = 1; ; attempt++) {
+      const started = spawn(process.execPath, ['--no-warnings', main, 'serve', folder, '--port', String(port)], { stdio: 'ignore', env: { ...process.env, HOME: work } });
+      server = started;
+      const ready = await (async () => {
+        for (const end = Date.now() + 60_000; ; await new Promise((ok) => setTimeout(ok, 200))) {
+          if (started.exitCode !== null) return false;
+          if (await fetch(`http://127.0.0.1:${port}/tabularius/health`).then((r) => r.ok, () => false) && started.exitCode === null) return true;
+          assert.ok(Date.now() < end, 'the server came up');
+        }
+      })();
+      if (ready) break;
+      assert.ok(attempt < 5, 'the server found a port to listen on');
+      port = await freePort();
+      blocks = blocksFor(port);
+      examples = blocks.filter((b) => b.lang === 'sh' && b.run).slice(2);
     }
 
     const script = examples.map((b, i) => `echo __DOC_BLOCK_${i}__\n${b.code}`).join('\n');
