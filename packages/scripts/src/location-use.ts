@@ -38,7 +38,10 @@ function callsIn(formula: string): Set<string> | undefined {
 }
 
 type LocateResult = { found: boolean; cycle: boolean };
-const byFile = new WeakMap<Schema, { formulas: string; known: Map<string, { formula: string; found: boolean }> }>();
+type FunctionText = { name: string; formula?: string | undefined };
+const byFile = new WeakMap<Schema, { functions: FunctionText[]; known: Map<string, { formula: string; found: boolean }> }>();
+const sameFunctions = (was: FunctionText[], now: FunctionText[]): boolean =>
+  was.length === now.length && was.every((fn, i) => fn.name === now[i].name && fn.formula === now[i].formula);
 
 /** Whether a custom function calls Location, itself or through other custom functions. */
 function functionLocates(schema: Schema, name: string, seen: Set<string>): LocateResult {
@@ -87,9 +90,11 @@ const bySteps = new WeakMap<ScriptStep, boolean>();
 export function stepLocates(step: ScriptStep, schema: Schema): boolean {
   const custom = schema.customFunctions.length > 0;
   if (custom) {
-    const formulas = JSON.stringify(schema.customFunctions.map((fn) => [fn.name.toLowerCase(), fn.formula]));
+    // The answers are kept for as long as no custom function was added, removed or edited: compared in place, one string
+    // comparison each, so asking about many steps costs no more than that.
+    const functions = schema.customFunctions;
     const cached = byFile.get(schema);
-    if (!cached || cached.formulas !== formulas) byFile.set(schema, { formulas, known: new Map() });
+    if (!cached || !sameFunctions(cached.functions, functions)) byFile.set(schema, { functions: functions.map((fn) => ({ name: fn.name, formula: fn.formula })), known: new Map() });
   }
   let v = custom ? undefined : bySteps.get(step);
   if (v === undefined) {

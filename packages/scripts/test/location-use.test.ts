@@ -68,3 +68,13 @@ test('a parameter that is not a formula falls back to the text outside its quote
   assert.equal(stepLocates(step({ value: 'Location ( 10 ; 5 ) & "' }), schema()), true);
   assert.equal(stepLocates(step({ value: '"Location ( 1 )" ) (' }), schema()), false);
 });
+
+test('asking about many steps does not serialize the custom functions each time', (t) => {
+  const s = schema([{ name: 'Here', formula: 'Location ( 30 ; 10 )' }, { name: 'Plain', formula: '1 + 1' }]);
+  const stringify = t.mock.method(JSON, 'stringify');
+  for (let i = 0; i < 50; i++) stepLocates(step({ value: `Plain + ${i}` }), s);
+  assert.equal(stringify.mock.callCount(), 0);
+  // An edited function is still noticed.
+  s.customFunctions[1].formula = 'Here';
+  assert.equal(stepLocates(step({ value: 'Plain' }), s), true);
+});
