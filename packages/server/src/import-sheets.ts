@@ -6,6 +6,7 @@
 import { notionMarkdownSheet, MAX_IMPORT_ROWS, type SheetInput } from '../../store/src/index.ts';
 import { importFileRowIterator } from '../../scripts/src/index.ts';
 import { openXlsx, type XlsxWorkbook, zipReader } from '../../scripts/src/xlsx.ts';
+import { ARCHIVE_MAX_ENTRIES, ARCHIVE_MAX_RATIO } from '../../calc/src/zip.ts';
 
 /** A file that cannot be read as sheets: the message says why, without the file's name. */
 export class ImportSheetsError extends Error {}
@@ -39,7 +40,7 @@ function freeName(base: string, taken: Set<string>): string {
  */
 function sheetsFromZip(name: string, data: Uint8Array, allowance: ZipAllowance): SheetInput[] {
   try {
-    const archive = zipReader(data, allowance.bytes);
+    const archive = zipReader(data, allowance.bytes, { maxEntries: ARCHIVE_MAX_ENTRIES, maxRatio: ARCHIVE_MAX_RATIO });
     const wanted: { path: string; kind: 'csv' | 'md' }[] = [];
     const left = { csv: allowance.csvs, md: allowance.pages };
     for (const path of archive.names()) {
