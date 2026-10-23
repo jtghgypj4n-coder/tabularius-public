@@ -1,12 +1,29 @@
 // Passwords for commands: asked for hidden, twice, in a terminal; read from a pipe otherwise.
-import { test } from 'node:test';
+import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { readSecret, type SecretInput } from '../src/prompt.ts';
+
+const stubRoot = mkdtempSync(join(tmpdir(), 'tabularius-prompt-stubs-'));
+const commandMarker = join(stubRoot, 'unexpected-command');
+const stubPath = join(stubRoot, 'bin');
+mkdirSync(stubPath);
+for (const name of ['launchctl', 'systemctl', 'sc', 'git', 'npm', 'curl', 'sudo']) {
+  writeFileSync(join(stubPath, name), '#!/bin/sh\nprintf x >> "$TABULARIUS_TEST_COMMAND_MARKER"\nexit 99\n', { mode: 0o755 });
+}
+process.env.PATH = stubPath;
+process.env.TABULARIUS_TEST_COMMAND_MARKER = commandMarker;
+after(() => {
+  try {
+    assert.equal(existsSync(commandMarker), false, 'a service, upgrade, install or network command was run');
+  } finally {
+    rmSync(stubRoot, { recursive: true, force: true });
+  }
+});
 
 /** A stand-in terminal: keys are typed into it, and what is shown is kept. */
 function terminal() {
@@ -46,6 +63,29 @@ test('in a terminal: Ctrl-C cancels', async () => {
   t.type(['\x03']);
   await assert.rejects(readSecret('Password', { input: t.input, output: t.output }), /cancelled/);
   assert.equal(t.raw.at(-1), false);
+});
+
+test('in a terminal: navigation and Delete sequences never enter the password, even across writes', async () => {
+  const keys = ['\x1b[D', '\x1b[3~', '\x1b[H', '\x1b[F', '\x1b[A', '\x1bOA', '\x1b[1;', '5D', '\x1b[1;5$D'];
+  const t = terminal();
+  t.type(['abc', ...keys, 'X\r'], ['abc', ...keys, 'X\r']);
+  assert.equal(await readSecret('Password', { confirm: true, input: t.input, output: t.output }), 'abcX');
+  assert.doesNotMatch(t.shown(), /abcX/);
+});
+
+test('in a terminal: Backspace still removes the previous character after an arrow key', async () => {
+  const t = terminal();
+  t.type(['abc', '\x1b[D', '\x7f', 'X\r']);
+  assert.equal(await readSecret('Password', { input: t.input, output: t.output }), 'abX');
+});
+
+test('in a terminal: Ctrl-U clears the entry and Ctrl-D still cancels an empty one', async () => {
+  const cleared = terminal();
+  cleared.type(['abc', '\x1b[D', '\x15', 'xyz\r']);
+  assert.equal(await readSecret('Password', { input: cleared.input, output: cleared.output }), 'xyz');
+  const cancelled = terminal();
+  cancelled.type(['\x1b[D', '\x04']);
+  await assert.rejects(readSecret('Password', { input: cancelled.input, output: cancelled.output }), /cancelled/);
 });
 
 test('from a pipe: the input, less its final line break', async () => {

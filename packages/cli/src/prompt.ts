@@ -16,6 +16,7 @@ function askHidden(question: string, input: SecretInput, output: Writable): Prom
   output.write(question);
   return new Promise((done, fail) => {
     let text = '';
+    let escape: 'none' | 'start' | 'csi' | 'csi-intermediate' | 'ss3' = 'none';
     input.setRawMode?.(true);
     input.resume();
     const finish = (err?: Error) => {
@@ -28,6 +29,26 @@ function askHidden(question: string, input: SecretInput, output: Writable): Prom
     };
     const onData = (chunk: Buffer | string) => {
       for (const ch of String(chunk)) {
+        if (escape === 'start') {
+          escape = ch === '[' ? 'csi' : ch === 'O' ? 'ss3' : 'none';
+          if (escape !== 'none') continue;
+        } else if (escape === 'ss3') {
+          escape = 'none';
+          continue;
+        } else if (escape === 'csi' || escape === 'csi-intermediate') {
+          const code = ch.charCodeAt(0);
+          if (escape === 'csi' && code >= 0x30 && code <= 0x3f) continue;
+          if (code >= 0x20 && code <= 0x2f) {
+            escape = 'csi-intermediate';
+            continue;
+          }
+          escape = 'none';
+          if (code >= 0x40 && code <= 0x7e) continue;
+        }
+        if (ch === '\u001b') {
+          escape = 'start';
+          continue;
+        }
         if (ch === '\r' || ch === '\n') return finish();
         if (ch === '\u0003' || (ch === '\u0004' && !text)) return finish(new Error('cancelled'));
         if (ch === '\u007f' || ch === '\b') text = text.slice(0, -1);

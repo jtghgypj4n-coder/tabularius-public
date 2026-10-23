@@ -25,7 +25,7 @@ export function demoPassword(): string {
 
 /** Why a host name is not this computer, or undefined when it is. */
 export function notLoopback(host: string): string | undefined {
-  const h = host.replace(/^\[|\]$/g, '').toLowerCase();
+  const h = host.replace(/^\[(.*)\]$/, '$1').toLowerCase();
   if (h === 'localhost' || h === '::1' || /^127(\.\d{1,3}){3}$/.test(h) && h.split('.').every((n) => Number(n) <= 255)) return undefined;
   return `demo: it only listens on this computer, so --host takes 127.0.0.1, localhost or ::1, not "${host}". To let other people in, host a folder with tabularius serve instead`;
 }
@@ -66,7 +66,7 @@ function emptyOrNew(folder: string): void {
 export async function startDemo(opts: DemoOptions = {}): Promise<Demo> {
   const starter = opts.starter ?? DEFAULT_STARTER;
   if (!STARTER_NAMES.includes(starter)) throw new Error(`demo: --starter takes one of ${STARTER_NAMES.join(', ')} (not "${starter}")`);
-  const host = opts.host ?? '127.0.0.1';
+  const host = (opts.host ?? '127.0.0.1').replace(/^\[(.*)\]$/, '$1');
   const refused = notLoopback(host);
   if (refused) throw new Error(refused);
   if (opts.port !== undefined && !(Number.isInteger(opts.port) && opts.port >= 0 && opts.port < 65536)) throw new Error('demo: --port takes a port number');
