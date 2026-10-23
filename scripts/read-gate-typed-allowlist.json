@@ -2211,9 +2211,9 @@
   "file": "packages/store/src/store.ts",
   "within": "Store.restoreDeletedRowLocked",
   "api": "sql.prepare",
-  "count": 1,
+  "count": 2,
   "gate": "store-internal",
-  "why": "Id-collision check before reinserting (create privilege checked); error 504 reveals only that the id is in use."
+  "why": "Id and _fm_uuid collision checks before reinserting (create privilege checked); error 504 reveals only that the id or the internal uuid of the row being put back is in use."
  },
  {
   "file": "packages/store/src/store.ts",
