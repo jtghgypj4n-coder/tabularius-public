@@ -11,6 +11,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Server } from 'node:http';
 import { ldapAuthenticate, serve, type LdapProvider } from '../src/index.ts';
+import { hostRefusal } from '../../scripts/src/net-guard.ts';
 import type { Store } from '../../store/src/index.ts';
 
 // --- a tiny, independent BER codec, so a shared bug can't pass both sides ---
@@ -65,6 +66,9 @@ interface User { dn: string; pw: string; mail?: string; groups: string[]; match:
 const users: User[] = [
   { dn: 'uid=alice,ou=people,dc=ex,dc=com', pw: 'secret', mail: 'alice@ex.com', groups: ['CN=Sales,OU=g,DC=ex,DC=com', 'CN=Staff,OU=g,DC=ex,DC=com'], match: { uid: 'alice' } },
   { dn: 'CN=Bob,OU=people,DC=ex,DC=com', pw: 'bobpw', mail: 'bob@ex.com', groups: ['CN=Admins,OU=g,DC=ex,DC=com'], match: { samaccountname: 'bob' } },
+  ...['a$$b', "x$'", 'y$`'].map((name, i) => ({ dn: `uid=${name},ou=people,dc=ex,dc=com`, pw: `dollar-password-${i}`, groups: [], match: { uid: name } })),
+  { dn: 'uid=escaped-groups,ou=people,dc=ex,dc=com', pw: 'groups-password', groups: ['CN=Sales\\, EMEA,OU=g,DC=ex,DC=com', 'CN=Plain,OU=g,DC=ex,DC=com'], match: { uid: 'escaped-groups' } },
+  { dn: 'uid=trailing-escape,ou=people,dc=ex,dc=com', pw: 'trailing-password', groups: ['CN=Trailing\\'], match: { uid: 'trailing-escape' } },
 ];
 const service = { dn: 'cn=svc,dc=ex,dc=com', pw: 'svcpw' };
 
@@ -119,6 +123,21 @@ function handle(sock: Socket, msg: Buffer): void {
   }
 }
 
+function mockConnection(sock: Socket): void {
+  let buf = Buffer.alloc(0);
+  sock.on('data', (d) => {
+    buf = Buffer.concat([buf, d]);
+    for (;;) {
+      const total = frameLen(buf);
+      if (total === undefined || buf.length < total) break;
+      const m = buf.subarray(0, total);
+      buf = buf.subarray(total);
+      try { handle(sock, m); } catch { sock.destroy(); return; }
+    }
+  });
+  sock.on('error', () => {});
+}
+
 let ldapServer: NetServer;
 let ldapUrl: string;
 
@@ -129,6 +148,21 @@ test('bind-DN template: the right password returns the email and groups, the com
   assert.ok(who);
   assert.equal(who.email, 'alice@ex.com');
   assert.deepEqual(who.groups, ['Sales', 'CN=Sales,OU=g,DC=ex,DC=com', 'Staff', 'CN=Staff,OU=g,DC=ex,DC=com']);
+});
+
+test('bind-DN template: dollar patterns in names bind as the typed entry', async () => {
+  for (const [i, name] of ['a$$b', "x$'", 'y$`'].entries()) {
+    assert.ok(await ldapAuthenticate(template(), name, `dollar-password-${i}`), name);
+  }
+});
+
+test('group common names preserve escaped commas and tolerate a trailing backslash', async () => {
+  const who = await ldapAuthenticate(template(), 'escaped-groups', 'groups-password');
+  assert.ok(who);
+  assert.deepEqual(who.groups, ['Sales, EMEA', 'CN=Sales\\, EMEA,OU=g,DC=ex,DC=com', 'Plain', 'CN=Plain,OU=g,DC=ex,DC=com']);
+  const trailing = await ldapAuthenticate(template(), 'trailing-escape', 'trailing-password');
+  assert.ok(trailing);
+  assert.ok(trailing.groups.includes('CN=Trailing\\'));
 });
 
 test('bind-DN template: a wrong password is rejected', async () => {
@@ -166,6 +200,45 @@ test('an unreachable directory fails cleanly', async () => {
   await assert.rejects(ldapAuthenticate({ name: 'x', url: 'ldap://127.0.0.1:1', bindDnTemplate: 'uid={user}' }, 'a', 'b'), /can't reach/);
 });
 
+test('IPv6 directory literals use the bare address and retain metadata refusal', async (t) => {
+  await assert.rejects(ldapAuthenticate({ ...template(), url: 'ldap://[::1]:1' }, 'a', 'b'), (error: Error) => {
+    assert.match(error.message, /can't reach ::1:1/);
+    assert.doesNotMatch(error.message, /ENOTFOUND|\[::1\]/);
+    return true;
+  });
+  for (const address of ['fd00:ec2::254', 'fe80::1']) {
+    const refusal = hostRefusal({ private: true }, address);
+    assert.ok(refusal);
+    for (const protocol of ['ldap', 'ldaps']) {
+      await assert.rejects(ldapAuthenticate({ ...template(), url: `${protocol}://[${address}]` }, 'a', 'b'), {
+        message: `ldap: ${refusal}`,
+      });
+    }
+  }
+  await t.test('signs in over IPv6 loopback when available', async (t) => {
+    const server = createServer(mockConnection);
+    try {
+      await new Promise<void>((resolve, reject) => {
+        server.once('error', reject);
+        server.listen(0, '::1', () => { server.off('error', reject); resolve(); });
+      });
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== 'EAFNOSUPPORT' && code !== 'EADDRNOTAVAIL') throw error;
+      t.skip(`IPv6 loopback unavailable: ${code}`);
+      return;
+    }
+    try {
+      const url = `ldap://[::1]:${(server.address() as { port: number }).port}`;
+      const who = await ldapAuthenticate({ ...template(), url }, 'alice', 'secret');
+      assert.ok(who);
+      assert.equal(who.email, 'alice@ex.com');
+    } finally {
+      await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    }
+  });
+});
+
 // --- the Data API hands a directory sign-in an external account's set -------
 
 const fixture = join(import.meta.dirname, '..', '..', '..', 'fixtures', 'fmp12', 'Charts.fmp12');
@@ -178,20 +251,7 @@ let host: Awaited<ReturnType<typeof serve>>['host'];
 
 before(async () => {
   // Start the mock directory first, so its URL is ready for the HTTP server.
-  ldapServer = createServer((sock) => {
-    let buf = Buffer.alloc(0);
-    sock.on('data', (d) => {
-      buf = Buffer.concat([buf, d]);
-      for (;;) {
-        const total = frameLen(buf);
-        if (total === undefined || buf.length < total) break;
-        const m = buf.subarray(0, total);
-        buf = buf.subarray(total);
-        try { handle(sock, m); } catch { sock.destroy(); return; }
-      }
-    });
-    sock.on('error', () => {});
-  });
+  ldapServer = createServer(mockConnection);
   await new Promise<void>((res) => ldapServer.listen(0, '127.0.0.1', res));
   ldapUrl = `ldap://127.0.0.1:${(ldapServer.address() as { port: number }).port}`;
 
