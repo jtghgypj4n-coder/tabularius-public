@@ -78,9 +78,9 @@ export interface ScriptDryRun {
   ended: ScriptTestEnd;
   message?: string;
   changes: {
-    records: { table: string; recordId: number; kind: 'create' | 'update' | 'delete'; fields: { field: string; before: string; after: string }[] }[];
+    records: { file?: string; table: string; recordId: number; kind: 'create' | 'update' | 'delete'; fields: { field: string; before: string; after: string }[] }[];
     more: number;
-    truncated: { table: string; records: number }[];
+    truncated: { file?: string; table: string; records: number }[];
     incomplete?: boolean;
   };
 }

@@ -7,7 +7,7 @@ missing from it. `npm run docs:known-differences` rewrites it, and a test fails 
 marker (`<!-- known-difference: area ;; what ;; how it shows ;; what would settle it -->`). Internal working notes are not
 part of it.
 
-**108 entries in 20 areas.** Waiting on: 22 on a sample file, 51 on a FileMaker run or Design Report, 10 on a Claris answer, 16 on a decision by the owner (an entry can wait on more than one).
+**109 entries in 20 areas.** Waiting on: 22 on a sample file, 52 on a FileMaker run or Design Report, 10 on a Claris answer, 16 on a decision by the owner (an entry can wait on more than one).
 
 ## Data API
 
@@ -189,6 +189,7 @@ part of it.
 | Dragging or resizing a script's windows and a separate browser window for a script's document window are not supported | Windows open as cards over the page | Owner decision | [docs/web-client.md › Browse mode](web-client.md) — “…ended in and which it closed (window, closed). Not yet: dragging or resizing these windows, and a separate…” |
 | Page Setup scale (a scale below 100% enlarges the layout area in inverse proportion and shrinks it onto the sheet) is inferred from Claris's description, not checked against FileMaker; Save Records as PDF ignores the scale | Preview and browser printing may lay out a scaled page differently | A FileMaker print of a layout with a scale | [docs/web-client.md › Preview mode and printing](web-client.md) — “…it onto the same sheet. That behaviour is inferred from Claris's description of Scale and the saved print…” |
 | A write to one repetition of a repeating field in a portal row or related field leaves the others (tested in the store), and has not been checked in a browser | Not seen in a browser yet | A browser test of the write | [docs/web-client.md › Drawing layouts](web-client.md) — “…leaves the others (tested in the store; not yet checked in a browser).” |
+| Whether another product places PNG images unsupported by this PDF writer or preserves tRNS transparency is unverified | An unsupported PNG, including one with tRNS transparency, is left out of a PDF | A native PDF export of layouts with those PNG forms | [docs/web-client.md › Preview mode and printing](web-client.md) — “…product handles those images differently is unverified.” |
 | Grand summaries run across the page in columns (inferred), what lies beyond the first column's width is not printed, and column settings are not read from converted .fmp12 files (no sample sets it) | A converted layout prints in one column | A sample file with columns set, and a FileMaker print | [docs/web-client.md › Preview mode and printing](web-client.md) — “…the count; grand summaries run across the page (inferred). What lies beyond the first column's width isn't…” |
 | The numeric form newer files store for the page number symbol ({{1015}}) is inferred | A page number may not show for a layout that stores it so | A sample file with that symbol | [docs/web-client.md › Preview mode and printing](web-client.md) — “…the numeric form newer files store ({{1015}}, inferred).” |
 
