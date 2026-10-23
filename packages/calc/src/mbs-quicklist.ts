@@ -10,7 +10,7 @@ import { ENTRY_BYTES, LIST_SLOT_BYTES, RetainedMap, retainedBudget, stringBytes 
 // "isn't available" MBS error.
 
 import { MbsError } from './mbs-text.ts';
-import { compileRegex, optionsOf, regexMatches } from './mbs-regex.ts';
+import { compileRegex, optionsOf, regexMatchesEach } from './mbs-regex.ts';
 import { parseJson } from './mbs-json.ts';
 import {
   and, andColumn, bestMatch, crossProduct, deCombine, deleteColumn, deserialize, duplicates, listOut, matcher,
@@ -263,7 +263,9 @@ export const MBS_QUICKLIST: Record<string, MbsQuickList> = {
   'quicklist.regexmatch': ([ref, pattern = '', compile, exec, nl], scope) => {
     const c = compileRegex(pattern, optionsOf(compile));
     const options = c.options | optionsOf(exec);
-    return changed(scope, ref, listOf(scope, ref).filter((x) => regexMatches(c, x, options)), flag(nl));
+    const values = listOf(scope, ref);
+    const matched = regexMatchesEach(c, values, options);
+    return changed(scope, ref, values.filter((_, i) => matched[i]), flag(nl));
   },
   'quicklist.release': ([ref], scope) => {
     if (!sessionOf(scope).lists.delete((ref ?? '').trim())) fail(`"${ref ?? ''}" is not a QuickList reference`);

@@ -118,7 +118,7 @@ const PLAIN: Record<string, string> = {
   '⅐': '1/7', '⅛': '1/8', '⅜': '3/8', '⅝': '5/8', '⅞': '7/8', '⅑': '1/9', '⅒': '1/10', '↉': '0/3',
 };
 export const removeAccents = (s: string) =>
-  [...s].map((c) => PLAIN[c] ?? (/[\p{L}]/u.test(c) ? c.normalize('NFD').replace(/\p{M}+/gu, '') : c)).join('');
+  [...s].map((c) => PLAIN[c] ?? (/\p{L}/u.test(c) && /[\p{Script=Latin}\p{Script=Greek}\p{Script=Cyrillic}]/u.test(c) ? c.normalize('NFD').replace(/\p{M}+/gu, '') : c)).join('');
 
 // --- the rest ----------------------------------------------------------------------
 

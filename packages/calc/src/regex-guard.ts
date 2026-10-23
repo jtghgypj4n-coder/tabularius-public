@@ -64,6 +64,17 @@ const SOURCE = `
     return n;
   }
   function advance(text, at, unicode) { return at + (unicode && text.codePointAt(at) > 0xffff ? 2 : 1); }
+  const nonEmptyExpressions = new WeakMap();
+  function nonEmpty(re) {
+    let variant = nonEmptyExpressions.get(re);
+    if (variant) return variant;
+    const slash = String.fromCharCode(92);
+    if (/[1-9]/.test(re.source.split(slash).slice(1).map((part) => part[0] ?? '').join('')) || re.source.includes(slash + 'k<')) throw new SyntaxError('NotEmpty is not supported with regular-expression backreferences');
+    if (re.source.includes('(?<__tabularius_ne>')) throw new SyntaxError('NotEmpty cannot use the reserved internal capture name');
+    variant = new RegExp('(?=(?<__tabularius_ne>[\\\\s\\\\S]*$))(?:' + re.source + ')(?!\\\\k<__tabularius_ne>$)', re.flags.replace(/y/g, '') + 'y');
+    nonEmptyExpressions.set(re, variant);
+    return variant;
+  }
   // ECMAScript replacement tokens, expanded incrementally before allocating.
   function rewrite(template, m, text) {
     if (!template.includes('$')) { size(template.length); return template; }
@@ -92,6 +103,9 @@ const SOURCE = `
   var fns = {
     exec(re, text, at) { re.lastIndex = at; const m = re.exec(text); captures(m); return m; },
     test(re, text) { re.lastIndex = 0; return re.test(text); },
+    testEach(re, texts, notEmpty, anchored, notEmptyAtStart) {
+      return texts.map((text) => fns.first(re, text, 0, notEmpty, anchored, notEmptyAtStart) !== null);
+    },
     replace(re, text, replacement) {
       // Preserve the early conservative rejection for very large templates;
       // incremental accounting below also catches short prefix/suffix tokens.
@@ -135,12 +149,37 @@ const SOURCE = `
       return out;
     },
     first(re, text, from, notEmpty, anchored, notEmptyAtStart) {
+      const retry = notEmpty || notEmptyAtStart ? nonEmpty(re) : null;
       for (let at = from; at <= text.length; ) {
         re.lastIndex = at;
         const m = re.exec(text);
         if (!m || (anchored && m.index !== from)) return null;
         const empty = m[0] === '';
         if (!empty || (!notEmpty && !(notEmptyAtStart && m.index === from))) { captures(m); return m; }
+        if (notEmpty || (notEmptyAtStart && m.index === from)) {
+          const variant = retry;
+          variant.lastIndex = m.index;
+          const nonempty = variant.exec(text);
+          if (nonempty) {
+            captures(nonempty);
+            const groups = nonempty.groups ? { ...nonempty.groups } : undefined;
+            if (groups) delete groups.__tabularius_ne;
+            const result = [nonempty[0], ...nonempty.slice(2)];
+            result.index = nonempty.index;
+            result.input = nonempty.input;
+            if (groups && Object.keys(groups).length) result.groups = groups;
+            if (nonempty.indices) {
+              const indices = [nonempty.indices[0], ...nonempty.indices.slice(2)];
+              if (nonempty.indices.groups) {
+                const indexGroups = { ...nonempty.indices.groups };
+                delete indexGroups.__tabularius_ne;
+                indices.groups = indexGroups;
+              }
+              result.indices = indices;
+            }
+            return result;
+          }
+        }
         if (anchored) return null;
         // Past a whole surrogate pair: a /u expression steps back to a pair's start, so one more would find this match again.
         at = m.index + (text.codePointAt(m.index) > 0xffff ? 2 : 1);
@@ -171,6 +210,9 @@ let budgetMs = BUDGET_MS;
 
 function run(op: string, ...args: unknown[]): any {
   if (typeof args[1] === 'string' && args[1].length > MAX_TEXT_RESULT) throw new RangeError('The regular expression input is too large');
+  if (op === 'testEach' && Array.isArray(args[1]) && args[1].some((text) => typeof text !== 'string' || text.length > MAX_TEXT_RESULT)) {
+    throw new RangeError('The regular expression input is too large');
+  }
   if (!context || !call) {
     context = vm.createContext({ op: '', args: [], out: undefined });
     new vm.Script(SOURCE).runInContext(context);
@@ -224,6 +266,9 @@ export function withRegexBudget<T>(fn: () => T, ms = BUDGET_MS): T {
 export const guardedExec = (re: RegExp, text: string, at = 0): RegExpExecArray | null => run('exec', re, text, at);
 /** re.test(text) from the start. */
 export const guardedTest = (re: RegExp, text: string): boolean => run('test', re, text);
+/** Tests many texts in one guarded call, returning one result per text. */
+export const guardedTestEach = (re: RegExp, texts: string[], o: MatchOptions): boolean[] =>
+  run('testEach', re, texts, o.notEmpty, o.anchored, o.notEmptyAtStart);
 /** text.replace(re, replacement), every match when `re` is global. */
 export const guardedReplace = (re: RegExp, text: string, replacement: string): string => run('replace', re, text, replacement);
 /** text.split(re). */

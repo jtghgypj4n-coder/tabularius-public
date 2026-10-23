@@ -148,6 +148,10 @@ test('MBS Text: HTML and XML', () => {
 
 test('MBS Text: accents, ASCII, distances, sound and file types', () => {
   assert.equal(mbs('Text.RemoveAccents', 'Müller'), 'Muller');
+  assert.equal(mbs('Text.RemoveAccents', '한글'), '한글');
+  assert.equal(mbs('Text.RemoveAccents', 'がぱ'), 'がぱ');
+  assert.equal(mbs('Text.FilterASCII', '한글a', '?'), '??a');
+  assert.equal(mbs('Text.RemoveAccents', 'café'), 'cafe');
   assert.equal(mbs('Text.RemoveAccents', 'Łužica'), 'Luzica');
   const input = '` ‘ ’ • \\¶ ¨ À Á Â Ã Ä Å Æ Ç È É Ê Ë Ì Í Î Ï Ð Ñ Ò Ó Ô Õ Ö Ø Ù Ú Û Ü Ý Þ ß à á â ã ä å æ ç è é ê ë ì í î ï ð ñ ò ó ô õ ö ø ù ú û ü ý þ ÿ ¼ ½ ¾ ⅓ ⅔ ⅕ ⅖ ⅗ ⅘ ⅙ ⅚ ⅐ ⅛ ⅜ ⅝ ⅞ ⅑ ⅒ ↉';
   assert.equal(evaluateText(`MBS ( "Text.RemoveAccents" ; "${input}" )`, c),

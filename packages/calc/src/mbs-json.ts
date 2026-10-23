@@ -360,7 +360,7 @@ const valueAt = (o: Obj, key: string): Json | undefined => o.entries[keyAt(o, ke
 // MBS's list paths ("people¶0¶last"), and since 12.4 FileMaker's own ("people[0]last", ".people.best.first",
 // "['best.friend']"). A path with no return and no "." or "[" is a single key or index.
 
-type Step = { key: string } | { index: number } | { append: true } | { count: true };
+type Step = { key: string } | { index: number; text: string } | { append: true } | { count: true };
 
 function pathOf(path: string): Step[] {
   if (/[\r\n]/.test(path) || !/[.[]/.test(path)) {
@@ -368,7 +368,7 @@ function pathOf(path: string): Step[] {
     return parts.map((p, n): Step => {
       if (p === '#' && n === parts.length - 1) return { count: true };
       if (p === 'append' && n === parts.length - 1) return { append: true };
-      return /^\d+$/.test(p) ? { index: Number(p) } : { key: p };
+      return /^\d+$/.test(p) ? { index: Number(p), text: p } : { key: p };
     });
   }
   const steps: Step[] = [];
@@ -381,7 +381,7 @@ function pathOf(path: string): Step[] {
     if (path[i] === '[') {
       const q = /^\[\s*(?:'((?:[^'\\]|\\.)*)'|"((?:[^"\\]|\\.)*)"|(\d+)|(\+))\s*\]/.exec(path.slice(i));
       if (!q) throw new MbsError(`Invalid path: ${path}`);
-      if (q[3] !== undefined) steps.push({ index: Number(q[3]) });
+      if (q[3] !== undefined) steps.push({ index: Number(q[3]), text: q[3] });
       else if (q[4]) steps.push({ append: true });
       else steps.push({ key: (q[1] ?? q[2]).replace(/\\(.)/g, '$1') });
       i += q[0].length;
@@ -405,7 +405,7 @@ function getPath(root: Json, steps: Step[]): Json | number {
       if (next === undefined) throw new MbsError(`Index ${s.index} is out of range`);
       j = next;
     } else if (j.t === 'obj') {
-      const key = 'key' in s ? s.key : String(s.index);
+      const key = 'key' in s ? s.key : s.text;
       const found = valueAt(j, key);
       if (!found) throw new MbsError(`No item named "${key}"`);
       j = found;
@@ -435,7 +435,7 @@ function setPath(root: Json, steps: Step[], v: Json, budget = { nulls: 100_000 }
     return j;
   }
   if ('append' in s) throw new MbsError('"append" needs an array');
-  const key = 'key' in s ? s.key : String(s.index);
+  const key = 'key' in s ? s.key : s.text;
   const o = j as Obj;
   setKey(o, key, setPath(valueAt(o, key) ?? { t: 'null' }, rest, v, budget));
   return o;
@@ -443,6 +443,17 @@ function setPath(root: Json, steps: Step[], v: Json, budget = { nulls: 100_000 }
 
 // --- comparing -------------------------------------------------------------------------------
 
+// MBS number equality is by numeric value; canonicalise decimal text without a lossy Number conversion.
+function canonicalNumber(raw: string): string {
+  const m = /^(-?)(\d*)(?:\.(\d*))?(?:[eE]([+-]?\d+))?$/.exec(raw)!;
+  const negative = m[1] === '-' ? '-' : '';
+  const fraction = m[3] ?? '';
+  let digits = (m[2] + fraction).replace(/^0+/, '');
+  if (!digits) return '0';
+  let exponent = BigInt(m[4] ?? '0') - BigInt(fraction.length);
+  while (digits.endsWith('0')) { digits = digits.slice(0, -1); exponent++; }
+  return `${negative}${digits}e${exponent}`;
+}
 function equal(a: Json, b: Json, byContent: boolean): boolean {
   if (byContent && a.t !== 'arr' && a.t !== 'obj' && b.t !== 'arr' && b.t !== 'obj') {
     const text = (j: Json) => (j.t === 'str' ? j.v : j.t === 'num' ? String(Number(j.raw)) : scalar(j));
@@ -456,7 +467,7 @@ function equal(a: Json, b: Json, byContent: boolean): boolean {
   switch (a.t) {
     case 'null': return true;
     case 'bool': return a.v === (b as typeof a).v;
-    case 'num': return a.raw === (b as typeof a).raw || Number(a.raw) === Number((b as typeof a).raw);
+    case 'num': return canonicalNumber(a.raw) === canonicalNumber((b as typeof a).raw);
     case 'str': return a.v === (b as typeof a).v;
     case 'arr': {
       const bi = (b as typeof a).items;
@@ -478,7 +489,7 @@ function canonical(j: Json): string {
   switch (j.t) {
     case 'null': return 'z';
     case 'bool': return 'b' + j.v;
-    case 'num': return 'n' + Number(j.raw);
+    case 'num': return 'n' + canonicalNumber(j.raw);
     case 'str': return 's' + JSON.stringify(j.v);
     case 'arr': return '[' + j.items.map(canonical).join(',') + ']';
     case 'obj': return '{' + j.entries.map(([k, v]) => JSON.stringify(k) + ':' + canonical(v)).sort().join(',') + '}';
@@ -490,7 +501,7 @@ function merge(a: Json, b: Json): Json {
   if (a.t === 'arr' && b.t === 'arr') {
     const items = [...a.items];
     // Plain values are looked up by a key.
-    const keyOf = (x: Json) => (x.t === 'num' ? 'n' + Number(x.raw) : x.t === 'str' ? 's' + x.v : x.t === 'bool' ? 'b' + x.v : x.t === 'null' ? 'z' : undefined);
+    const keyOf = (x: Json) => (x.t === 'num' ? 'n' + canonicalNumber(x.raw) : x.t === 'str' ? 's' + x.v : x.t === 'bool' ? 'b' + x.v : x.t === 'null' ? 'z' : undefined);
     // Objects and arrays are looked up by a canonical text (equal() ignores the order of an object's entries and
     // compares numbers by value), so merging two long arrays of objects is not N × M comparisons.
     const keyed = (x: Json) => keyOf(x) ?? 'c' + canonical(x);
@@ -627,7 +638,7 @@ export const MBS_JSON: Record<string, MbsJson> = {
     let cur = input(scope, j?.text ?? '').j;
     for (const n of names) {
       if (n.text === '') continue;
-      const found = getPath(cur, [cur.t === 'arr' && /^\d+$/.test(n.text) ? { index: Number(n.text) } : { key: n.text }]);
+      const found = getPath(cur, [cur.t === 'arr' && /^\d+$/.test(n.text) ? { index: Number(n.text), text: n.text } : { key: n.text }]);
       cur = found as Json;
     }
     return pretty(cur, sessionOf(scope).format);
@@ -636,7 +647,7 @@ export const MBS_JSON: Record<string, MbsJson> = {
     let cur = input(scope, j?.text ?? '').j;
     for (const n of names) {
       if (n.text === '') continue;
-      cur = getPath(cur, [cur.t === 'arr' && /^\d+$/.test(n.text) ? { index: Number(n.text) } : { key: n.text }]) as Json;
+      cur = getPath(cur, [cur.t === 'arr' && /^\d+$/.test(n.text) ? { index: Number(n.text), text: n.text } : { key: n.text }]) as Json;
     }
     return keep(scope, clone(cur));
   },

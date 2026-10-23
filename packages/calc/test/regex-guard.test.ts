@@ -32,6 +32,17 @@ test('ordinary matching gives the same answers as plain JavaScript', () => {
   assert.equal([...guardedAll(/(?:)/gu, '😀', NONE)].length, 2);
 });
 
+test('NotEmpty retries at the same start for a non-empty alternative', () => {
+  assert.equal(guardedFirst(/(?:|a)/g, 'a', 0, { ...NONE, notEmpty: true })?.[0], 'a');
+  assert.equal(guardedFirst(/a*?/g, 'aaa', 0, { ...NONE, notEmpty: true })?.[0], 'a');
+  assert.equal(guardedFirst(/x*/g, 'aaa', 0, { ...NONE, notEmpty: true }), null);
+  const match = guardedFirst(/(a)(?<tail>b)/g, 'ab', 0, { ...NONE, notEmpty: true })!;
+  assert.deepEqual(match.slice(), ['ab', 'a', 'b']);
+  assert.equal(match.groups?.tail, 'b');
+  assert.equal(match.index, 0);
+  assert.throws(() => guardedFirst(/(a)\1/g, 'aa', 0, { ...NONE, notEmpty: true }), /backreferences/);
+});
+
 test('many matches are found in batches, not one call each', () => {
   const text = 'ab '.repeat(200_000);
   const t0 = Date.now();

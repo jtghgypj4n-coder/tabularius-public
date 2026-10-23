@@ -11,7 +11,7 @@ import { checkTextSize, joinText, jsonStringArray, textLength } from './text-bud
 // example doesn't follow from its description), List.SortWithEvaluate. They give an "isn't available" MBS error.
 
 import { MbsError, jaroWinkler, levenshtein } from './mbs-text.ts';
-import { compileRegex, optionsOf, regexMatches } from './mbs-regex.ts';
+import { compileRegex, optionsOf, regexMatchesEach } from './mbs-regex.ts';
 
 type MbsList = (t: string[]) => string | number;
 
@@ -330,7 +330,9 @@ export const MBS_LIST: Record<string, MbsList> = {
   'list.regexmatch': ([list = '', pattern = '', compile, exec, nre]) => {
     const c = compileRegex(pattern, optionsOf(compile));
     const options = c.options | optionsOf(exec);
-    return listOut(valuesOf(list).filter((x) => regexMatches(c, x, options)), nre);
+    const values = valuesOf(list);
+    const matched = regexMatchesEach(c, values, options);
+    return listOut(values.filter((_, i) => matched[i]), nre);
   },
   'list.removeemptyitems': ([list = '', nre]) => listOut(valuesOf(list).filter((x) => x !== ''), nre),
   'list.removeprefix': ([list = '', fix = '', nre, sensitive]) => listOut(removeFix(valuesOf(list), fix, false, flag(sensitive)), nre),

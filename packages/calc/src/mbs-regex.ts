@@ -6,7 +6,7 @@ import { ENTRY_BYTES, RetainedMap, retainedBudget, stringBytes } from './retaine
 // start, partial matching) is refused with an MBS error rather than matched differently.
 
 import { MbsError } from './mbs-text.ts';
-import { assertPatternNesting, guardedAll, guardedFirst } from './regex-guard.ts';
+import { assertPatternNesting, guardedAll, guardedFirst, guardedTestEach } from './regex-guard.ts';
 import { checkTextSize, joinText, MAX_TEXT_MATCHES } from './text-budget.ts';
 
 // --- options --------------------------------------------------------------------------
@@ -410,6 +410,11 @@ const matchOptions = (options: number) => ({ notEmpty: (options & NOTEMPTY) !== 
 
 /** Whether the expression matches somewhere in the text, with these execute options (List.RegExMatch). */
 export const regexMatches = (c: Compiled, text: string, options: number): boolean => execAt(c, text, 0, options) !== null;
+/** Whether each value matches, sharing one guarded call for list functions. */
+export const regexMatchesEach = (c: Compiled, texts: string[], options: number): boolean[] => {
+  checkOptions(options);
+  return guardedTestEach(c.re, texts, matchOptions(options));
+};
 
 /**
  * Every match, one at a time. After an empty match the search moves on a character (a whole surrogate pair) so the
