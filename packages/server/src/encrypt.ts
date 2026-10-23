@@ -10,6 +10,7 @@ import { createCipheriv, createDecipheriv, randomBytes, scrypt, scryptSync } fro
 import { cleanupPath, open, openSync, writeSync, writeFileHandle } from '../../store/src/fs-boundary.ts';
 import { closeSync, fstatSync, fsyncSync, lstatSync, readSync, rmSync } from 'node:fs';
 import type { FileHandle } from 'node:fs/promises';
+import type { Stats } from 'node:fs';
 
 const MAGIC = Buffer.from('OPENHBAM-ENC1\n');
 const CHUNK = 1 << 20;
@@ -49,12 +50,13 @@ function writeAllSync(output: number, data: Buffer, path: string): void {
   }
 }
 
-type FileOperations<T, Result> = {
+type FileOperations<T, Result, StatResult> = {
+  stat?: (file: T) => StatResult;
   close?: (file: T) => Result;
   cleanupPath?: typeof cleanupPath;
 };
-type SyncFileOperations = FileOperations<number, void>;
-type AsyncFileOperations = FileOperations<FileHandle, Promise<void>>;
+type SyncFileOperations = FileOperations<number, void, Stats>;
+type AsyncFileOperations = FileOperations<FileHandle, Promise<void>, Promise<Stats>>;
 
 function removeOpenedOutput(dest: string, opened: { dev: number; ino: number }): void {
   const current = lstatSync(dest, { throwIfNoEntry: false });
@@ -69,7 +71,7 @@ function throwFileErrors(errors: unknown[]): void {
 // Both descriptors are closed on every path, and an output that did not finish is removed. Removal goes through the
 // boundary's cleanup, captured on the entry just opened: an entry swapped in at that path afterwards is left alone.
 function withFilesSync(src: string, dest: string, work: (input: number, output: number) => void, mode?: number,
-  { close = closeSync, cleanupPath: captureCleanup = cleanupPath }: SyncFileOperations = {},
+  { close = closeSync, stat = fstatSync, cleanupPath: captureCleanup = cleanupPath }: SyncFileOperations = {},
 ): void {
   let input: number | undefined;
   let output: number | undefined;
@@ -78,12 +80,14 @@ function withFilesSync(src: string, dest: string, work: (input: number, output: 
   const errors: unknown[] = [];
   try {
     input = openSync(src, 'r');
-    output = openSync(dest, 'w', mode);
-    const opened = fstatSync(output);
+    // The guarded open already verified this inode. Retain that identity before
+    // any later stat or cleanup capture can fail, even if the path is replaced.
+    output = openSync(dest, 'w', mode, (opened) => {
+      cleanup = () => removeOpenedOutput(dest, opened);
+    });
+    const opened = stat(output);
     try { cleanup = captureCleanup(dest); }
     catch (error) {
-      // Cleanup authority needs an existing entry, so capture can fail after creation.
-      // Fall back to removal only when the path still names the descriptor's inode.
       cleanup = () => removeOpenedOutput(dest, opened);
       throw error;
     }
@@ -109,7 +113,7 @@ function withFilesSync(src: string, dest: string, work: (input: number, output: 
 }
 
 async function withFiles(src: string, dest: string, work: (input: FileHandle, output: FileHandle) => Promise<void>, mode?: number,
-  { close = (file) => file.close(), cleanupPath: captureCleanup = cleanupPath }: AsyncFileOperations = {},
+  { close = (file) => file.close(), stat = (file) => file.stat(), cleanupPath: captureCleanup = cleanupPath }: AsyncFileOperations = {},
 ): Promise<void> {
   let input: FileHandle | undefined;
   let output: FileHandle | undefined;
@@ -118,12 +122,14 @@ async function withFiles(src: string, dest: string, work: (input: FileHandle, ou
   const errors: unknown[] = [];
   try {
     input = await open(src, 'r');
-    output = await open(dest, 'w', mode);
-    const opened = await output.stat();
+    // The guarded open already verified this inode. Retain that identity before
+    // any later stat or cleanup capture can fail, even if the path is replaced.
+    output = await open(dest, 'w', mode, (opened) => {
+      cleanup = () => removeOpenedOutput(dest, opened);
+    });
+    const opened = await stat(output);
     try { cleanup = captureCleanup(dest); }
     catch (error) {
-      // Cleanup authority needs an existing entry, so capture can fail after creation.
-      // Fall back to removal only when the path still names the descriptor's inode.
       cleanup = () => removeOpenedOutput(dest, opened);
       throw error;
     }

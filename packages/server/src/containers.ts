@@ -464,7 +464,8 @@ export class ContainerFiles {
     if (!run) return undefined;
     if (!await this.takeToolSlot(signal)) return undefined;
     let dir: string | undefined;
-    let cleanup = () => {};
+    let cleanup: ReturnType<typeof cleanupPath> = () => {};
+    let failed = false;
     try {
       if (this.stopped || signal?.aborted) return undefined;
       dir = mkdtempSync(join(tmpdir(), 'tabularius-thumb-'));
@@ -478,9 +479,10 @@ export class ContainerFiles {
       if (this.stopped || signal?.aborted) return undefined;
       return new Uint8Array(readFileSync(join(dir, 'out.png')));
     } catch {
+      failed = true;
       return undefined;
     } finally {
-      try { cleanup(); }
+      try { cleanup({ throwOnError: !failed }); }
       finally { this.releaseToolSlot(); }
     }
   }

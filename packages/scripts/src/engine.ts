@@ -7337,7 +7337,8 @@ export class ScriptEngine {
     const fallback = ({ XLXE: 'Untitled.xlsx', TABS: 'Untitled.tab', MRGE: 'Untitled.mer', XML: 'Untitled.xml' } as Record<string, string>)[p.exportFormat ?? ''] ?? 'Untitled.csv';
     const target = this.outputPath(f, p, p.exportFormat === 'XLXE' ? 'Save Records as Excel' : 'Export Records', fallback);
     const path = `${target}.${randomUUID()}.partial`;
-    let cleanup = () => {};
+    let cleanup: ReturnType<typeof cleanupPath> = () => {};
+    let failed = false;
     let checkStaging = () => {};
     const complete = (step: string) => {
       this.canceled(f.script.name);
@@ -7520,7 +7521,10 @@ export class ScriptEngine {
         closeSync(fd);
       }
       complete('Export Records');
-    } finally { cleanup(); }
+    } catch (error) {
+      failed = true;
+      throw error;
+    } finally { cleanup({ throwOnError: !failed }); }
   }
 
   /**
