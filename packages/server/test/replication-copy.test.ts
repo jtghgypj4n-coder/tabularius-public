@@ -365,3 +365,29 @@ test('serve() ships before the checkpoint through the hold-ignoring path', async
   const { readFileSync } = await import('node:fs');
   assert.match(readFileSync(new URL('../src/index.ts', import.meta.url), 'utf8'), /shipper\.shipBeforeCheckpoint\(\)/);
 });
+
+test('compacting a file during a held copy ships its changes first, so a follower has every record', async (t) => {
+  const h = await setup(t);
+  // The wiring serve() does: a checkpoint ships what follows the file first, whatever hold a copy has on it.
+  h.store.beforeCheckpoint = () => h.shipper.shipBeforeCheckpoint();
+  const base = join(h.dir, 'compacted-replica.sqlite');
+  await h.store.backup(base);
+  const shipped: Buffer[] = [];
+  h.shipper.add({ every: 60_000, take: (_store, log) => { shipped.push(Buffer.from(log)); return true; } });
+  const [gate] = h.slowCopies();
+  const pending = h.get('/A/copy');
+  await gate.entered;
+  for (let i = 0; i < 5; i++) h.store.create('Items', { Name: `During the hold ${i}` });
+  h.store.compactFile();
+  gate.release();
+  await pending;
+  for (const log of shipped) applyLog(base, log);
+  const replica = new Store(base, 'Replica');
+  try { assert.equal(replica.find('Items', { limit: 100 }).records.length, 5); }
+  finally { replica.close(); }
+});
+
+test('serve() gives every hosted file the ship-first hook for its checkpoints', async () => {
+  const { readFileSync } = await import('node:fs');
+  assert.match(readFileSync(new URL('../src/index.ts', import.meta.url), 'utf8'), /\.beforeCheckpoint = /);
+});
