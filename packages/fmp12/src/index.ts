@@ -114,7 +114,7 @@ export class FmpDatabase {
     const byId = new Map(t.fields.map((f) => [f.id, f]));
     const order = t.fields.some((f) => f.type === 'date' || f.type === 'timestamp') ? this.dateOrder : 'MDY';
     for (const r of this.rawRecords(t.id)) {
-      const fields: RecordRow['fields'] = {};
+      const fields: RecordRow['fields'] = Object.create(null);
       for (const [id, reps] of r.values) {
         const f = byId.get(id)!;
         const vals = reps.map((v) => typedValue(v, f.type, order));

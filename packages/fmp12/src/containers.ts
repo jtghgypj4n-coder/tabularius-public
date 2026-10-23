@@ -93,9 +93,9 @@ function parseFnam(b: Uint8Array): { kind?: string; filename?: string } {
 }
 
 export function mimeOf(type: string, filename: string | undefined, data: Uint8Array): string {
-  if (MIME_BY_TAG[type]) return MIME_BY_TAG[type];
+  if (Object.hasOwn(MIME_BY_TAG, type)) return MIME_BY_TAG[type];
   const ext = filename?.split('.').pop()?.toLowerCase();
-  if (ext && MIME_BY_EXT[ext]) return MIME_BY_EXT[ext];
+  if (ext && Object.hasOwn(MIME_BY_EXT, ext)) return MIME_BY_EXT[ext];
   if (data[0] === 0xff && data[1] === 0xd8) return 'image/jpeg';
   if (data[0] === 0x89 && data[1] === 0x50) return 'image/png';
   if (data[0] === 0x25 && data[1] === 0x50 && data[2] === 0x44 && data[3] === 0x46) return 'application/pdf';

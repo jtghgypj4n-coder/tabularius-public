@@ -80,9 +80,9 @@ test('schema: security, custom functions, comments in scripts', { skip }, () => 
 test('records: typed values and record ids beyond the two-byte range', { skip }, () => {
   const db = FmpDatabase.open(path('FMburgh_2012_11_07_Database.fmp12'));
   const first = db.records('Comics_Entry').next().value!;
-  assert.deepEqual(first, { recordId: 1, fields: {} }); // an empty record still exists
+  assert.deepEqual({ ...first, fields: { ...first.fields } }, { recordId: 1, fields: {} }); // an empty record still exists
   const rows = [...db.records('Comics_Entry')];
-  assert.deepEqual(rows[1].fields, {
+  assert.deepEqual({ ...rows[1].fields }, {
     Title: 'Amazing Fantasy', DateCollected: '2012-11-07', Type: 'Regular Series', Status: 'Active',
     Publisher: 'Marvel Comics Group', __kp_ComicId: '1', Volume: 1,
   });
