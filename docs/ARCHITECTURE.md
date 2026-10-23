@@ -22,7 +22,7 @@ If parsing speed on multi-GB files becomes a problem, the decoder in
 Done so far: phase 1, plus the core of phases 2 and 6 (import, Data API
 records/find/CRUD, MCP tools).
 
-1. **Read**: open any unencrypted fmp12, decode schema,
+1. **Read**: open `.fmp12` files, including files using Encryption at Rest with their passphrase, decode schema,
    scripts, layouts and records. CLI to inspect, export JSON/CSV/SQLite.
 2. **Import and host**: import an fmp12 into the engine store, keep FileMaker
    record ids, field ids and object ids so references survive. Serve a

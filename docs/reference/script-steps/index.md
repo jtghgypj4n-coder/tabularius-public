@@ -58,7 +58,7 @@ A step marked **error 3** is unavailable; **does nothing** means it succeeds wit
 | [Go to Next Field](4-go-to-next-field.md) | works |
 | [Go to Previous Field](5-go-to-previous-field.md) | works |
 | [Insert Text](61-insert-text.md) | partly |
-| [Open Find/Replace](129-open-find-replace.md) | works |
+| [Open Find/Replace](129-open-find-replace.md) | does nothing |
 | [Paste](48-paste.md) | partly |
 | [Perform Find/Replace](128-perform-find-replace.md) | works |
 | [Relookup Field Contents](40-relookup-field-contents.md) | works |
