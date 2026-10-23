@@ -359,6 +359,7 @@ export async function serve(opts: ServeOptions): Promise<{ server: Server; host:
     host.acmeDomains = opts.acme ? [...opts.acme.domains] : [];
     host.mcpAllowedOrigins = mcpOrigins;
     const api = new DataApi(host);
+    host.userCountForFile = (name) => api.sessionCountForFile(name);
     const web = new WebClient(host, api);
     disposers.push(() => web.stop());
     const live = new Live(host, api);

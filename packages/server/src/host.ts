@@ -35,6 +35,7 @@ import { ServerConfig } from './server-config.ts';
 import { Notifier } from './notifications.ts';
 import { compactInWorker, compactionDue, fileBytes, type CompactionReport } from './compaction.ts';
 import { BoundedMap } from './bounded-map.ts';
+import { serverLanguage } from './get-language.ts';
 
 export const STORE_EXT = '.openhbam.sqlite';
 
@@ -300,6 +301,9 @@ export class Host {
     return { hosts, ignored };
   }
 
+  /** Local session count for a hosted file, supplied by the server's session registry. */
+  userCountForFile?: (name: string) => number;
+
   /** Every web host any hosted file lets its web viewers load, for the web app's frame policy (each file's own list still decides what its viewers load). `extra` are names to leave out besides the server's own, such as the one the page was asked for by. */
   webViewerHostsAll(extra: readonly string[] = []): string[] {
     // Bounded by count and by size, so the policy header stays well under what proxies accept; a host past the bound is simply not framed.
@@ -336,8 +340,11 @@ export class Host {
    * Run options every script gets: network access (for `solution`'s scripts, when the run is in one), the Documents folder
    * Import Records reads from, the profiler, and AI. Without a solution only the server-wide flag can allow the network.
    */
-  scriptOptions(solution?: string): { network: boolean; networkAllow?: readonly string[]; networkFiles: (file: string) => boolean; networkOff: (file: string) => string; outbound?: OutboundTest; connections?: ScriptConnections; mail?: (m: OutgoingMail) => Promise<void | string>; installPlugin?: (bytes: Uint8Array) => { id: string; version: string; signer: string }; documents: string; profile?: ScriptProfile; serverQueue: ScriptQueue; ai?: ScriptAi } {
+  scriptOptions(solution?: string): { network: boolean; networkAllow?: readonly string[]; networkFiles: (file: string) => boolean; networkOff: (file: string) => string; outbound?: OutboundTest; connections?: ScriptConnections; mail?: (m: OutgoingMail) => Promise<void | string>; installPlugin?: (bytes: Uint8Array) => { id: string; version: string; signer: string }; documents: string; profile?: ScriptProfile; serverQueue: ScriptQueue; ai?: ScriptAi; userCount?: () => number; language: string } {
+    const count = this.userCountForFile;
     return {
+      ...(solution && count ? { userCount: () => count(solution) } : {}),
+      language: serverLanguage(),
       ...(this.config.scriptPluginInstall() ? { installPlugin: (bytes: Uint8Array) => this.installScriptPlugin(bytes) } : {}),
       network: solution !== undefined ? this.scriptNetworkOn(solution) : this.scriptNetwork,
       networkFiles: (file) => this.scriptNetworkOn(file), networkOff: (file) => this.networkOffNotice(file),

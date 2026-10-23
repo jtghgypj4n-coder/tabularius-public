@@ -1,0 +1,31 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { DataApi, Host } from '../src/index.ts';
+import { createStore } from '../../store/src/index.ts';
+
+test('hosted file session counts follow opens and closes', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'get-user-count-'));
+  t.after(() => rmSync(dir, { recursive: true }));
+  for (const name of ['A', 'B']) createStore(join(dir, `${name}.openhbam.sqlite`));
+  const host = new Host(dir, () => {});
+  t.after(() => host.close());
+  const api = new DataApi(host);
+  host.userCountForFile = (name) => api.sessionCountForFile(name);
+  const a = host.get('A')!;
+  const b = host.get('B')!;
+  const countA = host.scriptOptions(a.name).userCount!;
+  assert.equal(countA(), 0);
+  const first = api.open(a, 'Admin', 'rest');
+  const second = api.open(a, 'Admin', 'web');
+  const other = api.open(b, 'Admin', 'rest');
+  assert.equal(countA(), 2);
+  assert.equal(host.scriptOptions(b.name).userCount!(), 1);
+  api.end(first);
+  assert.equal(countA(), 1);
+  api.end(second);
+  api.end(other);
+  assert.equal(countA(), 0);
+});

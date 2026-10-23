@@ -55,6 +55,7 @@ import { valueListOrder } from '../../store/src/value-list-sort.ts';
 import { recordSortKey, recordSortLanguage } from '../../calc/src/collation.ts';
 import { safeExistingPath } from '../../store/src/safe-path.ts';
 import { closeMbsJavaScriptSession } from '../../calc/src/mbs-js.ts';
+import { APPLICATION_VERSION } from '../../calc/src/get.ts';
 
 export { parseDelimited } from '../../store/src/delimited.ts';
 
@@ -330,6 +331,10 @@ export interface ClientCheckpoint {
 export interface RunOptions {
   /** Aggregate work completed by a long record operation; contains no record values. */
   onProgress?: (event: { operation: string; completed: number; total: number }) => void;
+  /** Open sessions for the script's hosted file; defaults to 1 without a session registry. */
+  userCount?: () => number;
+  /** Server language name for Get ( SystemLanguage ) and Get ( ApplicationLanguage ). */
+  language?: string;
   /** @internal Explicit test-only permission to inject a custom fetch transport. */
   [TEST_ONLY_CUSTOM_FETCH]?: true;
   /** Apply ordered screen actions at their script point, then acknowledge automatically. No commit or focus change. */
@@ -5410,7 +5415,9 @@ export class ScriptEngine {
         return name === undefined ? undefined : text(name);
       }
       case 'sortstate': return num(fs?.sort ? (fs.semi ? 2 : 1) : 0);
-      case 'applicationversion': return text('tabularius Server 0.1');
+      case 'applicationversion': return text(APPLICATION_VERSION);
+      case 'usercount': return this.opts.userCount ? num(this.opts.userCount()) : undefined;
+      case 'systemlanguage': case 'applicationlanguage': return this.opts.language ? text(this.opts.language) : undefined;
       case 'windowheight': case 'windowwidth': case 'windowtop': case 'windowleft': {
         // A card's size and place, when New Window or Move/Resize Window gave them; else the person's browser window.
         const k = name.toLowerCase().slice(6) as 'height' | 'width' | 'top' | 'left';

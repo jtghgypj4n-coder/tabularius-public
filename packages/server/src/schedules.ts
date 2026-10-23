@@ -599,7 +599,7 @@ export class Schedules {
           store.requireActiveAccount(s.account);
           const privileges = store.privileges(s.account);
           privileges.checkScript(s.script);
-          const opts = this.host.scriptOptions(s.database);
+          const opts = this.host.scriptOptions(store.name);
           // Anything the run can reach edited since a person last approved it (the AI can edit it) gets no connections, and no mail through one.
           // Checked again at every request, so an edit while the run waits its turn or is under way is caught too.
           const watched = s.network === true && !!opts.connections;
@@ -627,6 +627,7 @@ export class Schedules {
           const r = await opts.serverQueue.run((stop) => runScript(store, s.script, {
             ...(stop ? { stop } : {}),
             parameter: s.parameter, account: s.account, executionAccount: s.account, privileges,
+            ...(opts.userCount ? { userCount: opts.userCount } : {}), language: opts.language,
             documents: opts.documents,
             ...itemNetwork(opts, s.network, 'schedule'), ...(opts.networkAllow ? { networkAllow: opts.networkAllow } : {}),
             // In outbound test mode schedules' mail is captured like everyone's; with sending on, it is sent.
