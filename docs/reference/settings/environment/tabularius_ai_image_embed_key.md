@@ -8,6 +8,6 @@ API key for the configured image embedding provider.
 | Accepted values | API key text |
 | Restart needed | Yes for a running server. |
 | Explained in | [docs/local-embeddings.md](../../../local-embeddings.md) |
-| Code | [packages/cli/src/main.ts:1389](../../../../packages/cli/src/main.ts#L1389) |
+| Code | [packages/cli/src/main.ts:1390](../../../../packages/cli/src/main.ts#L1390) |
 
 [All environment variables](../../../environment-variables.md)

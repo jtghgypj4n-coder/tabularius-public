@@ -128,6 +128,7 @@ Hosting (point it at a folder of .fmp12 files; each is converted once):
                                              questions, default claude-haiku-5-5, off for one model;
                                              --ai-daily-tokens N caps tokens per day,
                                              --ai-account-daily-tokens N per account,
+                                             --ai-run-tokens N for one question (default 300000, strict),
                                              --ai-monthly-budget D stops at about D US dollars a month).
                                              --ai-exclude A,B keeps those files from AI apps
                                              and the assistant entirely (also: tabularius ai ... off).
@@ -1391,13 +1392,15 @@ function main(argv: string[]): number {
         const e = resolveEmbedEndpoint(flag(a, '--ai-embed-url') ?? process.env.TABULARIUS_AI_EMBED_URL, flag(a, '--ai-embed-model') ?? process.env.TABULARIUS_AI_EMBED_MODEL, process.env.TABULARIUS_AI_EMBED_KEY);
         return e ? { embedUrl: e.url, embedModel: e.model, ...(e.key ? { embedKey: e.key } : {}), ...imageEmbed } : imageEmbed;
       };
-      let ai: { apiKey: string; keySource?: 'environment' | 'file'; keyFile?: string; workspaceId?: string; workspaceFile?: string; model?: string; fastModel?: string; embedUrl?: string; embedModel?: string; embedKey?: string; imageEmbed?: { provider: string; model: string; key: string }; dailyTokens?: number; accountDailyTokens?: number; monthlyBudgetUsd?: number } | undefined;
+      let ai: { apiKey: string; keySource?: 'environment' | 'file'; keyFile?: string; workspaceId?: string; workspaceFile?: string; model?: string; fastModel?: string; embedUrl?: string; embedModel?: string; embedKey?: string; imageEmbed?: { provider: string; model: string; key: string }; dailyTokens?: number; accountDailyTokens?: number; runTokens?: number; monthlyBudgetUsd?: number } | undefined;
       if (bool(args, '--ai')) {
         const { apiKey, source: keySource, keyFile, workspaceId, workspaceFile } = resolveAiKey(process.env, flag(args, '--ai-key-file') ?? process.env.TABULARIUS_AI_KEY_FILE, flag(args, '--ai-workspace-id') ?? process.env.TABULARIUS_AI_WORKSPACE_ID);
         const daily = flag(args, '--ai-daily-tokens') ?? process.env.TABULARIUS_AI_DAILY_TOKENS;
         if (daily !== undefined && !(Number(daily) > 0)) throw new Error('serve: --ai-daily-tokens needs a number of tokens, like 2000000');
         const perAccount = flag(args, '--ai-account-daily-tokens') ?? process.env.TABULARIUS_AI_ACCOUNT_DAILY_TOKENS;
         if (perAccount !== undefined && !(Number(perAccount) > 0)) throw new Error('serve: --ai-account-daily-tokens needs a number of tokens, like 200000');
+        const perRun = flag(args, '--ai-run-tokens') ?? process.env.TABULARIUS_AI_RUN_TOKENS;
+        if (perRun !== undefined && !(Number.isFinite(Number(perRun)) && Number(perRun) > 0)) throw new Error('serve: --ai-run-tokens needs a number of tokens, like 300000');
         const budget = flag(args, '--ai-monthly-budget') ?? process.env.TABULARIUS_AI_MONTHLY_BUDGET;
         if (budget !== undefined && !(Number(budget.replace(/^\$/, '')) > 0)) throw new Error('serve: --ai-monthly-budget needs US dollars, like 150');
         const fastModel = flag(args, '--ai-fast-model') ?? process.env.TABULARIUS_AI_FAST_MODEL;
@@ -1406,6 +1409,7 @@ function main(argv: string[]): number {
           apiKey, keySource, keyFile, workspaceId, workspaceFile, model: flag(args, '--ai-model') ?? process.env.TABULARIUS_AI_MODEL,
           ...(fastModel ? { fastModel } : {}), ...(budget !== undefined ? { monthlyBudgetUsd: Number(budget.replace(/^\$/, '')) } : {}),
           ...(daily !== undefined ? { dailyTokens: Number(daily) } : {}), ...(perAccount !== undefined ? { accountDailyTokens: Number(perAccount) } : {}),
+          ...(perRun !== undefined ? { runTokens: Number(perRun) } : {}),
         };
       } else {
         // An embedding model on its own (a local Ollama or LM Studio) needs no Anthropic key: the embedding and RAG

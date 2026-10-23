@@ -8,6 +8,6 @@ The claim that lists the person's groups.
 | Accepted values | Claim or display name |
 | Restart needed | Yes for a running server. |
 | Explained in | [docs/environment-variables.md](../../../environment-variables.md) |
-| Code | [packages/cli/src/main.ts:1357](../../../../packages/cli/src/main.ts#L1357) |
+| Code | [packages/cli/src/main.ts:1358](../../../../packages/cli/src/main.ts#L1358) |
 
 [All environment variables](../../../environment-variables.md)

@@ -1,0 +1,14 @@
+# tabularius serve --ai-run-tokens
+
+`--ai-run-tokens` is a serve option. The full command usage is in [serve](../../cli/serve.md).
+
+| Setting | Value |
+| --- | --- |
+| Default | 300000 |
+| Accepted values | Positive number of tokens |
+| Restart needed | Yes; serve flags are read when the server starts. |
+| Environment | [`TABULARIUS_AI_RUN_TOKENS`](../environment/tabularius_ai_run_tokens.md) |
+| Explained in | [README.md](../../../../README.md) |
+| Code | [packages/cli/src/main.ts:1402](../../../../packages/cli/src/main.ts#L1402) |
+
+[All serve flags](../serve-flags.md)
