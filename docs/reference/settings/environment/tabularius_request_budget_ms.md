@@ -8,6 +8,6 @@ Time one request may hold the server event loop, in milliseconds.
 | Accepted values | Nonnegative milliseconds; 0 removes the budget |
 | Restart needed | Yes for a running server. |
 | Explained in | [docs/runbook.md](../../../runbook.md) |
-| Code | [packages/server/src/index.ts:295](../../../../packages/server/src/index.ts#L295) |
+| Code | [packages/server/src/index.ts:296](../../../../packages/server/src/index.ts#L296) |
 
 [All environment variables](../../../environment-variables.md)

@@ -153,6 +153,7 @@ import { solutionMap } from './solution-map.ts';
 import { BUILTIN_PACKS, pluginStatus, setPluginEnabled, setPluginSecret } from '../../plugins/src/index.ts';
 import type { Host } from './host.ts';
 import { requestHostName } from './public-origin.ts';
+import { secureConnection } from './exposure-headers.ts';
 import { PassphraseNeeded, STORE_EXT } from './host.ts';
 import { BackupStopped, backupFolder, backupKey, backupRunning, stopBackups, backupSets, defaultBackupDir, parseTime, checkRestorePoint, restorePoint, restorePointTo, restoreRange, type BackupSchedule, type ProgressiveSchedule } from './backup.ts';
 import { ENCRYPTED_EXT } from './encrypt.ts';
@@ -360,6 +361,25 @@ function isHttps(req: IncomingMessage): boolean {
   return !!(req.socket as { encrypted?: boolean }).encrypted || req.headers['x-forwarded-proto'] === 'https';
 }
 
+const COOKIE = 'tabularius_admin';
+/** Where Secure can be set the cookie is `__Host-`: the browser then refuses it unless it came over HTTPS with Path=/ and no Domain, and no plain-HTTP page can overwrite it. */
+const SECURE_COOKIE = `__Host-${COOKIE}`;
+const COOKIE_FLAGS = 'Path=/; HttpOnly; SameSite=Strict';
+const SECURE_COOKIE_ID = new RegExp(`(?:^|;\\s*)${SECURE_COOKIE}=([0-9a-f]{64})`);
+const PLAIN_COOKIE_ID = /(?:^|;\s*)(?:tabularius|openhbam)_admin=([0-9a-f]{64})/;
+
+/** The cookies that sign the console in. Over HTTPS the `__Host-` one, and the plain-named one from before is dropped; over plain HTTP the plain name, as it always was. */
+function signInCookies(req: IncomingMessage, id: string): string[] {
+  const maxAge = SIGN_IN_MS / 1000;
+  if (secureConnection(req)) return [`${SECURE_COOKIE}=${id}; ${COOKIE_FLAGS}; Max-Age=${maxAge}; Secure`, `${COOKIE}=; ${COOKIE_FLAGS}; Max-Age=0`];
+  return [`${COOKIE}=${id}; ${COOKIE_FLAGS}; Max-Age=${maxAge}${isHttps(req) ? '; Secure' : ''}`];
+}
+
+/** Signing out clears both names over HTTPS; a `__Host-` cookie cannot be touched from plain HTTP (the browser refuses without Secure), so there only the plain one. */
+function signOutCookies(req: IncomingMessage): string[] {
+  return [...(secureConnection(req) ? [`${SECURE_COOKIE}=; ${COOKIE_FLAGS}; Max-Age=0; Secure`] : []), `${COOKIE}=; ${COOKIE_FLAGS}; Max-Age=0`];
+}
+
 /** A path as a shell argument (zsh, bash). */
 function shellQuote(p: string): string {
   return /^[\w@%+=:,./~-]+$/.test(p) ? p : `'${p.replace(/'/g, `'\\''`)}'`;
@@ -402,7 +422,7 @@ export class Admin {
   private readonly failures = new Map<string, { count: number; first: number; until: number }>();
   /** A saturated lock table blocks new guesses too, without evicting another address's lock. */
   private failureOverflowUntil = 0;
-  /** Console sign-ins (the tabularius_admin cookie), until when; renewed as they are used. */
+  /** Console sign-ins (the tabularius_admin cookie, `__Host-tabularius_admin` over HTTPS), until when; renewed as they are used. */
   private readonly signedIn = new BoundedMap<string, number>(1024);
   /** A fingerprint of the password the sign-ins above were made with. */
   private signedInWith?: string;
@@ -555,7 +575,9 @@ export class Admin {
 
   /** The console sign-in a request carries (cookie), if it is current. */
   private consoleSession(req: IncomingMessage): string | undefined {
-    const id = /(?:^|;\s*)(?:tabularius|openhbam)_admin=([0-9a-f]{64})/.exec(req.headers.cookie ?? '')?.[1];
+    // Both names are read, the `__Host-` one first: a sign-in made over plain HTTP, or by an earlier version, carries the plain one.
+    const cookie = req.headers.cookie ?? '';
+    const id = (SECURE_COOKIE_ID.exec(cookie) ?? PLAIN_COOKIE_ID.exec(cookie))?.[1];
     this.endOldSignIns();
     if (!id) return undefined;
     const until = this.signedIn.get(id);
@@ -706,7 +728,7 @@ export class Admin {
     const path = url.pathname;
     const page = path === '/admin' || path === '/admin/';
     if (!page && !path.startsWith('/tabularius/admin/')) return false;
-    const json = (status: number, body: unknown, headers: Record<string, string> = {}) =>
+    const json = (status: number, body: unknown, headers: Record<string, string | string[]> = {}) =>
       res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', ...NOSNIFF, ...headers }).end(JSON.stringify(body));
     // The refusal for a caller that is not signed in; the console page asks for the password on its own sign-in page, not the browser's box.
     const refuse = (denied: { status: number; message: string; retryAfter?: number }) => {
@@ -742,14 +764,14 @@ export class Admin {
       const id = randomBytes(32).toString('hex');
       this.endOldSignIns();
       this.signedIn.set(id, performance.now() + SIGN_IN_MS);
-      json(200, { signedIn: true }, { 'set-cookie': `tabularius_admin=${id}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${SIGN_IN_MS / 1000}${isHttps(req) ? '; Secure' : ''}` });
+      json(200, { signedIn: true }, { 'set-cookie': signInCookies(req, id) });
       return true;
     }
     if (path === '/tabularius/admin/v1/sign-out' && req.method === 'POST') {
       if (req.headers['x-tabularius-admin'] !== '1') return json(403, { error: 'missing x-tabularius-admin header' }), true;
       const id = this.consoleSession(req);
       if (id) this.signedIn.delete(id);
-      json(200, { signedIn: false }, { 'set-cookie': 'tabularius_admin=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0' });
+      json(200, { signedIn: false }, { 'set-cookie': signOutCookies(req) });
       return true;
     }
     // Signing in with the console's passkey, open to everyone like /sign-in above (same CSRF guard: a page on
@@ -792,7 +814,7 @@ export class Admin {
       const id = randomBytes(32).toString('hex');
       this.endOldSignIns();
       this.signedIn.set(id, performance.now() + SIGN_IN_MS);
-      json(200, { signedIn: true }, { 'set-cookie': `tabularius_admin=${id}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${SIGN_IN_MS / 1000}${isHttps(req) ? '; Secure' : ''}` });
+      json(200, { signedIn: true }, { 'set-cookie': signInCookies(req, id) });
       return true;
     }
     const denied = page ? null : this.check(req);

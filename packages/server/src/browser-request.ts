@@ -58,7 +58,7 @@ export function sameOriginRequest(req: IncomingMessage, publicUrl?: string, conf
   // Plain HTTP browsers may omit Fetch Metadata, and a hostile page can suppress Referer.
   // Console cookies and cached Basic credentials must not turn that ambiguity into authority.
   // Some console GETs generate/cache reports; they need this check as much as mutations do.
-  if (site === undefined && (/(?:^|;\s*)(?:tabularius|openhbam)_admin=/.test(req.headers.cookie ?? '') ||
+  if (site === undefined && (/(?:^|;\s*)(?:__Host-tabularius|tabularius|openhbam)_admin=/.test(req.headers.cookie ?? '') ||
       (consoleCredentials && /^Basic\s/i.test(req.headers.authorization ?? '')))) {
     return req.headers['x-tabularius-console'] === '1' || req.headers['x-tabularius-admin'] === '1';
   }

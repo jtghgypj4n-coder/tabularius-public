@@ -35,6 +35,8 @@ test('ambient origin policy rejects opaque, sibling, forged, missing-metadata an
   assert.equal(sameOriginRequest(req({ origin: 'http://localhost:8080' }), 'https://files.example'), false);
   assert.equal(sameOriginRequest(req({ cookie: 'tabularius_admin=synthetic' })), false);
   assert.equal(sameOriginRequest(req({ cookie: 'openhbam_admin=synthetic' })), false);
+  assert.equal(sameOriginRequest(req({ cookie: '__Host-tabularius_admin=synthetic' })), false, 'the __Host- name counts as a console cookie too');
+  assert.equal(sameOriginRequest(req({ cookie: '__Host-tabularius_admin=synthetic', 'x-tabularius-console': '1' })), true);
   assert.equal(sameOriginRequest(req({ cookie: 'tabularius_admin=synthetic', 'x-tabularius-console': '1' })), true);
   assert.equal(sameOriginRequest(req({ authorization: 'Basic synthetic' }), undefined, [], true), false);
   assert.equal(sameOriginRequest(req({ authorization: 'Basic synthetic', 'x-tabularius-console': '1' }), undefined, [], true), true);
