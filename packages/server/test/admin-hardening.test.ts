@@ -178,13 +178,21 @@ test('console 500 hides internal errors and known paths reject wrong methods', a
       body: JSON.stringify({ password: 'wrong', extra: Array(1001).fill(0) }),
     });
     assert.equal(early.status, 400);
-    const add = t.mock.method(s.host, 'add', () => { throw new Error('private /tmp/solution stack trace'); });
+    const credential = ['sk', 'test', 'abc123'].join('-');
+    const logged = t.mock.method(console, 'error', () => {});
+    const add = t.mock.method(s.host, 'add', () => { throw new Error(`private /tmp/solution api_key=${credential}`); });
     const solution = await fetch(`${s.url}/tabularius/admin/v1/solutions`, {
       method: 'POST', headers: { ...headers, 'content-type': 'application/json' },
       body: JSON.stringify({ name: 'Example', changes: [{ op: 'createTable', name: 'People', fields: [{ name: 'Name', type: 'text' }] }] }),
     });
     assert.equal(solution.status, 500);
     assert.deepEqual(await solution.json(), { error: 'Internal server error' });
+    assert.equal(logged.mock.callCount(), 1);
+    const [diagnostic] = logged.mock.calls[0].arguments;
+    assert.equal(typeof diagnostic, 'string');
+    assert.doesNotMatch(diagnostic as string, new RegExp(credential));
+    assert.doesNotMatch(diagnostic as string, /private \/tmp\/solution/);
+    logged.mock.restore();
     add.mock.restore();
   } finally {
     await new Promise<void>((r) => s.server.close(() => r()));
@@ -231,16 +239,19 @@ test('an unexpected console fault returns a generic 500 and logs its cause', asy
   setAdminPassword(dir, 'admin secret');
   const s = await serve({ dir, port: 0, log: () => {} });
   const logged = t.mock.method(console, 'error', () => {});
-  const cause = new Error('private path /var/lib/secret/private.db');
+  const credential = ['sk', 'test', 'abc123'].join('-');
+  const cause = new Error(`private path /var/lib/private.db api_key=${credential}`);
   const reconvertStatus = t.mock.method(s.host, 'reconvertStatus', () => { throw cause; });
   try {
     const r = await fetch(`${s.url}/tabularius/admin/v1/status`, { headers: { authorization: 'Basic ' + btoa(':admin secret'), 'x-tabularius-admin': '1' } });
     const text = await r.text();
     assert.equal(r.status, 500);
     assert.deepEqual(JSON.parse(text), { error: 'Internal server error' });
-    assert.doesNotMatch(text, /private path|secret|private\.db/);
+    assert.doesNotMatch(text, /private path|private\.db/);
     assert.equal(logged.mock.callCount(), 1);
-    assert.deepEqual(logged.mock.calls[0].arguments, [cause]);
+    const [diagnostic] = logged.mock.calls[0].arguments;
+    assert.equal(typeof diagnostic, 'string');
+    assert.doesNotMatch(diagnostic as string, new RegExp(credential));
   } finally {
     reconvertStatus.mock.restore();
     logged.mock.restore();

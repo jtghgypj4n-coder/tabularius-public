@@ -3,6 +3,7 @@
 // and over can't fill the disk. The first ones of each minute keep their cause; the rest are counted, and the count is
 // logged when the next minute begins.
 
+import { homedir } from 'node:os';
 import { redactDiagnosticText } from '../../scripts/src/redaction.ts';
 import { monotonicClock } from '../../store/src/monotonic.ts';
 
@@ -11,6 +12,31 @@ export const FAULT_LOGS_PER_MINUTE = 20;
 // The sink looks console.error up at each call, so a test that replaces it sees the lines.
 export interface FaultLog {
   (e: unknown): void;
+}
+
+// An absolute path in a fault's text names the machine's layout (the data folder, the account it runs as). The log keeps
+// the file's own name and hides the folders above it: a path under the home folder becomes [home]/<name>, any other with
+// two or more folders becomes [path]/<name>. A URL is not a path. The "at ..." frames of a stack are the code's own
+// locations, which a person debugging needs whole, so they are left as they are.
+const POSIX_PATH = /(?<![\w:/.\\-])(?:file:\/\/)?(?:\/[\w.@+~%-]+){2,}/g;
+const WINDOWS_PATH = /(?<![\w])[A-Za-z]:\\(?:[^\\/:*?"<>|\s]+\\)*[^\\/:*?"<>|\s]*/g;
+
+export function redactPaths(text: string): string {
+  return text.split('\n').map((line) => (/^\s+at /.test(line) ? line : redactLine(line))).join('\n');
+}
+
+function redactLine(text: string): string {
+  const home = homedir();
+  let out = text;
+  if (home.length > 1) {
+    const under = new RegExp(`(?:file://)?${home.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}((?:/[\\w.@+~%-]+)*)`, 'g');
+    out = out.replace(under, (_all, rest: string) => rest ? `[home]/${rest.slice(rest.lastIndexOf('/') + 1)}` : '[home]');
+  }
+  out = out.replace(POSIX_PATH, (path) => {
+    const last = path.slice(path.lastIndexOf('/') + 1);
+    return `[path]/${last}`;
+  });
+  return out.replace(WINDOWS_PATH, (path) => `[path]\\${path.slice(path.lastIndexOf('\\') + 1)}`);
 }
 
 function diagnosticChain(error: unknown): string {
@@ -25,7 +51,7 @@ function diagnosticChain(error: unknown): string {
     current = current.cause;
   }
   // Redact together so a labelled value in one error is also hidden when echoed by a cause.
-  return redactDiagnosticText(parts.join('\nCaused by: '));
+  return redactPaths(redactDiagnosticText(parts.join('\nCaused by: ')));
 }
 
 export function faultLog(sink: (...args: unknown[]) => void = (...args) => console.error(...args), now: () => number = () => monotonicClock.now(), perMinute = FAULT_LOGS_PER_MINUTE,
