@@ -1313,6 +1313,8 @@ export class ScriptEngine {
   private readonly actions: ClientAction[] = [];
   private syncVersion = 0;
   private readonly warnings: string[] = [];
+  /** Each AI configuration warning once per script in this run, even across repeated subscript calls. */
+  private readonly aiWarnings = new WeakMap<Store, Map<number, Set<number>>>();
   private readonly trace?: TraceLine[];
   private executionStore?: Store;
   private identityStore?: Store;
@@ -3887,6 +3889,16 @@ export class ScriptEngine {
     throw new Error(`Step ${s.stepId} is not one of the quick steps`);
   }
 
+  private warnAiStep(f: Frame, stepId: number, warning: string): void {
+    let scripts = this.aiWarnings.get(f.store);
+    if (!scripts) this.aiWarnings.set(f.store, scripts = new Map());
+    let steps = scripts.get(f.script.id);
+    if (!steps) scripts.set(f.script.id, steps = new Set());
+    if (steps.has(stepId)) return;
+    steps.add(stepId);
+    this.warnings.push(warning);
+  }
+
   /** Runs one step; returns the next step index for a jump, or 'exit'. */
   private async step(f: Frame, s: ScriptStep, pc: number, b: Blocks): Promise<number | 'exit' | undefined> {
     if (scriptStepName(s.stepId).startsWith('Unknown step ')) {
@@ -4676,12 +4688,16 @@ export class ScriptEngine {
       case 218: // Perform Semantic Find
         await this.semanticFind(f, p);
         return undefined;
-      case 212: { // Configure AI Account: names an account for the AI steps. Its API key and endpoint are never read: Tabularius's own AI answers.
+      case 212: { // Configure AI Account: names an account for the AI steps. Its API key, endpoint and model formulas are never evaluated: Tabularius's own AI answers.
+        if (p.ai?.endpoint !== undefined || p.ai?.apiKey !== undefined || p.ai?.model !== undefined) {
+          this.warnAiStep(f, s.stepId, "Configure AI Account: the endpoint, key and model in this step are not used; this server's own model answers.");
+        }
         const name = asText(this.eval(f, p.ai?.accountName ?? '""'));
         if (name) this.session.ai.accounts.add(name.toLowerCase());
         return undefined;
       }
       case 217: // Set AI Call Logging: no operation is performed
+        this.warnAiStep(f, s.stepId, 'Set AI Call Logging does nothing here');
         return undefined;
       case 226: { // Configure Prompt Template: kept for Perform Find by Natural Language in this session
         const name = asText(this.eval(f, p.ai?.templateName ?? '""'));

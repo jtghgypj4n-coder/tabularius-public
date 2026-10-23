@@ -34,6 +34,8 @@ export interface ConversionReport {
     /** Neither FileMaker's nor the file's custom functions: plug-ins. */
     plugIns: ConversionItem[];
   };
+  /** AI steps use this server's configuration, not the provider account configured by the script. */
+  aiSteps: { count: number; where: string[] };
   steps: {
     /** Script steps the engine can't run yet. */
     notYet: ConversionItem[];
@@ -108,6 +110,7 @@ const INSERT_FROM_URL = 160;
 /** Execute SQL (the step): an ODBC data source outside the solution. */
 const EXECUTE_SQL = 117;
 const PERFORM_RAG_ACTION = 219;
+const AI_STEPS = new Set([212, 227, 217, 220, 221, 214, 215, 216, 218, 219, 226]);
 
 class Tally {
   private items = new Map<string, ConversionItem>();
@@ -216,6 +219,7 @@ export function conversionReport(store: Store, hosted: string[] = [], focus?: (w
   const network = new Tally(keep);
   const screenOnly = new Tally(keep);
   const clientOnly = new Tally(keep);
+  const ai: ConversionReport['aiSteps'] = { count: 0, where: [] };
   // Scripts that open another file or perform its scripts need it hosted too, even with no table occurrence on it.
   const fileSteps = new Map<number, number>();
   const commentedOut: ConversionReport['commentedOut'] = [];
@@ -230,6 +234,10 @@ export function conversionReport(store: Store, hosted: string[] = [], focus?: (w
       if (step.stepId === COMMENT) return;
       if (step.stepId === SHOW_CUSTOM_DIALOG) dialogs.add(step.name, where);
       if (step.stepId === GO_TO_RELATED_RECORD && step.params?.unreadOptions?.length) relatedOptions.add(step.name, where);
+      if (AI_STEPS.has(step.stepId)) {
+        ai.count++;
+        if (ai.where.length < keep) ai.where.push(where);
+      }
       const canonical = scriptStepName(step.stepId);
       if (canonical.startsWith('Unknown step ')) addUnknown('step', String(step.stepId), canonical, `step(${step.calculations?.length ?? 0} calculations)`);
       for (const c of step.calculations ?? []) {
@@ -289,6 +297,7 @@ export function conversionReport(store: Store, hosted: string[] = [], focus?: (w
     unknownTokens: [...unknown.values()].sort((a, b) => a.kind.localeCompare(b.kind) || a.id.localeCompare(b.id)),
     summary: '',
     functions: { notYet: notYet.list(), undecoded: undecoded.list(), plugIns: named(plugIns).map((item) => item.name.startsWith('unknown plug-in (id only)') ? { ...item, where: [] } : item) },
+    aiSteps: ai,
     steps: { notYet: stepsNotYet.list(), dialogs: dialogs.list(), relatedOptions: relatedOptions.list(), blocked: blocked.list(), network: network.list(), screenOnly: screenOnly.list(), clientOnly: clientOnly.list() },
     unparsed: unparsed.slice(0, LIST),
     broken: broken.slice(0, LIST),
@@ -377,6 +386,7 @@ function summarize(r: ConversionReport, unparsed: number, broken: number): strin
   out.push(problems.length ? '## Won\'t work yet' : 'Nothing found that won\'t work.', ...problems);
 
   const notes: string[] = [];
+  if (r.aiSteps.count) notes.push(`- **AI steps run on this server's model**: ${plural(r.aiSteps.count, 'step')}. The account's endpoint, key and model named in the script are not used; this server's own model answers.`);
   if (r.steps.blocked.length) notes.push(`- **Send mail only when switched on**: ${names(r.steps.blocked)}. Tabularius sends no email unless the server's administrator switches sending on.`);
   if (r.steps.network.length) notes.push(`- **Reach the network** (off unless the server allows it): ${names(r.steps.network)}.`);
   if (broken) notes.push(`- **Already broken in FileMaker** (missing fields, tables or scripts): ${plural(broken, 'place')}.`);
