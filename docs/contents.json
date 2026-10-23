@@ -517,6 +517,7 @@
         "docs/reference/settings/environment/tabularius_s3_secret_key.md",
         "docs/reference/settings/environment/tabularius_secrets_key.md",
         "docs/reference/settings/environment/tabularius_share_results.md",
+        "docs/reference/settings/environment/tabularius_sign_in_failure_audit_share.md",
         "docs/reference/settings/environment/tabularius_smtp.md",
         "docs/reference/settings/environment/tabularius_smtp_file.md",
         "docs/reference/settings/environment/tabularius_source_passphrase.md",
