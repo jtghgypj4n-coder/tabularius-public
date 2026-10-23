@@ -39,9 +39,11 @@ export function compactionDue(now: number, last: number | undefined, everyMs = C
  * One pass on a separate connection. SQLite serializes the writers. A file that is not yet in incremental vacuum mode
  * is rewritten once (VACUUM holds the write lock for the whole rewrite, longer than a live connection waits), so that
  * happens only when `convert` is true, which is when someone asked for it; the timer passes false and does the bounded
- * part (statistics, checkpoint) alone on such a file.
+ * part (statistics, checkpoint) alone on such a file. `checkpoint: false` leaves the write-ahead log for the caller to fold
+ * away: a server whose files are followed ships the log first and does it on its own connection (see Host.compact), and
+ * this connection must not fold it or let it restart in between, so it never checkpoints by itself then.
  */
-export function compactStore(path: string, available?: number, busyTimeoutMs = 5000, convert = true): CompactionReport {
+export function compactStore(path: string, available?: number, busyTimeoutMs = 5000, convert = true, checkpoint = true): CompactionReport {
   const started = Date.now();
   const beforeBytes = statSync(path).size;
   const walBeforeBytes = fileBytes(path + '-wal');
@@ -54,6 +56,7 @@ export function compactStore(path: string, available?: number, busyTimeoutMs = 5
   const db = new DatabaseSync(path);
   try {
     db.exec(`PRAGMA busy_timeout = ${Math.max(0, Math.trunc(busyTimeoutMs))}`);
+    db.exec('PRAGMA wal_autocheckpoint = 0');
     const waiting = Date.now();
     try { db.exec('BEGIN IMMEDIATE; ROLLBACK'); }
     catch (e) { throw new Error(`compaction could not get a writer within ${busyTimeoutMs} ms; retry later: ${(e as Error).message}`); }
@@ -73,8 +76,10 @@ export function compactStore(path: string, available?: number, busyTimeoutMs = 5
     crashPoint('compaction:after-incremental-vacuum');
     db.exec('PRAGMA optimize(0x10002)');
     crashPoint('compaction:after-statistics');
-    const checkpoint = db.prepare('PRAGMA wal_checkpoint(TRUNCATE)').get() as { busy: number };
-    if (checkpoint.busy) throw new Error('compaction could not truncate the WAL because a reader is active; retry later');
+    if (checkpoint) {
+      const folded = db.prepare('PRAGMA wal_checkpoint(TRUNCATE)').get() as { busy: number };
+      if (folded.busy) throw new Error('compaction could not truncate the WAL because a reader is active; retry later');
+    }
     crashPoint('compaction:after-checkpoint');
     return {
       beforeBytes, afterBytes: statSync(path).size,
@@ -85,9 +90,9 @@ export function compactStore(path: string, available?: number, busyTimeoutMs = 5
   } finally { db.close(); }
 }
 
-export function compactInWorker(path: string, convert = true): Promise<CompactionReport> {
+export function compactInWorker(path: string, convert = true, checkpoint = true): Promise<CompactionReport> {
   return new Promise((resolve, reject) => {
-    const worker = new Worker(new URL('./compaction-worker.ts', import.meta.url), { workerData: { path, convert } });
+    const worker = new Worker(new URL('./compaction-worker.ts', import.meta.url), { workerData: { path, convert, checkpoint } });
     let answered = false;
     worker.once('message', (answer: { report?: CompactionReport; error?: string }) => {
       answered = true;

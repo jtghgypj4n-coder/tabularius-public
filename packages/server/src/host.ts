@@ -388,7 +388,7 @@ export class Host {
   private readonly warmer?: Warmer;
   private readonly share: boolean;
 
-  constructor(dir: string, log: (msg: string) => void = () => {}, opts: { background?: boolean; encryptionKey?: string; urlKey?: Buffer; locks?: (store: Store) => RecordLocks; follower?: boolean; shareResults?: boolean; warmSettleMs?: number; compactionWorker?: (path: string, convert?: boolean) => Promise<CompactionReport> } = {}) {
+  constructor(dir: string, log: (msg: string) => void = () => {}, opts: { background?: boolean; encryptionKey?: string; urlKey?: Buffer; locks?: (store: Store) => RecordLocks; follower?: boolean; shareResults?: boolean; warmSettleMs?: number; compactionWorker?: (path: string, convert?: boolean, checkpoint?: boolean) => Promise<CompactionReport> } = {}) {
     this.dir = dir;
     this.log = log;
     this.compactionWorker = opts.compactionWorker ?? compactInWorker;
@@ -526,7 +526,7 @@ export class Host {
   readonly compactionLast = new Map<string, number>();
   private readonly compactionJobs = new Map<string, Promise<CompactionReport>>();
   private readonly compactionClosing = new Set<string>();
-  private readonly compactionWorker: (path: string, convert?: boolean) => Promise<CompactionReport>;
+  private readonly compactionWorker: (path: string, convert?: boolean, checkpoint?: boolean) => Promise<CompactionReport>;
   private readonly mayCompact: boolean;
 
   private assertOpen(): void {
@@ -920,8 +920,15 @@ export class Host {
     try { accessSync(store.path, constants.W_OK); accessSync(this.dir, constants.W_OK); }
     catch { return Promise.reject(new Error(`${name} is on a read-only file or mount; compaction requires write access`)); }
     this.compactionLast.set(key, Date.now());
-    const job = this.compactionWorker(store.path, opts.convert ?? true).then((report) => {
-      if (this.stores.get(key) === store) this.compactionReports.set(key, { at: new Date().toISOString(), report });
+    // The worker leaves the log alone: what follows this file (standbys, point-in-time backups) gets it first, and the fold
+    // happens here on the file's own connection in one step with that, so nothing written meanwhile is lost to them.
+    const job = this.compactionWorker(store.path, opts.convert ?? true, false).then((worked) => {
+      if (this.stores.get(key) !== store) return worked;
+      let report = worked;
+      try { store.checkpoint(); }
+      catch (e) { throw new Error(`compaction could not truncate the WAL because a reader is active; retry later: ${(e as Error).message}`); }
+      report = { ...worked, walAfterBytes: fileBytes(store.path + '-wal') };
+      this.compactionReports.set(key, { at: new Date().toISOString(), report });
       return report;
     }).finally(() => { this.compactionJobs.delete(key); });
     this.compactionJobs.set(key, job);

@@ -152,6 +152,25 @@ if (process.argv[2] === 'compaction-child') {
     } finally { writer.close(); reader.close(); }
   });
 
+  test('a pass told not to checkpoint leaves the write-ahead log for its caller, however large it grew', (t) => {
+    const dir = mkdtempSync(join(tmpdir(), 'tabularius-compact-nocheckpoint-'));
+    t.after(() => rmSync(dir, { recursive: true, force: true }));
+    const path = join(dir, 'A.openhbam.sqlite');
+    seed(path, 400);
+    const live = new Store(path, 'A');
+    try {
+      live.sql.exec('PRAGMA wal_autocheckpoint = 0');
+      live.create('Items', { Name: 'written before the pass' });
+      const log = fileBytes(path + '-wal');
+      assert.ok(log > 0, 'the open file keeps its changes in the log');
+      const report = compactStore(path, Number.MAX_SAFE_INTEGER, 5000, true, false);
+      assert.ok(fileBytes(path + '-wal') >= log, `the pass folded the log away: ${log} bytes before, ${fileBytes(path + '-wal')} after, ${JSON.stringify(report)}`);
+      live.checkpoint();
+      assert.equal(fileBytes(path + '-wal'), 0, 'the caller folds it when it chooses');
+      check(path, 201);
+    } finally { live.close(); }
+  });
+
   test('a hosted connection and a prepared statement keep working after a separate pass', (t) => {
     const dir = mkdtempSync(join(tmpdir(), 'tabularius-compact-live-'));
     t.after(() => rmSync(dir, { recursive: true, force: true }));

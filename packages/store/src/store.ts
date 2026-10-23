@@ -7539,6 +7539,8 @@ export class Store {
     }
     // NORMAL-mode WAL commits are not durable until a checkpoint syncs them.
     // A busy reader can prevent completion: retain the source files in that case.
+    // The log is handed to what follows this file first: a full checkpoint lets the next write restart it.
+    this.beforeCheckpoint?.();
     let checkpointed = false;
     let checkpointError: unknown;
     const timeout = this.sql.prepare('PRAGMA busy_timeout').get() as { timeout: number };
