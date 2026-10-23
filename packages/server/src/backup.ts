@@ -494,7 +494,8 @@ export function claimFolder(folder: string, purpose: 'server' | 'restore' = 'ser
         linkSync(pending, file);
         // The pending name goes before the lock does: until it is gone the pid file has two names, and a rival that
         // reads it as the lock passes sees the link count change under it and reports "path changed" instead of "already hosted".
-        rmSync(pending, { force: true });
+        // Best effort: the claim already holds the pid file, so a failed removal must not fail it; the finally below tries again.
+        try { rmSync(pending, { force: true }); } catch { /* removed below */ }
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
         const pid = runningServer(folder);
