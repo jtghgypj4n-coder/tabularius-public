@@ -8,6 +8,6 @@ Counts the prepared statements a store runs and the rows they change, for measur
 | Accepted values | 1 |
 | Restart needed | No server restart; read when a store is opened. |
 | Explained in | [docs/performance.md](../../../performance.md) |
-| Code | [packages/store/src/trace.ts:147](../../../../packages/store/src/trace.ts#L147) |
+| Code | [packages/store/src/trace.ts:145](../../../../packages/store/src/trace.ts#L145) |
 
 [All environment variables](../../../environment-variables.md)

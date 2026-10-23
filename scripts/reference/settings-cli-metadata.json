@@ -1,5 +1,5 @@
 {
-  "intro": "Most `tabularius serve` options can be set in the environment instead of on the\ncommand line, which suits a service definition or a container. A command-line\nflag wins over the variable. Secrets (`TABULARIUS_OIDC_CLIENT_SECRET`,\n`TABULARIUS_LDAP_SEARCH_PASSWORD`, `TABULARIUS_BACKUP_KEY`, `TABULARIUS_ENCRYPTION_KEY`,\n`TABULARIUS_SECRETS_KEY`, `TABULARIUS_S3_SECRET_KEY`) are read only from the\nenvironment, never from a flag, so they stay out of process listings; they are\ndescribed where the feature is ([README](../README.md), [ADMIN](../ADMIN.md)).\n\nThe `docs:check` gate fails when code reads a `TABULARIUS_*` variable or\naccepts a serve flag without a metadata entry. The existing docs drift test\nalso checks variable names across the documentation.\n\nSettings marked \"decimal digits only\" require whole numbers (for example `512`), not\nempty text, signs, exponent or hexadecimal notation, fractions, or numbers beyond\nthe safe integer range. An error names the setting; conversion memory and the\naggregate upload quota warn and keep their safe defaults. Port `0` still requests\nan automatically assigned port.\n\nThe existing zero/off semantics and parsers for `TABULARIUS_CONVERT_TIMEOUT`,\n`TABULARIUS_MAX_UPLOAD`, `TABULARIUS_UPLOAD_IDLE_HOURS`,\n`TABULARIUS_REQUEST_QUEUE`, `TABULARIUS_PGWIRE_MAX_ROWS`,\n`TABULARIUS_REQUEST_BUDGET_MS`, and `TABULARIUS_TRACE_SQL_MIN_MS` are unchanged: zero\nretains each setting's documented disabling behavior. Fractional monetary budgets are also unchanged.",
+  "intro": "Most `tabularius serve` options can be set in the environment instead of on the\ncommand line, which suits a service definition or a container. A command-line\nflag wins over the variable. Secrets (`TABULARIUS_OIDC_CLIENT_SECRET`,\n`TABULARIUS_LDAP_SEARCH_PASSWORD`, `TABULARIUS_BACKUP_KEY`, `TABULARIUS_ENCRYPTION_KEY`,\n`TABULARIUS_SECRETS_KEY`, `TABULARIUS_S3_SECRET_KEY`) are read only from the\nenvironment, never from a flag, so they stay out of process listings; they are\ndescribed where the feature is ([README](../README.md), [ADMIN](../ADMIN.md)).\n\nA setting that is **set** to something that cannot be used stops `tabularius serve` and the message names the variable and what to do; it never quietly means something else. An empty key is not \"no key\" (unset the variable to run without one), `false` and `off` turn a switch off, a number is digits only (`1e3`, `2.5`, `0x10` and a sign are refused), and `TABULARIUS_CONVERT_MEMORY=0` does not remove the memory cap. A `TABULARIUS_*` variable that is a letter or two from a secret setting's name (such as `TABULARIUS_ENCRYPTON_KEY`) and is not a setting itself is taken for a misspelling and stops the start too. Settings marked \"digits only\" take whole numbers such as `512`; port `0` still asks for an automatically assigned port. Settings that are not marked this way keep their older, more forgiving reading, and zero keeps the disabling meaning it documents for `TABULARIUS_CONVERT_TIMEOUT`, `TABULARIUS_MAX_UPLOAD`, `TABULARIUS_UPLOAD_IDLE_HOURS`, `TABULARIUS_REQUEST_QUEUE`, `TABULARIUS_PGWIRE_MAX_ROWS`, `TABULARIUS_REQUEST_BUDGET_MS` and `TABULARIUS_TRACE_SQL_MIN_MS`. Fractional monetary budgets are unchanged.\n\nThe `docs:check` gate fails when code reads a `TABULARIUS_*` variable or\naccepts a serve flag without a metadata entry. The existing docs drift test\nalso checks variable names across the documentation.",
   "clientExampleNote": "- `TABULARIUS_AUTH` is the name an example in [Connect an AI app](connect-ai.md)\n  gives to the client-side variable holding the bearer token; it belongs to the\n  MCP client's configuration.",
   "environment": {
     "TABULARIUS_ACME_DIRECTORY": {
@@ -124,7 +124,7 @@
     "TABULARIUS_ALLOW_PLAIN_HTTP": {
       "description": "Lets the server listen beyond this computer over plain HTTP, which it otherwise refuses to do (a proxy or network you control does the HTTPS). Set in the Docker image.",
       "default": "Off: listening beyond this computer needs HTTPS",
-      "accepted": "1, true, yes or on",
+      "accepted": "1, true, yes or on; 0, false, no, off or empty for off; anything else stops `serve`",
       "restart": "Yes for a running server.",
       "explainedBy": "docs/security-defaults.md"
     },
@@ -145,14 +145,14 @@
     "TABULARIUS_BACKUP_KEEP": {
       "description": "How many backups to keep (7 by default).",
       "default": "7",
-      "accepted": "Whole number of 1 or more; decimal digits only for numbers, within the safe integer range",
+      "accepted": "Whole number of 1 or more, digits only",
       "restart": "Yes for a running server.",
       "explainedBy": "docs/environment-variables.md"
     },
     "TABULARIUS_BACKUP_KEY": {
       "description": "Passphrase used to encrypt backup sets.",
       "default": "No backup encryption passphrase",
-      "accepted": "Nonempty passphrase",
+      "accepted": "Nonempty passphrase; an empty value stops `serve`",
       "restart": "Yes for a running server.",
       "explainedBy": "README.md"
     },
@@ -192,16 +192,16 @@
       "explainedBy": "README.md"
     },
     "TABULARIUS_CONVERT_MEMORY": {
-      "description": "Memory budget for an uploaded file conversion worker, in MB. The memory cap cannot be turned off. Zero, empty or invalid input logs one warning and keeps the 2048 MB default.",
+      "description": "Memory budget for an uploaded file conversion worker, in MB. The memory cap cannot be turned off: zero, empty or a value that is not digits only stops `serve`.",
       "default": "2048 MB",
-      "accepted": "Positive safe whole number of MB, decimal digits only; 0 or invalid uses 2048",
+      "accepted": "Whole number of MB, 64 or more; 0 and anything that is not digits only stop `serve` (the heap is always capped)",
       "restart": "Yes for a running server.",
       "explainedBy": "docs/environment-variables.md"
     },
     "TABULARIUS_CONVERT_TIMEOUT": {
       "description": "Time budget for a conversion process, in seconds.",
       "default": "900 seconds",
-      "accepted": "Nonnegative number of seconds; 0 disables the limit",
+      "accepted": "Whole number of seconds, digits only; 0 disables the limit",
       "restart": "Yes for a running server.",
       "explainedBy": "docs/environment-variables.md"
     },
@@ -227,9 +227,9 @@
       "explainedBy": "docs/upgrading.md"
     },
     "TABULARIUS_ENCRYPTION_KEY": {
-      "description": "Passphrase used to unlock encrypted hosted files. A set-but-empty or whitespace-only value refuses startup; unset it to run without encryption, or give a passphrase. Nonblank passphrases are used unchanged.",
-      "default": "No encryption passphrase",
-      "accepted": "Nonblank passphrase for encrypted hosted files; unset for no encryption",
+      "description": "Passphrase used to unlock encrypted hosted files. A set-but-empty or whitespace-only value stops `serve`; unset it to run without encryption, or give a passphrase. Nonblank passphrases are used unchanged.",
+      "default": "No encryption passphrase (unset); set but empty refuses to start",
+      "accepted": "Nonblank passphrase for encrypted hosted files; an empty value stops `serve`",
       "restart": "Yes for a running server.",
       "explainedBy": "README.md"
     },
@@ -299,7 +299,7 @@
     "TABULARIUS_HTTP_PORT": {
       "description": "The port that answers the certificate challenge and redirects to https (80 by default).",
       "default": "80",
-      "accepted": "Port number; decimal digits only for numbers, within the safe integer range",
+      "accepted": "Port number from 0 to 65535, digits only",
       "restart": "Yes for a running server.",
       "explainedBy": "docs/environment-variables.md"
     },
@@ -369,7 +369,7 @@
     "TABULARIUS_LIST_FILES_PUBLICLY": {
       "description": "Whether unsigned callers can see hosted file names.",
       "default": "off",
-      "accepted": "1, true, yes, or on",
+      "accepted": "1, true, yes or on; 0, false, no, off or empty for off; anything else stops `serve`",
       "restart": "Yes for a running server.",
       "explainedBy": "docs/data-api-compatibility.md"
     },
@@ -404,7 +404,7 @@
     "TABULARIUS_MAX_UPLOAD_IN_PROGRESS": {
       "description": "Combined byte reservation allowed across ongoing uploads and conversions.",
       "default": "20 GiB",
-      "accepted": "Positive safe whole bytes, decimal digits only; 0 or invalid uses the default with a warning",
+      "accepted": "Positive safe whole bytes, decimal digits only; 0, empty or anything else is refused",
       "restart": "Yes for a running server.",
       "explainedBy": "ADMIN.md"
     },
@@ -488,7 +488,7 @@
     "TABULARIUS_OIDC_TRUST_EMAIL": {
       "description": "`1`, `true` or `yes` to accept the provider's email address as the account name.",
       "default": "Off",
-      "accepted": "1, true, or yes",
+      "accepted": "1, true or yes to turn on; 0, false, no or empty for off; \"on\", \"off\" and anything else stop `serve`",
       "restart": "Yes for a running server.",
       "explainedBy": "docs/environment-variables.md"
     },
@@ -628,7 +628,7 @@
     "TABULARIUS_SECRETS_KEY": {
       "description": "Passphrase used to seal outside-connection secrets.",
       "default": "TABULARIUS_ENCRYPTION_KEY if set",
-      "accepted": "Passphrase text",
+      "accepted": "Nonempty passphrase; an empty value stops `serve`",
       "restart": "Yes for a running server.",
       "explainedBy": "README.md"
     },
@@ -670,14 +670,14 @@
     "TABULARIUS_SQL_PORT": {
       "description": "The port for the PostgreSQL-compatible SQL connection.",
       "default": "SQL listener off",
-      "accepted": "Port number from 0 to 65535; decimal digits only for numbers, within the safe integer range",
+      "accepted": "Port number from 0 to 65535, digits only",
       "restart": "Yes for a running server.",
       "explainedBy": "docs/environment-variables.md"
     },
     "TABULARIUS_SQL_WRITES": {
       "description": "1 lets the SQL connection run INSERT, UPDATE and DELETE (off by default); needs the SQL port.",
       "default": "Off: the SQL connection is read-only",
-      "accepted": "1, true, yes or on",
+      "accepted": "1, true, yes or on; 0, false, no, off or empty for off; anything else stops `serve`",
       "restart": "Yes for a running server.",
       "explainedBy": "docs/pgwire-writes.md"
     },
@@ -745,9 +745,9 @@
       "explainedBy": "docs/security-defaults.md"
     },
     "TABULARIUS_TRACE_SQL": {
-      "description": "Enables SQL statement tracing to stderr only for explicit true values. Unrecognized values disable tracing and log one warning per process naming the setting.",
+      "description": "Enables SQL statement tracing to stderr. A value that is neither a switch-on nor a switch-off word stops `serve`, naming the setting.",
       "default": "Off",
-      "accepted": "1, true, yes, on enable; empty, 0, false, no, off disable (case-insensitive)",
+      "accepted": "1, true, yes or on to trace; 0, false, no, off or empty for off; anything else stops the start",
       "restart": "Yes; restart the server after changing its environment.",
       "explainedBy": "docs/performance.md"
     },

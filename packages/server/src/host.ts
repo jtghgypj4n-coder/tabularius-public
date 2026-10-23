@@ -39,18 +39,6 @@ import { BoundedMap } from './bounded-map.ts';
 
 export const STORE_EXT = '.openhbam.sqlite';
 
-/**
- * Guards for converting an untrusted upload (not a file the operator dropped
- * into the folder): the worker's heap is capped so a file that expands to huge
- * memory out-of-memories the worker rather than the server, and the conversion
- * is stopped after a time budget so a file that makes the reader loop can't
- * block the single conversion slot for good. Generous defaults; raise them with
- * TABULARIUS_CONVERT_MEMORY (MB) and TABULARIUS_CONVERT_TIMEOUT (seconds, 0 = none)
- * for an environment that hosts genuinely large uploads. The memory cap cannot
- * be disabled: zero or invalid input warns once and keeps the 2048 MB default.
- */
-const UPLOAD_CONVERT_LIMITS = uploadConversionLimits();
-
 /** The account row a container link is tied to. */
 export interface LinkAccount { name: string; identity: string }
 
@@ -718,7 +706,7 @@ export class Host {
       try {
         log(`converting ${file} with the passphrase entered`);
         // An uploaded file is converted within the limits any upload is (it may have been made to be hostile).
-        const r = await this.convert(join(this.dir, file), temp, (p) => this.converted.set(name, p), info.uploaded ? UPLOAD_CONVERT_LIMITS : undefined, passphrase);
+        const r = await this.convert(join(this.dir, file), temp, (p) => this.converted.set(name, p), info.uploaded ? uploadConversionLimits() : undefined, passphrase);
         this.assertOpen();
         crashPoint('host-conversion:after-convert');
         if (!publishConversion(temp, store)) throw new Error(`A file named ${name} is already hosted`);
@@ -780,7 +768,7 @@ export class Host {
       const temp = conversionTemp(store, src);
       this.converting = true;
       try {
-        const r = await this.convert(src, temp, onProgress, UPLOAD_CONVERT_LIMITS, undefined, signal);
+        const r = await this.convert(src, temp, onProgress, uploadConversionLimits(), undefined, signal);
         signal?.throwIfAborted();
         this.assertOpen();
         crashPoint('host-upload:after-convert');

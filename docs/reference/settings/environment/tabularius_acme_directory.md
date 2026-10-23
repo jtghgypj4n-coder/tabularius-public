@@ -8,6 +8,6 @@ A different certificate authority's directory address, for testing.
 | Accepted values | ACME directory URL |
 | Restart needed | Yes for a running server. |
 | Explained in | [docs/environment-variables.md](../../../environment-variables.md) |
-| Code | [packages/cli/src/main.ts:1287](../../../../packages/cli/src/main.ts#L1287) |
+| Code | [packages/cli/src/main.ts:1289](../../../../packages/cli/src/main.ts#L1289) |
 
 [All environment variables](../../../environment-variables.md)

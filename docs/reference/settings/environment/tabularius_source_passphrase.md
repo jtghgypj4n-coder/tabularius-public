@@ -8,6 +8,6 @@ Passphrase used to open an encrypted source file from the CLI.
 | Accepted values | Passphrase text |
 | Restart needed | No server restart; a new command reads it on invocation. |
 | Explained in | [ADMIN.md](../../../../ADMIN.md) |
-| Code | [packages/cli/src/main.ts:2987](../../../../packages/cli/src/main.ts#L2987) |
+| Code | [packages/cli/src/main.ts:2989](../../../../packages/cli/src/main.ts#L2989) |
 
 [All environment variables](../../../environment-variables.md)

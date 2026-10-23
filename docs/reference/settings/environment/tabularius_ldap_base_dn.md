@@ -8,6 +8,6 @@ Where in the directory people are looked up.
 | Accepted values | LDAP distinguished name, template, attribute, or password as named by the variable |
 | Restart needed | Yes for a running server. |
 | Explained in | [docs/environment-variables.md](../../../environment-variables.md) |
-| Code | [packages/cli/src/main.ts:1414](../../../../packages/cli/src/main.ts#L1414) |
+| Code | [packages/cli/src/main.ts:1416](../../../../packages/cli/src/main.ts#L1416) |
 
 [All environment variables](../../../environment-variables.md)
