@@ -55,6 +55,7 @@
         "docs/admin-api-coverage.md",
         "docs/fmcsadmin-parity.md",
         "docs/plugin-compatibility.md",
+        "docs/get-functions.md",
         "docs/script-steps-support.md",
         "docs/error-codes.md"
       ]

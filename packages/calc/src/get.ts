@@ -6,11 +6,14 @@
 import { randomUUID } from 'node:crypto';
 import { hostname, networkInterfaces, release, tmpdir } from 'node:os';
 import type { Env } from './evaluate.ts';
+import { GET_NAMES } from './get-names.ts';
 import { EMPTY, num, text, timestampFromDate, dayNumber, type Value } from './values.ts';
 
 function systemPlatform(platform: NodeJS.Platform = process.platform): number {
   return platform === 'win32' ? -2 : platform === 'darwin' ? 1 : 5;
 }
+export const APPLICATION_VERSION = 'Tabularius Server 0.1';
+const unknownNoticed = new WeakMap<Env['ctx'], Set<string>>();
 
 function localParts(d: Date) {
   return { day: dayNumber(d.getFullYear(), d.getMonth() + 1, d.getDate()), seconds: d.getHours() * 3600 + d.getMinutes() * 60 + d.getSeconds() };
@@ -37,13 +40,13 @@ const DEFAULTS: Record<string, (env: Env) => Value> = {
   lasterror: () => num(0),
   lasterrordetail: () => EMPTY,
   lasterrorlocation: () => EMPTY,
-  applicationversion: () => text('tabularius 0.1'),
+  applicationversion: () => text(APPLICATION_VERSION),
   applicationlanguage: () => text('English'),
   systemplatform: (env) => num(systemPlatform(env.ctx.platform)),
   systemlanguage: () => text('English'),
   // Empty, as FileMaker gives in WebDirect and on a Linux host.
   systemappearance: () => EMPTY,
-  hostapplicationversion: () => text('tabularius 0.1'),
+  hostapplicationversion: () => text(APPLICATION_VERSION),
   persistentid: () => text('tabularius'),
   calculationrepetitionnumber: (env) => num(env.ctx.calculationRepetition ?? 1),
   activerepetitionnumber: () => num(1),
@@ -144,5 +147,16 @@ export function getParameter(param: string, env: Env): Value {
   }
   const v = env.ctx.get?.(param);
   if (v !== undefined) return v;
-  return DEFAULTS[param.toLowerCase()]?.(env) ?? EMPTY;
+  const name = param.toLowerCase();
+  const fallback = DEFAULTS[name];
+  if (fallback) return fallback(env);
+  if (!GET_NAMES.has(name) && env.ctx.notice) {
+    let seen = unknownNoticed.get(env.ctx);
+    if (!seen) { seen = new Set(); unknownNoticed.set(env.ctx, seen); }
+    if (!seen.has(name)) {
+      seen.add(name);
+      env.ctx.notice(`Get ( ${param} ) is not a Get parameter this build knows; it answered empty`);
+    }
+  }
+  return EMPTY;
 }
