@@ -16,7 +16,21 @@ const main = join(import.meta.dirname, '..', 'src', 'main.ts');
 // the demo at the same time, and their folders would show up as leftovers. Child processes started here inherit it.
 const sandbox = mkdtempSync(join(tmpdir(), 'tabularius-demo-sandbox-'));
 process.env.TMPDIR = sandbox;
-after(() => rmSync(sandbox, { recursive: true, force: true }));
+const stubPath = join(sandbox, 'bin');
+const commandMarker = join(sandbox, 'unexpected-command');
+mkdirSync(stubPath);
+for (const name of ['launchctl', 'systemctl', 'sc', 'git', 'npm', 'curl', 'sudo']) {
+  writeFileSync(join(stubPath, name), '#!/bin/sh\nprintf x >> "$TABULARIUS_TEST_COMMAND_MARKER"\nexit 99\n', { mode: 0o755 });
+}
+process.env.PATH = stubPath;
+process.env.TABULARIUS_TEST_COMMAND_MARKER = commandMarker;
+after(() => {
+  try {
+    assert.equal(existsSync(commandMarker), false, 'a service, upgrade, install or network command was run');
+  } finally {
+    rmSync(sandbox, { recursive: true, force: true });
+  }
+});
 
 async function signIn(demo: Demo, password: string): Promise<number> {
   const r = await fetch(`${demo.url}/fmi/data/vLatest/databases/${demo.database}/sessions`, {
@@ -121,13 +135,37 @@ test('a start that fails leaves nothing behind', async () => {
 });
 
 test('it will not listen anywhere but this computer', async () => {
-  for (const host of ['0.0.0.0', '::', '192.168.1.20', '10.0.0.5', 'example.com', '127.0.0.1.evil.example', '0', '']) {
+  for (const host of ['0.0.0.0', '::', '192.168.1.20', '10.0.0.5', 'example.com', '127.0.0.1.evil.example', '0', '', '[::1', '::1]']) {
     assert.match(notLoopback(host) ?? '', /only listens on this computer/, `"${host}"`);
   }
   for (const host of ['127.0.0.1', 'localhost', 'LOCALHOST', '::1', '[::1]', '127.1.2.3']) assert.equal(notLoopback(host), undefined, host);
   const before = readdirSync(tmpdir()).filter((f) => f.startsWith('tabularius-demo-'));
   await assert.rejects(startDemo({ host: '0.0.0.0' }), /only listens on this computer/);
   assert.deepEqual(readdirSync(tmpdir()).filter((f) => f.startsWith('tabularius-demo-')), before, 'refused before anything was made');
+});
+
+test('a bracketed IPv6 loopback host serves a usable bracketed URL', async (t) => {
+  const probe = createServer();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      probe.once('error', reject);
+      probe.listen(0, '::1', resolve);
+    });
+  } catch (error) {
+    t.skip(`IPv6 loopback is unavailable: ${(error as Error).message}`);
+    return;
+  } finally {
+    if (probe.listening) await new Promise<void>((resolve) => probe.close(() => resolve()));
+  }
+
+  const demo = await startDemo({ host: '[::1]', port: 0 });
+  try {
+    assert.match(demo.url, /^http:\/\/\[::1\]:\d+$/);
+    assert.equal(demo.app, `${demo.url}/app/`);
+    assert.equal((await fetch(demo.app)).status, 200);
+  } finally {
+    await demo.stop();
+  }
 });
 
 test('the command refuses a public host, an unknown starter and stray arguments, with a sentence and no leftover', async () => {
