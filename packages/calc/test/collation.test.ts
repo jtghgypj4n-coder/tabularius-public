@@ -1,6 +1,18 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { isSortLanguageName, recordSortLanguage, SORT_LANGUAGE_IDS, SORT_LANGUAGES, sortFunction, sortKey, sortLanguage } from '../src/collation.ts';
+import { compareKeys, foldText, isSortLanguageName, recordSortLanguage, SORT_LANGUAGE_IDS, SORT_LANGUAGES, sortFunction, sortKey, sortLanguage } from '../src/collation.ts';
+
+test('foldText maps Greek final sigma, capital sharp s and the remaining common ligatures', () => {
+  assert.equal(foldText('ΟΔΟΣ'), foldText('οδος'));
+  assert.equal(foldText('STRAẞE'), foldText('straße'));
+  assert.equal(foldText('ﬃ'), foldText('ffi'));
+});
+
+test('compareKeys follows code point order for astral keys, equality and prefixes', () => {
+  assert.ok(compareKeys(sortKey('한'), sortKey('Ａ')) < 0);
+  assert.equal(compareKeys('same', 'same'), 0);
+  assert.ok(compareKeys('abc', 'abcd') < 0);
+});
 
 test('sort keys: case and accents ignored, punctuation before digits before letters', () => {
   const words = ['zebra', 'Apple', 'apple pie', 'apple', 'Ápfel', '10 Downing', '#1', 'banana', 'Straße', 'strasse', 'Zürich', 'Ærø', 'aesop'];

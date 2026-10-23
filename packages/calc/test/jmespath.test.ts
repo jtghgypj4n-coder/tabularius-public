@@ -37,6 +37,19 @@ test('MBS JSON.Search: the example from the function page', () => {
   assert.equal(compact(parseJson(String(MBS_JSON['json.search']([{ text: doc, number: false }, { text: 'nothing', number: false }], {})))), 'null');
 });
 
+test('JMESPath flatten handles large arrays without spreading arguments', () => {
+  const values = Array.from({ length: 130_000 }, (_, i) => i);
+  const doc = JSON.stringify([values]);
+  const flattened = jmesSearch(parseJson(doc), '[]', io);
+  assert.equal(flattened.t, 'arr');
+  if (flattened.t === 'arr') assert.equal(flattened.items.length, 130_000);
+});
+
+test('JMESPath text traversal handles large arrays without spreading arguments', () => {
+  const values = Array.from({ length: 130_000 }, (_, i) => i);
+  assert.equal(search(JSON.stringify(values), 'to_string(@)'), JSON.stringify(JSON.stringify(values)));
+});
+
 test('JMESPath: a search stops instead of running away', () => {
   const started = Date.now();
   // A value that holds itself twice, thirty times over: two to the thirtieth values written out.

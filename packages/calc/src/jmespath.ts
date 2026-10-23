@@ -463,7 +463,7 @@ class Run {
         for (const x of l.items) {
           if (x.t === 'arr') {
             this.tick(x.items.length);
-            items.push(...x.items);
+            for (const y of x.items) items.push(y);
           } else items.push(x);
         }
         return { t: 'arr', items };
@@ -575,7 +575,7 @@ class Run {
     while (stack.length) {
       const x = stack.pop()!;
       this.tick();
-      if (x.t === 'arr') stack.push(...x.items);
+      if (x.t === 'arr') for (const y of x.items) stack.push(y);
       else if (x.t === 'obj') for (const [, y] of x.entries) stack.push(y);
     }
     return this.io.compact(j);

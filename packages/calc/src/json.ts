@@ -305,7 +305,7 @@ function deleteAt(root: Json, parts: PathPart[]): Json {
   if (!parts.length || root === null || typeof root !== 'object') return root;
   const [p, ...rest] = parts;
   if (Array.isArray(root)) {
-    const i = 'index' in p ? p.index : 'last' in p ? root.length - 1 : -1;
+    const i = 'index' in p ? p.index : 'last' in p ? root.length - 1 : 'key' in p && /^\d+$/.test(p.key) ? Number(p.key) : -1;
     if (i < 0 || i >= root.length) return root;
     const arr = [...root];
     if (rest.length) arr[i] = deleteAt(arr[i], rest);

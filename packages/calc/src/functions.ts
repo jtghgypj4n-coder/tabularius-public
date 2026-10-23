@@ -21,7 +21,7 @@ import { canonicalXml, stripInvalidUtf16, tidyXml } from './xmltools.ts';
 import { applyXslt } from './xslt.ts';
 import { pdfPageCount, pdfPageRange, pdfText } from './pdf-text.ts';
 import { JqError, runJq } from './jq.ts';
-import { isSortLanguageName, sortKey, sortLanguage } from './collation.ts';
+import { compareKeys, isSortLanguageName, sortKey, sortLanguage } from './collation.ts';
 import { DAYS_J, hiragana, kanaHankaku, kanaZenkaku, kanjiNumeral, katakana, romanHankaku, romanZenkaku } from './japanese.ts';
 import { imageInfo, isImageHeader, type ImageInfo } from './image-info.ts';
 import { unzip, zip, type ZipEntry } from './zip.ts';
@@ -487,7 +487,7 @@ eager('SortValues', 1, 3, (v, env) => {
     if (language === 'en') return compare(text(x), text(y));
     const kx = sortKey(x, language);
     const ky = sortKey(y, language);
-    return kx < ky ? -1 : kx > ky ? 1 : 0;
+    return compareKeys(kx, ky);
   };
   if (kind < 2 || kind > 5) {
     vals.sort((x, y) => (desc ? -1 : 1) * compareText(x, y));
