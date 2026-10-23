@@ -2,6 +2,7 @@
 // opening the stores for write. Used by `tabularius doctor` and by `tabularius upgrade`, which will not put in place a version that
 // cannot open the folder it serves.
 
+import { encryptionKeyFromEnv } from '../../server/src/setting-values.ts';
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
@@ -25,7 +26,7 @@ export function hostedFiles(folder: string): { plain: string[]; encrypted: strin
 }
 
 /** The encrypted stores that cannot be looked into without the key (TABULARIUS_ENCRYPTION_KEY). */
-export function encryptedUnchecked(folder: string, key = process.env.TABULARIUS_ENCRYPTION_KEY): string[] {
+export function encryptedUnchecked(folder: string, key = encryptionKeyFromEnv()): string[] {
   return key ? [] : hostedFiles(folder).encrypted.map((n) => n.replace(ENCRYPTED, ''));
 }
 
@@ -45,7 +46,7 @@ function formatOf(path: string): number | 'unreadable' | undefined {
  * Encrypted stores are decrypted to a private temporary copy to be looked into, which needs the key; without it they are
  * left out here and `encryptedUnchecked` names them.
  */
-export function filesNewerThan(folder: string, reads: number, key = process.env.TABULARIUS_ENCRYPTION_KEY): NewerFile[] {
+export function filesNewerThan(folder: string, reads: number, key = encryptionKeyFromEnv()): NewerFile[] {
   const { plain, encrypted } = hostedFiles(folder);
   const out: NewerFile[] = [];
   for (const file of plain) {

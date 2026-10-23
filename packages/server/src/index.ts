@@ -381,7 +381,7 @@ export async function serve(opts: ServeOptions): Promise<{ server: Server; host:
     admin.log = log;
     const metrics = new Metrics();
     disposers.push(() => metrics.stop());
-    const requestGate = new RequestGate(opts.requestLimit ?? Number(process.env.TABULARIUS_REQUEST_LIMIT ?? 32), opts.requestQueue ?? Number(process.env.TABULARIUS_REQUEST_QUEUE ?? 64));
+    const requestGate = new RequestGate(opts.requestLimit, opts.requestQueue ?? Number(process.env.TABULARIUS_REQUEST_QUEUE ?? 64));
     metrics.requestGate = requestGate;
     admin.metrics = metrics;
     admin.uploads = new Uploads(host, log);

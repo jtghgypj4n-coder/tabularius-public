@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { encryptionKeyFromEnv, positiveWholeNumber } from '../../server/src/setting-values.ts';
 import { checkSqlExportPath } from '../../store/src/portable-path.ts';
 import { listenForStop } from './stop-request.ts';
 import { auditJsonLine } from '../../store/src/audit-output.ts';
@@ -1065,9 +1066,11 @@ async function freePort(from: number): Promise<number> {
  * hosted and opened in the web client.
  */
 async function firstRun(): Promise<void> {
+  encryptionKeyFromEnv();
+  const portFrom = positiveWholeNumber('PORT', process.env.PORT, 8080, { min: 0, max: 65535 });
   const folder = process.env.TABULARIUS_FOLDER ?? join(homedir(), 'tabularius');
   mkdirSync(folder, { recursive: true });
-  const port = await freePort(Number(process.env.PORT ?? 8080));
+  const port = await freePort(portFrom);
   console.log(`tabularius: hosting ${folder} on this computer. Drop .fmp12 files on the page that opens, or into that folder. Ctrl-C stops it.`);
   process.exitCode = main(['serve', folder, '--port', String(port), '--open']);
 }
@@ -1254,6 +1257,8 @@ function main(argv: string[]): number {
   }
   switch (cmd) {
     case 'serve': {
+      // Encryption at rest: reject a blank setting before starting any hosting work.
+      const encryptionKey = encryptionKeyFromEnv();
       const folderProblem = hostFolderProblem(path);
       if (folderProblem) throw new Error(`serve: ${folderProblem}`);
       const publicUrl = flag(args, '--public-url') ?? process.env.TABULARIUS_PUBLIC_URL;
@@ -1265,16 +1270,18 @@ function main(argv: string[]): number {
       // --https local: a certificate from the folder's own authority, for a local network (local-tls.ts).
       const localHttps = httpsFlag === 'local' || httpsFlag === 'lan';
       const https = localHttps ? undefined : httpsFlag;
+      const httpPortFlag = flag(args, '--http-port');
       const acme = https ? {
         domains: https.split(',').map((d) => d.trim()).filter(Boolean),
         email: flag(args, '--https-email') ?? process.env.TABULARIUS_HTTPS_EMAIL,
         directory: flag(args, '--acme-directory') ?? process.env.TABULARIUS_ACME_DIRECTORY,
-        httpPort: Number(flag(args, '--http-port') ?? process.env.TABULARIUS_HTTP_PORT ?? 80),
+        httpPort: positiveWholeNumber(httpPortFlag !== undefined ? '--http-port' : 'TABULARIUS_HTTP_PORT', httpPortFlag ?? process.env.TABULARIUS_HTTP_PORT, 80, { min: 0, max: 65535 }),
       } : undefined;
       const portFlag = flag(args, '--port');
       const portText = portFlag ?? process.env.PORT ?? (acme ? 443 : 8080);
-      const port = Number(portText);
-      if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error(`serve: ${portFlag !== undefined ? '--port' : 'the PORT variable'} takes a port number from 1 to 65535, not "${portText}"`);
+      const portNumber = Number(portText);
+      if (!Number.isInteger(portNumber) || portNumber < 0 || portNumber > 65535) throw new Error(`serve: ${portFlag !== undefined ? '--port' : 'the PORT variable'} takes a port number from 1 to 65535, not "${portText}"`);
+      const port = positiveWholeNumber(portFlag !== undefined ? '--port' : 'PORT', String(portText), 8080, { min: 0, max: 65535 });
       const hostname = flag(args, '--host') ?? process.env.TABULARIUS_HOST ?? (acme ? '0.0.0.0' : '127.0.0.1');
       const mcpToken = tokenOption(args, '--mcp-token', '--mcp-token-file', process.env.TABULARIUS_MCP_TOKEN, process.env.TABULARIUS_MCP_TOKEN_FILE, 'serve').value;
       // Scripts stay offline unless asked: Insert from URL could reach mail, SMS or payment services.
@@ -1335,11 +1342,9 @@ function main(argv: string[]): number {
       const every = flag(args, '--backup-every') ?? process.env.TABULARIUS_BACKUP_EVERY ?? settings.backupEvery ?? '1d';
       const keepFlag = flag(args, '--keep');
       const keepText = keepFlag ?? process.env.TABULARIUS_BACKUP_KEEP ?? settings.keep ?? 7;
-      const keep = Number(keepText);
-      if (!Number.isFinite(keep) || keep < 1) {
-        const from = keepFlag !== undefined ? '--keep' : process.env.TABULARIUS_BACKUP_KEEP !== undefined ? 'TABULARIUS_BACKUP_KEEP' : `"keep" in ${join(path, '.openhbam-settings.json')}`;
-        throw new Error(`serve: ${from} is the number of backups to keep, a whole number of 1 or more, not "${keepText}"`);
-      }
+      const keepSource = keepFlag !== undefined ? '--keep' : process.env.TABULARIUS_BACKUP_KEEP !== undefined ? 'TABULARIUS_BACKUP_KEEP' : 'keep in .openhbam-settings.json';
+      if (!Number.isFinite(Number(keepText)) || Number(keepText) < 1) throw new Error(`serve: ${keepSource} is the number of backups to keep, a whole number of 1 or more, not "${keepText}"`);
+      const keep = positiveWholeNumber(keepSource, String(keepText), 7);
       const dest = flag(args, '--backup-dir') ?? process.env.TABULARIUS_BACKUP_DIR ?? settings.backupDir;
       const backups = bool(args, '--no-backups') || every === 'off' ? undefined : { every: parseInterval(every), keep, dest };
       // Off-site: the backups folder mirrored to S3-compatible storage.
@@ -1353,9 +1358,9 @@ function main(argv: string[]): number {
       const progressiveEvery = flag(args, '--progressive') ?? process.env.TABULARIUS_PROGRESSIVE;
       const progressive = progressiveEvery && progressiveEvery !== 'off' ? { every: parseInterval(progressiveEvery) } : undefined;
       // PostgreSQL clients: BI tools and ODBC/JDBC drivers, read-only unless --sql-writes.
-      const sqlPortText = flag(args, '--sql-port') ?? process.env.TABULARIUS_SQL_PORT;
-      const sqlPort = sqlPortText ? Number(sqlPortText) : undefined;
-      if (sqlPort !== undefined && !(Number.isInteger(sqlPort) && sqlPort >= 0 && sqlPort < 65536)) throw new Error('serve: --sql-port must be a port number');
+      const sqlPortFlag = flag(args, '--sql-port');
+      const sqlPortText = sqlPortFlag ?? process.env.TABULARIUS_SQL_PORT;
+      const sqlPort = sqlPortText === undefined ? undefined : positiveWholeNumber(sqlPortFlag !== undefined ? '--sql-port' : 'TABULARIUS_SQL_PORT', sqlPortText, 0, { min: 0, max: 65535 });
       const sqlWrites = bool(args, '--sql-writes') || /^(1|true|yes|on)$/i.test(process.env.TABULARIUS_SQL_WRITES ?? '');
       if (sqlWrites && sqlPort === undefined) throw new Error('serve: --sql-writes lets the SQL port write, so it needs --sql-port (or TABULARIUS_SQL_PORT)');
       // Standby servers follow this one's changes, signing in with this token.
@@ -1412,10 +1417,12 @@ function main(argv: string[]): number {
       let ai: { apiKey: string; keySource?: 'environment' | 'file'; keyFile?: string; workspaceId?: string; workspaceFile?: string; model?: string; fastModel?: string; embedUrl?: string; embedModel?: string; embedKey?: string; imageEmbed?: { provider: string; model: string; key: string }; dailyTokens?: number; accountDailyTokens?: number; runTokens?: number; monthlyBudgetUsd?: number } | undefined;
       if (bool(args, '--ai')) {
         const { apiKey, source: keySource, keyFile, workspaceId, workspaceFile } = resolveAiKey(process.env, flag(args, '--ai-key-file') ?? process.env.TABULARIUS_AI_KEY_FILE, flag(args, '--ai-workspace-id') ?? process.env.TABULARIUS_AI_WORKSPACE_ID);
-        const daily = flag(args, '--ai-daily-tokens') ?? process.env.TABULARIUS_AI_DAILY_TOKENS;
-        if (daily !== undefined && !(Number(daily) > 0)) throw new Error('serve: --ai-daily-tokens needs a number of tokens, like 2000000');
-        const perAccount = flag(args, '--ai-account-daily-tokens') ?? process.env.TABULARIUS_AI_ACCOUNT_DAILY_TOKENS;
-        if (perAccount !== undefined && !(Number(perAccount) > 0)) throw new Error('serve: --ai-account-daily-tokens needs a number of tokens, like 200000');
+        const dailyFlag = flag(args, '--ai-daily-tokens');
+        const daily = dailyFlag ?? process.env.TABULARIUS_AI_DAILY_TOKENS;
+        const dailyTokens = daily === undefined ? undefined : positiveWholeNumber(dailyFlag !== undefined ? '--ai-daily-tokens' : 'TABULARIUS_AI_DAILY_TOKENS', daily, 2_000_000);
+        const accountFlag = flag(args, '--ai-account-daily-tokens');
+        const perAccount = accountFlag ?? process.env.TABULARIUS_AI_ACCOUNT_DAILY_TOKENS;
+        const accountDailyTokens = perAccount === undefined ? undefined : positiveWholeNumber(accountFlag !== undefined ? '--ai-account-daily-tokens' : 'TABULARIUS_AI_ACCOUNT_DAILY_TOKENS', perAccount, 200_000);
         const perRun = flag(args, '--ai-run-tokens') ?? process.env.TABULARIUS_AI_RUN_TOKENS;
         if (perRun !== undefined && parseRunTokens(perRun) === undefined) throw new Error(`serve: --ai-run-tokens needs a whole number of tokens from 1 to ${MAX_RUN_TOKENS.toLocaleString('en-US')}, like 300000`);
         const budget = flag(args, '--ai-monthly-budget') ?? process.env.TABULARIUS_AI_MONTHLY_BUDGET;
@@ -1425,7 +1432,7 @@ function main(argv: string[]): number {
           ...embedOptions(args),
           apiKey, keySource, keyFile, workspaceId, workspaceFile, model: flag(args, '--ai-model') ?? process.env.TABULARIUS_AI_MODEL,
           ...(fastModel ? { fastModel } : {}), ...(budget !== undefined ? { monthlyBudgetUsd: Number(budget.replace(/^\$/, '')) } : {}),
-          ...(daily !== undefined ? { dailyTokens: Number(daily) } : {}), ...(perAccount !== undefined ? { accountDailyTokens: Number(perAccount) } : {}),
+          ...(dailyTokens !== undefined ? { dailyTokens } : {}), ...(accountDailyTokens !== undefined ? { accountDailyTokens } : {}),
           ...(perRun !== undefined ? { runTokens: parseRunTokens(perRun) } : {}),
         };
       } else {
@@ -1438,13 +1445,12 @@ function main(argv: string[]): number {
       const aiExclude = aiExcludeFrom(args);
       // Accounts the file left without a password (FileMaker's default Admin) work from this computer only, unless allowed.
       if (bool(args, '--allow-blank-passwords')) PASSWORD_POLICY.blankFromNetwork = true;
-      // Encryption at rest: stores kept encrypted on disk, unlocked with this key while running.
-      const encryptionKey = process.env.TABULARIUS_ENCRYPTION_KEY || undefined;
       // Reachable from other computers without HTTPS: passwords and session tokens cross the network in the clear.
       const exposedPlain = !isLoopbackHost(hostname) && !tlsCert && !acme && !/^https:/i.test(publicUrl ?? '');
       // Several processes, so a busy server uses every core.
-      const workersText = flag(args, '--workers') ?? process.env.TABULARIUS_WORKERS;
-      const workers = workersText === 'auto' ? availableParallelism() : Number(workersText ?? 1);
+      const workersFlag = flag(args, '--workers');
+      const workersText = workersFlag ?? process.env.TABULARIUS_WORKERS;
+      const workers = workersText === 'auto' ? availableParallelism() : positiveWholeNumber(workersFlag !== undefined ? '--workers' : 'TABULARIUS_WORKERS', workersText, 1, { max: 64 });
       if (!(Number.isInteger(workers) && workers >= 1 && workers <= 64)) throw new Error('serve: --workers takes a number of processes (1 to 64) or auto');
       if (workers > 1) {
         serveCluster({ dir: path, port, hostname, mcpToken, scriptNetwork, scriptNetworkAllow, listFilesPublicly, appConnections, webhooks, inboundHooks, testOutbound, ...(sendMail ? { sendMail } : {}), tlsCert, tlsKey, publicUrl, mcpAllowedOrigins, proxyHeader, trustedProxies, edgeLimits, acme, backups, offsite, progressive, statsInterval, logLimit, replicationToken, acceptPartialStandbyFiles, sqlPort, sqlWrites, ai, aiExclude, oidc, ldap, encryptionKey, background: true }, workers, PASSWORD_POLICY.blankFromNetwork).then(({ url, close }) => {
@@ -1468,8 +1474,9 @@ function main(argv: string[]): number {
       }
       // Stopping lets requests that are running finish for this long, then closes them (a service manager's own stop timeout is 60 s).
       const graceText = process.env.TABULARIUS_DRAIN_SECONDS;
-      const drainMs = graceText === undefined || graceText === '' ? undefined : Number(graceText) * 1000;
-      if (drainMs !== undefined && !(Number.isFinite(drainMs) && drainMs >= 1000 && drainMs <= 86_400_000)) throw new Error('serve: TABULARIUS_DRAIN_SECONDS is a number of seconds (1 to 86400)');
+      const graceNumber = graceText === undefined || graceText === '' ? undefined : Number(graceText) * 1000;
+      if (graceNumber !== undefined && !(Number.isFinite(graceNumber) && graceNumber >= 1000 && graceNumber <= 86_400_000)) throw new Error('serve: TABULARIUS_DRAIN_SECONDS is a number of seconds (1 to 86400)');
+      const drainMs = graceText === undefined ? undefined : positiveWholeNumber('TABULARIUS_DRAIN_SECONDS', graceText, 20, { max: 86400 }) * 1000;
       serve({ dir: path, drainMs, port, hostname, serviceInstalled: () => installed()?.folder === resolve(path), mcpToken, scriptNetwork, scriptNetworkAllow, listFilesPublicly, appConnections, webhooks, inboundHooks, testOutbound, ...(sendMail ? { sendMail } : {}), tlsCert, tlsKey, publicUrl, mcpAllowedOrigins, proxyHeader, trustedProxies, edgeLimits, acme, backups, offsite, progressive, statsInterval, logLimit, replicationToken, keepApiTokensOnTakeover, acceptPartialStandbyFiles, sqlPort, sqlWrites, ai, aiExclude, oidc, ldap, encryptionKey, background: true }).then(({ url, host, server, offsite: offsiteSchedule }) => {
         // Ready for a stop before anything is printed: whoever sees the first line may signal at once. The last changes go
         // off-site before the process ends. A first signal stops cleanly (running requests finish, the files are saved and
@@ -1724,7 +1731,7 @@ function main(argv: string[]): number {
       // Encrypt or decrypt the hosted stores in a folder, at rest, while the
       // server is stopped. The key comes from TABULARIUS_ENCRYPTION_KEY — the
       // same one the server unlocks with.
-      const key = process.env.TABULARIUS_ENCRYPTION_KEY;
+      const key = encryptionKeyFromEnv();
       if (!key) throw new Error(`${cmd}: set TABULARIUS_ENCRYPTION_KEY to the passphrase`);
       if (!existsSync(path)) throw new Error(`${cmd}: ${path} does not exist`);
       const release = claimFolder(path, 'restore');

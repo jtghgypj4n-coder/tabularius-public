@@ -8,6 +8,6 @@ The distinguished name a person signs in as, with the user name filled in.
 | Accepted values | LDAP distinguished name, template, attribute, or password as named by the variable |
 | Restart needed | Yes for a running server. |
 | Explained in | [docs/environment-variables.md](../../../environment-variables.md) |
-| Code | [packages/cli/src/main.ts:1397](../../../../packages/cli/src/main.ts#L1397) |
+| Code | [packages/cli/src/main.ts:1402](../../../../packages/cli/src/main.ts#L1402) |
 
 [All environment variables](../../../environment-variables.md)

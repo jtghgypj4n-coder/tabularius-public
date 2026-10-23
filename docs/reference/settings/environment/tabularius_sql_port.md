@@ -5,9 +5,9 @@ The port for the PostgreSQL-compatible SQL connection.
 | Setting | Value |
 | --- | --- |
 | Default | SQL listener off |
-| Accepted values | Port number from 0 to 65535 |
+| Accepted values | Port number from 0 to 65535; decimal digits only for numbers, within the safe integer range |
 | Restart needed | Yes for a running server. |
 | Explained in | [docs/environment-variables.md](../../../environment-variables.md) |
-| Code | [packages/cli/src/main.ts:1357](../../../../packages/cli/src/main.ts#L1357) |
+| Code | [packages/cli/src/main.ts:1363](../../../../packages/cli/src/main.ts#L1363) |
 
 [All environment variables](../../../environment-variables.md)

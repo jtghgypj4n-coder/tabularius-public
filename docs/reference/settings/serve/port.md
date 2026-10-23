@@ -5,10 +5,10 @@
 | Setting | Value |
 | --- | --- |
 | Default | 8080, or 443 with automatic HTTPS |
-| Accepted values | Port number from 0 to 65535 |
+| Accepted values | Port number from 0 to 65535; decimal digits only for numbers, within the safe integer range |
 | Restart needed | Yes; serve flags are read when the server starts. |
 | Environment | `PORT` |
 | Explained in | [README.md](../../../../README.md) |
-| Code | [packages/cli/src/main.ts:1018](../../../../packages/cli/src/main.ts#L1018) |
+| Code | [packages/cli/src/main.ts:1019](../../../../packages/cli/src/main.ts#L1019) |
 
 [All serve flags](../serve-flags.md)
