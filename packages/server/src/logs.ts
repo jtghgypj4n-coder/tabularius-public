@@ -135,7 +135,16 @@ export class LogShipper {
       this.follow(store);
       // follow() disabled automatic checkpoints. Leave every page in the WAL for all followers,
       // including point-in-time backups; the copy hold's deadline bounds time, not WAL bytes.
-      if (!opts.ignoreHold && this.held.has(store)) continue;
+      const hold = this.held.get(store);
+      if (hold && !opts.ignoreHold) continue;
+      if (hold) {
+        // A checkpoint is about to fold the log away, so it is shipped now. The copies in progress were promised a
+        // position from before this ship: the hold ends and each falls back to replaying what is shipped meanwhile.
+        clearTimeout(hold.timer);
+        this.held.delete(store);
+        for (const notify of hold.holders) notify();
+        this.log(`${store.name}: copy was taken while changes shipped (shipped before a checkpoint)`);
+      }
       store.shipWal((data) => {
         const at = Date.now();
         let ok = true;
