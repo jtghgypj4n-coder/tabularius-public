@@ -341,6 +341,145 @@ Run `node scripts/bulk-scale.ts --rows 20000` for the CI-sized synthetic profile
 
 All ten operations passed. The script loop and Duplicate Record loop use 20,000 iterations in this run and at most 100,000 in the full profile. The statement hook counts prepared `.get`, `.all`, `.run`, and `.iterate` executions when `TABULARIUS_COUNT_SQL=1`; its rows-written count sums `.run().changes`. It does not include `exec` statements, trigger side effects, or database pages rewritten by WAL checkpoints. WAL is sampled every 50 ms and at operation end, so a shorter peak may be missed. See [the bulk-operation audit](../notes/audits/r25-15-bulk-ops-scale.md) for cancellation semantics and remaining scale limits.
 
+## Wide-solution cold start and first use
+
+`node --no-warnings scripts/bench-wide.ts` builds a fixed-seed synthetic store,
+closes it, and starts a fresh Node process hosting it on `127.0.0.1`. It removes
+the temporary folder on success or failure. Use `--records 100 --tables 3` for
+a small run. No source files, customer data or downloaded fixtures are used.
+
+The default workload has 85 tables, 2,911 fields (8–60 per table), 270,000
+records, 340 layouts, 255 scripts, 85 value lists and 28 relationships across
+29 tables. The largest table has 101,759 records; the next two are smaller
+large tables and the remaining tables are small. Fields include text, numbers,
+dates, times, timestamps, empty containers, stored and unstored calculations,
+and summaries. Stored calculations are populated consistently during bulk
+loading. Scripts are present but not executed. Default forms contain summaries;
+the page used for reads leaves them out. An Id index is built during generation;
+the numeric Scan field stays unindexed, checked with SQLite query plans before
+and after the find. This avoids accidentally benchmarking a text word-index
+build as an unindexed scan.
+
+This measures an already-converted hosted SQLite file, not `.fmp12` conversion.
+The previously reported 22.7-second startup of a private large solution and its
+multi-second layout renders are **unverified** here. Matching that product's <!-- known-difference: Performance ;; The start-up and layout render times of one very large solution in another product are not compared with ours ;; Nothing shows; the benchmark here only measures a generated file ;; A run of the same solution on both products -->
+behavior at this scale is also **unverified**. No browser is launched: the web <!-- known-difference: Performance ;; Behaviour at that scale in another product is not matched or measured ;; Nothing shows; we do not claim equal speed ;; A side by side run on the same large file -->
+measurements cover its layout/script menu payload and first layout metadata,
+not painting, static assets or a complete browser navigation. The optional
+checkout-version git lookup is suppressed in the measurement process; file
+watching and background integrity scans are disabled. Normal shared-result
+setup remains enabled. “Cold” means a fresh process and empty JS caches, not
+flushed OS disk caches.
+
+Measured on 2026-10-21, macOS arm64, Apple M5 Max (18 logical CPUs),
+128 GiB memory, Node v22.22.2. These are single profiled full-size runs; varying
+machine load prevents claiming an overall startup speedup.
+
+| Phase | Before (ms) | After (ms) |
+| --- | ---: | ---: |
+| Process start to listening | 615.8 | 698.0 |
+| Hosted-file open (inside startup) | 21.3 | 17.0 |
+| Schema load (inside open) | 1.72 | 1.71 |
+| Design load/lookups (inside requests) | 32.3 | 26.4 |
+| First Data API layout list | 3.72 | 4.40 |
+| First 50-record page, largest table | 44.3 | 40.2 |
+| First indexed Id find | 9.58 | 12.63 |
+| First unindexed numeric find | 10.48 | 8.97 |
+| First web menu/bootstrap | 5.62 | 5.25 |
+| First web layout metadata | 3.70 | 4.57 |
+
+After startup, RSS was **183.6 MiB** and used JS heap **47.3 MiB** (before:
+181.8 MiB and 47.0 MiB). The web menu/bootstrap was **32,270 bytes** and first
+layout metadata **15,729 bytes**, identical before and after. The changed
+process reached the end of first use in **819.0 ms**. The initial design number
+measured full metadata loading; the changed number includes all lazy accessors,
+including cached calls, so it is a conservative comparison.
+
+A separate three-pair run with original versus changed implementations observed
+changing load: total first use ranged from 893.6–3,381.2 ms before and
+1,069.6–3,505.0 ms after (medians 3,038.0 and 3,149.8 ms). First-page medians were
+212.6 and 43.9 ms, but unrelated phases varied too, so these are observations,
+not a controlled speedup claim. The budget leaves over three times the slowest
+observed changed run.
+
+Schema time is the schema metadata read and parse inside hosted-file opening.
+Design time is the cumulative layout/theme lookup time within the first-use
+requests, including SQLite JSON extraction and JS parsing; these two times
+are nested in other phases and must not be added to the total. HTTP timings
+include receiving and parsing the entire JSON response on loopback. Bootstrap
+bytes are uncompressed UTF-8 bytes. The total starts at Node's process time
+origin and ends after the first layout response, including sign-in; generation
+is excluded. The generated SQLite file is about 77 MiB before hosting.
+
+### Profile and changes
+
+To profile generation and the fresh server separately in one invocation:
+
+```sh
+mkdir -p /tmp/tabularius-wide-profile
+node --no-warnings --cpu-prof --cpu-prof-dir=/tmp/tabularius-wide-profile scripts/bench-wide.ts
+node scripts/cpu-profile-summary.ts /tmp/tabularius-wide-profile/CPU.SERVER-PROCESS.0.001.cpuprofile
+```
+
+Replace the last filename with the generated server main-thread profile (the
+later process id, thread 0). The launcher's profile includes generation and
+waiting for the child, and other thread profiles include background work;
+summing all of them would obscure the server startup costs. Profiles stay
+outside the repository; retain only aggregate timings when sharing results.
+
+The initial server profile sampled 728 ms. Its largest named costs included
+90 ms compiling modules, 40 ms reading modules, about 33 ms loading the full
+design, and 14 ms creating shared-result triggers. The changed server profile
+sampled 815 ms on a busier run: module compilation took 105 ms, lazy design
+lookup about 26 ms, and shared-trigger creation about 8 ms. These single sampled
+profiles identify work, not a controlled total-startup speedup.
+
+Main already cached schema/design versions, prepared statements, word indexes
+and calculation results. This change keeps those mechanisms and adds:
+
+- A first layout read extracts that layout and the themes from the saved JSON,
+  allocating only those JS objects. Repeated reads reuse them. On a second
+  distinct layout the full design is loaded once, retaining object identity;
+  this bounds the partial cache and avoids rescanning JSON for every layout.
+  The web layout handler reads the themes through the same cache. The existing
+  design-version triggers invalidate both caches, including peer writes,
+  transaction rollback and abandoned preparation. Valid JSON beyond SQLite’s
+  nesting limit falls back to the original full reader. The measured first-use
+  sequence reads the schema once and never parses the complete design blob.
+- Missing data-version triggers are created in one savepoint and one SQL batch,
+  instead of an autocommit per trigger. Failure rolls back the entire setup
+  while preserving a caller's transaction. Reopening a fully initialized file
+  still performs no trigger writes. A counter test pins one batch for 90
+  triggers and verifies that insert, update and delete each advance the counter.
+
+Regression tests compare lazy/eager layout objects and the serialized web
+payload, including themes and design visibility. No response fields, record
+limits or compatibility behavior are changed. Module loading remains a major
+startup cost; moving unrelated endpoints to asynchronous imports is deferred.
+SQLite still parses the combined design JSON on the initial extraction, and
+a second layout pays for full JS materialization. Container-heavy layouts,
+complex scripts, browser paint and conversion need separate measurements.
+
+### Wide-run budget
+
+`npm run bench:check` now also runs three fresh wide processes and compares
+median process-start-through-first-use time with the single **12,000 ms** wide
+budget in `scripts/bench-baseline.json`. If over budget, three more runs must
+confirm it. The full 85-table/270,000-record configuration is checked, generation
+is outside the budget, and the same limit applies on every platform. Unlike the
+existing CPU-normalized store rows, this budget includes module I/O and HTTP;
+it deliberately leaves more than three times the measured runtime for a loaded
+runner. The existing per-operation budgets are unchanged.
+
+The final wide gate passed at **685.0 ms** (median of three). The full
+`npm run bench:check` command nevertheless failed on five existing rows:
+four cached ExecuteSQL operations (SUM, GROUP BY, JOIN and ORDER BY), plus
+Customer text sort, confirmed in both batches. Of the 29 existing rows, 24
+passed the confirmation rule. A separate diagnostic using the original
+implementations of the changed store methods also exceeded those same five
+budgets. They have not been raised or disabled. This PR therefore does not
+claim a green full benchmark gate on this machine.
+
 ## Also see
 
 - `node scripts/loadtest.ts <file.fmp12> --users 50`: many people using one

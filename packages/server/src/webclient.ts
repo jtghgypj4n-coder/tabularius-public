@@ -837,7 +837,7 @@ export class WebClient {
     const info = store.layout(name);
     const design = info.layoutId !== undefined ? store.design(info.layoutId) : undefined;
     if (!design) throw new ApiError(105, `Layout "${name}" has no design`, 404);
-    const theme = store.designs().themes.find((t) => t.id === design.themeId);
+    const theme = store.themes().find((t) => t.id === design.themeId);
 
     // Images: signed URLs, so <img> can load them without the session token.
     const images: Record<number, string> = {};
