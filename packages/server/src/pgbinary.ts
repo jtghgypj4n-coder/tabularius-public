@@ -191,11 +191,11 @@ export function decodeNumeric(b: Buffer): string {
   if (sign === NUMERIC_NINF) return '-Infinity';
   // The text is never longer than the cap before the point and the display scale after it, whatever the weight says.
   if (n && (weight + 1) * 4 > NUMERIC_MAX_WHOLE_DIGITS) throw overflow();
+  // The whole part is the groups up to the weight, the ones past the last given being zero: one pad for those, not one step each.
+  const whole = n ? weight + 1 : 0;
   let int = '';
-  for (let w = n ? weight : -1; w >= 0; w--) {
-    const g = groups[weight - w] ?? 0;
-    int += int ? String(g).padStart(4, '0') : String(g);
-  }
+  for (let i = 0; i < Math.min(n, whole); i++) int += i ? String(groups[i]).padStart(4, '0') : String(groups[i]);
+  if (whole > n) int += '0000'.repeat(whole - n);
   // Digits past the display scale are cut, as PostgreSQL does; a value that is then zero has no sign.
   const lead = weight < -1 ? (-weight - 1) * 4 : 0;
   let frac = '0'.repeat(Math.min(lead, dscale));
@@ -532,6 +532,14 @@ export function expansionBudget(bytes: number): ExpansionBudget {
   return { left: total, total };
 }
 
+/** Takes `chars` of text from the Bind's allowance; 54000 once it is spent. */
+function charge(budget: ExpansionBudget, chars: number): void {
+  budget.left -= chars;
+  if (budget.left < 0) {
+    throw new BinaryFormatError(`the numeric and array parameters of one Bind may expand to at most ${budget.total} characters (${EXPANSION_BASE} plus ${EXPANSION_PER_BYTE} per byte sent); send the list in smaller parts`, '54000');
+  }
+}
+
 /** An array parameter as PostgreSQL's text form of it, checked as its array_recv checks it. */
 function arrayText(b: Buffer, element: number, budget: ExpansionBudget): string {
   const r = new Reader(b);
@@ -566,10 +574,7 @@ function arrayText(b: Buffer, element: number, budget: ExpansionBudget): string 
     if (len < -1) throw short();
     const item = len === -1 ? 'NULL' : quoted(elementText(r.bytes(len), element));
     // Each element is charged as it is read, so the text stops growing as soon as the Bind's allowance is spent.
-    budget.left -= item.length + 1;
-    if (budget.left < 0) {
-      throw new BinaryFormatError(`array parameters of one Bind may expand to at most ${budget.total} characters (${EXPANSION_BASE} plus ${EXPANSION_PER_BYTE} per byte sent); send the list in smaller parts`, '54000');
-    }
+    charge(budget, item.length + 1);
     items.push(item);
   }
   r.end();
@@ -603,6 +608,8 @@ export function binaryParam(b: Buffer, oid: number, budget: ExpansionBudget = ex
     case BINARY_OID.numeric: {
       // As the text path: Number of the text, except NaN, which stays the text NaN.
       const t = decodeNumeric(b);
+      // A ten-byte value can read as 16 KB of text (the scale), and a Bind may hold 65,535 of them.
+      charge(budget, t.length);
       return t === 'NaN' ? 'NaN' : Number(t);
     }
     case BINARY_OID.bytea: return '\\x' + b.toString('hex');

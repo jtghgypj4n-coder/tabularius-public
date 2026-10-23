@@ -322,3 +322,50 @@ test('seeded random bytes in every type: a value or a BinaryFormatError, nothing
   }
   assert.ok(performance.now() - started < 10_000);
 });
+
+// A numeric parameter sent alone, not in an array: ten bytes can read as a thousand digits before the point or sixteen thousand
+// after it, and a Bind holds up to 65,535 parameters.
+const numericBytes = (digits: number[], weight: number, dscale = 0, sign = 0) => Buffer.concat([
+  be(8, (b) => { b.writeUInt16BE(digits.length, 0); b.writeInt16BE(weight, 2); b.writeUInt16BE(sign, 4); b.writeUInt16BE(dscale, 6); }),
+  ...digits.map((g) => be(2, (b) => b.writeInt16BE(g))),
+]);
+
+/** What decodeNumeric made of its whole part before it stopped taking one step for every group up to the weight. */
+function wholePartByStepping(digits: number[], weight: number): string {
+  let int = '';
+  for (let w = digits.length ? weight : -1; w >= 0; w--) {
+    const g = digits[weight - w] ?? 0;
+    int += int ? String(g).padStart(4, '0') : String(g);
+  }
+  return int;
+}
+
+test('numeric: the whole part is the same as stepping through the groups gave, for every shape of digits and weight', () => {
+  const r = random(33);
+  for (let i = 0; i < 20_000; i++) {
+    const digits = Array.from({ length: r(6) }, () => [0, 1, 9999, r(10000)][r(4)]);
+    const weight = r(2) ? r(12) - 3 : 240 + r(10);
+    if (digits.length && (weight + 1) * 4 > 1000) continue;
+    const text = decodeNumeric(numericBytes(digits, weight, r(3) ? 0 : r(20), r(2) ? 0x4000 : 0));
+    const whole = wholePartByStepping(digits, weight);
+    assert.equal(text.replace(/^-/, '').split('.')[0], whole || '0', `${digits} at ${weight}`);
+  }
+});
+
+test('numeric parameters: those of one Bind share its allowance, so 65,535 of them cannot cost seconds', () => {
+  const wide = numericBytes([1], 249);
+  const scale = numericBytes([1], -0x8000, 0x3fff);
+  for (const one of [wide, scale]) {
+    // A Bind of 65,535 such parameters: the message holds the ten bytes and a length each.
+    const budget = { left: 0, total: 0 };
+    Object.assign(budget, { left: 256 * 1024 + 4 * 65_535 * (4 + one.length) });
+    const started = performance.now();
+    let read = 0;
+    assert.equal(code(() => { for (let i = 0; i < 65_535; i++, read++) binaryParam(one, OID.numeric, budget); }), '54000');
+    assert.ok(read < 65_535, 'the allowance ran out');
+    assert.ok(performance.now() - started < 1000, `${performance.now() - started} ms`);
+  }
+  // What real parameters need is far inside it.
+  const budget = { left: 256 * 1024 + 4 * 1000 * 12, total: 256 * 1024 + 4 * 1000 * 12 };
+  for (let i = 0; i < 1000; i++) assert.equal(binaryParam(numericBytes([12, 3400], 0, 2), OID.numeric, budget), 12.34);
+});
