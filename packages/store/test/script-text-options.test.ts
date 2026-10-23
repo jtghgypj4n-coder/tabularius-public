@@ -54,6 +54,15 @@ test('find pause, empty Restore and open PDF options survive script text', async
   assert.throws(() => parse('Enter Find Mode [ Pause: On ]'), /Enter Find Mode supports only Pause: Off/);
 });
 
+test('Export Records keeps Create folders: Off through script text', () => {
+  const line = 'Export Records [ With dialog: Off ; Create folders: Off ; "file:/Documents/records.csv" ]';
+  const step = parse(line)[0];
+  assert.equal(step.params?.createFolders, false);
+  const printed = stepLine('Export Records', step.params);
+  assert.match(printed, /Create folders: Off/);
+  assert.deepEqual(parse(printed)[0], step);
+});
+
 test('a literal API key can be authored while its display stays masked', async () => {
   const { stepLine } = await import('../../fmp12/src/index.ts');
   const step = parse('Configure AI Account [ Account Name: "a" ; API key: "k" ]')[0];

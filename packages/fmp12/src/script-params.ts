@@ -1342,7 +1342,7 @@ export function stepLine(name: string, p: StepParams | undefined, comment?: stri
       break;
     case 'Export Records':
       add(`With dialog: ${p.noDialog ? 'Off' : 'On'}`);
-      if (p.createFolders) add('Create folders: On');
+      if (p.createFolders !== undefined) add(`Create folders: ${p.createFolders ? 'On' : 'Off'}`);
       if (p.filePaths) add(q(p.filePaths.join(' ')));
       if (p.exportFormat) add(EXPORT_FORMATS[p.exportFormat] ?? p.exportFormat);
       if (p.xmlGrammar) add(`Grammar: ${p.xmlGrammar}`);
