@@ -30,7 +30,7 @@ export function tokensTab(sec: Sec): HTMLElement {
     h('td', {}, t.surfaces && t.surfaces.length ? t.surfaces.join(', ') : h('span', { class: 'd-muted' }, 'all')),
     h('td', { title: t.layouts && t.layouts.length ? t.layouts.join(', ') : undefined }, scopeCell(t)),
     h('td', {}, when(t.created)),
-    h('td', {}, t.expires ? when(t.expires) : h('span', { class: 'd-muted' }, 'never')),
+    h('td', {}, t.expires ? when(t.expires) : h('span', { class: 'd-muted', title: 'Made before every token had to expire: it no longer works. Revoke it and make a new one.' }, 'no longer works; make a new one')),
     h('td', {}, t.lastUsed ? when(t.lastUsed) : h('span', { class: 'd-muted' }, 'never')),
     h('td', {}, button('Revoke', () => {
       if (confirm(`Revoke this token? Any integration using it stops working.`)) void sec.apply([{ op: 'revokeApiToken', id: t.id }], 'Token revoked');
@@ -47,9 +47,9 @@ export function tokensTab(sec: Sec): HTMLElement {
   const account = select(accountNames.length ? accountNames : [''], accountNames[0] ?? '', { 'aria-label': 'Account' });
   const label = h('input', { placeholder: 'Label (e.g. Reporting)', 'aria-label': 'Label' });
   const readOnly = check('Read-only', true);
-  // Left blank, the server gives the token its default lifetime; 0 asks for one that never expires.
+  // Left blank, the server gives the token its default lifetime; every token expires.
   const defaultDays = sec.security.tokenDefaultDays;
-  const expires = h('input', { type: 'number', min: '0', step: 'any', placeholder: `Expires in days (blank: ${defaultDays === undefined ? 'the default' : defaultDays || 'never'}; 0: never)`, 'aria-label': 'Expires in days' });
+  const expires = h('input', { type: 'number', min: '1', max: '3650', step: 'any', placeholder: `Expires in days (blank: ${defaultDays === undefined ? 'the default' : defaultDays})`, 'aria-label': 'Expires in days' });
   // Leave all unchecked to reach every surface the account's privileges allow.
   const surfaceChecks = [['fmrest', 'Data API'], ['fmodata', 'OData'], ['fmxdbc', 'SQL']].map(([key, name]) => ({ key, ...check(name, false) }));
   const surfaces = h('fieldset', { class: 'sec-surfaces' }, h('legend', {}, 'Surfaces (none = all)'), ...surfaceChecks.map((c) => c.el));

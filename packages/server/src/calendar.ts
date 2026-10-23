@@ -182,9 +182,9 @@ export function createFeed(store: Store, account: string, privileges: ReturnType
     if (!Number.isInteger(req.limit) || req.limit < 1 || req.limit > most) throw new ApiError(960, `Parameter is invalid: limit (1 to ${most})`, 400);
     q.set('limit', String(req.limit));
   }
-  // Left out, the address lives DEFAULT_FEED_DAYS; 0 is "never", asked for on purpose.
-  if (req.expiresDays !== undefined && req.expiresDays !== null && (typeof req.expiresDays !== 'number' || !(req.expiresDays >= 0) || req.expiresDays > MAX_TOKEN_DAYS)) {
-    throw new ApiError(960, 'Parameter is invalid: expiresDays (above 0 and up to 3650, or 0 for never)', 400);
+  // Left out, the address lives DEFAULT_FEED_DAYS; every address expires.
+  if (req.expiresDays !== undefined && req.expiresDays !== null && (typeof req.expiresDays !== 'number' || !(req.expiresDays > 0) || req.expiresDays > MAX_TOKEN_DAYS)) {
+    throw new ApiError(960, 'Parameter is invalid: expiresDays (above 0 and up to 3650)', 400);
   }
   const expires = tokenExpiry(req.expiresDays, DEFAULT_FEED_DAYS);
   const label = typeof req.label === 'string' && req.label.trim() ? req.label.trim().slice(0, 60) : '';

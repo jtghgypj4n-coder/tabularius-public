@@ -190,7 +190,7 @@ export class SecurityApi {
       } else if (req.method === 'POST' && sub === 'tokens') {
         const body = await readJson(req);
         if (typeof body.account !== 'string') throw new ApiError(960, 'account is required', 400);
-        // Left out, the token takes the default lifetime; 0 days is "never", asked for on purpose.
+        // Left out, the token takes the default lifetime; every token expires.
         const expires = tokenExpiry(body.expiresDays);
         const token = store.createApiToken(body.account, {
           label: typeof body.label === 'string' ? body.label : undefined,
