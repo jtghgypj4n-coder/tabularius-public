@@ -494,6 +494,7 @@
         "docs/reference/settings/environment/tabularius_outbound_max_time_ms.md",
         "docs/reference/settings/environment/tabularius_password.md",
         "docs/reference/settings/environment/tabularius_pgwire_max_buffered_rows.md",
+        "docs/reference/settings/environment/tabularius_pgwire_max_param_bytes.md",
         "docs/reference/settings/environment/tabularius_pgwire_max_rows.md",
         "docs/reference/settings/environment/tabularius_pgwire_tx_idle_ms.md",
         "docs/reference/settings/environment/tabularius_pgwire_tx_max_ms.md",
