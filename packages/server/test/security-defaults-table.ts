@@ -118,14 +118,26 @@ export const ROWS: Row[] = [
   },
   {
     id: 'headers', section: 'Network and transport', setting: 'Page security headers',
-    default: 'On: no sniffing, no framing, no referrer, a content security policy (checked on the web client; the admin console\'s policy allows its own inline scripts)',
+    default: 'On: no sniffing, no framing, no referrer, a content security policy (checked on the web client; the admin console\'s policy allows its own inline scripts), and a Permissions-Policy on every response that denies the microphone, payment, USB, serial, HID, Bluetooth, MIDI, screen capture, motion and orientation sensors, WebXR, idle detection and ad-topics APIs. The camera and location stay available to the web client\'s own pages only (Insert from Device, Get Current Location)',
     changedBy: 'Not switchable',
-    risk: 'None to change; they stop other sites framing the pages and the browser guessing types',
-    how: 'probed', expect: 'nosniff, no framing, no referrer, CSP',
+    risk: 'None to change; they stop other sites framing the pages and the browser guessing types, and keep a page that gets script into it from asking for a device the product never uses',
+    how: 'probed', expect: 'nosniff, no framing, no referrer, CSP, Permissions-Policy',
     observe: async (c) => {
       const h = (await c.request('/app/')).headers;
-      const ok = h.get('x-content-type-options') === 'nosniff' && h.get('x-frame-options') === 'DENY' && h.get('referrer-policy') === 'no-referrer' && /frame-ancestors 'none'/.test(h.get('content-security-policy') ?? '');
-      return ok ? 'nosniff, no framing, no referrer, CSP' : JSON.stringify([...h.entries()]).slice(0, 200);
+      const ok = h.get('x-content-type-options') === 'nosniff' && h.get('x-frame-options') === 'DENY' && h.get('referrer-policy') === 'no-referrer' && /frame-ancestors 'none'/.test(h.get('content-security-policy') ?? '') &&
+        /(^|, )microphone=\(\)/.test(h.get('permissions-policy') ?? '') && /(^|, )camera=\(self\)/.test(h.get('permissions-policy') ?? '');
+      return ok ? 'nosniff, no framing, no referrer, CSP, Permissions-Policy' : JSON.stringify([...h.entries()]).slice(0, 200);
+    },
+  },
+  {
+    id: 'hsts', section: 'Network and transport', setting: 'Strict-Transport-Security (HSTS)',
+    default: 'Sent for one year on every response served over HTTPS (directly, or through a proxy on this computer or in `--trusted-proxies` that says `X-Forwarded-Proto: https`); never over plain HTTP. No `includeSubDomains`, no `preload`',
+    changedBy: 'Not switchable. It follows how the request arrived',
+    risk: 'After a browser has seen it, it will not open this name over plain HTTP for a year, and a certificate error cannot be clicked through. Keep the certificate renewing before you serve a name over HTTPS',
+    how: 'probed', expect: 'none over plain HTTP',
+    observe: async (c) => {
+      const h = (await c.request('/app/')).headers;
+      return h.get('strict-transport-security') === null ? 'none over plain HTTP' : `sent over plain HTTP: ${h.get('strict-transport-security')}`;
     },
   },
   {
@@ -159,13 +171,15 @@ export const ROWS: Row[] = [
     id: 'admin-password', section: 'Sign-in and accounts', setting: 'Admin console password',
     default: 'None set: the console opens from this computer only, and refuses a request addressed to any other name',
     changedBy: '`tabularius admin-password <folder>`; the console\'s own Settings',
-    risk: 'With a password set the console is open to whoever can reach the port and knows it; turn on HTTPS first. A sign-in lasts 12 hours (cookie `HttpOnly`, `SameSite=Strict`, `Secure` over HTTPS)',
+    risk: 'With a password set the console is open to whoever can reach the port and knows it; turn on HTTPS first. A sign-in lasts 12 hours (cookie `HttpOnly`, `SameSite=Strict`; over HTTPS it is named `__Host-tabularius_admin` and is `Secure`)',
     how: 'probed', expect: 'none; this computer only',
     observe: async (c) => {
       const s = await c.status();
       const other = await c.request('/tabularius/admin/v1/status', { headers: { host: 'example.com' } });
       const cookie = grep(c.source('packages/server/src/admin.ts'), /SIGN_IN_MS = (12 \* 60 \* 60_000);/);
-      const flags = /tabularius_admin=\$\{id\}; Path=\/; HttpOnly; SameSite=Strict; Max-Age=\$\{SIGN_IN_MS \/ 1000\}\$\{isHttps\(req\) \? '; Secure' : ''\}/.test(c.source('packages/server/src/admin.ts'));
+      const src = c.source('packages/server/src/admin.ts');
+      const flags = src.includes("const COOKIE_FLAGS = 'Path=/; HttpOnly; SameSite=Strict';") && src.includes('`${SECURE_COOKIE}=${id}; ${COOKIE_FLAGS}; Max-Age=${maxAge}; Secure`') &&
+        src.includes("${COOKIE}=${id}; ${COOKIE_FLAGS}; Max-Age=${maxAge}${isHttps(req) ? '; Secure' : ''}`");
       return s.setup.passwordSet === false && other.status === 403 && cookie && flags ? 'none; this computer only' : `passwordSet ${s.setup.passwordSet}, other host ${other.status}, cookie ${cookie} ${flags}`;
     },
   },

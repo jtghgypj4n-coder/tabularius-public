@@ -333,12 +333,18 @@ sign-in; bearer token authentication is unchanged.
 General properties:
 
 - **Admin console cookie and OAuth CORS**: the admin console issues one cookie,
-  `tabularius_admin`. Password sign-in (`POST /tabularius/admin/v1/sign-in`) and
+  `__Host-tabularius_admin` when the request came over HTTPS (TLS ended at the
+  server, or a proxy on this computer or in `--trusted-proxies` sent
+  `X-Forwarded-Proto: https`) and `tabularius_admin` over plain HTTP.
+  Password sign-in (`POST /tabularius/admin/v1/sign-in`) and
   passkey sign-in (`POST /tabularius/admin/v1/passkey-sign-in`) set it with
   `Path=/; HttpOnly; SameSite=Strict; Max-Age=43200` (12 hours); `Secure` is
-  added when the request uses HTTPS. Sign-out (`POST
-  /tabularius/admin/v1/sign-out`) clears it with `Path=/; HttpOnly;
-  SameSite=Strict; Max-Age=0` (and does not add `Secure`). The cookie has no
+  added when the request uses HTTPS, and always on the `__Host-` name. The
+  server reads either name, the `__Host-` one first; an HTTPS sign-in also
+  clears a plain-named cookie. Sign-out (`POST
+  /tabularius/admin/v1/sign-out`) clears both names over HTTPS (the
+  `__Host-` one with `Secure`) and only the plain one over HTTP, with `Path=/; HttpOnly;
+  SameSite=Strict; Max-Age=0`. The cookie has no
   `Domain` or `Expires` attribute. Admin POST requests, including sign-in,
   passkey sign-in and sign-out, require `x-tabularius-admin: 1`; browsers cannot
   send this non-simple header cross-origin without a successful preflight.

@@ -67,6 +67,9 @@ for (const workers of [1, 2]) test(`--https local${workers > 1 ? ' with --worker
     // Trusting only the folder's authority is enough: the chain checks out.
     const health = await get('/tabularius/health');
     assert.equal(health.status, 200);
+    // The front process and its workers agree that this is HTTPS; the plain-HTTP redirect below says nothing of the kind.
+    assert.equal(health.headers['strict-transport-security'], 'max-age=31536000');
+    assert.ok(health.headers['permissions-policy']);
     const sock = connect({ host: '127.0.0.1', port, ca: files.tls.ca, servername: 'localhost' });
     await new Promise((ok) => sock.once('secureConnect', ok));
     assert.equal(sock.authorized, true);
@@ -75,6 +78,7 @@ for (const workers of [1, 2]) test(`--https local${workers > 1 ? ' with --worker
     const plain = await fetch(`http://127.0.0.1:${port}/admin/?x=1`, { redirect: 'manual' });
     assert.equal(plain.status, 308);
     assert.equal(plain.headers.get('location'), `https://127.0.0.1:${port}/admin/?x=1`);
+    assert.equal(plain.headers.get('strict-transport-security'), null);
 
     const page = await get('/tabularius/tls/');
     assert.equal(page.status, 200);

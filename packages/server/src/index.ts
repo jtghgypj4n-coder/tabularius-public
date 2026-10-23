@@ -13,6 +13,7 @@ import type { IncomingMessage, Server } from 'node:http';
 import { createEdgeServer, type EdgeLimits } from './edge-limits.ts';
 import { parseAllowList } from '../../scripts/src/net-guard.ts';
 import { trustedProxyAddresses, useForwardedFor, type ProxyHeader } from './client-address.ts';
+import { setExposureHeaders } from './exposure-headers.ts';
 import { acmeOrigins, mcpOriginAllowed, onForwardedWithoutPublicUrl, validatePublicUrl, urlHostname } from './public-origin.ts';
 import { needsSameOriginCheck, sameOriginRequest, unconfiguredHostName } from './browser-request.ts';
 import { readFileSync, rmSync } from 'node:fs';
@@ -592,6 +593,7 @@ export async function serve(opts: ServeOptions): Promise<{ server: Server; host:
       }
       // Bearer URLs and authentication redirects must not leak to another page.
       res.setHeader('referrer-policy', 'no-referrer');
+      setExposureHeaders(req, res);
       let url: URL;
       try { url = new URL(req.url ?? '/', 'http://localhost'); }
       catch {
