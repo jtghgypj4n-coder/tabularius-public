@@ -17,6 +17,14 @@ This is a single-writer primary with asynchronous physical replication of the fi
 - Only the hosted files (`<name>.openhbam.sqlite`) are copied. The standby copies each file once (SQLite's online backup, so
   people keep working), then applies the file's changes: the write-ahead log the primary takes from each file every second.
   A log holds whole pages as they were after the change, so applying a log to a copy brings the copy to the same state.
+  Before copying, the primary ships pending changes, then holds shipping for that file until the backup finishes. The
+  shipped position stays fixed and the copy is whole immediately (`x-tabularius-whole-after` equals `x-tabularius-seq`).
+  The SQLite snapshot can include newer unshipped writes; these remain together in the WAL for replay.
+  Other files and backups continue; overlapping copies of one file share the hold and its deadline. Writes stay in the WAL
+  for replication and point-in-time backups, with automatic checkpoints disabled. After 30 seconds the hold ends, the
+  primary logs that the copy was taken while changes shipped, and that copy uses an estimated whole-after position reached
+  by replaying changes. An aborted request or failed backup also releases its hold. The deadline bounds the shipping pause,
+  not WAL bytes: growth depends on writes and available disk, and a follower that refuses changes can retain them longer.
 - Changes are numbered within a run (each time the primary hosts the file: a start, a reopen after a restore). The standby
   writes down the number of the last change it applied, in `.openhbam-standby.json`, a quarter of a second after it applies
   one. The primary keeps the last ten minutes (at most 256 MiB) of changes in memory.
