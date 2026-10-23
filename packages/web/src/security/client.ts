@@ -85,6 +85,8 @@ export interface ApiToken {
   readOnly: boolean;
   created: string;
   expires?: string;
+  /** Made before every token had to expire: it no longer works. */
+  needsReissue?: boolean;
   lastUsed?: string;
   surfaces?: string[];
   /** When set, the token may only read/write through these Data API layouts (and only the Data API). */

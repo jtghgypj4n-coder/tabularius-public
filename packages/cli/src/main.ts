@@ -467,19 +467,19 @@ Hosting (point it at a folder of .fmp12 files; each is converted once):
   tabularius plugins <folder> pack <plug-in folder> [--key key.pem] [-o file.ohplugin]
                                              Turn a plug-in on or off for one hosted file; the
                                              server applies it when it next starts
-  tabularius token <folder> <database> create <account> [--label L] [--read-only] [--expires-days N|0] [--surfaces fmrest,fmodata,fmxdbc] [--layouts L1,L2,...]
+  tabularius token <folder> <database> create <account> [--label L] [--read-only] [--expires-days N] [--surfaces fmrest,fmodata,fmxdbc] [--layouts L1,L2,...]
                                              A revocable API token for an integration, acting as
                                              <account> (use it as a Bearer token on the Data API
                                              and SQL). Shown once. --read-only forbids writes. It stops
-                                             working after 90 days unless --expires-days says otherwise
-                                             (0 for none).
+                                             working after 90 days unless --expires-days (up to 3650)
+                                             says otherwise; a token always expires.
                                              --layouts limits it to those Data API layouts (and
                                              only the Data API; OData and SQL refuse it).
       ... list                               The file's tokens (never the secret)
       ... revoke <id>                        Revoke a token by its id
   tabularius calendar-feed <folder> <database> create --account A --layout L --start FIELD [--end F] [--title F] [--description F] [--location F]
                                              [--zone UTC|Europe/London] [--query '[{"Status":"open"}]'] [--limit N] [--label L]
-                                             [--expires-days N|0] [--public-url https://host] [--json]
+                                             [--expires-days N] [--public-url https://host] [--json]
                                              A calendar link for a layout's date field: a read-only API token
                                              scoped to that layout, as <account>, and the address that carries
                                              the field choices. The address is shown once, as a token is.
@@ -745,11 +745,10 @@ function optionValue(args: string[], name: string, what: string): string | undef
 }
 
 function expiryDays(args: string[], command: string): string | undefined {
-  const error = () => new Error(`${command}: --expires-days takes a number of days above zero, or 0 (or "never") for no expiry`);
+  const error = () => new Error(`${command}: --expires-days takes a number of days above zero, up to 3650; a token always expires`);
   let days: string | undefined;
   try { days = strictFlag(args, '--expires-days'); } catch { throw error(); }
-  if (days === 'never') return '0';
-  if (days !== undefined && !/^\d+(\.\d+)?$/.test(days)) throw error();
+  if (days !== undefined && !(/^\d+(\.\d+)?$/.test(days) && Number(days) > 0 && Number(days) <= 3650)) throw error();
   return days;
 }
 
@@ -2594,7 +2593,7 @@ function main(argv: string[]): number {
           const token = store.createApiToken(account, {
             label,
             readOnly,
-            // Left out, the token lives the default (90 days, TABULARIUS_TOKEN_DEFAULT_DAYS); 0 or "never" asks for none.
+            // Left out, the token lives the default (90 days, TABULARIUS_TOKEN_DEFAULT_DAYS); every token expires.
             expires: tokenExpiry(days === undefined ? undefined : Number(days)),
             surfaces: tokenSurfaces,
             layouts: tokenLayouts,
