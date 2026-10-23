@@ -253,7 +253,7 @@ export class WebClient {
     let own = 0;
     let oldestOwn: [string, Paused] | undefined;
     for (const entry of this.paused) {
-      if (entry[1].token !== run.token) continue;
+      if (!sameSecret(entry[1].token, run.token)) continue;
       own++;
       oldestOwn ??= entry;
     }
