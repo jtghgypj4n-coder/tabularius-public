@@ -967,6 +967,8 @@ export class Store {
   /** Diagnostics: how many limited-rule id scans have run (a cache miss costs one full table scan). */
   allowedScans = 0;
   private designCache = new PreparedCache<LayoutDesigns | undefined>(undefined);
+  private layoutDesignCache = new PreparedCache(new Map<number, LayoutDesign>(), (value) => new Map(value));
+  private themesCache = new PreparedCache<LayoutDesigns['themes'] | undefined>(undefined);
   /** Finds another hosted file by name, for layouts whose table lives there (set by the host). */
   resolveFile: (name: string) => Store | undefined = () => undefined;
 
@@ -1855,10 +1857,11 @@ export class Store {
     const counter = shared ? '_fm_data_version' : '_fm_cache_version';
     const prefix = shared ? '_fm_dv_' : '_fm_cv_';
     // Nothing is written when all is in place already: another process may be in the middle of a write.
+    const pending: string[] = [];
     const present = (this.sql.prepare("SELECT count(*) AS n FROM sqlite_master WHERE type = 'table' AND name = ?").get(counter) as { n: number }).n > 0;
     if (!present) {
-      this.sql.exec(`CREATE TABLE IF NOT EXISTS ${counter} (id INTEGER PRIMARY KEY CHECK (id = 1), n INTEGER NOT NULL)`);
-      this.sql.exec(`INSERT OR IGNORE INTO ${counter} (id, n) VALUES (1, 0)`);
+      pending.push(`CREATE TABLE IF NOT EXISTS ${counter} (id INTEGER PRIMARY KEY CHECK (id = 1), n INTEGER NOT NULL);`);
+      pending.push(`INSERT OR IGNORE INTO ${counter} (id, n) VALUES (1, 0);`);
     }
     const existing = new Map((this.sql.prepare("SELECT name, tbl_name FROM sqlite_master WHERE type = 'trigger' AND name GLOB ?").all(`${prefix}*`) as { name: string; tbl_name: string }[]).map((r) => [r.name, r.tbl_name]));
     const tables = new Set((this.sql.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as { name: string }[]).map((r) => r.name));
@@ -1870,9 +1873,21 @@ export class Store {
         if (on === t.name) continue;
         // A table id given again (a new table created with the id of a trashed one) finds the old table's trigger under its name:
         // that one stays with the trashed table, and this table needs its own.
-        if (on !== undefined) this.sql.exec(`DROP TRIGGER IF EXISTS ${q(name)}`);
-        this.sql.exec(`CREATE TRIGGER IF NOT EXISTS ${q(name)} AFTER ${event} ON ${q(t.name)} BEGIN UPDATE ${counter} SET n = n + 1; END`);
+        if (on !== undefined) pending.push(`DROP TRIGGER IF EXISTS ${q(name)};`);
+        pending.push(`CREATE TRIGGER IF NOT EXISTS ${q(name)} AFTER ${event} ON ${q(t.name)} BEGIN UPDATE ${counter} SET n = n + 1; END;`);
       }
+    }
+    if (!pending.length) return;
+    // A wide file needs hundreds of triggers on first hosting. One batch avoids
+    // an autocommit per trigger; a savepoint also makes failure atomic inside
+    // a caller's transaction (shareResults may catch the error).
+    this.sql.exec('SAVEPOINT tabularius_version_triggers');
+    try {
+      this.sql.exec(pending.join('\n'));
+      this.sql.exec('RELEASE tabularius_version_triggers');
+    } catch (error) {
+      this.sql.exec('ROLLBACK TO tabularius_version_triggers; RELEASE tabularius_version_triggers');
+      throw error;
     }
   }
 
@@ -2016,6 +2031,8 @@ export class Store {
     // A remote design may first be observed inside preparation that later fails.
     // Forget published entries too, so that failure cannot revive the old design.
     this.designCache = new PreparedCache<LayoutDesigns | undefined>(undefined);
+    this.layoutDesignCache = new PreparedCache(new Map<number, LayoutDesign>(), (value) => new Map(value));
+    this.themesCache = new PreparedCache<LayoutDesigns['themes'] | undefined>(undefined);
     this.repeating = ownKeyed(this.meta('repeating'));
     this.layoutCache.invalidate((cache) => cache.clear());
     this.externalNamed.invalidate((cache) => cache.clear());
@@ -6269,12 +6286,61 @@ export class Store {
   /** Layout designs (parts, objects, styles) and themes, as imported. */
   designs(): LayoutDesigns {
     this.refreshDesign();
-    return (this.designCache.value ??= this.meta('designs') ?? { layouts: [], themes: [] });
+    if (!this.designCache.value) {
+      const all: LayoutDesigns = this.meta('designs') ?? { layouts: [], themes: [] };
+      // Preserve the object identity callers already received from a lazy read.
+      all.layouts = all.layouts.map((layout) => this.layoutDesignCache.value.get(layout.id) ?? layout);
+      all.themes = this.themesCache.value ?? all.themes;
+      this.designCache.value = all;
+    }
+    return this.designCache.value;
   }
 
   design(layout: string | number): LayoutDesign | undefined {
+    this.refreshDesign();
     const id = typeof layout === 'number' ? layout : this.schema.layouts.find((l) => l.name === layout)?.id;
-    return this.designs().layouts.find((l) => l.id === id);
+    if (this.designCache.value) return this.designCache.value.layouts.find((l) => l.id === id);
+    if (id === undefined) return undefined;
+    const cached = this.layoutDesignCache.value.get(id);
+    if (cached) return cached;
+    // Once callers browse multiple layouts, materialize the shared blob once
+    // rather than walk it again for every new layout. The first-page cache is
+    // bounded to one layout, even for arbitrary numeric ids.
+    if (this.layoutDesignCache.value.size) return this.designs().layouts.find((l) => l.id === id);
+    // SQLite walks the saved JSON, but only this layout becomes JS objects.
+    // A first record page need not allocate every other layout in a wide file.
+    let row: { value: string; themes: string | null } | undefined;
+    try {
+      row = this.prepared(`SELECT j.value, json_extract(m.json, '$.themes') AS themes
+        FROM _fm_meta AS m, json_each(m.json, '$.layouts') AS j
+        WHERE m.key = 'designs' AND json_extract(j.value, '$.id') = ? LIMIT 1`).get(id) as typeof row;
+    } catch (error) {
+      // SQLite's JSON nesting limit is lower than JSON.parse's. Preserve the
+      // original reader for valid deeply nested designs, without hiding SQL errors.
+      if (!(error instanceof Error) || error.message !== 'malformed JSON') throw error;
+      return this.designs().layouts.find((l) => l.id === id);
+    }
+    if (!row) return undefined; // Do not retain arbitrary missing ids.
+    const design = JSON.parse(row.value) as LayoutDesign;
+    this.themesCache.value ??= row.themes ? JSON.parse(row.themes) : [];
+    this.layoutDesignCache.value.set(id, design);
+    return design;
+  }
+
+  /** Themes without allocating every layout; invalidated with the other design caches. */
+  themes(): LayoutDesigns['themes'] {
+    this.refreshDesign();
+    if (this.designCache.value) return this.designCache.value.themes;
+    if (!this.themesCache.value) {
+      try {
+        const row = this.prepared("SELECT json_extract(json, '$.themes') AS value FROM _fm_meta WHERE key = 'designs'").get() as { value: string | null } | undefined;
+        this.themesCache.value = row?.value ? JSON.parse(row.value) : [];
+      } catch (error) {
+        if (!(error instanceof Error) || error.message !== 'malformed JSON') throw error;
+        return this.designs().themes;
+      }
+    }
+    return this.themesCache.value!;
   }
 
   /** An image from the file's image library (graphics and button icons on layouts). */

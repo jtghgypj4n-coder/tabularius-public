@@ -64,6 +64,13 @@ part of it.
 | --- | --- | --- | --- |
 | Behaviour the MCP specification leaves open (malformed stdio input, requests before initialize, sessionless DELETE, progress and cancellation effects, SSE resume, GET stream lifetime, request limits) is a Tabularius choice or not offered, not a claim of matching another server | An MCP client that relies on one of these behaviours may see a different answer or a refusal | A later MCP specification revision or tested behaviour of reference servers that pins these cases | [docs/audits/mcp-conformance.md › Not specified or not offered](audits/mcp-conformance.md) — “…features. No Claris or vendor behavior is inferred by these tests.” |
 
+## Performance
+
+| What differs or is unknown | How it shows | What would settle it | Where it is written |
+| --- | --- | --- | --- |
+| The start-up and layout render times of one very large solution in another product are not compared with ours | Nothing shows; the benchmark here only measures a generated file | A run of the same solution on both products | [docs/performance.md › Wide-solution cold start and first use](performance.md) — “multi-second layout renders are unverified here. Matching that product's” |
+| Behaviour at that scale in another product is not matched or measured | Nothing shows; we do not claim equal speed | A side by side run on the same large file | [docs/performance.md › Wide-solution cold start and first use](performance.md) — “multi-second layout renders are unverified here. Matching that product's” |
+
 ## PostgreSQL connection
 
 | What differs or is unknown | How it shows | What would settle it | Where it is written |

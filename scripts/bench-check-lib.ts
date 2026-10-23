@@ -12,6 +12,16 @@ export interface Baseline {
   config: { records: number; customers: number; importRows: number; runs: number };
   tolerance: number;
   operations: RatioRow[];
+  wide?: WideBudget;
+}
+
+export interface WideBudget { records: number; tables: number; maxMs: number }
+export function wideElapsed(output: { counts: { records: number; tables: number }; timings: { firstUseTotalMs: number } }, budget: WideBudget): number {
+  if (!Number.isSafeInteger(budget.records) || budget.records < 1 || !Number.isSafeInteger(budget.tables) || budget.tables < 1 || !Number.isFinite(budget.maxMs) || budget.maxMs <= 0) throw new Error('invalid wide budget');
+  if (output.counts.records !== budget.records || output.counts.tables !== budget.tables) throw new Error('wide benchmark configuration changed');
+  const ms = output.timings.firstUseTotalMs;
+  if (!Number.isFinite(ms) || ms <= 0) throw new Error('invalid wide timing');
+  return ms;
 }
 
 export const CONFIG = { records: 50_000, customers: 2_000, importRows: 5_000, runs: 3 };

@@ -7,6 +7,11 @@
     "runs": 3
   },
   "tolerance": 0.4,
+  "wide": {
+    "records": 270000,
+    "tables": 85,
+    "maxMs": 12000
+  },
   "operations": [
     {
       "group": "Open",
