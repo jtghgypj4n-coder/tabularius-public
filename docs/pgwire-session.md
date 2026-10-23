@@ -18,3 +18,26 @@ The SQL connection is read-only unless the server was started with `--sql-writes
 | `COPY`, `LISTEN`, `UNLISTEN`, `NOTIFY` and other non-queries | Refused with `25006` (the connection is read-only), or with `0A000` when `--sql-writes` is on. |
 
 Warnings are sent when a statement executes, including extended-protocol `Execute`, not during `Parse`, `Bind`, or `Describe`. The notice fields follow the [PostgreSQL protocol definition](https://www.postgresql.org/docs/current/protocol-error-fields.html).
+
+## Store errors
+
+ErrorResponse uses these mappings to the conditions in
+[PostgreSQL Appendix A](https://www.postgresql.org/docs/current/errcodes-appendix.html).
+These are Tabularius mappings; matching another product's SQL error behavior is
+**unverified** <!-- known-difference: SQL and calculations ;; The SQLSTATE sent for a Store error code is a Tabularius mapping, not confirmed against another product's SQL error behavior ;; A client sees the mapped SQLSTATE and the Store message ;; A comparison of another product's SQL errors for the same conditions -->.
+
+| Store code | Meaning | SQLSTATE |
+| --- | --- | --- |
+| 102 | Missing or unavailable field | `42703` (`undefined_column`) |
+| 106 | Missing table | `42P01` (`undefined_table`) |
+| 200 | Access denied | `42501` (`insufficient_privilege`) |
+| 212 | Account or authentication refused | `28000` (`invalid_authorization_specification`) |
+| 301 | Record/transaction lock unavailable or expired | `55P03` (`lock_not_available`) |
+| 812 | Host resource capacity exceeded (locks, CPU or memory) | `53000` (`insufficient_resources`) |
+| 8310 | SQL statement, read-access or parameter restriction | `42000` (`syntax_error_or_access_rule_violation`) |
+| Other store codes | No specific mapping, including 201's mixed field-modification restrictions | `42000` |
+
+SQLite's missing-table and missing-column errors also return `42P01` and `42703`.
+Other SQL-engine errors, such as an unknown function, retain `42000`. Protocol
+errors and recognized syntax errors keep their existing SQLSTATEs; unexpected
+server faults remain `XX000`.

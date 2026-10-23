@@ -34,10 +34,13 @@ Every query in the list answers, except the ones that ask for something this con
 | Cursors: `DECLARE`, `FETCH`, `MOVE`, `CLOSE` | `0A000`, with a message that says to run the `SELECT` itself or use a fetch size. A fetch size works: it is the protocol's Execute row limit, not a cursor. |
 | SQL `PREPARE` and `EXECUTE` | `0A000`, with a message that says to use Parse, Bind and Execute. Drivers do. |
 | `array_agg(DISTINCT x)` | `42000`, naming `array_agg`. |
-| `FROM table, unnest(table.column)` (a join against an array in another table's column) | `42000`. `unnest` in a subquery that reads the outer row, as Metabase writes it, works. |
+| `FROM table, unnest(table.column)` (a join against an array in another table's column) | `42703` (the outer column is unavailable here). `unnest` in a subquery that reads the outer row, as Metabase writes it, works. |
 | `SET` of a setting the server does not keep (`SET ROLE`, `SET SESSION TIMEZONE`, `search_path`, isolation level) | Accepted with a warning that `SET` had no effect. The connection stays the account that signed in. |
 
-Problems from the SQL engine itself (an unknown table or function) come back as `42000` with the engine's message, not as PostgreSQL's `42P01` or `42883`.
+Unknown tables and columns return `42P01` and `42703`. Other SQL-engine problems,
+including unknown functions, retain `42000` with the engine's message. See the
+[store error mappings](pgwire-session.md#store-errors) and
+[date/time result types](pgwire-results.md#date-and-time-result-types).
 
 ## Known differences
 

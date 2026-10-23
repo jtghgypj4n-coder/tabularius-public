@@ -8,6 +8,6 @@ Combined result rows that one SQL connection may hold in portals.
 | Accepted values | Positive whole number of rows |
 | Restart needed | Yes; restart the server after changing its environment. |
 | Explained in | [docs/pgwire-results.md](../../../pgwire-results.md) |
-| Code | [packages/server/src/pgwire.ts:1182](../../../../packages/server/src/pgwire.ts#L1182) |
+| Code | [packages/server/src/pgwire.ts:1204](../../../../packages/server/src/pgwire.ts#L1204) |
 
 [All environment variables](../../../environment-variables.md)

@@ -8,6 +8,6 @@ The longest a SQL connection may keep one transaction open, however busy it is, 
 | Accepted values | Nonnegative whole number of milliseconds; 0 for no limit |
 | Restart needed | No server restart; read when a SQL connection begins a transaction. |
 | Explained in | [docs/pgwire-writes.md](../../../pgwire-writes.md) |
-| Code | [packages/server/src/pgwire.ts:252](../../../../packages/server/src/pgwire.ts#L252) |
+| Code | [packages/server/src/pgwire.ts:268](../../../../packages/server/src/pgwire.ts#L268) |
 
 [All environment variables](../../../environment-variables.md)
