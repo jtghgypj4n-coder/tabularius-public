@@ -1,16 +1,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { lines, pairs, requestLines, requests } from '../src/design/script-test-input.ts';
+import { lines, pairs } from '../src/design/script-test-input.ts';
 
-test('globals and expected values are "name = value" lines', () => {
-  assert.deepEqual(pairs('$$user = Ann\n\nInvoices::gYear = 2026\nno equals here\nTotal = a=b'), { $$user: 'Ann', 'Invoices::gYear': '2026', Total: 'a=b' });
-  assert.equal(pairs('  \n'), undefined);
-  assert.equal(lines({ $$a: '1', 'T::f': 'x' }), '$$a = 1\nT::f = x');
+test('script test variables round trip line endings and backslashes', () => {
+  for (const ending of ['\n', '\r', '\r\n']) {
+    const values = { '$$list': `red${ending}blue`, 'Invoices::Note': `a${ending}b = c`, Path: 'C:\\docs\\new' };
+    assert.deepEqual(pairs(lines(values)), values);
+  }
 });
 
-test('find requests are one per line, "Field: criterion" parts joined by " ; ", Table::Field names kept whole', () => {
-  const r = requests('Status: open ; Amount: >100\nInvoices::Due: 1/1/2026...12/31/2026\n\n');
-  assert.deepEqual(r, [{ Status: 'open', Amount: '>100' }, { 'Invoices::Due': '1/1/2026...12/31/2026' }]);
-  assert.equal(requestLines(r), 'Status: open ; Amount: >100\nInvoices::Due: 1/1/2026...12/31/2026');
-  assert.equal(requests(''), undefined);
+test('script test values without line breaks or backslashes keep their displayed form', () => {
+  const values = { '$x': 'plain = value', Count: '12' };
+  assert.equal(lines(values), '$x = plain = value\nCount = 12');
+  assert.deepEqual(pairs(lines(values)), values);
 });

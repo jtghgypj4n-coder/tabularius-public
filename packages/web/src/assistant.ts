@@ -11,6 +11,7 @@ import { cleanupCard, type CleanupScan } from './cleanup-view.ts';
 import { agentPlanCard, type AgentPlan } from './agent-view.ts';
 import type { Widget, WidgetData } from './dashboard-view.ts';
 import { httpProblem } from './http-problem.ts';
+import { enterActivates } from './ime.ts';
 import { chatUsage, classifyError, confirmAction, destructiveChanges, ownerOf, toolView, type ChatError, type ToolStep } from './assistant-chat.ts';
 
 export interface AssistantContext {
@@ -415,7 +416,7 @@ export class AssistantPanel {
     });
     this.send.addEventListener('click', () => (this.busy ? this.stopper?.abort() : void this.ask()));
     this.input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && !e.shiftKey) {
+      if (enterActivates(e)) {
         e.preventDefault();
         void this.ask();
       } else if (e.key === 'Escape' && this.busy) {
@@ -710,7 +711,7 @@ export class AssistantPanel {
             if (show) show.textContent = label();
           });
           input.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' && show) show.click();
+            if (enterActivates(e) && show) show.click();
           });
           box.append(h('label', { class: 'ai-criterion' }, h('span', {}, k), input));
         }

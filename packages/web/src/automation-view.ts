@@ -57,6 +57,12 @@ export function dryRunLines(d: DryRun): { text: string; bad?: boolean }[] {
   return out;
 }
 
+/** Toggle a saved automation based on its tracked state and return the server's resulting state. */
+export async function toggleAutomation(id: string, enabled: boolean, call: (method: string, path: string, body?: unknown) => Promise<any>): Promise<boolean> {
+  const r = await call('PUT', `/${id}`, { enabled: !enabled });
+  return !!r.automation.enabled;
+}
+
 /** The assistant's proposal: Turn on saves it (and its script); then Turn off and Delete. */
 export function automationCard(a: AutomationOut, db: string, token: string): HTMLElement {
   const base = `/tabularius/automations/v1/databases/${enc(db)}`;
@@ -78,13 +84,16 @@ export function automationCard(a: AutomationOut, db: string, token: string): HTM
   const del = h('button', { type: 'button', hidden: '' }, 'Delete');
   const status = h('span', { class: 'ai-note', 'aria-live': 'polite' });
   let id: string | undefined;
+  let enabled = a.automation.enabled;
   on.addEventListener('click', async () => {
     on.disabled = true;
     try {
       const r = await call('POST', '', { automation: { ...a.automation, enabled: true }, ...(a.script ? { script: a.script } : {}) });
       id = r.automation.id;
+      enabled = !!r.automation.enabled;
       on.hidden = true;
       off.hidden = del.hidden = false;
+      off.textContent = 'Turn off';
       status.replaceChildren('On. ', h('a', { href: 'automations.html', target: 'tabularius-automations' }, 'See its runs'));
     } catch (e) {
       status.textContent = (e as Error).message;
@@ -94,9 +103,9 @@ export function automationCard(a: AutomationOut, db: string, token: string): HTM
   off.addEventListener('click', async () => {
     if (!id) return;
     try {
-      const r = await call('PUT', `/${id}`, { enabled: !(off.textContent === 'Turn off') });
-      off.textContent = r.automation.enabled ? 'Turn off' : 'Turn on again';
-      status.textContent = r.automation.enabled ? 'On.' : 'Off.';
+      enabled = await toggleAutomation(id, enabled, call);
+      off.textContent = enabled ? 'Turn off' : 'Turn on again';
+      status.textContent = enabled ? 'On.' : 'Off.';
     } catch (e) {
       status.textContent = (e as Error).message;
     }
@@ -111,6 +120,7 @@ export function automationCard(a: AutomationOut, db: string, token: string): HTM
       on.disabled = false;
       status.textContent = 'Deleted (its script stays).';
       id = undefined;
+      enabled = false;
     } catch (e) {
       status.textContent = (e as Error).message;
       del.disabled = false;

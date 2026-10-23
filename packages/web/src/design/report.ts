@@ -5,6 +5,7 @@ import type { ConversionItem } from './client.ts';
 import { button, check, h, toast } from './dom.ts';
 import { errorText, type Studio } from './main.ts';
 import { renderText } from '../assistant.ts';
+import { enterActivates } from '../ime.ts';
 
 /** An "Ask AI" button for a report line, when the assistant is on. */
 function askButton(studio: Studio, question: string): HTMLElement | string {
@@ -91,7 +92,7 @@ export async function reportTab(studio: Studio): Promise<HTMLElement> {
       const item = name.value.trim();
       if (item) void studio.ask!(`Why doesn't "${item}" work here the way it did in FileMaker? Check conversion_report with item ${JSON.stringify(item)} and explain what won't work, where, and what to do about it.`);
     };
-    name.addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
+    name.addEventListener('keydown', (e) => { if (enterActivates(e, true)) go(); });
     why = h('div', { class: 'd-actions' }, h('span', { class: 'd-muted' }, 'Why doesn\'t this work here?'), name, button('Ask AI', go, { title: 'The assistant explains what won\'t work in it, from the conversion report' }));
   }
   const ddr = h('div', { class: 'd-actions' }, button('Download Design Report (XML)', () => void downloadReport(studio), {

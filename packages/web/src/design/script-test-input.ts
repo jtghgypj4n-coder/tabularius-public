@@ -7,11 +7,13 @@ export function pairs(text: string): Record<string, string> | undefined {
     const at = line.indexOf('=');
     if (at <= 0) continue;
     const k = line.slice(0, at).trim();
-    if (k) out[k] = line.slice(at + 1).trim();
+    if (k) out[k] = decodeValue(line.slice(at + 1).trim());
   }
   return Object.keys(out).length ? out : undefined;
 }
-export const lines = (o: Record<string, string> | undefined) => Object.entries(o ?? {}).map(([k, v]) => `${k} = ${v}`).join('\n');
+const encodeValue = (value: string) => value.replace(/\\|\r\n|\r|\n/g, (part) => part === '\\' ? '\\\\' : part === '\r' ? '\\r' : part === '\r\n' ? '\\r\\n' : '\\n');
+const decodeValue = (value: string) => value.replace(/\\\\|\\r|\\n/g, (part) => part === '\\\\' ? '\\' : part === '\\r' ? '\r' : '\n');
+export const lines = (o: Record<string, string> | undefined) => Object.entries(o ?? {}).map(([k, v]) => `${k} = ${encodeValue(v)}`).join('\n');
 
 /** The found set's find requests as lines: one request per line, "Field: criterion" parts joined by " ; ". */
 export function requests(text: string): Record<string, string>[] | undefined {
