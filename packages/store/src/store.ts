@@ -5326,11 +5326,15 @@ export class Store {
     return this.consumeRecoveryCode(account, key, from, this.matchRecoveryCode(code, this.unusedRecoveryHashes(account)));
   }
 
-  /** useRecoveryCode with the scrypt work off the main thread. */
+  /**
+   * useRecoveryCode with the scrypt work off the main thread. The attempt is counted as a failure before the first
+   * wait, so a burst sent at once cannot start more hashing than the lockout allows; a match then settles it as a success.
+   */
   async useRecoveryCodeAsync(account: string, code: string, from = ''): Promise<boolean> {
     const key = `${this.bucketKey(account, from)}\u0000recovery`;
     if (this.recoveryRefused(account, key, from)) return this.recoveryFailed(account, key, from);
-    return this.consumeRecoveryCode(account, key, from, await this.matchRecoveryCodeAsync(code, this.unusedRecoveryHashes(account)));
+    this.recoveryFailed(account, key, from);
+    return this.consumeRecoveryCode(account, key, from, await this.matchRecoveryCodeAsync(code, this.unusedRecoveryHashes(account)), true);
   }
 
   /** Whether a place is locked out or the account is inactive: answered at once, before any hashing, so a lockout stays cheap. */
@@ -5342,15 +5346,24 @@ export class Store {
     return this.securityChange(() => this.failures.record(key, from, false, this.knownSharedAccount(account, from)));
   }
 
-  /** Counts the attempt and, for a match that is still unused, spends it. The state is read again here: another request may have used the code or locked the place while the hashes were checked. */
-  private consumeRecoveryCode(account: string, key: string, from: string, matched: string | undefined): boolean {
+  /**
+   * Counts the attempt and, for a match that is still unused, spends it. The state is read again here: another request
+   * may have used the code or locked the place while the hashes were checked. `counted` says the attempt was already
+   * counted as a failure before the wait (see useRecoveryCodeAsync): a miss adds nothing, and a match clears the
+   * account's count as a success does, even if the burst it came in has since locked the place, because it was admitted first.
+   */
+  private consumeRecoveryCode(account: string, key: string, from: string, matched: string | undefined, counted = false): boolean {
     return this.securityChange(() => {
       const known = this.knownSharedAccount(account, from);
-      if (this.failures.lockedOut(key, from, known) || this.accountInactive(account)) return this.failures.record(key, from, false, known);
-      if (!this.failures.record(key, from, matched !== undefined, known) || matched === undefined) return false;
+      if (!counted) {
+        if (this.failures.lockedOut(key, from, known) || this.accountInactive(account)) return this.failures.record(key, from, false, known);
+        if (!this.failures.record(key, from, matched !== undefined, known)) return false;
+      } else if (this.accountInactive(account)) return false;
+      if (matched === undefined) return false;
       const spent = this.sql.prepare('UPDATE _fm_recovery_codes SET used = ? WHERE account = ? COLLATE NOCASE AND code_hash = ? AND used IS NULL')
         .run(new Date().toISOString(), account, matched);
       if (!spent.changes) return false;
+      if (counted) this.failures.delete(key);
       this.logSecurity('recovery-code-used', { target: account });
       return true;
     });

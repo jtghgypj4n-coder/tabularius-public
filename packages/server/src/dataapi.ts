@@ -34,7 +34,7 @@ import { assertAiPolicy } from './ai-policy.ts';
 import { AUTH_BODY_LIMIT, drainSmallBody } from './request-body.ts';
 import { assertRequestJsonBounds, JsonDepthError, JsonSizeError, JsonNumberError, MAX_JSON_QUERY_BYTES, parseRequestJson } from './request-json.ts';
 import { PASSKEY_SECOND_FACTOR_REQUIRED } from '../../store/src/error-codes.ts';
-import { sharedSource } from '../../store/src/sign-in-failures.ts';
+import { SignInFailures, sharedSource } from '../../store/src/sign-in-failures.ts';
 import { publicPasswordLockout } from './password-login-policy.ts';
 import { noteSurfaceSignIn } from './surface-access.ts';
 import { requestOrigin } from './public-origin.ts';
@@ -867,6 +867,8 @@ export class DataApi {
 
   private readonly host: Host;
   private readonly sessions = new Map<string, Session>();
+  /** Failed recovery-code requests for names with no file behind them: the same accounting as a file's, in a separate bounded budget. */
+  private readonly unhostedRecoveryFailures = new SignInFailures();
   /** Per-process ceiling also covers churning accounts and scoped API tokens. */
   readonly maxSessions = 2048;
   private readonly containerUploads = new ContainerUploads();
@@ -1727,8 +1729,18 @@ export class DataApi {
       if (p[3] === 'recovery' && method === 'POST') {
         const body = await readJson(req, AUTH_BODY_LIMIT);
         if (!this.host.get(db) && !this.host.listFilesPublicly) {
-          // A hosted file checks a code against a set of slow hashes: spend the same, so the time does not say which files exist.
-          if (typeof body.account === 'string' && body.account) await spendRecoveryCodeCheck(typeof body.code === 'string' ? body.code : '');
+          // A hosted file checks a code against a set of slow hashes: spend the same, so the time does not say which files
+          // exist. That cost is charged to the caller first and refused cheaply once its budget is gone, as a hosted file does.
+          const from = clientAddress(req);
+          const failures = this.unhostedRecoveryFailures;
+          const blocked = failures.addressLockedOut(from);
+          if (blocked) throw lockedOutError(blocked);
+          const account = typeof body.account === 'string' ? body.account : '';
+          const key = failures.accountKey(account, from, db);
+          if (failures.lockedOut(key, from) === undefined) {
+            failures.record(key, from, false);
+            if (account) await spendRecoveryCodeCheck(typeof body.code === 'string' ? body.code : '');
+          }
           throw new ApiError(212, 'That recovery code is not valid', 401);
         }
         const store = this.store(db);
