@@ -92,7 +92,7 @@ test('an MCP token for an agent works and its writes are tagged as the agent', {
   const store = host.get('Charts')!;
   store.setAgentAccount('mcp-bot', 'Bot', { createdBy: 'Admin' });
   // Mint an MCP token for the agent (same tokens file the server reads).
-  const minted = new McpTokens(dir, undefined, (database, account) => { const s = host.get(database); return s?.identityAllowed(account) ? s.accountIdentityId(account) : undefined; }).create({ database: 'Charts', account: 'mcp-bot', label: 'test' });
+  const minted = new McpTokens(dir, undefined, (database, account) => { const s = host.get(database); return s?.identityAllowed(account) ? s.credentialIdentity(account) : undefined; }).create({ database: 'Charts', account: 'mcp-bot', label: 'test' });
 
   const before = store.auditLog({ agent: true, limit: 1000 }).length;
   const res = await mcpTool('create_record', { database: 'Charts', layout: 'Congress', fieldData: { Name: 'via agent token' } }, minted.token);

@@ -2960,7 +2960,7 @@ export class Store {
 
   /**
    * The account row a container link made for this principal is tied to: the name as stored and the row's identity, so a link
-   * dies when the account is blocked, removed, replaced, or its assigned privilege definition changes. None when the principal has no
+   * dies when the account is blocked, removed, replaced, given a new password, or its assigned privilege definition changes. None when the principal has no
    * row here (a directory sign-in with no account of its own, a script's system account): its links expire as usual.
    */
   linkPrincipal(name: string): { name: string; identity: string } | undefined {
@@ -2972,22 +2972,33 @@ export class Store {
 
   /** The row and privilege definition a link was tied to, by exact name, and whether it is blocked. */
   linkIdentity(name: string): { identity: string; inactive: boolean } | undefined {
-    const row = this.sql.prepare('SELECT inactive, identity_id FROM _fm_accounts WHERE name = ?').get(name) as { inactive: number; identity_id: string | null } | undefined;
+    const row = this.sql.prepare('SELECT inactive, identity_id, password_hash FROM _fm_accounts WHERE name = ?').get(name) as { inactive: number; identity_id: string | null; password_hash: string | null } | undefined;
     if (!row?.identity_id) return undefined;
     // Re-evaluate the assigned set and its definition on every redemption. A link
     // must not retain a read grant after either the assignment or the set changes.
     // The fingerprint is worked out again only when the security chain has moved: it parses every saved set, which a page of
     // container cells (one link each) and an unsigned request would otherwise pay for each time.
     const token = this.securityToken();
-    const key = `${name}\0${row.identity_id}`;
+    const key = `${name}\0${row.identity_id}\0${row.password_hash ?? ''}`;
     let identity = this.linkIdentityCache.get(key);
     if (identity?.token !== token) {
       const set = this.accountPrivilegeSet(name);
-      identity = { token, identity: createHash('sha256').update(JSON.stringify([row.identity_id, set, set ? this.privilegeSet(set) : null])).digest('hex') };
+      identity = { token, identity: createHash('sha256').update(JSON.stringify([row.identity_id, row.password_hash, set, set ? this.privilegeSet(set) : null])).digest('hex') };
       if (this.linkIdentityCache.size >= 1000) this.linkIdentityCache.clear();
       this.linkIdentityCache.set(key, identity);
     }
     return { identity: identity.identity, inactive: row.inactive !== 0 };
+  }
+
+  /**
+   * What an AI-app token made for this account is tied to: the account row and its current password, so a token made before
+   * a password change (the usual answer to a leaked credential) stops working. None when the account has no row.
+   */
+  credentialIdentity(name: string): string | undefined {
+    const id = this.accountIdentityId(name);
+    if (!id) return undefined;
+    const row = this.sql.prepare('SELECT password_hash FROM _fm_accounts WHERE name = ? COLLATE NOCASE').get(name) as { password_hash: string | null } | undefined;
+    return createHash('sha256').update(JSON.stringify([id, row?.password_hash ?? null])).digest('hex');
   }
 
   /** Accounts that count failed sign-ins together because their names fold to one (see lockoutName); new ones are refused. */
