@@ -4135,7 +4135,7 @@
   "api": "Store.containerRange",
   "count": 1,
   "gate": "store-internal",
-  "why": "Compares the bytes of an identical-looking stored file with the caller's own upload before reusing its id; nothing is returned to the caller."
+  "why": "Compares the bytes of an identical-looking stored file with the caller's own upload before reusing its id; the comparison result is only whether the id is reused (the same accepted oracle as the lookup above)."
  },
  {
   "file": "packages/store/src/store.ts",
@@ -4143,7 +4143,7 @@
   "api": "sql.prepare",
   "count": 2,
   "gate": "store-internal",
-  "why": "Looks for a stored file with the same bytes already held by the field being written (the caller has edit access to it); the result is only the id of a file whose bytes the caller has just supplied."
+  "why": "Looks for a stored file with the same bytes already held by the field being written (the caller has edit access to it). It ignores view rules: a reused id shows as the original stored time in containerInfo, so an editor who uploads a guessed file can learn that a record they cannot view holds the same bytes. An accepted low-severity oracle (as sameValuesElsewhere), already on main; restricting the lookup to viewable ids for a limited writer is a follow-up."
  },
  {
   "file": "packages/store/src/store.ts",
