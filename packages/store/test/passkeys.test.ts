@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { importFmp12, Store } from '../src/index.ts';
+import { createStore, importFmp12, Store } from '../src/index.ts';
 import { makeAuthenticator, forgeRegistration, forgeAssertion } from './forge-webauthn.ts';
 
 const fixture = join(import.meta.dirname, '..', '..', '..', 'fixtures', 'fmp12', 'Charts.fmp12');
@@ -123,4 +123,23 @@ test('passkeys and recovery codes refuse an unknown account', { skip }, () => {
     const auth = makeAuthenticator(RP, ORIGIN);
     assert.throws(() => store.registerPasskey('Nobody', forgeRegistration(auth, c), { rpId: RP, origin: ORIGIN, challenge: c }), /No account/);
   } finally { rmSync(dir, { recursive: true }); }
+});
+
+test('a passkey stored with base64 padding (an earlier build or an import) still signs the account in', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'tabularius-pk-padded-'));
+  const path = join(dir, 'Padded.sqlite');
+  createStore(path);
+  const store = new Store(path, 'Padded');
+  try {
+    store.setPassword('Admin', 'generated-password', '[Full Access]');
+    const auth = makeAuthenticator(RP, ORIGIN);
+    const challenge = store.issueWebauthnChallenge('register', 'Admin');
+    const { id } = store.registerPasskey('Admin', forgeRegistration(auth, challenge), { rpId: RP, origin: ORIGIN, challenge });
+    const stored = (store.sql.prepare('SELECT public_key FROM _fm_passkeys WHERE id = ?').get(id) as { public_key: string }).public_key;
+    const padded = Buffer.from(stored, 'base64url').toString('base64').replace(/\+/g, '-').replace(/\//g, '_');
+    assert.notEqual(padded, stored, 'the generated key needs padding');
+    store.sql.prepare('UPDATE _fm_passkeys SET public_key = ? WHERE id = ?').run(padded, id);
+    const c2 = store.issueWebauthnChallenge('auth');
+    assert.equal(store.verifyPasskeyAssertion(forgeAssertion(auth, c2, 1), { rpId: RP, origin: ORIGIN, challenge: c2 }), 'Admin');
+  } finally { store.close(); rmSync(dir, { recursive: true, force: true }); }
 });

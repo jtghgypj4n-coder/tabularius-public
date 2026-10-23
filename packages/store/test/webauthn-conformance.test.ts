@@ -68,6 +68,19 @@ test('WebAuthn base64url does not silently discard malformed characters', () => 
   assert.throws(() => verifyAssertion({ ...input, signature: input.signature + '!' }), /base64url/);
 });
 
+test('a stored passkey key saved with base64 padding still verifies; what the browser sends stays strict', () => {
+  const input = assertion();
+  const padded = Buffer.from(a.cose).toString('base64').replace(/\+/g, '-').replace(/\//g, '_');
+  assert.ok(padded.endsWith('='), 'the generated key needs padding');
+  assert.deepEqual(verifyAssertion({ ...input, publicKey: padded }), { signCount: 1 });
+  assert.throws(() => verifyAssertion({ ...input, publicKey: padded + '=' }), /base64url/);
+  assert.throws(() => verifyAssertion({ ...input, publicKey: padded.replace('=', '') + '==' }), /base64url/);
+  // Authenticator data is 37 bytes here, so its padded form ends in '=='.
+  const authenticatorData = Buffer.from(input.authenticatorData, 'base64url').toString('base64').replace(/\+/g, '-').replace(/\//g, '_');
+  assert.ok(authenticatorData.endsWith('=='));
+  assert.throws(() => verifyAssertion({ ...input, authenticatorData }), /base64url/);
+});
+
 test('WebAuthn rejects rpId, origin, presence, counter, challenge and signature mismatches', () => {
   const input = assertion();
   assert.deepEqual(verifyAssertion(input), { signCount: 1 });

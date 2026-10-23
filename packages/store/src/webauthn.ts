@@ -20,6 +20,12 @@ const fromB64url = (s: string): Buffer => {
   if (bytes.toString('base64url') !== s) throw new Error('invalid base64url');
   return bytes;
 };
+/** A key read back from the file: earlier builds or an import may have kept it with base64 padding, which is accepted here only. */
+const fromStoredB64url = (s: string): Buffer => {
+  const pad = typeof s === 'string' ? /={1,2}$/.exec(s)?.[0] : undefined;
+  if (pad && s.length % 4 !== 0) throw new Error('invalid base64url');
+  return fromB64url(pad ? s.slice(0, -pad.length) : s);
+};
 const sha256 = (b: Uint8Array): Buffer => createHash('sha256').update(b).digest();
 
 // --- a minimal CBOR decoder (the subset COSE and attestation objects use) ----
@@ -238,7 +244,7 @@ export function verifyAssertion(input: AssertionInput): { signCount: number } {
   if (!parsed.rpIdHash.equals(sha256(Buffer.from(input.rpId)))) throw new Error('rpIdHash does not match the expected relying party');
   if (!parsed.userPresent) throw new Error('the authenticator did not report user presence');
 
-  const { key, alg } = coseToKey(decodeCbor(fromB64url(input.publicKey)) as Map<unknown, unknown>);
+  const { key, alg } = coseToKey(decodeCbor(fromStoredB64url(input.publicKey)) as Map<unknown, unknown>);
   const signed = Buffer.concat([authenticatorData, sha256(clientDataJSON)]);
   const signature = fromB64url(input.signature);
   let ok: boolean;
