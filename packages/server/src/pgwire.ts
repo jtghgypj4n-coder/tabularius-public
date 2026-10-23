@@ -28,6 +28,7 @@ import { createSecureContext, TLSSocket } from 'node:tls';
 import { randomBytes } from 'node:crypto';
 import { addressBucket, endTransaction, PrivilegeError, spendPasswordCheck, StoreError, writer, type Privileges, type Store, type Transaction } from '../../store/src/index.ts';
 import { monotonicClock } from '../../store/src/monotonic.ts';
+import { secondFileSqlRefusal } from './sql-second-file.ts';
 import { executeWrite, parseWrite, returningColumns, WriteRefusal, type WritePlan, type WriteResult } from './pgwrite.ts';
 import { SignInFailures } from '../../store/src/sign-in-failures.ts';
 import type { SqlValue } from '../../store/src/find.ts';
@@ -816,6 +817,8 @@ class Connection {
     if (!this.privileges!.in(target).readsEverything) {
       throw new PgError('42501', `SQL reads every record, and this account can't view every record and field${target === this.store ? ` in ${target.name}` : ''}`);
     }
+    const refused = secondFileSqlRefusal(this.privileges!, target, this.store!);
+    if (refused) throw new PgError('42501', refused);
     // Only a query of the catalog's own tables is left out of the read log; a function of the catalog's name beside a table of the file is still a read of it.
     const catalog = namesCatalogRelation(text);
     let read: CatalogData | undefined;

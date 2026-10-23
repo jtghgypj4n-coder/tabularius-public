@@ -150,6 +150,8 @@ Inventory: 450 method/path actions and 216 script steps. Counts concern code act
 | route DELETE /tabularius/admin/v1/connections/{id} | admin-connections | admin-gap |
 | route GET /tabularius/admin/v1/ai-policy/{database} | admin-ai | security-partial |
 | route POST /tabularius/admin/v1/ai-policy/{database} | admin-ai | security-partial |
+| route GET /tabularius/admin/v1/sql-privilege/{database} | admin-ai | security-partial |
+| route POST /tabularius/admin/v1/sql-privilege/{database} | admin-ai | security-partial |
 | route GET /tabularius/admin/v1/ai-usage | admin-ai | security-partial |
 | route GET /tabularius/admin/v1/ai-access/{database} | admin-ai | security-partial |
 | route POST /tabularius/admin/v1/ai-access/{database} | admin-ai | security-partial |

@@ -1980,6 +1980,7 @@ async function refresh() {
       : d.ai.byServer ? `<span class="bad" title="The server was started with --ai-exclude for this file">Off (server setting)</span>`
       : `<span class="bad" title="It uses data from ${esc(d.ai.through)}, which has AI turned off">Off, uses ${esc(d.ai.through)}</span>` },
     { label: 'AI policy', wrap: true, html: (d) => `${d.aiPolicy ? 'On' : 'Off'} <button data-ai-policy="${esc(d.name)}" data-on="${d.aiPolicy ? '' : '1'}" aria-label="${d.aiPolicy ? 'Turn off' : 'Turn on'} AI-visible policy for ${esc(d.name)}">${d.aiPolicy ? 'Turn off' : 'Turn on'}</button>` },
+    { label: 'SQL from other files', wrap: true, html: (d) => `${d.sqlRequiresFmxdbc ? 'Needs fmxdbc here' : 'Off'} <button data-sql-privilege="${esc(d.name)}" data-on="${d.sqlRequiresFmxdbc ? '' : '1'}" title="When on, a query that reaches this file through another file needs the SQL (fmxdbc) privilege in this file too" aria-label="${d.sqlRequiresFmxdbc ? 'Stop requiring' : 'Require'} the fmxdbc privilege in ${esc(d.name)} for SQL through another file">${d.sqlRequiresFmxdbc ? 'Turn off' : 'Turn on'}</button>` },
     { label: 'Script network', html: (d) => !d.scriptNetwork ? '' : d.scriptNetwork.own
       ? `<span class="ok" title="This file's scripts can reach the network: Insert from URL, connections and MBS CURL, within the host limits">On</span> <button data-script-network="${esc(d.name)}" data-on="" aria-label="Turn off script network access for ${esc(d.name)}">Turn off</button>`
       : d.scriptNetwork.on ? `<span class="ok" title="The server was started with --allow-script-network, which allows every file">On (server)</span>`
@@ -2257,6 +2258,12 @@ document.addEventListener('click', async (e) => {
       await call('POST', `/tabularius/admin/v1/script-network/${encodeURIComponent(network.dataset.scriptNetwork)}`, { on }).catch((err) => say(plainMessage(err)));
       refresh();
     }
+  }
+  const sqlPrivilege = e.target.closest('[data-sql-privilege]');
+  if (sqlPrivilege) {
+    sqlPrivilege.disabled = true;
+    await call('POST', `/tabularius/admin/v1/sql-privilege/${encodeURIComponent(sqlPrivilege.dataset.sqlPrivilege)}`, { on: !!sqlPrivilege.dataset.on }).catch((err) => say(plainMessage(err)));
+    refresh();
   }
   const policy = e.target.closest('[data-ai-policy]');
   if (policy) {
