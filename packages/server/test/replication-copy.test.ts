@@ -387,6 +387,29 @@ test('compacting a file during a held copy ships its changes first, so a followe
   finally { replica.close(); }
 });
 
+test('compacting through the host ships first and keeps what is written while it works, so a follower has every record', async (t) => {
+  const h = await setup(t);
+  h.store.beforeCheckpoint = () => h.shipper.shipBeforeCheckpoint();
+  const base = join(h.dir, 'host-compacted-replica.sqlite');
+  await h.store.backup(base);
+  const shipped: Buffer[] = [];
+  h.shipper.add({ every: 60_000, take: (_store, log) => { shipped.push(Buffer.from(log)); return true; } });
+  const [gate] = h.slowCopies();
+  const pending = h.get('/A/copy');
+  await gate.entered;
+  for (let i = 0; i < 5; i++) h.store.create('Items', { Name: `Before the pass ${i}` });
+  const compacting = h.host.compact('A');
+  // The pass runs on its own thread: these writes land while it works, and the log must still hold them for the follower.
+  for (let i = 0; i < 5; i++) h.store.create('Items', { Name: `While it works ${i}` });
+  await compacting;
+  gate.release();
+  await pending;
+  for (const log of shipped) applyLog(base, log);
+  const replica = new Store(base, 'Replica');
+  try { assert.equal(replica.find('Items', { limit: 100 }).records.length, 10); }
+  finally { replica.close(); }
+});
+
 test('serve() gives every hosted file the ship-first hook for its checkpoints', async () => {
   const { readFileSync } = await import('node:fs');
   assert.match(readFileSync(new URL('../src/index.ts', import.meta.url), 'utf8'), /\.beforeCheckpoint = /);
