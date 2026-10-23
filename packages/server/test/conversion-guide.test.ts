@@ -124,9 +124,9 @@ test('web viewers that load internet pages are named, with the data: URL way ins
   try {
     const viewers = conversionGuide(store, ['Charts']).differs.find((i) => i.title === 'Web viewers')!;
     assert.equal(viewers.count, 2);
-    assert.match(viewers.what, /^1 web viewer loads a page from the internet.*1 other show a page made in the file/);
+    assert.match(viewers.what, /^1 web viewer load an http\(s\) page.*1 other show a page made in the file/);
     assert.deepEqual(viewers.where, ['Layout "Map"']);
-    assert.match(viewers.instead!, /data:text\/html/);
+    assert.match(viewers.instead!, /data: URL/);
   } finally {
     store.designs = designs;
   }
