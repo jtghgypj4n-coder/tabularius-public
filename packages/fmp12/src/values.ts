@@ -75,7 +75,7 @@ export function typedValue(text: string, type: FieldType, order: DateStyle = 'MD
   switch (type) {
     case 'number': {
       const decimal = text.trim().replace(/,/g, '');
-      if (!/^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/.test(decimal)) return text;
+      if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(decimal)) return text;
       const n = Number(decimal);
       return Number.isFinite(n) ? n : text;
     }
