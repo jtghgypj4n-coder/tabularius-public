@@ -397,3 +397,72 @@ test('offline copy: creating, removing and forgetting wait for the changes being
   await assert.rejects(fresh.queue({ layout: 'L', recordId: '1', modId: '1', fieldData: { A: 'z' } }), CopyMoved);
   assert.equal(shelf.data.queue.size + shelf.data.files.size, 0);
 });
+
+const DAY = 86_400_000;
+
+test('offline copy: a response kept more than 30 days ago is not shown and is deleted; waiting changes never expire', async (t) => {
+  const now = Date.now();
+  const clock = t.mock.method(Date, 'now', () => now);
+  const { shelf, key, copy } = await copyFor();
+  await copy.keep('GET /old', { value: 'old' });
+  await copy.queue({ layout: 'Items', recordId: '1', modId: '1', fieldData: { Name: 'Waiting' } });
+  clock.mock.mockImplementation(() => now + 20 * DAY);
+  await copy.keep('GET /recent', { value: 'recent' });
+  clock.mock.mockImplementation(() => now + 29 * DAY);
+  assert.deepEqual(await copy.recall('GET /old'), { value: 'old' }, 'still kept on day 29');
+  clock.mock.mockImplementation(() => now + 31 * DAY);
+  assert.equal(await copy.recall('GET /old'), undefined, 'not shown after 30 days');
+  assert.deepEqual(await copy.recall('GET /recent'), { value: 'recent' }, 'a newer one is not caught by it');
+  assert.equal(shelf.data.responses.size, 2, 'reading does not delete');
+  // The sweep removes the old one (from the shelf, not just from view) and leaves the rest.
+  const reopened = await OfflineCopy.open(shelf, 'Tasks', 'Admin', key) as OfflineCopy;
+  await reopened.sweepExpired();
+  assert.equal(shelf.data.responses.size, 1);
+  assert.deepEqual(await reopened.recall('GET /recent'), { value: 'recent' });
+  clock.mock.mockImplementation(() => now + 400 * DAY);
+  assert.equal(await reopened.recall('GET /recent'), undefined);
+  assert.equal((await reopened.pending()).length, 1, 'a change waiting to be sent is never dropped');
+  assert.equal(await OfflineCopy.waitingIn(shelf, 'Tasks', 'Admin'), 1);
+});
+
+test('offline copy: the sweep runs once a day, and keeping a response again starts its 30 days again', async (t) => {
+  const now = Date.now();
+  const clock = t.mock.method(Date, 'now', () => now);
+  const { shelf, key, copy } = await copyFor();
+  await copy.keep('GET /a', { n: 1 });
+  clock.mock.mockImplementation(() => now + 25 * DAY);
+  await copy.keep('GET /a', { n: 2 });
+  clock.mock.mockImplementation(() => now + 50 * DAY);
+  assert.deepEqual(await copy.recall('GET /a'), { n: 2 }, 'kept again on day 25: good until day 55');
+  const open = await OfflineCopy.open(shelf, 'Tasks', 'Admin', key) as OfflineCopy;
+  await open.sweepExpired();
+  await open.keep('GET /b', { n: 3 });
+  // Swept a moment ago: a second sweep the same day reads nothing.
+  const reads: string[] = [];
+  const spy = { ...shelf, get: async (store: Parameters<typeof shelf.get>[0], k: string) => { reads.push(`${store}`); return shelf.get(store, k); } };
+  const again = await OfflineCopy.open(spy, 'Tasks', 'Admin', key) as OfflineCopy;
+  reads.length = 0;
+  await again.sweepExpired();
+  assert.deepEqual(reads, ['files'], 'only the day of the last sweep is looked at');
+  clock.mock.mockImplementation(() => now + 52 * DAY);
+  reads.length = 0;
+  await again.sweepExpired();
+  assert.ok(reads.includes('responses'), 'a day later it looks again');
+});
+
+test('offline copy: moving to a new password keeps each response\'s age and drops the ones already expired', async (t) => {
+  const now = Date.now();
+  const clock = t.mock.method(Date, 'now', () => now);
+  const { shelf, copy } = await copyFor();
+  await copy.keep('GET /old', { value: 'old' });
+  clock.mock.mockImplementation(() => now + 20 * DAY);
+  await copy.keep('GET /newer', { value: 'newer' });
+  clock.mock.mockImplementation(() => now + 31 * DAY);
+  const salt = newSalt();
+  const moved = await copy.moveTo(salt, await deriveKey('another password', salt));
+  assert.equal(shelf.data.responses.size, 1, 'the expired one is not carried over');
+  assert.equal(await moved.recall('GET /old'), undefined, 'moving to a new password does not make it new');
+  assert.deepEqual(await moved.recall('GET /newer'), { value: 'newer' });
+  clock.mock.mockImplementation(() => now + 51 * DAY);
+  assert.equal(await moved.recall('GET /newer'), undefined, '30 days from when it was kept, not from the move');
+});

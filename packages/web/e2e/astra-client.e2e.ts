@@ -86,9 +86,15 @@ test('AR-web-client-07', { timeout: 20_000 }, async () => {
     await signIn(page, hosted.url, 'Synthetic', 'Admin', 'synthetic-password');
     await page.getByRole('button', { name: 'View as Form' }).click();
     await page.getByRole('button', { name: 'Next record' }).click();
-    const kept = await until(() => page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('tabularius.recent.')).map((k) => localStorage.getItem(k)).find(Boolean) ?? null), Boolean, 10_000);
+    // The server keeps recent records, with titles that hold no field data; with no offline copy this browser keeps none.
+    const kept = await until(() => page.evaluate(async () => {
+      const { Api } = await import('/app/src/' + 'api.ts');
+      const s = JSON.parse(sessionStorage.getItem('tabularius.session')!);
+      return JSON.stringify((await new Api(s.db, s.token).prefs()).recent ?? null);
+    }), (v) => !!v && v !== 'null', 10_000);
     assert.ok(!kept!.includes(secret));
     assert.equal(JSON.parse(kept!)[0].title, 'Record 2');
+    assert.deepEqual(await page.evaluate(() => Object.keys(localStorage).filter((k) => /^tabularius\.(recent|finds|sorts)\./.test(k))), []);
     await page.keyboard.press('ControlOrMeta+k');
     assert.ok(!(await page.getByRole('dialog').textContent())?.includes(secret));
   } finally { await page.close(); }
