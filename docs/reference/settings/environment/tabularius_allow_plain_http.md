@@ -5,9 +5,9 @@ Lets the server listen beyond this computer over plain HTTP, which it otherwise 
 | Setting | Value |
 | --- | --- |
 | Default | Off: listening beyond this computer needs HTTPS |
-| Accepted values | 1, true, yes or on |
+| Accepted values | 1, true, yes or on; 0, false, no, off or empty for off; anything else stops `serve` |
 | Restart needed | Yes for a running server. |
 | Explained in | [docs/security-defaults.md](../../../security-defaults.md) |
-| Code | [packages/cli/src/main.ts:1331](../../../../packages/cli/src/main.ts#L1331) |
+| Code | [packages/cli/src/loopback.ts:13](../../../../packages/cli/src/loopback.ts#L13) |
 
 [All environment variables](../../../environment-variables.md)

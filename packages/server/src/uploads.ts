@@ -42,14 +42,9 @@ const UPLOAD_DIR = '.openhbam-uploads';
  */
 export const MAX_UPLOAD = Math.max(0, Math.trunc(Number(process.env.TABULARIUS_MAX_UPLOAD ?? 10 * 1024 * 1024 * 1024)) || 0);
 
-/** Source bytes allowed across uploading, queued and converting files. Always finite; 0/invalid uses 20 GiB. */
-export const MAX_UPLOAD_IN_PROGRESS = positiveBytes(process.env.TABULARIUS_MAX_UPLOAD_IN_PROGRESS, 20 * 1024 * 1024 * 1024);
-function positiveBytes(value: string | undefined, fallback: number): number {
-  try { return positiveWholeNumber('TABULARIUS_MAX_UPLOAD_IN_PROGRESS', value, fallback); }
-  catch (e) {
-    console.warn(`Warning: ${(e as Error).message}; using ${fallback} bytes`);
-    return fallback;
-  }
+/** Source bytes allowed across uploading, queued and converting files. Always finite: unset is 20 GiB; 0 or anything but digits is refused. */
+export function maxUploadInProgress(): number {
+  return positiveWholeNumber('TABULARIUS_MAX_UPLOAD_IN_PROGRESS', process.env.TABULARIUS_MAX_UPLOAD_IN_PROGRESS, 20 * 1024 * 1024 * 1024);
 }
 
 export class UploadError extends Error {
@@ -127,7 +122,7 @@ export function explainHostingFailure(name: string, raw: string): string {
   return `${file} couldn't be converted: ${raw}. If it opens in FileMaker Pro, please report this with the version that made the file; if it doesn't, the file itself may be damaged.`;
 }
 
-const quota = () => `Too much is being uploaded at once (the aggregate quota for uploads in progress is ${readableBytes(MAX_UPLOAD_IN_PROGRESS)}). Wait for the others to finish, then try again.`;
+const quota = () => `Too much is being uploaded at once (the aggregate quota for uploads in progress is ${readableBytes(maxUploadInProgress())}). Wait for the others to finish, then try again.`;
 
 export class Uploads {
   private readonly host: Host;
@@ -216,7 +211,7 @@ export class Uploads {
     this.prune();
     if (this.uploads.size >= 128) throw new UploadError(429, 'Too many uploads are in progress; finish or remove one first');
     if (this.taken(name)) throw new UploadError(409, `A file named ${name} is already hosted or being uploaded. Remove it from Hosted files first to host this copy instead, or rename this file.`);
-    if (size > MAX_UPLOAD_IN_PROGRESS) throw new UploadError(413, quota());
+    if (size > maxUploadInProgress()) throw new UploadError(413, quota());
     mkdirSync(this.dir, { recursive: true, mode: 0o700 });
     const id = `${this.owner}-${randomBytes(9).toString('base64url')}`;
     closeSync(openSync(this.part(id), 'wx', 0o600));
@@ -248,7 +243,7 @@ export class Uploads {
         if (at + chunk.length > u.size) throw new UploadError(413, 'More bytes than the file\'s size');
         const existing = statSync(this.part(id)).size;
         const extension = Math.max(0, at + chunk.length - existing);
-        if (extension > MAX_UPLOAD_IN_PROGRESS - this.bytesInProgress()) throw new UploadError(413, quota());
+        if (extension > maxUploadInProgress() - this.bytesInProgress()) throw new UploadError(413, quota());
         let done = 0;
         while (done < chunk.length) done += writeSync(fd, chunk, done, chunk.length - done, at + done);
         at += chunk.length;

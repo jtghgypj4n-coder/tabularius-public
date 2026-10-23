@@ -1,13 +1,16 @@
-import { positiveWholeNumber } from './setting-values.ts';
+import { CONVERT_MEMORY_MIN_MB, wholeNumber } from '../../store/src/settings.ts';
 
-/** Limits applied to conversion workers for uploaded files. The memory cap cannot be disabled. */
-export function uploadConversionLimits(env: NodeJS.ProcessEnv = process.env) {
-  let memoryMb = 2048;
-  try { memoryMb = positiveWholeNumber('TABULARIUS_CONVERT_MEMORY', env.TABULARIUS_CONVERT_MEMORY, memoryMb); }
-  catch (e) { console.warn(`Warning: ${(e as Error).message}; using 2048 MB`); }
+/**
+ * Guards for converting an untrusted upload (not a file the operator dropped into the folder): the worker's heap is
+ * capped so a file that expands to huge memory out-of-memories the worker rather than the server, and the conversion is
+ * stopped after a time budget so a file that makes the reader loop can't block the single conversion slot for good.
+ * Generous defaults; raise them with TABULARIUS_CONVERT_MEMORY (MB, 64 or more: the heap is always capped) and
+ * TABULARIUS_CONVERT_TIMEOUT (seconds, 0 = none) for an environment that hosts genuinely large uploads.
+ * A value that is not a whole number written in digits is refused, naming the variable (checkServeSettings reports it at start).
+ */
+export function uploadConversionLimits(env: NodeJS.ProcessEnv = process.env): { memoryMb: number; timeoutMs: number } {
   return {
-    memoryMb,
-    // Preserve the documented timeout semantics, including 0 for no timeout.
-    timeoutMs: Math.max(0, Math.trunc(Number(env.TABULARIUS_CONVERT_TIMEOUT ?? 900)) || 0) * 1000,
+    memoryMb: wholeNumber('TABULARIUS_CONVERT_MEMORY', { min: CONVERT_MEMORY_MIN_MB, env }) ?? 2048,
+    timeoutMs: (wholeNumber('TABULARIUS_CONVERT_TIMEOUT', { env }) ?? 900) * 1000,
   };
 }

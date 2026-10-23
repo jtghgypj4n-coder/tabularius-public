@@ -8,6 +8,6 @@ The header a trusted proxy puts the client address in.
 | Accepted values | x-forwarded-for, forwarded, or x-real-ip |
 | Restart needed | Yes for a running server. |
 | Explained in | [docs/environment-variables.md](../../../environment-variables.md) |
-| Code | [packages/cli/src/main.ts:1335](../../../../packages/cli/src/main.ts#L1335) |
+| Code | [packages/cli/src/main.ts:1337](../../../../packages/cli/src/main.ts#L1337) |
 
 [All environment variables](../../../environment-variables.md)

@@ -1,6 +1,4 @@
-// TABULARIUS_TRACE_SQL accepts 1/true/yes/on (case-insensitive) to enable tracing;
-// unset, "", 0/false/no/off disable it. Other values disable tracing and warn once.
-// When enabled, each SQL statement a store runs is logged to stderr
+// TABULARIUS_TRACE_SQL=1 (or true, yes, on): each SQL statement a store runs is logged to stderr
 // with its shape, the rows it returned and how long it took, so a slow or
 // memory-hungry request on a real file can be pinned to one statement without
 // showing any of the file's data. The shape keeps SQL keywords and
@@ -22,6 +20,7 @@
 //   [field]  3801.2 ms  calc t12.f40 related 3 sql 1 cf 0 agg 2 stable  412 statements
 
 import type { DatabaseSync, StatementSync } from 'node:sqlite';
+import { boolean } from './settings.ts';
 
 const KEYWORDS = new Set(`
   select from where and or not in is null as on join cross left inner outer distinct order by group having limit offset
@@ -47,18 +46,17 @@ function minMs(): number {
   return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
-let warnedInvalidTracing = false;
+let tracedFor: string | undefined;
+let traced = false;
 
-/** Whether SQL tracing was explicitly enabled. Invalid settings fail closed. */
+/** Whether statements are traced (TABULARIUS_TRACE_SQL is 1, true, yes or on; false, off, no, 0 and empty turn it off, anything else is an error). */
 export function tracing(): boolean {
   const v = process.env.TABULARIUS_TRACE_SQL;
-  if (v === undefined || /^(?:|0|false|no|off)$/i.test(v)) return false;
-  if (/^(?:1|true|yes|on)$/i.test(v)) return true;
-  if (!warnedInvalidTracing) {
-    warnedInvalidTracing = true;
-    console.warn('Warning: TABULARIUS_TRACE_SQL accepts 1/true/yes/on or empty/0/false/no/off; tracing is disabled');
+  if (v !== tracedFor) {
+    traced = boolean('TABULARIUS_TRACE_SQL');
+    tracedFor = v;
   }
-  return false;
+  return traced;
 }
 
 /** The nearest functions of Tabularius's code on the stack, innermost first. */

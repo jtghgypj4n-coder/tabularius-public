@@ -8,6 +8,6 @@ Administrator bearer token for the MCP endpoint.
 | Accepted values | Token string |
 | Restart needed | Yes for a running server. |
 | Explained in | [docs/environment-variables.md](../../../environment-variables.md) |
-| Code | [packages/cli/src/main.ts:1296](../../../../packages/cli/src/main.ts#L1296) |
+| Code | [packages/cli/src/main.ts:1298](../../../../packages/cli/src/main.ts#L1298) |
 
 [All environment variables](../../../environment-variables.md)

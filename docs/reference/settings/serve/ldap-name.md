@@ -9,6 +9,6 @@
 | Restart needed | Yes; serve flags are read when the server starts. |
 | Environment | [`TABULARIUS_LDAP_NAME`](../environment/tabularius_ldap_name.md) |
 | Explained in | [docs/reference/settings/serve-flags.md](../serve-flags.md) |
-| Code | [packages/cli/src/main.ts:1410](../../../../packages/cli/src/main.ts#L1410) |
+| Code | [packages/cli/src/main.ts:1412](../../../../packages/cli/src/main.ts#L1412) |
 
 [All serve flags](../serve-flags.md)

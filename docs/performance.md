@@ -345,7 +345,4 @@ All ten operations passed. The script loop and Duplicate Record loop use 20,000 
 
 - `node scripts/loadtest.ts <file.fmp12> --users 50`: many people using one
   hosted file at once, over HTTP (see the README).
-- `TABULARIUS_TRACE_SQL=1` logs each SQLite statement shape and how long it took.
-  `1`, `true`, `yes`, and `on` enable it; unset, empty, `0`, `false`, `no`,
-  and `off` disable it (case-insensitive). Any other value disables tracing
-  and emits one warning per process naming the setting.
+- `TABULARIUS_TRACE_SQL=1` (or `true`, `yes`, `on`; `false`, `off`, `no` and `0` turn it off) logs each SQLite statement and how long it took.
