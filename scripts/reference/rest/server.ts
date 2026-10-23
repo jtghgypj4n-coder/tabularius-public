@@ -309,6 +309,19 @@ export const groups: RestGroup[] = [
       },
       {
         method: 'DELETE',
+        path: '/fmi/admin/api/v2/user/auth',
+        summary: 'Signs out the session in the Bearer header without putting its token in the URL.',
+        permissions: 'A live Admin API token (Bearer).',
+        params: [{ name: 'Authorization', in: 'header', type: 'string', required: true, description: 'Bearer token for the session to end.' }],
+        example: {
+          request: 'DELETE /fmi/admin/api/v2/user/auth\nAuthorization: Bearer <token>',
+          status: 200,
+          response: fmi({}),
+        },
+        notes: 'Preferred over the URL spelling because a reverse proxy may log request paths. This is a Tabularius extension; compatibility with FileMaker Server is unverified.',
+      },
+      {
+        method: 'DELETE',
         path: '/fmi/admin/api/v2/user/auth/{token}',
         summary: 'Signs out: the token named in the path stops working.',
         permissions: 'A live Admin API token (Bearer).',
@@ -318,6 +331,7 @@ export const groups: RestGroup[] = [
           status: 200,
           response: fmi({}),
         },
+        notes: 'The token is in the URL, which a reverse proxy may log. Prefer DELETE /fmi/admin/api/v2/user/auth with the session token in the Bearer header.',
       },
       {
         method: 'GET',

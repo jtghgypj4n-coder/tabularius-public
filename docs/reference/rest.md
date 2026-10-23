@@ -21835,6 +21835,7 @@ Source: `packages/server/src/adminapi.ts`, `packages/server/src/index.ts`
 | Method | Path | What it does |
 | --- | --- | --- |
 | POST | [`/fmi/admin/api/v2/user/auth`](#admin-api-post-fmi-admin-api-v2-user-auth) | Signs in with the admin password and returns a token for the other routes. |
+| DELETE | [`/fmi/admin/api/v2/user/auth`](#admin-api-delete-fmi-admin-api-v2-user-auth) | Signs out the session in the Bearer header without putting its token in the URL. |
 | DELETE | [`/fmi/admin/api/v2/user/auth/{token}`](#admin-api-delete-fmi-admin-api-v2-user-auth-token) | Signs out: the token named in the path stops working. |
 | GET | [`/fmi/admin/api/v2/server/metadata`](#admin-api-get-fmi-admin-api-v2-server-metadata) | The server's name, id, address, Admin API version and local time. |
 | GET | [`/fmi/admin/api/v2/server/status`](#admin-api-get-fmi-admin-api-v2-server-status) | Whether the server is running or was stopped through this API. |
@@ -21900,6 +21901,43 @@ Response `200`:
 
 A wrong password is 401 code 212; too many failures 429 code 214 with Retry-After. At most 100 tokens are live at once (401 code 956 beyond that).
 
+<a id="admin-api-delete-fmi-admin-api-v2-user-auth"></a>
+
+### `DELETE /fmi/admin/api/v2/user/auth`
+
+Signs out the session in the Bearer header without putting its token in the URL.
+
+**Permissions:** A live Admin API token (Bearer).
+
+**Parameters:**
+
+| Name | In | Type | Required | Description |
+| --- | --- | --- | --- | --- |
+| `Authorization` | header | string | yes | Bearer token for the session to end. |
+
+**Example:**
+
+```http
+DELETE /fmi/admin/api/v2/user/auth
+Authorization: Bearer <token>
+```
+
+Response `200`:
+
+```json
+{
+  "response": {},
+  "messages": [
+    {
+      "code": "0",
+      "text": "OK"
+    }
+  ]
+}
+```
+
+Preferred over the URL spelling because a reverse proxy may log request paths. This is a Tabularius extension; compatibility with FileMaker Server is unverified.
+
 <a id="admin-api-delete-fmi-admin-api-v2-user-auth-token"></a>
 
 ### `DELETE /fmi/admin/api/v2/user/auth/{token}`
@@ -21934,6 +21972,8 @@ Response `200`:
   ]
 }
 ```
+
+The token is in the URL, which a reverse proxy may log. Prefer DELETE /fmi/admin/api/v2/user/auth with the session token in the Bearer header.
 
 <a id="admin-api-get-fmi-admin-api-v2-server-metadata"></a>
 
