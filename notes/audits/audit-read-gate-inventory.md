@@ -176,9 +176,9 @@ The following reasons apply to the exact enumerated expressions in each named fu
 | [packages/cli/src/diagnostics.ts:204](../../packages/cli/src/diagnostics.ts#L204) `designCopy` | `SQLite.all` (204); `SQLite.prepare` (204, 207) | OPERATOR |
 | [packages/cli/src/diagnostics.ts:443](../../packages/cli/src/diagnostics.ts#L443) `diagnostics` | `SQLite.get` (443); `SQLite.prepare` (443, 447); `SQLite.all` (447) | OPERATOR |
 | [packages/cli/src/doctor.ts:139](../../packages/cli/src/doctor.ts#L139) `accountChecks` | `SQLite.all` (139); `SQLite.prepare` (139) | OPERATOR |
-| [packages/cli/src/main.ts:673](../../packages/cli/src/main.ts#L673) `accountsWithPasswordOff` | `SQLite.all` (673); `SQLite.prepare` (673) | OPERATOR |
-| [packages/cli/src/main.ts:702](../../packages/cli/src/main.ts#L702) `hostedRead` | `SQLite.all` (702, 705); `SQLite.prepare` (702, 705); `Store.sql` (702, 705) | OPERATOR |
-| [packages/cli/src/main.ts:2300](../../packages/cli/src/main.ts#L2300) `main` | `Store.orphanContainerReport` (2300); `Store.auditLog` (2763); `SQLite.get` (2979); `SQLite.prepare` (2979) | OPERATOR |
+| [packages/cli/src/main.ts:675](../../packages/cli/src/main.ts#L675) `accountsWithPasswordOff` | `SQLite.all` (675); `SQLite.prepare` (675) | OPERATOR |
+| [packages/cli/src/main.ts:704](../../packages/cli/src/main.ts#L704) `hostedRead` | `SQLite.all` (704, 707); `SQLite.prepare` (704, 707); `Store.sql` (704, 707) | OPERATOR |
+| [packages/cli/src/main.ts:2303](../../packages/cli/src/main.ts#L2303) `main` | `Store.orphanContainerReport` (2303); `Store.auditLog` (2766); `SQLite.get` (2982); `SQLite.prepare` (2982) | OPERATOR |
 | [packages/scripts/src/data-api-step.ts:103](../../packages/scripts/src/data-api-step.ts#L103) `respond` | `Store.get` (103, 130, 139); `Store.find` (104, 116) | SCRIPT |
 | [packages/scripts/src/engine.ts:1940](../../packages/scripts/src/engine.ts#L1940) `ScriptEngine/goToLayout` | `Store.findIds` (1940) | SCRIPT |
 | [packages/scripts/src/engine.ts:2284](../../packages/scripts/src/engine.ts#L2284) `ScriptEngine/foundSet` | `Store.findIds` (2284) | SCRIPT |
