@@ -162,6 +162,8 @@ itself: not one a proxy on it passed on (a `x-forwarded-for`, `forwarded` or
 `x-real-ip` header), and not one addressed to any name but `localhost`,
 `127.0.0.1` or `[::1]`. A signed-in console is not locked out by other
 people's wrong passwords from the same address.
+Admin password lockouts are recorded as warnings in the event log, along with
+the third wrong attempt per address bucket in a window and lock-table overflow.
 
 `admin-password` (and `passwd`) asks for the password twice in a terminal,
 without showing it. In a script, pipe it in

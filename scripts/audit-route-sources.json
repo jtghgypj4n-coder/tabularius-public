@@ -1,7 +1,7 @@
 {
   "account-provisioning.ts": "e09c2f2525727f068c5b2446c079af47b6c4b1cde80396efbbf2602a432bc041",
   "acme.ts": "ce88cf77a262f4106daab946ab88cfc2a8c61bb46c7f7c95a48d9466dd05ea2f",
-  "admin.ts": "21a899687ffc6151b048623c95b0a1d0a01c7b1dea6d0cb8d3d04293146e4be0",
+  "admin.ts": "54d4cf54cf9d9e2b54ff3baff6e4168bb9d851b4a54d92373b31ea260da148cf",
   "adminapi.ts": "fa98f16e22e5f483687d23705e55e13edd20bb7dac42d0605a6baec4e0a45e74",
   "agent.ts": "b5ff6a5b52faddc57e9fbed6bf8efe1880c8fd374e0c53dc810c6ab587246b2a",
   "assistant.ts": "4c2a5205ebca753abb5e62412eb30dd196f35be12688f617089018edf223c66d",
