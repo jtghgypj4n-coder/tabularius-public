@@ -180,7 +180,7 @@
     "TABULARIUS_CONTAINER_TTL": {
       "description": "Lifetime of a signed container URL.",
       "default": "3600 seconds",
-      "accepted": "Nonnegative seconds; 0 makes URLs nonexpiring",
+      "accepted": "Positive seconds up to 3600, which is also what any other value (0, negative, not a number, longer) gives; a link signed for more than an hour ahead is refused",
       "restart": "Yes for a running server.",
       "explainedBy": "README.md"
     },
