@@ -14,6 +14,7 @@
 // then the .fmp12 sits next to its store, as if it had been dropped into
 // the folder.
 
+import { positiveWholeNumber } from './setting-values.ts';
 import { eachChunk } from './dataapi.ts';
 import type { IncomingMessage } from 'node:http';
 import { randomBytes } from 'node:crypto';
@@ -44,8 +45,11 @@ export const MAX_UPLOAD = Math.max(0, Math.trunc(Number(process.env.TABULARIUS_M
 /** Source bytes allowed across uploading, queued and converting files. Always finite; 0/invalid uses 20 GiB. */
 export const MAX_UPLOAD_IN_PROGRESS = positiveBytes(process.env.TABULARIUS_MAX_UPLOAD_IN_PROGRESS, 20 * 1024 * 1024 * 1024);
 function positiveBytes(value: string | undefined, fallback: number): number {
-  const n = Number(value);
-  return Number.isSafeInteger(n) && n > 0 ? n : fallback;
+  try { return positiveWholeNumber('TABULARIUS_MAX_UPLOAD_IN_PROGRESS', value, fallback); }
+  catch (e) {
+    console.warn(`Warning: ${(e as Error).message}; using ${fallback} bytes`);
+    return fallback;
+  }
 }
 
 export class UploadError extends Error {
