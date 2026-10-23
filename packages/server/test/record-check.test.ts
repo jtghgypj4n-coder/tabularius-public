@@ -155,8 +155,9 @@ test('privilege-aware: a hidden field is skipped entirely, not reported and not 
   const store = shop();
   const table = store.schema.tables.find((t) => t.name === 'Orders')!;
   const id = store.create('Orders', { Qty: '3', Price: '2', Discount: '1', Code: 'A' }).recordId;
-  // Net's stored value is stale, same as the first test — but this account can't see Net at all.
-  store.sql.exec(`UPDATE Orders SET Net = 999 WHERE _fm_record_id = ${id}`);
+  // Net's stored value is stale, same as the first test — but this account can't see Net at all. Due's is stale too, and it reads only
+  // fields the account can see.
+  store.sql.exec(`UPDATE Orders SET Net = 999, Due = 777 WHERE _fm_record_id = ${id}`);
   store.savePrivilegeSet({
     name: 'Clerks', records: { view: true, edit: true, create: false, delete: false },
     tables: { Orders: { view: true, edit: true, create: false, delete: false, fields: { Net: 'none' } } },
@@ -171,10 +172,17 @@ test('privilege-aware: a hidden field is skipped entirely, not reported and not 
   const full = checkRecord(store, table, rec);
   assert.equal(r.checked, full.checked - 1);
 
-  // Total is visible and reads Net: its own staleness is still caught (it's
-  // Total's own concern), but the value it read from Net is withheld.
-  const total = r.problems.find((p) => p.field === 'Total')!;
-  assert.deepEqual(total.inputs, [{ field: 'Net', hidden: true }, { field: 'Discount', value: '1' }]);
+  // Total is visible and reads Net: the value it read from Net is withheld, and so is any verdict on whether Total is current (that
+  // yes or no would depend on Net, and an account that can change what else Total reads could steer it until Net's value is known).
+  assert.ok(!r.problems.some((p) => p.field === 'Total'), JSON.stringify(r.problems));
+  assert.ok(!JSON.stringify(r).includes('999'), 'nothing of the hidden field\'s stored value is in what it is told');
+  const total = full.problems.find((p) => p.field === 'Total')!;
+  assert.deepEqual(total.inputs, [{ field: 'Net', value: '999' }, { field: 'Discount', value: '1' }], 'control: with no limits the problem is there');
+
+  // Due reads only fields the account can see, so it is checked in full, stale value and what it should be now.
+  const due = r.problems.find((p) => p.field === 'Due')!;
+  assert.equal(due.kind, 'stale');
+  assert.equal(due.now, '6');
   store.close();
 });
 

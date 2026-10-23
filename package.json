@@ -48,6 +48,8 @@
     "docs:plugins": "node --no-warnings scripts/plugin-matrix.ts",
     "docs:patterns": "node --no-warnings scripts/solution-patterns.ts",
     "docs:security-defaults": "node --no-warnings scripts/security-defaults.ts",
+    "check:read-gate": "node --no-warnings scripts/read-gate-inventory.ts",
+    "check:read-gate-typed": "node --no-warnings scripts/read-gate-typed.ts",
     "docs:error-strings": "node --no-warnings scripts/error-strings.ts",
     "docs:script-steps": "node --no-warnings scripts/script-step-pages.ts",
     "hooks:install": "git config core.hooksPath scripts/git-hooks",

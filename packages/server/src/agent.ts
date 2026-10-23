@@ -226,13 +226,17 @@ async function runStep(store: Store, step: AgentStep, state: RunState, who: { ac
   }
   const undo = undoOf(store, entries);
   if (elsewhere) message = `${message ? message + '. ' : ''}It changed ${elsewhere} record${elsewhere === 1 ? '' : 's'} in other files, which Undo can't take back`;
-  const changes = recordChanges(entries, 50);
   // A deleted record's audit entry holds every field, so a field the account can't read (hidden or masked) is left out of what goes back.
+  // A step that runs with full access can change records the account cannot view: those are not shown to it, nor counted.
   const pv = who.privileges && !who.privileges.full ? who.privileges : undefined;
+  const shown = pv
+    ? entries.filter((e) => e.recordId === undefined ? pv.table(e.table).view === true : (e.kind === 'delete' ? store.canViewRow(e.table, (e.changes ?? {}) as Record<string, unknown>, pv) : store.canViewRecord(e.table, e.recordId, pv)))
+    : entries;
+  const changes = recordChanges(shown, 50);
   if (pv) {
     for (const r of changes.records) r.fields = r.fields.filter((f) => pv.field(r.table, f.field.replace(/\(\d+\)$/, '')) !== 'none');
   }
-  const count = (k: string) => new Set(entries.filter((e) => e.kind === k).map((e) => `${e.table}\u0000${e.recordId}`)).size;
+  const count = (k: string) => new Set(shown.filter((e) => e.kind === k).map((e) => `${e.table}\u0000${e.recordId}`)).size;
   return {
     state: next,
     undo,

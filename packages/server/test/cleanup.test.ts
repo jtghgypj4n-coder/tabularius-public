@@ -172,6 +172,14 @@ test('cleanup: a dry run says what applying would change, as the account, and ch
   assert.equal((await api(viewerSession, 'POST', '/apply', request)).status, 403);
 });
 
+test('cleanup: an apply that names no layout, or a layout that is not text, is a bad request and not a server error', { skip }, async () => {
+  const admin = await login('Admin');
+  for (const body of [{ fixes: [{ field: 'State', from: 'a', to: 'b' }] }, { layout: 5, fixes: [{ field: 'State', from: 'a', to: 'b' }] }, { layout: { x: 1 }, merges: [{ keep: 1, remove: [2] }] }]) {
+    const r = await api(admin, 'POST', '/apply', body);
+    assert.ok(r.status >= 400 && r.status < 500, `${JSON.stringify(body)}: ${r.status}`);
+  }
+});
+
 test('cleanup: fixes and merges apply all or none, as the account, and undo puts everything back', { skip }, async () => {
   const admin = await login('Admin');
   const viewerSession = await login('Viewer');

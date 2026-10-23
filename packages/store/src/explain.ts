@@ -77,6 +77,46 @@ const storageOf = (f: Field): Dependency['storage'] =>
 const formulaField = (f: Field) => !!f.calculation && (f.kind === 'calculation' || !!f.options?.autoEnter?.calculation);
 
 /**
+ * Whether a formula's references lead, through the calculations and summaries behind them (any depth), to a field the privileges
+ * withhold, or to one of them that reads fields by name at run time.
+ */
+function reachesHidden(store: Store, toId: number, refs: { occurrence?: string; name: string }[], privileges: Privileges, seen = new Set<string>()): boolean {
+  return refs.some((r) => {
+    const found = fieldOf(store, toId, r);
+    if (!found) return false;
+    const { field: f, table, store: fStore } = found;
+    if (privileges.in(fStore).field(table, f.name) === 'none') return true;
+    const key = `${fStore.name}/${table}/${f.name}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    const t = fStore.schema.tables.find((x) => x.name === table)!;
+    if (f.kind === 'summary') {
+      const of = t.fields.find((x) => x.id === f.summary?.fieldId);
+      return !!of && reachesHidden(fStore, fStore.calc.defaultOccurrence(t) ?? toId, [{ name: of.name }], privileges, seen);
+    }
+    if (!formulaField(f)) return false;
+    if (readsByName(fStore, f.calculation ?? '')) return true;
+    const c = fStore.calc.formula(t, f);
+    return !!c && reachesHidden(fStore, f.calculationContextId ?? fStore.calc.defaultOccurrence(t) ?? toId, c.fields, privileges, seen);
+  });
+}
+
+/** Functions that read a field named in text at run time, so the formula's references do not list it. */
+const BY_NAME = /\b(evaluate|getfield|executesqle?)\s*\(/i;
+
+/** Whether a formula, or a custom function it calls, reads fields by name at run time. */
+function readsByName(store: Store, formula: string, seen = new Set<string>()): boolean {
+  if (BY_NAME.test(formula)) return true;
+  const lower = formula.toLowerCase();
+  return store.schema.customFunctions.some((cf) => {
+    const key = cf.name.toLowerCase();
+    if (seen.has(key) || !new RegExp(`(^|[^\\w])${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\(`).test(lower)) return false;
+    seen.add(key);
+    return readsByName(store, cf.formula ?? '', seen);
+  });
+}
+
+/**
  * Explain a field on one record (or on no record, where only globals have
  * values). The caller has already checked the account may read the record.
  * Pass `privileges` so the check doesn't depend only on the caller remembering
@@ -95,9 +135,11 @@ export function explainField(store: Store, table: Table, field: Field, rec: Rec 
     storage: formulaField(field) || field.kind === 'summary' || field.options?.global ? storageOf(field) : 'data',
     value: '',
   };
-  // With privileges, what the formula reads in another hosted file is what the account may see there (its value, and the
-  // steps over it); the file's own fields are shown as before (their references are withheld below).
-  const pass = calc.newPass(opts.account, opts.privileges?.elsewhereOnly());
+  // An unstored calculation or a global is worked out as a direct read would be, with the account's limits. For any other field, with
+  // privileges, what the formula reads in another hosted file is what the account may see there (its value, and the steps over it);
+  // the file's own fields are shown as before, and its references and steps are worked out again below with the account's limits.
+  const live = field.kind === 'calculation' && !!field.options?.unstored || !!field.options?.global;
+  const pass = calc.newPass(opts.account, live ? opts.privileges : opts.privileges?.elsewhereOnly());
   try {
     out.value = clip(rec || field.options?.global ? asText(calc.value(rec ?? { store, table, row: {} }, field, 1, pass), store.dateOrder) : '');
   } catch (e) {
@@ -125,7 +167,10 @@ export function explainField(store: Store, table: Table, field: Field, rec: Rec 
     out.error = { code: 1200, message: 'The formula could not be read in its context' };
     return out;
   }
-  const ctx = calc.context(rec, toId, pass);
+  // The references and steps of a stored calculation are worked out again on the real values. Whatever the formula reads (a related
+  // record, a function such as ExecuteSQL that reaches another hosted file) must carry the account's limits, or the records and files
+  // it may not view would show here.
+  const ctx = calc.context(rec, toId, opts.privileges && !live ? calc.newPass(opts.account, opts.privileges) : pass);
   out.references = c.fields.map((r) => {
     const name = r.occurrence ? `${r.occurrence}::${r.name}` : r.name;
     const resolved = fieldOf(store, toId, r, opts.privileges);
@@ -151,17 +196,27 @@ export function explainField(store: Store, table: Table, field: Field, rec: Rec 
     }
     return { field: name, type: f.type, kind: f.kind, value: clip(asText(v ?? EMPTY, store.dateOrder)), empty: v === undefined || isEmpty(v) };
   });
-  if (rec && skipWhenEmpty(field, c, ctx, calc.containerRef(toId))) {
+  // A field the account may not read looks empty here, so it can't be said that "every field it reads is empty" when one is hidden.
+  if (rec && !out.references.some((r) => 'hidden' in r && r.hidden) && skipWhenEmpty(field, c, ctx, calc.containerRef(toId))) {
     out.notEvaluated = field.kind === 'calculation'
       ? 'Every field the formula reads is empty and "Do not evaluate if all referenced fields are empty" is on, so the field stays empty.'
       : 'Every field the formula reads is empty and "Do not evaluate if all referenced fields are empty" is on, so the auto-enter calculation doesn\'t run.';
   }
   const ex = explainEvaluation(c, ctx, { maxSteps: opts.maxSteps });
+  // A stored calculation was worked out on all of the record's fields when it was stored. When it may read one the account may not
+  // (a hidden or masked field it names, one a calculation behind it names, or one it reaches by name at run time), the steps above are
+  // worked out without that field, so the stored value stands as the result and no verdict is given on whether it is still current:
+  // that yes or no would depend on the field, and an account that can change what else the formula reads (a global, a related record)
+  // could steer it until the field's value is known.
+  const blind = !!opts.privileges && !live
+    && (out.references.some((r) => 'hidden' in r && r.hidden) || readsByName(store, field.calculation ?? '') || reachesHidden(store, toId, c.fields, opts.privileges!));
   if (ex.error) out.error = ex.error;
+  else if (blind) out.result = out.value;
   else if (ex.value) out.result = clip(asText(ex.value, store.dateOrder));
   if (ex.step) out.steps = ex.step;
   if (ex.truncated) out.truncated = true;
-  if (rec && field.kind === 'calculation' && !field.options?.unstored && !field.options?.global && !out.notEvaluated) {
+  if (blind) (out.notes ??= []).push('Some fields this formula reads are hidden from you, so the steps are worked out without them and can differ from the stored value shown.');
+  if (rec && field.kind === 'calculation' && !field.options?.unstored && !field.options?.global && !out.notEvaluated && !blind) {
     const stored = asText(storedValue(store, rec.row[field.name], field, 1), store.dateOrder);
     out.matchesStored = ex.error ? stored === '?' : clip(stored) === out.result;
     if (!out.matchesStored) (out.notes ??= []).push('The stored value differs from what the formula gives now: it was computed when the record last changed, and something it reads (a related record, a global, the clock) has changed since.');

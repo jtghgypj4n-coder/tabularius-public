@@ -1392,7 +1392,7 @@ export function createMcpServer(host: Host, who: McpIdentity = { admin: true }, 
     if (p) s.get(layout, recordId, 'iso', undefined, p, { fields: [] });
     noteRead(s, layout, [recordId], p);
     try {
-      return redactRelated(explainRelated(s, info, recordId, { portal, field }, { candidate, limit }));
+      return redactRelated(explainRelated(s, info, recordId, { portal, field }, { candidate, limit, privileges: p }));
     } catch (e) {
       if (e instanceof ExplainRelatedError) throw new Error(e.message);
       throw e;
@@ -1705,7 +1705,7 @@ export function createMcpServer(host: Host, who: McpIdentity = { admin: true }, 
     inputSchema: { database: db, id: z.string().optional() },
     annotations: { destructiveHint: true },
   }, async ({ database, id }) => withStore(database, (s, p) =>
-    id ? undoCleanup(s, id, { account: p?.account ?? ('account' in who ? who.account : undefined), privileges: p }) : { history: cleanupHistory(s) }));
+    id ? undoCleanup(s, id, { account: p?.account ?? ('account' in who ? who.account : undefined), privileges: p }) : { history: cleanupHistory(s, { account: p?.account, privileges: p }) }));
 
   server.registerTool('find_stale_calcs', {
     description: 'Stored calculations whose saved value is no longer what the formula gives now, with counts per field (changes nothing). ' +

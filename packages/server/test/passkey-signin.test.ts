@@ -159,3 +159,17 @@ test('another account cannot delete your passkey', { skip }, async () => {
   const own = await json(await api(`passkey/${encodeURIComponent(id)}`, { method: 'DELETE', headers: bearer }));
   assert.equal(own.response.removed, true);
 });
+
+test('registering a passkey with no ceremony in the body is refused as a bad request, not a server error', { skip }, async () => {
+  const bearer = { authorization: `Bearer ${await passwordToken()}`, 'content-type': 'application/json' };
+  for (const body of ['{}', '{"response":null}', '{"response":"x"}', '{"response":[]}', '{"response":{}}', '{"response":{"attestationObject":1,"clientDataJSON":"e30","challenge":"c"}}', '{"response":{"attestationObject":"o","clientDataJSON":{},"challenge":"c"}}', '{"response":{"attestationObject":"o","clientDataJSON":"e30","challenge":5}}']) {
+    const r = await api('passkey/register', { method: 'POST', headers: bearer, body });
+    assert.equal(r.status, 400, body);
+  }
+});
+
+test('registering a passkey with a challenge that was never issued is refused as a bad request, not a server error', { skip }, async () => {
+  const bearer = { authorization: `Bearer ${await passwordToken()}`, 'content-type': 'application/json' };
+  const r = await api('passkey/register', { method: 'POST', headers: bearer, body: JSON.stringify({ response: { attestationObject: 'o', clientDataJSON: 'e30', challenge: 'never-issued' } }) });
+  assert.equal(r.status, 400);
+});
