@@ -283,7 +283,8 @@ export function fontStack(name: string): string {
     // Apple private system fonts (".SF NS Text") map to the platform UI font.
     .map((f) => (f.startsWith('.') ? 'system-ui' : f));
   const quoted = fams.map((f) => (/^[a-z-]+$/i.test(f) && ['serif', 'sans-serif', 'monospace', 'system-ui'].includes(f) ? f : JSON.stringify(f)));
-  const generic = GENERIC[fams[0]?.toLowerCase() ?? ''] ?? 'sans-serif';
+  const first = fams[0]?.toLowerCase() ?? '';
+  const generic = Object.hasOwn(GENERIC, first) ? GENERIC[first] : 'sans-serif';
   if (!quoted.includes(generic)) quoted.push(generic);
   return quoted.join(', ');
 }

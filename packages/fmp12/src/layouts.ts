@@ -656,12 +656,12 @@ export function decodeMergeFields(text: string, name: (to: number, field: number
     const at = 2 + toLen;
     const payload = b.subarray(at + 1, at + 1 + b[at]);
     // A repeating field is stored as [field id byte][repetition byte]; a plain
-    // field as a single length-prefixed id. Try the repeating form first — if
-    // its leading byte names a real field of this occurrence, use it (with its
-    // 1-based repetition) — then fall back to reading the whole payload as one
+    // field as a single length-prefixed id. A repeating field's id is below
+    // 0x80; higher leading bytes begin a multi-byte plain id. Try the repeating
+    // form first when valid, then fall back to reading the whole payload as one
     // id (a large id, or a field of another file named once that file is open;
     // see externalFieldNames).
-    if (payload.length === 2) {
+    if (payload.length === 2 && payload[0] < 0x80) {
       const named = name(to, payload[0]);
       if (named) return `<<${named}${payload[1] > 1 ? `[${payload[1]}]` : ''}>>`;
     }

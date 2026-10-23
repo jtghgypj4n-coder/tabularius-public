@@ -85,7 +85,7 @@ test('native dates use ISO text without reading US dates', () => {
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('native ISO dates validate month lengths and leap years without changing compat parsing', () => {
+test('native ISO and compat dates validate month lengths and leap years', () => {
   for (const bad of ['2026-02-30', '2026-02-29', '1900-02-29', '2100-02-29', '2026-04-31', '2026-00-10', '2026-01-00']) {
     assert.equal(parseDate(bad, 'ISO'), undefined, bad);
     assert.equal(parseTimestamp(`${bad}T12:30:00`, 'ISO'), undefined, bad);
@@ -95,8 +95,8 @@ test('native ISO dates validate month lengths and leap years without changing co
     assert.equal(parseTimestamp(`${good}T12:30:00`, 'ISO'), `${good}T12:30:00`);
   }
   for (const order of ['MDY', 'DMY', 'YMD'] as const) {
-    assert.equal(parseDate('2026-02-30', order), '2026-02-30');
-    assert.equal(parseTimestamp('2026-02-30 12:30:00', order), '2026-02-30T12:30:00');
+    assert.equal(parseDate('2026-02-30', order), undefined);
+    assert.equal(parseTimestamp('2026-02-30 12:30:00', order), undefined);
   }
 });
 

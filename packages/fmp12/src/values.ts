@@ -15,15 +15,19 @@ const TIME_RE = /^(\d{1,2}):(\d{2})(?::(\d{2})(\.\d+)?)?\s*([AaPp][Mm])?$/;
 
 const pad = (n: number, w = 2) => String(n).padStart(w, '0');
 
+function validDate(y: number, mo: number, d: number): boolean {
+  const leap = y % 4 === 0 && (y % 100 !== 0 || y % 400 === 0);
+  const days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  return mo >= 1 && mo <= 12 && d >= 1 && d <= days[mo - 1];
+}
+
 export function parseDate(s: string, format: DateStyle = 'MDY'): string | undefined {
   const order = dateOrderOf(format);
   if (order === 'ISO') {
     const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s.trim());
     if (!iso) return undefined;
     const [y, mo, d] = iso.slice(1).map(Number);
-    const leap = y % 4 === 0 && (y % 100 !== 0 || y % 400 === 0);
-    const days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-    return mo >= 1 && mo <= 12 && d >= 1 && d <= days[mo - 1] ? `${pad(y, 4)}-${pad(mo)}-${pad(d)}` : undefined;
+    return validDate(y, mo, d) ? `${pad(y, 4)}-${pad(mo)}-${pad(d)}` : undefined;
   }
   const m = DATE_RE.exec(s.trim());
   if (!m) return undefined;
@@ -34,8 +38,9 @@ export function parseDate(s: string, format: DateStyle = 'MDY'): string | undefi
   else if (order === 'DMY') [d, mo, y] = [a, b, c];
   else [mo, d, y] = [a, b, c];
   // A two-digit year gets a century; "2026-07-03" has a four-digit one.
+  // How FileMaker reads three-digit years is unverified; keep the existing handling.
   if ((yearFirst ? m[1] : m[3]).length <= 2) y += y < 50 ? 2000 : 1900;
-  if (mo < 1 || mo > 12 || d < 1 || d > 31) return undefined;
+  if (!validDate(y, mo, d)) return undefined;
   return `${pad(y, 4)}-${pad(mo)}-${pad(d)}`;
 }
 
@@ -69,8 +74,10 @@ export function typedValue(text: string, type: FieldType, order: DateStyle = 'MD
   if (text === '') return null;
   switch (type) {
     case 'number': {
-      const n = Number(text.trim().replace(/,/g, ''));
-      return text.trim() !== '' && Number.isFinite(n) ? n : text;
+      const decimal = text.trim().replace(/,/g, '');
+      if (!/^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/.test(decimal)) return text;
+      const n = Number(decimal);
+      return Number.isFinite(n) ? n : text;
     }
     case 'date': return parseDate(text, order) ?? text;
     case 'time': return parseTime(text) ?? text;
