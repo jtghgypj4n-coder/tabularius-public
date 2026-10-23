@@ -19,6 +19,7 @@ import { calendarDialog } from './calendar-dialog.ts';
 import { readUrlState, writeUrlState, writeAddress, addsHistoryEntry, pageTitle, type UrlState } from './url-state.ts';
 import { importTablesDialog } from './import-tables-dialog.ts';
 import { importDialog, importTooLarge, type ImportFound } from './import-dialog.ts';
+import { importResultSummary, importSkippedRows } from './import-result.ts';
 import { LayoutRenderer, containerKind, callWebViewer, answerPageCalls, tellPages, previewStyled, type Host, type Mode, type RowContext } from './layout.ts';
 import { editRuns, formatAt, restyleRange, type TextFormat } from './styled.ts';
 import { LockedError, Locks, Presence, currentLocks, currentViewers, listen, type Change } from './live.ts';
@@ -2653,21 +2654,29 @@ class Session implements Host {
     this.index = 0;
     this.mode = 'browse';
     await this.reload();
-    const skippedCount = r.skippedCount ?? r.skipped.length;
-    const skipped = skippedCount ? `; ${skippedCount} left out` : '';
-    const pending = r.pendingApproval ? `; ${r.pendingApproval} waiting for approval` : '';
-    const updated = r.updated !== undefined ? `Updated ${r.updated} record(s)${r.imported ? ` and added ${r.imported}` : ''}` : `Imported ${r.imported} record(s)`;
     const cantUndo = r.undoable === false ? ' Too many records changed to keep an Undo.' : '';
-    toast(`${r.stopped ? 'Stopped: ' : ''}${updated}${skipped}${pending}.${cantUndo}`, 'info', (r.imported || r.updated) && r.undoable !== false ? {
-      label: 'Undo',
-      run: () => void this.api.undoImport(layout, r.id).then(async (u) => {
+    const undo = () => void this.api.undoImport(layout, r.id).then(async (u) => {
         const made = new Set(r.foundSet.slice(r.updated ?? 0));
         this.ids = this.ids?.filter((id) => !made.has(id));
         await this.reload();
         const back = u.restored !== undefined ? `${u.restored} field value(s) put back` : '';
         toast(`Import undone: ${[`${u.deleted} record(s) deleted`, back].filter(Boolean).join(', ')}${u.kept.length ? `; ${u.kept.length} left because they changed since` : ''}.`, 'info');
-      }).catch((e) => toast(errorText(e))),
-    } : undefined);
+      }).catch((e) => toast(errorText(e)));
+    const showSkipped = () => {
+      const { rows, more } = importSkippedRows(r.skipped);
+      const dialog = h('dialog', { class: 'replace-dialog export-dialog', 'aria-label': 'Left-out import rows' }) as HTMLDialogElement;
+      dialog.append(h('h2', {}, 'Left-out import rows'), h('ol', {}, ...rows.map((item) => h('li', {}, `Row ${item.row}: ${item.why}`))));
+      if (more) dialog.append(h('p', {}, more));
+      const close = button('Close', () => dialog.close());
+      const actions = h('div', { class: 'actions' },
+        (r.imported || r.updated) && r.undoable !== false ? button('Undo import', () => { dialog.close(); undo(); }, { class: 'danger' }) : '', close);
+      dialog.append(actions);
+      document.body.append(dialog);
+      dialog.addEventListener('close', () => dialog.remove(), { once: true });
+      dialog.showModal();
+    };
+    toast(`${importResultSummary(r)}${cantUndo}`, 'info', r.skipped.length ? { label: 'Show left-out rows', run: showSkipped }
+      : (r.imported || r.updated) && r.undoable !== false ? { label: 'Undo', run: undo } : undefined);
   }
 
   /**

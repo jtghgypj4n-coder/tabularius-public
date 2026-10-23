@@ -530,7 +530,7 @@ export function convertRows(store: Store, layout: string, rows: Cell[][], plan: 
       else if (seen.has(k)) row.duplicate = { of: 'file', row: seen.get(k)! };
       else seen.set(k, i + 1);
     }
-    if (keepBlank || Object.keys(values).length) out.push(row);
+    if (keepBlank || Object.keys(values).length || issues.length) out.push(row);
   }
   return out;
 }
@@ -644,6 +644,10 @@ export interface ImportResult {
   skippedCount?: number;
   /** Stop leaves completed records committed and included in this import's Undo journal. */
   stopped?: true;
+  /** Data rows with no mapped values that were not applied. */
+  blankRows?: number;
+  /** The source header row, when the plan treats the first row as column names. */
+  headerRows?: number;
   /** Rows an AI agent imported that wait for a person to approve them (each is its own approval). */
   pendingApproval?: number;
   /** False when the records it changed were too many to keep what they held, so Undo can't take it back. */
@@ -675,6 +679,8 @@ function applyImportRun(store: Store, layout: string, rows: Cell[][], plan: { he
   const target = action === 'add' ? [] : opts.target ?? [];
   // Replace pairs rows with records by position, so a blank row (blanking its record's fields) keeps its place.
   const converted = convertRows(store, layout, rows, { headerRow: plan.headerRow, columns, keys: action === 'add' ? plan.keys ?? [] : [] }, fields, opts.privileges, undefined, action === 'replace');
+  const blankRows = action === 'replace' ? 0 : convertRows(store, layout, rows, { headerRow: plan.headerRow, columns, keys: [] }, fields, opts.privileges, undefined, true)
+    .filter((r) => !Object.keys(r.values).length && !r.issues.length).length;
   const ids: number[] = [];
   const mods: number[] = [];
   const skipped: ImportResult['skipped'] = [];
@@ -696,6 +702,10 @@ function applyImportRun(store: Store, layout: string, rows: Cell[][], plan: { he
     adding = [];
     // A row left out for an issue leaves its record (Replace: the one in its place) as it is.
     const usable = (r: PreviewRow) => {
+      if (!Object.keys(r.values).length && r.issues.length) {
+        skipped.push({ row: r.row, why: r.issues[0] });
+        return false;
+      }
       if (!opts.skipIssues || !r.issues.length) return true;
       skipped.push({ row: r.row, why: r.issues[0] });
       return false;
@@ -737,8 +747,16 @@ function applyImportRun(store: Store, layout: string, rows: Cell[][], plan: { he
       pendingOr(e, r.row);
     }
   }
+  let leftBlankRows = blankRows;
   for (const r of adding) {
-    if (!Object.keys(r.values).length) continue; // a blank row past the found set's end adds nothing
+    if (!Object.keys(r.values).length) {
+      if (r.issues.length) {
+        skipped.push({ row: r.row, why: r.issues[0] });
+        continue;
+      }
+      if (action === 'replace' && !r.issues.length) leftBlankRows++;
+      continue; // a blank row past the found set's end adds nothing
+    }
     if (opts.skipDuplicates && r.duplicate) {
       skipped.push({ row: r.row, why: r.duplicate.of === 'existing' ? `same as record ${r.duplicate.recordId}` : `same as row ${r.duplicate.row}` });
       continue;
@@ -766,6 +784,7 @@ function applyImportRun(store: Store, layout: string, rows: Cell[][], plan: { he
   skipped.sort((x, y) => x.row - y.row);
   return {
     id, foundSet: [...updated, ...ids], imported: ids.length, ...(action === 'add' ? {} : { updated: updated.length }), skipped,
+    ...(leftBlankRows ? { blankRows: leftBlankRows } : {}), ...(plan.headerRow ? { headerRows: 1 } : {}),
     ...(pending ? { pendingApproval: pending } : {}),
     ...(updated.length && overwrite.length && !snaps ? { undoable: false as const } : {}),
   };
@@ -810,12 +829,13 @@ function fileIdentity(store: Store): string {
 export interface ImportRecord { id: string; at: string; account?: string; layout: string; file?: string; imported: number; undone?: string }
 
 /** Import a plain column mapping from a row iterator in bounded batches. */
-export async function importMappedRows(store: Store, layout: string, rows: Iterable<Cell[]>, mapping: (string | undefined)[], opts: { privileges?: Privileges; account?: string; skipFirst?: boolean; signal?: AbortSignal; onProgress?: (completed: number) => void }): Promise<{ foundSet: number[]; imported: number; skipped: number; stopped?: true }> {
+export async function importMappedRows(store: Store, layout: string, rows: Iterable<Cell[]>, mapping: (string | undefined)[], opts: { privileges?: Privileges; account?: string; skipFirst?: boolean; signal?: AbortSignal; onProgress?: (completed: number) => void }): Promise<{ foundSet: number[]; imported: number; skipped: number; stopped?: true; headerRows?: number }> {
   const info = store.layout(layout);
   const types = new Map(info.fields.map((f) => [f.name, f.type]));
   const ids: number[] = [];
   let skipped = 0;
   let first = true;
+  let headerRows = 0;
   let batch: Cell[][] = [];
   let completed = 0;
   const importBatch = () => {
@@ -844,7 +864,7 @@ export async function importMappedRows(store: Store, layout: string, rows: Itera
       const next = cursor.next();
       if (next.done) break;
       const row = next.value;
-      if (first && opts.skipFirst) { first = false; continue; }
+      if (first && opts.skipFirst) { first = false; headerRows++; continue; }
       first = false;
       batch.push(row);
       if (batch.length === 500) {
@@ -854,7 +874,7 @@ export async function importMappedRows(store: Store, layout: string, rows: Itera
     }
   } finally { cursor.return?.(); }
   if (batch.length && !opts.signal?.aborted) importBatch();
-  return { foundSet: ids, imported: ids.length, skipped, ...(opts.signal?.aborted ? { stopped: true as const } : {}) };
+  return { foundSet: ids, imported: ids.length, skipped, ...(opts.signal?.aborted ? { stopped: true as const } : {}), ...(headerRows ? { headerRows } : {}) };
 }
 
 /** Imports kept in the file, newest first. */
