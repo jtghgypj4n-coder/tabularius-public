@@ -42,18 +42,28 @@ function same(a: unknown, b: unknown): boolean {
 }
 
 /**
- * `v` with every renamed name swapped for its new one, as FileMaker itself
- * updates formulas and references when something is renamed: whole strings
- * that are an old name, and old names inside formulas (as whole words).
+ * Follow renamed names in formulas and references, leaving data and option
+ * labels alone. A formula sees the original names once, even when a new name
+ * is also another old name.
  */
 function follow<T>(v: T, renames: [string, string][]): T {
   if (!renames.length) return v;
-  const word = (n: string) => new RegExp(`(?<![\\p{L}\\p{N}_])${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\p{L}\\p{N}_])`, 'gu');
-  const res = renames.map(([from, to]) => [word(from), to] as const);
-  const map = (x: unknown): unknown => {
-    if (typeof x === 'string') return res.reduce((s, [re, to]) => s.replace(re, () => to), x);
-    if (Array.isArray(x)) return x.map(map);
-    if (x && typeof x === 'object') return Object.fromEntries(Object.entries(x).map(([k, y]) => [k, map(y)]));
+  const names = new Map(renames);
+  const oldNames = [...names.keys()].sort((a, b) => b.length - a.length)
+    .map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  const word = new RegExp(`(?<![\\p{L}\\p{N}_])(?:${oldNames.join('|')})(?![\\p{L}\\p{N}_])`, 'gu');
+  const formulaKeys = new Set(['calculation', 'calculations', 'formula', 'text', 'line']);
+  const argumentKeys = new Set(['fieldName', 'layoutCalculation',
+    'scriptCalculation', 'repetitionCalculation', 'errorCode', 'errorMessage', 'parameter', 'value', 'repetition',
+    'find', 'replace', 'viewerUrl', 'jsParameters', 'objectRepetition', 'zoomCalculation', 'selectionStart',
+    'selectionEnd', 'amount', 'input', 'prompt', 'sqlPrompt', 'naturalLanguagePrompt', 'tablesCalculation', 'fields']);
+  const referenceKeys = new Set(['table', 'field', 'layout', 'script', 'valueList', 'occurrence', 'tableOccurrence']);
+  const replace = (value: string) => value.replace(word, (name) => names.get(name) ?? name);
+  const map = (x: unknown, key = '', reference = false, inParams = false): unknown => {
+    if (typeof x === 'string') return formulaKeys.has(key) || referenceKeys.has(key) || (key === 'name' && reference)
+      || (inParams && argumentKeys.has(key)) ? replace(x) : x;
+    if (Array.isArray(x)) return x.map((item) => map(item, key, reference, inParams));
+    if (x && typeof x === 'object') return Object.fromEntries(Object.entries(x).map(([k, y]) => [k, map(y, k, referenceKeys.has(k), inParams || k === 'params')]));
     return x;
   };
   return map(v) as T;

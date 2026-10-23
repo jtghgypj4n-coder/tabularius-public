@@ -188,6 +188,19 @@ test('repeating events become separate occurrences, up to a cap, and the rules n
   assert.ok(hourly.notes.some((n) => /HOURLY repeat is not read/.test(n)));
 });
 
+test('weekly repeats use Monday weeks by default and honor WKST', () => {
+  const dates = (wkst = '') => readCalendar(wrap(`UID:w\nDTSTART:20260105T090000\nRRULE:FREQ=WEEKLY;INTERVAL=2;COUNT=4;BYDAY=MO,SU${wkst}\nSUMMARY:W`))
+    .events.map((e) => (e.start as { floating: string }).floating.slice(0, 10));
+  assert.deepEqual(dates(), ['2026-01-05', '2026-01-11', '2026-01-19', '2026-01-25']);
+  assert.deepEqual(dates(';WKST=SU'), ['2026-01-05', '2026-01-18', '2026-01-19', '2026-02-01']);
+  const everyWeek = readCalendar(wrap('UID:e\nDTSTART:20260105T090000\nRRULE:FREQ=WEEKLY;INTERVAL=1;COUNT=6;BYDAY=MO,WE,FR\nSUMMARY:W'));
+  assert.deepEqual(everyWeek.events.map((e) => (e.start as { floating: string }).floating.slice(0, 10)),
+    ['2026-01-05', '2026-01-07', '2026-01-09', '2026-01-12', '2026-01-14', '2026-01-16']);
+  const invalid = readCalendar(wrap('UID:x\nDTSTART:20260105T090000\nRRULE:FREQ=WEEKLY;COUNT=4;BYDAY=MO,SU;WKST=XX\nSUMMARY:W'));
+  assert.equal(invalid.events.length, 1);
+  assert.ok(invalid.notes.some((note) => /invalid WKST is not read/.test(note)));
+});
+
 test('the reader is bounded: a flood of events stops at the cap', () => {
   const one = 'BEGIN:VEVENT\r\nDTSTART:20260101T090000\r\nSUMMARY:x\r\nEND:VEVENT\r\n';
   const r = readCalendar('BEGIN:VCALENDAR\r\n' + one.repeat(5050) + 'END:VCALENDAR\r\n');

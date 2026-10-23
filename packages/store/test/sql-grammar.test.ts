@@ -41,8 +41,8 @@ after(() => {
   if (dir) rmSync(dir, { recursive: true, force: true });
 });
 
-const run = (query: string, params: (string | number)[] = []) => {
-  const { sql, target } = store.calc.translateSQL(query);
+const run = (query: string, params: (string | number)[] = [], source = store) => {
+  const { sql, target } = source.calc.translateSQL(query);
   return target.select(sql, params, 100);
 };
 const rows = (query: string) => run(query).rows;
@@ -265,8 +265,33 @@ test('OFFSET and FETCH FIRST become LIMIT and OFFSET at the top of the query onl
   assert.throws(() => fetchToLimit('SELECT a FROM t ORDER BY a FETCH FIRST 2 PERCENT ROWS ONLY'), /PERCENT is not supported/);
   assert.throws(() => fetchToLimit('SELECT a FROM t WHERE a IN (SELECT a FROM t FETCH FIRST 2 ROWS ONLY)'), /in a subquery is not supported/);
   assert.throws(() => fetchToLimit('SELECT a FROM t WHERE a IN (SELECT a FROM t OFFSET 1 ROW)'), /in a subquery is not supported/);
+  assert.throws(() => fetchToLimit('SELECT * FROM (SELECT a FROM t OFFSET 1 ROWS) x FETCH FIRST 2 ROWS ONLY'), /subquery/);
+  assert.throws(() => fetchToLimit('SELECT a FROM t OFFSET 1 ROWS WHERE a IN (SELECT a FROM t FETCH FIRST 2 ROWS ONLY)'), /subquery/);
   // A subquery's own text beside a top-level clause: the top-level one still works.
   assert.match(fetchToLimit("SELECT (SELECT 'FETCH FIRST 1 ROW ONLY') FROM t FETCH FIRST 2 ROWS ONLY"), /LIMIT 2 OFFSET 0$/);
+});
+
+test('WITH TIES reuses parameter numbers in its ranking query', () => {
+  const tiedDir = mkdtempSync(join(tmpdir(), 'tabularius-sql-ties-'));
+  try {
+    const path = join(tiedDir, 't.sqlite');
+    createStore(path);
+    const tied = new Store(path, 'T');
+    try {
+      tied.applyDesign([{ op: 'createTable', name: 'W', fields: [{ name: 'N', type: 'number' }] }]);
+      for (const N of [1, 2, 3, 3]) tied.create('W', { N: String(N) });
+      assert.deepEqual(run('SELECT N FROM W WHERE N > ? ORDER BY N FETCH FIRST 2 ROWS WITH TIES', [1], tied).rows, [[2], [3], [3]]);
+      assert.deepEqual(run('SELECT ? AS Marker, N FROM W WHERE N > ? ORDER BY N FETCH FIRST 2 ROWS WITH TIES', [9, 1], tied).rows,
+        [[9, 2], [9, 3], [9, 3]]);
+      assert.deepEqual(run('SELECT N FROM W ORDER BY N FETCH FIRST 3 ROWS WITH TIES', [], tied).rows, [[1], [2], [3], [3]]);
+    } finally {
+      tied.close();
+    }
+  } finally {
+    rmSync(tiedDir, { recursive: true, force: true });
+  }
+  assert.equal(fetchToLimit('SELECT N FROM W ORDER BY N FETCH FIRST 2 ROWS ONLY'),
+    'SELECT N FROM W ORDER BY N   LIMIT 2 OFFSET 0');
 });
 
 test('FETCH FIRST returns the rows asked for', () => {

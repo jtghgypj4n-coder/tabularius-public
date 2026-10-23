@@ -391,13 +391,21 @@ function quantified(sql: string, budget: { left: number; depth: number }, column
  */
 export function fetchToLimit(sql: string): string {
   if (!/\b(?:OFFSET|FETCH)\b/i.test(sql)) return sql;
-  const plain = blanked(sql);
-  const top = blanked(sql, true);
   const offsetRe = /\bOFFSET\s+(\d+)\s+ROWS?\b/gi;
   const fetchRe = /\bFETCH\s+(?:FIRST|NEXT)(?:\s+(\d+))?(\s+PERCENT)?\s+ROWS?\s+(ONLY|WITH\s+TIES)\b/gi;
+  let top = blanked(sql, true);
+  const topFetch = fetchRe.exec(top);
+  fetchRe.lastIndex = 0;
+  if (topFetch && /^WITH/i.test(topFetch[3])) {
+    sql = numberPlainParameters(sql);
+    top = blanked(sql, true);
+  }
+  const plain = blanked(sql);
   const offset = offsetRe.exec(top);
   const first = fetchRe.exec(top);
   // Any in the text that is not at the top of the query is in a subquery.
+  offsetRe.lastIndex = 0;
+  fetchRe.lastIndex = 0;
   const all = [...plain.matchAll(offsetRe), ...plain.matchAll(fetchRe)];
   if (all.length > (offset ? 1 : 0) + (first ? 1 : 0)) throw unsupported('OFFSET and FETCH FIRST in a subquery');
   if (!offset && !first) return sql;
