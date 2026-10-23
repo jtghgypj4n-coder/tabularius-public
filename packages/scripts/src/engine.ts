@@ -19,7 +19,7 @@ import { TEST_ONLY_CUSTOM_FETCH } from './test-only.ts';
 import { sqlMayReadSecret } from './credentials.ts';
 import { DELIMITED_SEPARATORS, parseDelimitedRows, sniffSeparator } from '../../store/src/delimited.ts';
 import { decodeText } from '../../store/src/text-decode.ts';
-import { formulaGuard, stripFormulaGuard } from '../../store/src/csv-export.ts';
+import { formulaGuard, stripFormulaGuard, visibleControls } from '../../store/src/csv-export.ts';
 import { fmpXmlReader } from './fmp-xml-dates.ts';
 import { serialOf, xlsx, type XlsxOutCell } from './xlsx.ts';
 import { executeDataApi } from './data-api-step.ts';
@@ -7489,12 +7489,17 @@ export class ScriptEngine {
         complete('Export Records');
         return;
       }
-      const cell = (v: string, type?: string) => {
-        const one = formulaGuard(v.replace(/\r\n|[\r\n]/g, '\v'), type); // returns in a field export as vertical tabs, as in FileMaker
+      // One field. A control character goes out as visible \uXXXX text (as the web client's export does), a return as a vertical tab
+      // (as in FileMaker), and a value a spreadsheet would take for a formula gets an apostrophe; the group separator between a
+      // repeating field's values is the one control character written as it is.
+      const cell = (parts: string[], type?: string) => {
+        const raw = parts.join(GROUP_SEPARATOR);
+        const guarded = formulaGuard(raw, type).length > raw.length ? "'" : '';
+        const one = guarded + parts.map((v) => visibleControls(v).replace(/\r\n|[\r\n]/g, '\v')).join(GROUP_SEPARATOR);
         const quoted = `"${one.replace(/"/g, '""')}"`;
         // Tab-separated text is written bare; only a value that starts with a quote is quoted, so reading it back
         // does not take that quote for the start of a quoted value.
-        return format === 'TABS' ? (one.startsWith('"') ? quoted : one.replace(/\t/g, ' ')) : quoted;
+        return format === 'TABS' && !one.startsWith('"') ? one : quoted;
       };
       const sep = format === 'TABS' ? '\t' : ',';
       const encoding = p.encoding === 'utf-16' ? 'utf-16' : 'utf-8';
@@ -7505,11 +7510,11 @@ export class ScriptEngine {
         // UTF-16 text starts with a byte order mark, so a program that opens the file (this one's Import Records too) knows its byte order.
         if (encoding === 'utf-16') writeSync(fd, new Uint8Array([0xff, 0xfe]));
         const line = (l: string) => writeSync(fd, encodeText(l + '\r\n', encoding));
-        if (format === 'MRGE') line(refs.map((r) => cell(heading(r), 'text')).join(sep));
+        if (format === 'MRGE') line(refs.map((r) => cell([heading(r)], 'text')).join(sep));
         // Claris: "Values in repeating fields are separated by the group separator character."
         for (const record of records) {
           await this.checkpoint(f);
-          line(record.map((values) => cell(values.map((v) => asText(v, win.store.dateOrder)).join(GROUP_SEPARATOR), values[0]?.type)).join(sep));
+          line(record.map((values) => cell(values.map((v) => asText(v, win.store.dateOrder)), values[0]?.type)).join(sep));
         }
       } finally {
         closeSync(fd);
