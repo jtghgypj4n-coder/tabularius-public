@@ -132,7 +132,7 @@ export interface LayoutObject {
   /** Button bar: the active segment's object id, or a calculation returning its object name. */
   activeSegment?: number;
   activeSegmentFormula?: string;
-  /** Web viewer: its address formula (worked out per record into ViewState.web). */
+  /** Web viewer: its address formula (worked out per record into FormulaState.web). */
   webUrl?: string;
   /** Web Viewer Setup's options. */
   webOptions?: { interaction: boolean; findMode: boolean; progressBar: boolean; statusMessages: boolean; encodeUrl: boolean; jsBridge: boolean };
@@ -308,7 +308,7 @@ export interface RowState {
   active?: Record<string, string>;
 }
 
-export interface ViewState {
+export interface FormulaState {
   hidden: number[];
   tooltips: Record<string, string>;
   placeholders: Record<string, string>;
@@ -356,8 +356,8 @@ export interface RefreshData {
   records: DataRecord[];
   /** Exact related-portal identities requested, including rows now deleted or denied. */
   requestedPortals?: Record<string, Record<string, number[]>>;
-  states: Record<string, ViewState>;
-  find?: ViewState;
+  states: Record<string, FormulaState>;
+  find?: FormulaState;
   foundRows: Record<string, { rows: PortalRow[]; count: number; offset?: number }>;
 }
 

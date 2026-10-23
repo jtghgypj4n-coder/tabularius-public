@@ -5,7 +5,7 @@ import { dataHtml, callWebViewer, webViewerBlank, webViewerChrome, allowedWebAdd
 import { ViewerState, viewerKey, webViewerBridge, viewerMessage, restoreViewer } from '../src/web-viewer.ts';
 import { inlinePage } from '../../server/test/refresh-fixture.ts';
 import { mergeObjectState } from '../src/refresh.ts';
-import type { LayoutObject, ViewState } from '../src/types.ts';
+import type { LayoutObject, FormulaState } from '../src/types.ts';
 
 test('web viewers: data:text/html addresses give their HTML; other addresses give none', () => {
   // A private sample's dashboard: "data:text/html;base64," & Base64EncodeRFC ( 4648 ; App::HTML )
@@ -126,7 +126,7 @@ test('a srcdoc fragment link stays in page A and enters viewer history before Ba
   assert.equal(state.url, address);
   assert.equal(state.hash, '#one');
   // Set Web Viewer refreshes formula output at a checkpoint before applying the command.
-  const old: ViewState = { hidden: [], tooltips: {}, placeholders: {}, web: { 20: address } };
+  const old: FormulaState = { hidden: [], tooltips: {}, placeholders: {}, web: { 20: address } };
   const refreshed = mergeObjectState(old, { ...old, web: { 20: address } }, { id: 20 } as LayoutObject);
   state.address(refreshed.web?.[20]);
   state.apply('Reload');

@@ -7,7 +7,7 @@ import { StyleSheet, elementOf } from './styles.ts';
 import { formatValue } from './format.ts';
 import { editRuns, styledNodes } from './styled.ts';
 import { rotationOf, turnedBox } from './rotation.ts';
-import type { DataFormat, DataRecord, FieldMeta, FieldRef, LayoutMeta, LayoutObject, LayoutPart, PortalRow, Value, ViewState } from './types.ts';
+import type { DataFormat, DataRecord, FieldMeta, FieldRef, LayoutMeta, LayoutObject, LayoutPart, PortalRow, Value, FormulaState } from './types.ts';
 
 export type Mode = 'browse' | 'find';
 
@@ -73,7 +73,7 @@ export interface Host {
   foundCount?: number;
   totalCount?: number;
   /** Results of the layout's formulas for this record: hidden objects, tooltips, placeholders. */
-  state?: ViewState;
+  state?: FormulaState;
   /** Panels chosen in tab and slide controls, kept while moving between records. */
   panels: Map<number, number>;
   /** A field's values in other records starting with `prefix`, for auto-complete. */

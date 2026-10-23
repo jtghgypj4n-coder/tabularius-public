@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mergeObjectState, mergeFieldValues, mergeObjectRecord, refreshMatches, checkpointCache, foundPortalPage, foundPortalRange, mergeFoundObjectRows } from '../src/refresh.ts';
-import type { LayoutObject, DataRecord, ViewState } from '../src/types.ts';
+import type { LayoutObject, DataRecord, FormulaState } from '../src/types.ts';
 
 test('refresh responses reject changed window/layout/record identity', () => {
   const action = { windowId: 'window', layoutId: 1, recordId: 10 };
@@ -25,8 +25,8 @@ test('a repetition patch changes only the selected repetition; absent/zero refre
 
 test('object visibility/format patches clear old state and preserve sibling formulas', () => {
   const object = { id: 1, text: '<<Value>>' } as LayoutObject;
-  const old: ViewState = { hidden: [1, 2], styles: { 1: [0], 2: [1] }, tooltips: { 1: 'old', 2: 'sibling' }, placeholders: {}, web: { 2: 'unchanged' }, merges: { Value: 'old', Sibling: 'untouched' } };
-  const fresh: ViewState = { hidden: [], tooltips: { 1: 'new' }, placeholders: {}, merges: { Value: 'new', Sibling: 'changed' } };
+  const old: FormulaState = { hidden: [1, 2], styles: { 1: [0], 2: [1] }, tooltips: { 1: 'old', 2: 'sibling' }, placeholders: {}, web: { 2: 'unchanged' }, merges: { Value: 'old', Sibling: 'untouched' } };
+  const fresh: FormulaState = { hidden: [], tooltips: { 1: 'new' }, placeholders: {}, merges: { Value: 'new', Sibling: 'changed' } };
   const state = mergeObjectState(old, fresh, object);
   assert.deepEqual(state.hidden, [2]);
   assert.deepEqual(state.styles, { 2: [1] });

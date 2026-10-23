@@ -6,7 +6,7 @@ import type { RecordHistory, RevertResult } from './record-history.ts';
 import { CopyMoved, OfflineCopy, type OfflineKey, type QueuedEdit } from './offline.ts';
 import { classifyWrite, type Write } from './change-relay.ts';
 import type { ImportAction, ImportChoice, ImportFound, ImportPlan, ImportResult } from './import-dialog.ts';
-import type { RefreshData, ChartData, CustomMenu, DataRecord, FindRequest, GroupRun, LayoutMeta, MenuItem, PortalRow, ScriptRun, ScriptsMenuEntry, SortSpec, Value, ViewState } from './types.ts';
+import type { RefreshData, ChartData, CustomMenu, DataRecord, FindRequest, GroupRun, LayoutMeta, MenuItem, PortalRow, ScriptRun, ScriptsMenuEntry, SortSpec, Value, FormulaState } from './types.ts';
 import { BROWSER_NETWORK_WORDS, httpProblem } from './http-problem.ts';
 
 /** A calendar feed as the list shows it (never its address). */
@@ -705,7 +705,7 @@ export class Api {
     return r.standard ? undefined : r.menus;
   }
 
-  async view(layout: string, body: { mode: string; view: string; foundCount: number; totalCount: number; records?: { id: string; number: number }[] }): Promise<{ records?: Record<string, ViewState>; find?: ViewState }> {
+  async view(layout: string, body: { mode: string; view: string; foundCount: number; totalCount: number; records?: { id: string; number: number }[] }): Promise<{ records?: Record<string, FormulaState>; find?: FormulaState }> {
     return this.call('POST', this.app(layout, 'view'), body);
   }
 
