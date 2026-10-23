@@ -537,20 +537,19 @@ test('a summary over an unstored calculation is read as the calculation is, and 
   assert.deepEqual(stored(user), ['2Ann', '2Bob']);
 });
 
-test('the optimization fix that stores a calculation runs the same check as the account that asks for it', async () => {
+test('the optimization fix does not store a calculation that reaches another file through a field it reads, for any account, and says nothing of the data', async () => {
   const uq = field('a');
   const w = field('b');
   assert.equal((await make('Hid', { name: uq, kind: 'calculation', type: 'text', calculation: 'P::Salary', options: { unstored: true } })).status, 200);
   assert.equal((await make('Hid', { name: w, kind: 'calculation', type: 'text', calculation: `${uq} & Key`, options: { unstored: true } })).status, 200);
   const fix = (account: string) => mcp(account, 'optimization_fix', { database: 'UI', fix: 'store-calculation', items: [`Mine::${w}`], confirm: true });
-  const refused = await fix('Hid');
-  assert.equal(refused.error, true, refused.text);
-  noSalary(refused.text);
-  assert.equal(ui.schema.tables.find((t) => t.name === 'Mine')!.fields.find((f) => f.name === w)!.options?.unstored, true);
-  touch();
-  // The account that may read the data file can.
-  const fine = await fix('Both');
-  assert.equal(fine.error, false, fine.text);
-  touch();
-  assert.deepEqual(stored(w), [`${SALARY}Ann`, `${BOBS}Bob`]);
+  // Reading through another calculation is followed to the end: it reads related records, whoever asks.
+  for (const account of ['Hid', 'Both']) {
+    const refused = await fix(account);
+    assert.equal(refused.error, true, refused.text);
+    assert.match(refused.text, /reads related records/);
+    noSalary(refused.text);
+    assert.equal(ui.schema.tables.find((t) => t.name === 'Mine')!.fields.find((f) => f.name === w)!.options?.unstored, true);
+    touch();
+  }
 });
