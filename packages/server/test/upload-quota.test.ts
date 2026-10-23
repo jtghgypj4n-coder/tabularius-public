@@ -30,9 +30,9 @@ test('configured quota counts received bytes through conversion, failure and exp
     import { join } from 'node:path';
     import { PassThrough, Readable } from 'node:stream';
     import { Host } from './packages/server/src/host.ts';
-    import { Uploads, MAX_UPLOAD, MAX_UPLOAD_IN_PROGRESS } from './packages/server/src/uploads.ts';
+    import { Uploads, MAX_UPLOAD, maxUploadInProgress } from './packages/server/src/uploads.ts';
     assert.equal(MAX_UPLOAD, 0);
-    assert.equal(MAX_UPLOAD_IN_PROGRESS, 10);
+    assert.equal(maxUploadInProgress(), 10);
     const dir = mkdtempSync(join(tmpdir(), 'tabularius-upload-quota-env-'));
     try {
       let now = 0;

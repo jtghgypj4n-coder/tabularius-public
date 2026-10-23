@@ -6,6 +6,7 @@ import { auditJsonLine } from '../../store/src/audit-output.ts';
 // tabularius: inspect and convert FileMaker .fmp12 files.
 
 import '../../store/src/legacy-env.ts';
+import { boolean, checkServeSettings, secret } from '../../store/src/settings.ts';
 import { isLoopbackHost, plainHttpRefusal } from './loopback.ts';
 import { availableParallelism, homedir, tmpdir } from 'node:os';
 import { spawn } from 'node:child_process';
@@ -1267,8 +1268,9 @@ function main(argv: string[]): number {
   }
   switch (cmd) {
     case 'serve': {
-      // Encryption at rest: reject a blank setting before starting any hosting work.
-      const encryptionKey = encryptionKeyFromEnv();
+      // Settings that are set to something unusable stop the server here, before anything starts (an empty key is not "no key").
+      checkServeSettings();
+      const encryptionKey = secret('TABULARIUS_ENCRYPTION_KEY');
       const folderProblem = hostFolderProblem(path);
       if (folderProblem) throw new Error(`serve: ${folderProblem}`);
       const publicUrl = flag(args, '--public-url') ?? process.env.TABULARIUS_PUBLIC_URL;
@@ -1304,7 +1306,7 @@ function main(argv: string[]): number {
       } catch (e) {
         throw new Error(`serve: --allow-script-network-to: ${(e as Error).message}`);
       }
-      const listFilesPublicly = bool(args, '--list-files-publicly') || /^(1|true|yes|on)$/i.test(process.env.TABULARIUS_LIST_FILES_PUBLICLY ?? '');
+      const listFilesPublicly = bool(args, '--list-files-publicly') || boolean('TABULARIUS_LIST_FILES_PUBLICLY');
       const appConnections = bool(args, '--allow-app-connections');
       // Webhooks set up in the admin console send nothing until this is given.
       const webhooks = bool(args, '--allow-webhooks');
@@ -1328,7 +1330,7 @@ function main(argv: string[]): number {
       }
       if (acme && tlsCert) throw new Error('serve: --https gets its own certificate; leave out --tls-cert and --tls-key');
       // Plain HTTP beyond this computer sends passwords and session tokens in the clear: refused unless said to be wanted.
-      const allowPlainHttp = bool(args, '--allow-plain-http') || /^(1|true|yes|on)$/i.test(process.env.TABULARIUS_ALLOW_PLAIN_HTTP ?? '');
+      const allowPlainHttp = bool(args, '--allow-plain-http') || boolean('TABULARIUS_ALLOW_PLAIN_HTTP');
       const plainRefusal = plainHttpRefusal({ host: hostname, secure: !!tlsCert || !!acme, allowed: allowPlainHttp });
       if (plainRefusal) throw new Error(`serve: ${plainRefusal}`);
       const mcpAllowedOrigins = mcpOriginsFrom(args);
@@ -1353,8 +1355,8 @@ function main(argv: string[]): number {
       const keepFlag = flag(args, '--keep');
       const keepText = keepFlag ?? process.env.TABULARIUS_BACKUP_KEEP ?? settings.keep ?? 7;
       const keepSource = keepFlag !== undefined ? '--keep' : process.env.TABULARIUS_BACKUP_KEEP !== undefined ? 'TABULARIUS_BACKUP_KEEP' : 'keep in .openhbam-settings.json';
-      if (!Number.isFinite(Number(keepText)) || Number(keepText) < 1) throw new Error(`serve: ${keepSource} is the number of backups to keep, a whole number of 1 or more, not "${keepText}"`);
-      const keep = positiveWholeNumber(keepSource, String(keepText), 7);
+      if (!/^\d+$/.test(String(keepText).trim()) || Number(keepText) < 1) throw new Error(`serve: ${keepSource} is the number of backups to keep, a whole number of 1 or more, not "${keepText}"`);
+      const keep = Number(keepText);
       const dest = flag(args, '--backup-dir') ?? process.env.TABULARIUS_BACKUP_DIR ?? settings.backupDir;
       const backups = bool(args, '--no-backups') || every === 'off' ? undefined : { every: parseInterval(every), keep, dest };
       // Off-site: the backups folder mirrored to S3-compatible storage.
@@ -1371,7 +1373,7 @@ function main(argv: string[]): number {
       const sqlPortFlag = flag(args, '--sql-port');
       const sqlPortText = sqlPortFlag ?? process.env.TABULARIUS_SQL_PORT;
       const sqlPort = sqlPortText === undefined ? undefined : positiveWholeNumber(sqlPortFlag !== undefined ? '--sql-port' : 'TABULARIUS_SQL_PORT', sqlPortText, 0, { min: 0, max: 65535 });
-      const sqlWrites = bool(args, '--sql-writes') || /^(1|true|yes|on)$/i.test(process.env.TABULARIUS_SQL_WRITES ?? '');
+      const sqlWrites = bool(args, '--sql-writes') || boolean('TABULARIUS_SQL_WRITES');
       if (sqlWrites && sqlPort === undefined) throw new Error('serve: --sql-writes lets the SQL port write, so it needs --sql-port (or TABULARIUS_SQL_PORT)');
       // Standby servers follow this one's changes, signing in with this token.
       const { value: replicationToken, file: replicationTokenFile } = tokenOption(args, '--replication-token', '--replication-token-file', process.env.TABULARIUS_REPLICATION_TOKEN, process.env.TABULARIUS_REPLICATION_TOKEN_FILE, 'serve');
@@ -1388,7 +1390,7 @@ function main(argv: string[]): number {
         name: flag(args, '--oidc-name') ?? process.env.TABULARIUS_OIDC_NAME ?? new URL(issuer).hostname,
         clientSecret: process.env.TABULARIUS_OIDC_CLIENT_SECRET,
         groupsClaim: flag(args, '--oidc-groups-claim') ?? process.env.TABULARIUS_OIDC_GROUPS_CLAIM,
-        ...(args.includes('--oidc-trust-email') || /^(?:1|true|yes)$/i.test(process.env.TABULARIUS_OIDC_TRUST_EMAIL ?? '') ? { trustEmail: true } : {}),
+        ...(args.includes('--oidc-trust-email') || boolean('TABULARIUS_OIDC_TRUST_EMAIL', { words: 'strict' }) ? { trustEmail: true } : {}),
         // Data API apps (getoauthurl) people may be sent back to after signing in, besides this server and this computer.
         ...((returns) => returns ? { dataApiReturnUrls: returns.split(',').map((u) => u.trim()).filter(Boolean) } : {})(flag(args, '--oidc-data-api-return-urls') ?? process.env.TABULARIUS_OIDC_DATA_API_RETURN_URLS),
       } : undefined;

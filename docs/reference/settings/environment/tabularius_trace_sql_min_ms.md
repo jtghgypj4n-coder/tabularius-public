@@ -8,6 +8,6 @@ With `TABULARIUS_TRACE_SQL` set, logs only statements that took this many millis
 | Accepted values | Nonnegative milliseconds |
 | Restart needed | Yes; restart the server after changing its environment. |
 | Explained in | [docs/environment-variables.md](../../../environment-variables.md) |
-| Code | [packages/store/src/trace.ts:46](../../../../packages/store/src/trace.ts#L46) |
+| Code | [packages/store/src/trace.ts:45](../../../../packages/store/src/trace.ts#L45) |
 
 [All environment variables](../../../environment-variables.md)

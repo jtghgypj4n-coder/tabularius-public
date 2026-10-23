@@ -1,13 +1,13 @@
 # TABULARIUS_CONVERT_MEMORY
 
-Memory budget for an uploaded file conversion worker, in MB. The memory cap cannot be turned off. Zero, empty or invalid input logs one warning and keeps the 2048 MB default.
+Memory budget for an uploaded file conversion worker, in MB. The memory cap cannot be turned off: zero, empty or a value that is not digits only stops `serve`.
 
 | Setting | Value |
 | --- | --- |
 | Default | 2048 MB |
-| Accepted values | Positive safe whole number of MB, decimal digits only; 0 or invalid uses 2048 |
+| Accepted values | Whole number of MB, 64 or more; 0 and anything that is not digits only stop `serve` (the heap is always capped) |
 | Restart needed | Yes for a running server. |
 | Explained in | [docs/environment-variables.md](../../../environment-variables.md) |
-| Code | [packages/server/src/conversion-limits.ts:6](../../../../packages/server/src/conversion-limits.ts#L6) |
+| Code | [packages/server/src/conversion-limits.ts:7](../../../../packages/server/src/conversion-limits.ts#L7) |
 
 [All environment variables](../../../environment-variables.md)
