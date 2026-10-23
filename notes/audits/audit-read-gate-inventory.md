@@ -176,9 +176,9 @@ The following reasons apply to the exact enumerated expressions in each named fu
 | [packages/cli/src/diagnostics.ts:204](../../packages/cli/src/diagnostics.ts#L204) `designCopy` | `SQLite.all` (204); `SQLite.prepare` (204, 207) | OPERATOR |
 | [packages/cli/src/diagnostics.ts:443](../../packages/cli/src/diagnostics.ts#L443) `diagnostics` | `SQLite.get` (443); `SQLite.prepare` (443, 447); `SQLite.all` (447) | OPERATOR |
 | [packages/cli/src/doctor.ts:139](../../packages/cli/src/doctor.ts#L139) `accountChecks` | `SQLite.all` (139); `SQLite.prepare` (139) | OPERATOR |
-| [packages/cli/src/main.ts:675](../../packages/cli/src/main.ts#L675) `accountsWithPasswordOff` | `SQLite.all` (675); `SQLite.prepare` (675) | OPERATOR |
-| [packages/cli/src/main.ts:704](../../packages/cli/src/main.ts#L704) `hostedRead` | `SQLite.all` (704, 707); `SQLite.prepare` (704, 707); `Store.sql` (704, 707) | OPERATOR |
-| [packages/cli/src/main.ts:2303](../../packages/cli/src/main.ts#L2303) `main` | `Store.orphanContainerReport` (2303); `Store.auditLog` (2766); `SQLite.get` (2982); `SQLite.prepare` (2982) | OPERATOR |
+| [packages/cli/src/main.ts:679](../../packages/cli/src/main.ts#L679) `accountsWithPasswordOff` | `SQLite.all` (679); `SQLite.prepare` (679) | OPERATOR |
+| [packages/cli/src/main.ts:708](../../packages/cli/src/main.ts#L708) `hostedRead` | `SQLite.all` (708, 711); `SQLite.prepare` (708, 711); `Store.sql` (708, 711) | OPERATOR |
+| [packages/cli/src/main.ts:2322](../../packages/cli/src/main.ts#L2322) `main` | `Store.orphanContainerReport` (2322); `Store.auditLog` (2785); `SQLite.get` (3001); `SQLite.prepare` (3001) | OPERATOR |
 | [packages/scripts/src/data-api-step.ts:103](../../packages/scripts/src/data-api-step.ts#L103) `respond` | `Store.get` (103, 130, 139); `Store.find` (104, 116) | SCRIPT |
 | [packages/scripts/src/engine.ts:1940](../../packages/scripts/src/engine.ts#L1940) `ScriptEngine/goToLayout` | `Store.findIds` (1940) | SCRIPT |
 | [packages/scripts/src/engine.ts:2284](../../packages/scripts/src/engine.ts#L2284) `ScriptEngine/foundSet` | `Store.findIds` (2284) | SCRIPT |
@@ -216,10 +216,10 @@ The following reasons apply to the exact enumerated expressions in each named fu
 | [packages/scripts/src/testrun.ts:270](../../packages/scripts/src/testrun.ts#L270) `testScript` | `Store.findIds` (270) | DESIGN |
 | [packages/scripts/src/testrun.ts:306](../../packages/scripts/src/testrun.ts#L306) `recordWith` | `Store.evaluateEach` (306) | DESIGN |
 | [packages/scripts/src/testrun.ts:338](../../packages/scripts/src/testrun.ts#L338) `testRun` | `Store.evaluateEach` (338) | DESIGN |
-| [packages/server/src/admin.ts:977](../../packages/server/src/admin.ts#L977) `Admin/handle` | `Store.externalContainerReport` (977); `Store.orphanContainerReport` (982, 986) | ADMIN |
-| [packages/server/src/admin.ts:2142](../../packages/server/src/admin.ts#L2142) `Admin/audit` | `Store.auditLog` (2142) | ADMIN |
-| [packages/server/src/admin.ts:2225](../../packages/server/src/admin.ts#L2225) `Admin/viewAs` | `Store.find` (2225) | ADMIN |
-| [packages/server/src/admin.ts:2573](../../packages/server/src/admin.ts#L2573) `Admin/status` | `Store.externalContainerCount` (2573) | ADMIN |
+| [packages/server/src/admin.ts:978](../../packages/server/src/admin.ts#L978) `Admin/handle` | `Store.externalContainerReport` (978); `Store.orphanContainerReport` (983, 987) | ADMIN |
+| [packages/server/src/admin.ts:2150](../../packages/server/src/admin.ts#L2150) `Admin/audit` | `Store.auditLog` (2150) | ADMIN |
+| [packages/server/src/admin.ts:2233](../../packages/server/src/admin.ts#L2233) `Admin/viewAs` | `Store.find` (2233) | ADMIN |
+| [packages/server/src/admin.ts:2581](../../packages/server/src/admin.ts#L2581) `Admin/status` | `Store.externalContainerCount` (2581) | ADMIN |
 | [packages/server/src/agent.ts:154](../../packages/server/src/agent.ts#L154) `runStep/visible` | `Store.findIds` (154) | DESIGN |
 | [packages/server/src/agent.ts:162](../../packages/server/src/agent.ts#L162) `runStep` | `Store.findIds` (162); `Store.auditLog` (221) | DESIGN |
 | [packages/server/src/agent.ts:303](../../packages/server/src/agent.ts#L303) `dryRunPlan` | `Store.findIds` (303) | DESIGN |
@@ -912,4 +912,5 @@ The following reasons apply to the exact enumerated expressions in each named fu
 | [packages/store/src/store.ts:1542](../../packages/store/src/store.ts#L1542) `Store/selfContainedCopy` | `Store.sql` (1542); `SQLite.all` (1547); `SQLite.prepare` (1547, 1549, 1550, 1551) | CORE |
 | [packages/store/src/store.ts:6916](../../packages/store/src/store.ts#L6916) `Store/containerReferences` | `SQLite.all` (6916, 6934, 6936, 6942, 6955, 6966, 6980); `SQLite.prepare` (6916, 6934, 6936, 6942, 6955, 6966, 6978, 6980); `Store.sql` (6916, 6934, 6936, 6942, 6955, 6966, 6978, 6980); `SQLite.get` (6978); `Store.row` (6989) | CORE |
 | [packages/store/src/store.ts:7013](../../packages/store/src/store.ts#L7013) `Store/containerIntegrityReport` | `SQLite.all` (7013); `SQLite.prepare` (7013, 7024); `Store.sql` (7013, 7024); `SQLite.get` (7024) | CORE |
+| [packages/server/src/compaction.ts:62](../../packages/server/src/compaction.ts#L62) `compactStore` | `SQLite.get` (62, 63, 76, 83); `SQLite.prepare` (62, 63, 76, 83) | OPERATOR |
 <!-- end generated read-gate inventory -->

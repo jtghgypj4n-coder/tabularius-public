@@ -27,6 +27,7 @@ import { DEFAULT_MAX_REQUEST_BODY_SIZE, requestBodyTooLargeMessage } from '@mode
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { Host } from './host.ts';
+import { COMPACTION_START_DELAY_MS, timedCompactionTick } from './compaction.ts';
 import { ApiError, DataApi, readBody } from './dataapi.ts';
 import { createMcpServer, type McpIdentity } from './mcp.ts';
 import { invalidMessage } from './mcp-conformance.ts';
@@ -157,6 +158,8 @@ export interface ServeOptions {
   dir: string;
   /** Check the pages of every hosted file once the server has started (default true; a damaged file is taken offline). */
   checkFiles?: boolean;
+  /** Run the timed compaction pass (default true; a test whose answers read compaction state turns it off). */
+  compaction?: boolean;
   port?: number;
   hostname?: string;
   /**
@@ -865,6 +868,11 @@ export async function serve(opts: ServeOptions): Promise<{ server: Server; host:
     }, 6 * 60 * 60 * 1000);
     uploadSweepTimer.unref();
     disposers.push(() => clearInterval(uploadSweepTimer));
+    // The first timed pass waits ten minutes after the server starts, so a restart (or a short-lived server) does not compact at once.
+    const compactionNotBefore = Date.now() + COMPACTION_START_DELAY_MS;
+    const compactionTimer = (!link || link.role.leader) && opts.compaction !== false ? setInterval(() => timedCompactionTick(() => host.compactionTick(), compactionNotBefore), 60_000) : undefined;
+    compactionTimer?.unref();
+    if (compactionTimer) disposers.push(() => clearInterval(compactionTimer));
     // Live event streams stay open; closing the server ends them.
     let finishedClosing!: () => void;
     const closing = new Promise<void>((resolve) => { finishedClosing = resolve; });
@@ -876,6 +884,7 @@ export async function serve(opts: ServeOptions): Promise<{ server: Server; host:
       }
       draining = true;
       clearInterval(auditPruning);
+      if (compactionTimer) clearInterval(compactionTimer);
       const auditsStopped = admin.securityAudit.stop();
       void auditsStopped.catch(() => {});
       live.closeAll();

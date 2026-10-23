@@ -21,6 +21,7 @@
   "route GET /tabularius/admin/v1/conversion-guide/{database}": "admin-gap",
   "route POST /tabularius/admin/v1/conversion-guide/{database}": "admin-gap",
   "route GET /tabularius/admin/v1/optimization/{database}": "admin-gap",
+  "route POST /tabularius/admin/v1/optimization/{database}/compact": "admin-gap",
   "route POST /tabularius/admin/v1/optimization/{database}/containers": "admin-gap",
   "route POST /tabularius/admin/v1/optimization/{database}/containers/undo": "admin-gap",
   "route POST /tabularius/admin/v1/optimization/{database}/fix": "admin-gap",

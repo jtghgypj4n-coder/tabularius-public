@@ -27,6 +27,7 @@ import { conversionReport, explainScriptFailure, type ScriptFailure, DEFAULT_MOD
 // optimize's report (kept apart from the busy import line above).
 import { sheetsFromFile, checkSheetNames, sheetNameOf } from '../../server/src/import-sheets.ts';
 import { optimizationReport, openApiDocument, typesFromOpenApi, checkSolution, checkSolutionText, createFeed, importIcs, listFeeds, revokeFeed } from '../../server/src/index.ts';
+import { compactStore } from '../../server/src/compaction.ts';
 import type { SmtpConfig, OidcProvider } from '../../server/src/index.ts';
 import { forgetVault } from '../../server/src/pii.ts';
 import { ServerConfig } from '../../server/src/server-config.ts';
@@ -427,6 +428,9 @@ Hosting (point it at a folder of .fmp12 files; each is converted once):
                                              copy first, so nothing is hosted
                                              --purge-orphans removes unreferenced container rows
                                              and their external files from a hosted folder
+  tabularius compact <folder> [database] [--json]
+                                             Reclaim database and WAL space beside a running server;
+                                             SQLite arbitrates writes. The server's timer normally does this.
   tabularius privileges <folder> <database>  Accounts and privilege sets
       ... show <set>                         A privilege set as JSON
       ... save <set.json>                    Add or replace a privilege set
@@ -2289,6 +2293,21 @@ function main(argv: string[]): number {
       } finally {
         host.close();
       }
+      return 0;
+    }
+    case 'compact': {
+      const host = new Host(path);
+      try {
+        const names = args[0] && !args[0].startsWith('--') ? [args[0]] : host.names();
+        if (!names.length) throw new Error(`compact: no hosted files in ${path}`);
+        const reports = names.map((name) => {
+          const store = host.get(name);
+          if (!store) throw new Error(`compact: no database "${name}" in ${path}; hosted: ${host.names().join(', ')}`);
+          return { name, report: compactStore(store.path) };
+        });
+        if (bool(args, '--json')) console.log(JSON.stringify(reports.length === 1 ? reports[0] : reports, null, 2));
+        else for (const { name, report: r } of reports) console.log(`${name}: ${r.beforeBytes} -> ${r.afterBytes} bytes; WAL ${r.walBeforeBytes} -> ${r.walAfterBytes}; ${r.durationMs} ms (${r.writerWaitMs} ms waiting for a writer); free pages ${r.freePagesBefore} -> ${r.freePagesAfter}`);
+      } finally { void host.close(); }
       return 0;
     }
     case 'optimize': {

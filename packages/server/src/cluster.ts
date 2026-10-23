@@ -296,22 +296,24 @@ export class ClusterLink {
       this.waiting.get(m.rid)?.();
       this.waiting.delete(m.rid);
     } else if (m.t === 'ask') {
-      this.answer(m.q);
-      this.send({ t: 'answer', rid: m.rid });
+      void this.answer(m.q).catch((e) => process.stderr.write(`cluster file action failed: ${(e as Error).message}\n`))
+        .finally(() => this.send({ t: 'answer', rid: m.rid }));
     } else if (m.t === 'tell') {
       this.hear(m.note);
     }
   }
 
-  private answer(q: Question): void {
+  private async answer(q: Question): Promise<void> {
     const host = this.host!;
     if (q.action === 'close') {
+      await host.waitForCompaction(q.name);
       this.api!.endByDb(q.name);
       host.closeFile(q.name);
     } else if (q.action === 'offline') {
       this.api!.endByDb(q.name);
       host.takeOfflineByName(q.name, q.detail ?? 'damaged pages');
     } else if (q.action === 'pause') {
+      await host.waitForCompaction(q.name);
       host.pauseFile(q.name);
     } else if (!host.get(q.name)) {
       if (!host.openFile(q.name)) {
