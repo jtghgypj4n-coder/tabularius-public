@@ -489,6 +489,16 @@ export const ROWS: Row[] = [
       const store = c.source('packages/store/src/store.ts');
       const debug = c.source('packages/server/src/debug.ts');
       return [grep(store, /export const MAX_API_TOKENS_PER_ACCOUNT = (1000);/), grep(store, /export const MAX_PENDING_PER_AGENT = (500);/), grep(debug, /export const MAX_RUNS_PER_SESSION = (3);/)].join(' / ');
+  },
+  {
+    id: 'sign-in-failure-audit', section: 'Limits', setting: 'Failed sign-ins in the security audit',
+    default: 'After the first 1,000, failed sign-ins and lockouts may be at most 80% of a file\'s security events; past that they are not written (a lockout still locks, nothing is removed)',
+    changedBy: '`TABULARIUS_SIGN_IN_FAILURE_AUDIT_SHARE` (0 to 1; 1 for no limit)',
+    risk: 'Past the share the audit has no row for a failure, so the usage report and the failed-burst alert see fewer of them (the access log has them all); without a limit a flood of wrong passwords fills the audit',
+    how: 'read from code', expect: '0.8 / 1000',
+    observe: async (c) => {
+      const code = c.source('packages/store/src/sign-in-failures.ts');
+      return grep(code, /export const SIGN_IN_FAILURE_AUDIT_FLOOR = (1000);/) && /if \(!text\) return (0\.8);/.test(code) ? '0.8 / 1000' : 'changed';
     },
   },
   {
