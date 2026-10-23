@@ -70,8 +70,8 @@ read and write the running script's variables.
 
 ## Behaviour notes
 
-- Numbers are doubles shown to 16 significant digits (FileMaker uses
-  decimals), so `0.1 + 0.2` gives `0.3` and `1/3` gives `0.3333333333333333`.
+- Number representation, precision limits and observed output paths are described
+  in [Numbers and precision](../../docs/numbers-and-precision.md).
 - Text comparison ignores case; `Exact` does not.
 - `and` / `or` stop as soon as the answer is known.
 - Text styles (`TextColor` and friends) return the text unchanged.

@@ -29,6 +29,7 @@
       "pages": [
         "docs/design-mode.md",
         "docs/text-comparison.md",
+        "docs/numbers-and-precision.md",
         "docs/sort-languages.md",
         "docs/web-client.md",
         "docs/walkthrough-recorder.md",
