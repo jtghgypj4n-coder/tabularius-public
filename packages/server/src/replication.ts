@@ -35,6 +35,8 @@ const KEEP_BYTES = 256 * 1024 * 1024;
 const MAX_RESPONSE = 32 * 1024 * 1024;
 const MAX_WAIT = 30;
 export const MAX_CONCURRENT_COPIES = 2;
+/** Maximum pause in WAL shipping for a copy (ms); tests advance the timer without waiting. */
+export const COPY_HOLD_MS = 30_000;
 
 interface Followed {
   run: string;
@@ -170,29 +172,51 @@ export class Replication {
 
   /**
    * The file as it is now, made with SQLite's online backup so users keep
-   * working. The copy may already hold some changes after `seq`; applying
-   * those again is harmless, and once it has applied the ones up to
-   * `x-tabularius-whole-after` the standby's copy is consistent.
+   * working. Flush changes, then hold this file's shipping during the backup:
+   * its shipped position stays at `seq`, and the copy is whole immediately
+   * (`whole-after = seq`). The snapshot may include newer unshipped writes;
+   * those stay together in the WAL for every follower. After 30 seconds shipping resumes and this copy uses the old
+   * estimated whole-after position, reached by replaying the intervening logs.
+   * Equivalent behaviour in other products is unverified.
    */
   private async copy(store: Store, f: Followed, res: ServerResponse): Promise<void> {
     if (res.destroyed) return;
     this.copying++;
     const { run } = f;
-    const from = f.seq;
     const tmp = join(this.host.dir, `.standby-copy-${randomBytes(6).toString('hex')}.tmp`);
+    let release: (() => void) | undefined;
+    const resume = () => {
+      if (!release) return;
+      const done = release;
+      release = undefined;
+      done();
+      this.shipper.ship();
+    };
     try {
-      await store.backup(tmp);
+      this.shipper.ship();
+      if (res.destroyed) return;
+      const from = f.seq;
+      let fallback = false;
+      release = this.shipper.holdForCopy(store, COPY_HOLD_MS, () => { fallback = true; });
+      res.once('close', resume);
+      try {
+        if (res.destroyed) return;
+        await store.backup(tmp);
+      } finally {
+        res.off('close', resume);
+        resume();
+      }
       if (res.destroyed) return;
       if (this.closing || this.host.get(store.name) !== store || this.files.get(store) !== f) {
         res.writeHead(503, { 'content-type': 'application/json', 'cache-control': 'no-store' })
           .end(JSON.stringify({ error: 'the primary changed while copying; retry the copy' }));
         return;
       }
-      // Changes taken while copying may be in it only in part, and later ones over them. Once those are
+      // In the timeout fallback, changes taken while copying may be in it only in part, and later ones over them. Once those are
       // applied it is as the file was when the last was taken; if more changes were made after that, it
       // is whole once the next one, which holds them, is applied too.
-      const pending = existsSync(store.path + '-wal') && statSync(store.path + '-wal').size > 0;
-      const whole = f.seq > from && pending ? f.seq + 1 : f.seq;
+      const pending = fallback && existsSync(store.path + '-wal') && statSync(store.path + '-wal').size > 0;
+      const whole = fallback ? (f.seq > from && pending ? f.seq + 1 : f.seq) : from;
       res.writeHead(200, {
         'content-type': 'application/vnd.sqlite3',
         'content-length': statSync(tmp).size,
@@ -207,6 +231,8 @@ export class Replication {
       if (!res.destroyed && !res.headersSent) res.writeHead(500, { 'content-type': 'application/json' }).end(JSON.stringify({ error: (e as Error).message }));
       else res.destroy();
     } finally {
+      res.off('close', resume);
+      resume();
       this.copying--;
       rmSync(tmp, { force: true });
     }
