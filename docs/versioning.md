@@ -20,7 +20,7 @@ To change the version, run `npm version 0.2.0 --workspaces --include-workspace-r
 
 - The number is `0.MINOR.PATCH`. While the major number is 0, a minor version (0.2.0) may change anything in the list "What may change" below. A patch version (0.2.1) fixes bugs and changes nothing in the list "What stays put".
 - 0.x does not mean unfinished or untested. It means the promises below are the only promises. Where the program differs from FileMaker, or has not been checked against it, [known differences](known-differences.md) says so.
-- Moving to 1.0 is the owner's decision, not made yet; see "Not decided yet".
+- The first public version is 0.1.0. Moving to 1.0 is the owner's decision and is not made yet.
 
 ## What stays put
 
@@ -58,7 +58,7 @@ Anything else is untested: other Linux or BSD systems, Windows for the suite or 
 
 ## Security fixes
 
-Report a vulnerability as [SECURITY.md](../SECURITY.md) says. A fix is made in the next release, and its release notes list it under "Security and accounts". There is no separate advisory list or mailing list yet; see "Not decided yet".
+Report a vulnerability as [SECURITY.md](../SECURITY.md) says. A fix is made in the next release, and its release notes list it under "Security and accounts". For a real vulnerability a GitHub security advisory is published as well. There is no mailing list.
 
 ## Release notes
 
@@ -77,7 +77,5 @@ The first draft of `CHANGELOG.md` is made this way and kept for the owner to app
 
 These are for the owner. Until they are decided, this page says only what is true today.
 
-- **The label of the first public version**: 0.1.0 as it is, another 0.x, or 1.0.
-- **How a security fix is announced**: only in the release notes, or also an advisory on the repository, or a mailing list.
 - **How long a deprecated command, option or route keeps working**: this page says "at least one minor version" where it is possible.
 - **Whether an older version should open a file a newer one made**, or refuse it with a message.
