@@ -75,7 +75,7 @@ export const PluginManifest = z.object({
   if (!apiSatisfied(m.api)) ctx.addIssue({ code: 'custom', path: ['api'], message: `needs plug-in API ${m.api}, and this Tabularius offers ${HOST_API}` });
   const seen = new Set<string>();
   for (const f of m.functions) {
-    for (const key of [f.name.toLowerCase(), ...(f.owner ? [`${f.owner}:${f.index}`] : [])]) {
+    for (const key of [f.name.toLowerCase(), ...(f.owner ? [`${f.owner.toLowerCase()}:${f.index}`] : [])]) {
       if (seen.has(key)) ctx.addIssue({ code: 'custom', message: `${key} is provided twice` });
       seen.add(key);
     }

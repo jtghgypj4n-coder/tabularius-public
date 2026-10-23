@@ -29,7 +29,8 @@ const offPath = (dataDir: string) => join(dataDir, 'plugins', 'builtin-off.json'
 
 function readOff(dataDir: string): Record<string, string[]> {
   if (!existsSync(offPath(dataDir))) return {};
-  const raw = readJsonStateSync<Record<string, unknown>>(offPath(dataDir));
+  const raw = readJsonStateSync<unknown>(offPath(dataDir));
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('plugins/builtin-off.json is not a list of file names to plug-in ids');
   return Object.fromEntries(Object.entries(raw).map(([file, ids]) => [file, Array.isArray(ids) ? ids.map(String) : []]));
 }
 
@@ -38,14 +39,15 @@ const enabledPath = (dataDir: string) => join(dataDir, 'plugins', 'enabled.json'
 function readEnabled(dataDir: string): Record<string, string[]> {
   const path = enabledPath(dataDir);
   if (!existsSync(path)) return {};
-  const raw = readJsonStateSync<Record<string, unknown>>(path);
+  const raw = readJsonStateSync<unknown>(path);
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) throw new Error('plugins/enabled.json is not a list of file names to plug-in ids');
   return Object.fromEntries(Object.entries(raw).map(([file, ids]) => [file, Array.isArray(ids) ? ids.map(String) : []]));
 }
 
 function load(dataDir: string): { registry: PluginRegistry; problems: string[] } {
   const registry = new PluginRegistry();
   const problems: string[] = [];
-  loadPlugins(registry, dataDir, (msg) => { if (/ not (installed|enabled|read)/.test(msg)) problems.push(msg); });
+  loadPlugins(registry, dataDir, (msg) => { if (/ not (installed|enabled|read|turned off)| is not a list of file names to plug-in ids/.test(msg)) problems.push(msg); });
   return { registry, problems };
 }
 
