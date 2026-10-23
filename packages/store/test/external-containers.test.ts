@@ -318,6 +318,16 @@ test('a file written to external storage inside a refused foreign-key step is re
     assert.equal(existsSync(join(at, 'alone.pdf')), false);
     assert.equal(store.containerId('Items', id, 'Doc'), undefined);
 
+    // A file that can't be removed neither hides the refusal nor keeps the others from being removed.
+    const warn = console.warn;
+    const warned: unknown[][] = [];
+    console.warn = (...args: unknown[]) => { warned.push(args); };
+    try {
+      refused('stuck.pdf', () => { (store as unknown as { keyFiles: (() => void)[] }).keyFiles.push(() => { throw new Error('EACCES'); }); });
+    } finally { console.warn = warn; }
+    assert.equal(existsSync(join(at, 'stuck.pdf')), false);
+    assert.equal(warned.length, 1);
+
     // In a transaction that goes on to commit, only the step's file goes; a file written before it stays, and so does one after.
     const tx: Transaction = { files: new Map() };
     writer.run({ transaction: { open: tx } }, () => {
