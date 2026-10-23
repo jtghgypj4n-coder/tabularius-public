@@ -1028,8 +1028,8 @@ functions natively and never load a plug-in:
 - **Same rules.** The script follows the same network rules as the caller.
 
 **Connections.** The admin console's Connections page keeps the outside services
-your solutions use, by name: S3-compatible storage (Amazon S3, Cloudflare R2,
-Backblaze B2, MinIO, Wasabi), web APIs (REST, signed in with a bearer token,
+your solutions use, by name: S3-compatible storage (the tests use a fake S3
+server; real services are expected to work and are not tested), web APIs (REST, signed in with a bearer token,
 basic sign-in, an API-key header or OAuth 2 client credentials) and an outgoing
 mail account (SMTP). Add one with its settings (for storage: bucket, region,
 endpoint and a folder to stay inside), type the secrets into their own boxes,
@@ -1272,7 +1272,7 @@ keep the hosted folder on an encrypted disk (FileVault on macOS, BitLocker on
 Windows, LUKS on Linux) for defence in depth.
 
 **Off-site backups.** Copy the backups folder to any S3-compatible storage
-(Amazon S3, Cloudflare R2, Backblaze B2, MinIO, Wasabi) after each backup
+(the tests use a fake S3 server; real services are expected to work and are not tested) after each backup
 and every few minutes for point-in-time changes. Sets pruned locally are
 removed there too, and with `TABULARIUS_BACKUP_KEY` set only encrypted files
 leave the machine:
