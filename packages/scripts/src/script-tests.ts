@@ -84,6 +84,8 @@ interface Ran {
 
 /** One record a run created, changed or deleted, with each field's value before and after. */
 export interface RecordChange {
+  /** Source file when a run includes more than one file. */
+  file?: string;
   table: string;
   recordId: number;
   kind: 'create' | 'update' | 'delete';
@@ -95,7 +97,7 @@ export interface RecordChanges {
   /** More records changed than are listed. */
   more: number;
   /** Tables emptied all at once (Truncate Table), with how many records each had. */
-  truncated: { table: string; records: number }[];
+  truncated: { file?: string; table: string; records: number }[];
   /** The run changed so much that its earliest changes alone were read: what's listed is not all of it. */
   incomplete?: boolean;
 }
@@ -259,8 +261,22 @@ async function runCase(store: Store, script: Script, given: ScriptTestGiven, wan
     } : undefined;
     if (opts.diff) {
       // Every file the run could open: their changes are part of what it would do.
-      const read = [store, ...(opts.others ?? [])].map((s, i) => s.auditLog({ afterSeq: i ? othersSince[i - 1] : since, limit: DIFF_ENTRIES }));
-      const changes = recordChanges(read.flat(), opts.compare ? Infinity : undefined, undefined, !opts.compare);
+      const files = [store, ...(opts.others ?? [])];
+      const read = files.map((s, i) => s.auditLog({ afterSeq: i ? othersSince[i - 1] : since, limit: DIFF_ENTRIES }));
+      let changes: RecordChanges;
+      if (files.length === 1) changes = recordChanges(read[0], opts.compare ? Infinity : undefined, undefined, !opts.compare);
+      else {
+        const perFile = read.map((entries, i) => {
+          const result = recordChanges(entries, Infinity, undefined, !opts.compare);
+          return {
+            records: result.records.map((r) => ({ ...r, file: files[i].name })),
+            truncated: result.truncated.map((t) => ({ ...t, file: files[i].name })),
+          };
+        });
+        const records = perFile.flatMap((x) => x.records);
+        const limit = opts.compare ? Infinity : DIFF_RECORDS;
+        changes = { records: records.slice(0, limit), more: Math.max(0, records.length - limit), truncated: perFile.flatMap((x) => x.truncated) };
+      }
       return { r, ended, ...(state ? { state } : {}), changes: read.some((x) => x.length >= DIFF_ENTRIES) ? { ...changes, incomplete: true } : changes };
     }
     return { r, ended, ...(state ? { state } : {}) };
@@ -372,9 +388,10 @@ export function draftCases(store: Store, scriptId: number, tests: ScriptTest[], 
 const CLOCK = /^(creation|modification)(Date|Time|Timestamp)$/;
 
 /** The records a run changed, as text to compare (in no particular order, and without the fields the clock fills in). */
-const changeText = (store: Store, c: RecordChanges) => {
-  const clock = (table: string, field: string) => CLOCK.test(String(store.schema.tables.find((t) => t.name === table)?.fields.find((f) => f.name === field)?.options?.autoEnter?.value ?? ''));
-  return JSON.stringify(c.records.map((r) => [r.table, r.recordId, r.kind, r.fields.filter((f) => !clock(r.table, f.field)).map((f) => [f.field, f.before, f.after])])
+const changeText = (store: Store, c: RecordChanges, others: Store[] = []) => {
+  const files = [store, ...others];
+  const clock = (file: string | undefined, table: string, field: string) => CLOCK.test(String((files.find((s) => s.name === file) ?? store).schema.tables.find((t) => t.name === table)?.fields.find((f) => f.name === field)?.options?.autoEnter?.value ?? ''));
+  return JSON.stringify(c.records.map((r) => [...(r.file === undefined ? [] : [r.file]), r.table, r.recordId, r.kind, r.fields.filter((f) => !clock(r.file, r.table, f.field)).map((f) => [f.field, f.before, f.after])])
     .map((x) => JSON.stringify(x)).sort().concat(JSON.stringify([c.more, c.truncated])));
 };
 
@@ -392,7 +409,7 @@ export async function compareScriptDraft(store: Store, scriptId: number, draft: 
     const ran = await runCase(store, script, given, {}, { ...opts, diff: true, compare: true });
     if (ran.crash) return { crash: ran.crash };
     if (ran.changes?.incomplete) return { crash: 'It changed more records than can be compared' };
-    return { ended: ran.ended, state: ran.state ?? {}, changes: changeText(store, ran.changes!) };
+    return { ended: ran.ended, state: ran.state ?? {}, changes: changeText(store, ran.changes!, opts.others) };
   };
   const own = tests.filter((t) => t.script === scriptId);
   const was: Awaited<ReturnType<typeof run>>[] = [];

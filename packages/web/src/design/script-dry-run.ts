@@ -16,7 +16,7 @@ export function dryRunPanel(studio: Studio, script: { id: number; name: string }
   const draw = (r: ScriptDryRun) => {
     summary.textContent = dryRunSummary(r);
     out.replaceChildren(...r.changes.records.map((rec) => h('section', { class: `dr-record dr-${rec.kind}` },
-      h('h4', {}, `${rec.table} record ${rec.recordId}`, h('span', { class: 'dr-kind' }, rec.kind === 'create' ? 'new' : rec.kind === 'delete' ? 'deleted' : 'changed')),
+      h('h4', {}, `${rec.file ? `${rec.file} / ` : ''}${rec.table} record ${rec.recordId}`, h('span', { class: 'dr-kind' }, rec.kind === 'create' ? 'new' : rec.kind === 'delete' ? 'deleted' : 'changed')),
       rec.fields.length ? h('table', { class: 'dr-fields' },
         h('thead', {}, h('tr', {}, h('th', { scope: 'col' }, 'Field'), ...(rec.kind !== 'create' ? [h('th', { scope: 'col' }, 'Before')] : []), ...(rec.kind !== 'delete' ? [h('th', { scope: 'col' }, 'After')] : []))),
         h('tbody', {}, ...rec.fields.map((f) => h('tr', {}, h('th', { scope: 'row' }, f.field),

@@ -495,7 +495,7 @@ export class DesignApi {
           create: count(dry, 'create'), update: count(dry, 'update'), delete: count(dry, 'delete'),
           // Past the records listed, and tables emptied whole: so "changes no records" is never said of either.
           ...(dry.changes.more ? { more: dry.changes.more } : {}),
-          ...(dry.changes.truncated.length ? { emptied: dry.changes.truncated.map((t) => `${t.table} (${t.records})`) } : {}),
+          ...(dry.changes.truncated.length ? { emptied: dry.changes.truncated.map((t) => `${t.file ? `${t.file} / ` : ''}${t.table} (${t.records})`) } : {}),
         } } : {}),
       });
     }

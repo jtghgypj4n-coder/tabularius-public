@@ -37,34 +37,40 @@ function callsIn(formula: string): Set<string> | undefined {
   }
 }
 
-const byFile = new WeakMap<Schema, Map<string, boolean>>();
+type LocateResult = { found: boolean; cycle: boolean };
+const byFile = new WeakMap<Schema, { formulas: string; known: Map<string, { formula: string; found: boolean }> }>();
 
 /** Whether a custom function calls Location, itself or through other custom functions. */
-function functionLocates(schema: Schema, name: string, seen: Set<string>): boolean {
-  let known = byFile.get(schema);
-  if (!known) byFile.set(schema, known = new Map());
+function functionLocates(schema: Schema, name: string, seen: Set<string>): LocateResult {
+  const known = byFile.get(schema)?.known;
   const key = name.toLowerCase();
-  const hit = known.get(key);
-  if (hit !== undefined) return hit;
-  if (seen.has(key)) return false; // recursion: the other calls decide
+  if (seen.has(key)) return { found: false, cycle: true }; // recursion: the other calls decide
   const fn = schema.customFunctions.find((c) => c.name.toLowerCase() === key);
-  if (!fn?.formula) return false;
+  if (!fn?.formula) return { found: false, cycle: false };
+  const hit = known?.get(key);
+  if (hit?.formula === fn.formula) return { found: hit.found, cycle: false };
   seen.add(key);
-  const found = formulaLocates(schema, fn.formula, seen);
-  known.set(key, found);
-  return found;
+  const result = formulaLocates(schema, fn.formula, seen);
+  seen.delete(key);
+  if (result.found || !result.cycle) known?.set(key, { formula: fn.formula, found: result.found });
+  return result;
 }
 
-function formulaLocates(schema: Schema, formula: string, seen = new Set<string>()): boolean {
+function formulaLocates(schema: Schema, formula: string, seen = new Set<string>()): LocateResult {
   const names = callsIn(formula);
-  if (!names) return TEXT_CALL.test(withoutStrings(formula));
+  if (!names) return { found: TEXT_CALL.test(withoutStrings(formula)), cycle: false };
+  let cycle = false;
   for (const n of names) {
-    if (WANTED.has(n)) return true;
+    if (WANTED.has(n)) return { found: true, cycle: false };
     // Evaluate builds a formula from text, so its quoted text counts too.
-    if (n === 'evaluate' && TEXT_CALL.test(formula)) return true;
-    if (schema.customFunctions.length && functionLocates(schema, n.replace(/^@/, ''), seen)) return true;
+    if (n === 'evaluate' && TEXT_CALL.test(formula)) return { found: true, cycle: false };
+    if (schema.customFunctions.length) {
+      const result = functionLocates(schema, n.replace(/^@/, ''), seen);
+      if (result.found) return result;
+      cycle ||= result.cycle;
+    }
   }
-  return false;
+  return { found: false, cycle };
 }
 
 /** Every text in a step's parameters, however deep. */
@@ -79,12 +85,18 @@ const bySteps = new WeakMap<ScriptStep, boolean>();
 
 /** Whether a step's calculations call Location or LocationValues (directly, through a custom function, or in Evaluate's text). */
 export function stepLocates(step: ScriptStep, schema: Schema): boolean {
-  let v = bySteps.get(step);
+  const custom = schema.customFunctions.length > 0;
+  if (custom) {
+    const formulas = JSON.stringify(schema.customFunctions.map((fn) => [fn.name.toLowerCase(), fn.formula]));
+    const cached = byFile.get(schema);
+    if (!cached || cached.formulas !== formulas) byFile.set(schema, { formulas, known: new Map() });
+  }
+  let v = custom ? undefined : bySteps.get(step);
   if (v === undefined) {
     // Most steps mention neither, and nothing they call can either, unless a custom function does.
     const all = step.params ? texts(step.params, []) : [];
-    v = all.some((t) => (TEXT_CALL.test(t) || schema.customFunctions.length > 0) && formulaLocates(schema, t));
-    bySteps.set(step, v);
+    v = all.some((t) => (TEXT_CALL.test(t) || custom) && formulaLocates(schema, t).found);
+    if (!custom) bySteps.set(step, v);
   }
   return v;
 }

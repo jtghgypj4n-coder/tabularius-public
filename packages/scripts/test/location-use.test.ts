@@ -31,6 +31,34 @@ test('custom functions that call Location are followed, through other functions 
   assert.equal(stepLocates(step({ value: 'Greeting' }), s), false);
 });
 
+test('a cycle does not cache a false result for a reachable custom function', () => {
+  const s = schema([
+    { name: 'A', formula: 'B ( 1 ) + C ( 1 )' },
+    { name: 'B', formula: 'A ( 1 )' },
+    { name: 'C', formula: 'Location ( 1 )' },
+  ]);
+  assert.equal(stepLocates(step({ value: 'A ( 1 )' }), s), true);
+  assert.equal(stepLocates(step({ value: 'B ( 1 )' }), s), true);
+});
+
+test('editing a custom function invalidates both function and step results', () => {
+  const s = schema([{ name: 'Where', formula: '"nowhere"' }]);
+  const call = step({ variable: '$x', value: 'Where' });
+  assert.equal(stepLocates(call, s), false);
+  s.customFunctions[0].formula = 'Location ( 1 )';
+  assert.equal(stepLocates(call, s), true);
+  s.customFunctions[0].formula = '"nowhere"';
+  assert.equal(stepLocates(call, s), false);
+});
+
+test('editing a called custom function invalidates its caller', () => {
+  const s = schema([{ name: 'Outer', formula: 'Inner ( 1 )' }, { name: 'Inner', formula: '"nowhere"' }]);
+  const call = step({ value: 'Outer ( 1 )' });
+  assert.equal(stepLocates(call, s), false);
+  s.customFunctions[1].formula = 'Location ( 1 )';
+  assert.equal(stepLocates(call, s), true);
+});
+
 test('Evaluate of text that names Location asks, as the text becomes a call', () => {
   assert.equal(stepLocates(step({ value: 'Evaluate ( "Location ( 10 ; 5 )" )' }), schema()), true);
 });

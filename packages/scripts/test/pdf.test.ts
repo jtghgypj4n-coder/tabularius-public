@@ -56,6 +56,88 @@ function png(): Buffer {
   return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk('IHDR', ihdr), chunk('IDAT', deflateSync(row)), chunk('IEND', Buffer.alloc(0))]);
 }
 
+function testPng(width: number, height: number, depth: 8 | 16, type: 0 | 2 | 3 | 4 | 6, interlace: boolean): Buffer {
+  const chunk = (kind: string, data: Buffer) => {
+    const body = Buffer.concat([Buffer.from(kind), data]);
+    const len = Buffer.alloc(4), crc = Buffer.alloc(4);
+    len.writeUInt32BE(data.length);
+    crc.writeUInt32BE(crc32(body));
+    return Buffer.concat([len, body, crc]);
+  };
+  const channels = { 0: 1, 2: 3, 3: 1, 4: 2, 6: 4 }[type];
+  const sample = (x: number, y: number) => Buffer.from(Array.from({ length: channels }, (_, c) => (x * 37 + y * 61 + c * 53) & 255)
+    .flatMap((v) => depth === 16 ? [v, 7] : [v]));
+  const passes = interlace ? [[0, 0, 8, 8], [4, 0, 8, 8], [0, 4, 4, 8], [2, 0, 4, 4], [0, 2, 2, 4], [1, 0, 2, 2], [0, 1, 1, 2]] : [[0, 0, 1, 1]];
+  const rows: Buffer[] = [];
+  for (const [x0, y0, dx, dy] of passes) {
+    if (x0 >= width || y0 >= height) continue;
+    for (let y = y0; y < height; y += dy) {
+      const pixels: Buffer[] = [];
+      for (let x = x0; x < width; x += dx) pixels.push(sample(x, y));
+      const raw = Buffer.concat(pixels);
+      if (interlace) {
+        const filtered = Buffer.alloc(raw.length);
+        const bpp = channels * (depth === 16 ? 2 : 1);
+        for (let i = 0; i < raw.length; i++) filtered[i] = (raw[i] - (i >= bpp ? raw[i - bpp] : 0)) & 255;
+        rows.push(Buffer.from([1]), filtered);
+      } else rows.push(Buffer.from([0]), raw);
+    }
+  }
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width);
+  ihdr.writeUInt32BE(height, 4);
+  ihdr[8] = depth; ihdr[9] = type; ihdr[12] = Number(interlace);
+  return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ihdr),
+    ...(type === 3 ? [chunk('PLTE', Buffer.from([0, 0, 0, 255, 0, 0, 0, 255, 0]))] : []),
+    chunk('IDAT', deflateSync(Buffer.concat(rows))), chunk('IEND', Buffer.alloc(0))]);
+}
+
+test('PDF: truncated PNG is skipped and the rest of the PDF is written', () => {
+  const bad = testPng(1, 1, 8, 2, false).subarray(0, 8 + 8 + 7);
+  assert.equal(readImage(bad), undefined);
+  const badLength = Buffer.from(testPng(1, 1, 8, 2, false));
+  badLength.writeUInt32BE(0xffff_ffff, 8);
+  assert.equal(readImage(badLength), undefined);
+  const badPixels = Buffer.from(testPng(1, 1, 8, 2, false));
+  badPixels[8 + 25 + 8] = 0; // corrupt the compressed IDAT stream
+  assert.equal(readImage(badPixels), undefined);
+  const result = pdf([{ width: 100, height: 100, ops: [{ kind: 'image', left: 0, top: 0, width: 10, height: 10, data: bad }] }]);
+  assert.equal([...objects(result).values()].filter((o) => /Subtype \/Image/.test(o.dict)).length, 0);
+});
+
+test('PDF: Adam7 PNG pixels match ordinary PNG pixels for supported color types', () => {
+  for (const type of [0, 2, 3, 4, 6] as const) {
+    const plain = readImage(testPng(9, 9, 8, type, false))!;
+    const adam7 = readImage(testPng(9, 9, 8, type, true))!;
+    assert.ok(adam7, `type ${type}`);
+    assert.deepEqual(inflateSync(adam7.data), inflateSync(plain.data), `color, type ${type}`);
+    if (plain.mask) assert.deepEqual(inflateSync(adam7.mask!.data), inflateSync(plain.mask.data), `alpha, type ${type}`);
+  }
+});
+
+test('PDF: 16-bit PNG alpha uses the high byte, including Adam7 images', () => {
+  for (const type of [4, 6] as const) {
+    const high = readImage(testPng(9, 9, 8, type, false))!;
+    for (const interlace of [false, true]) {
+      const image = readImage(testPng(9, 9, 16, type, interlace))!;
+      assert.ok(image, `type ${type}, interlace ${interlace}`);
+      assert.deepEqual(inflateSync(image.data), inflateSync(high.data));
+      assert.deepEqual(inflateSync(image.mask!.data), inflateSync(high.mask!.data));
+    }
+  }
+});
+
+test('PDF: PNG tRNS transparency remains unsupported', () => {
+  const base = testPng(2, 2, 8, 3, false);
+  const body = Buffer.concat([Buffer.from('tRNS'), Buffer.from([0, 255, 0])]);
+  const length = Buffer.alloc(4), checksum = Buffer.alloc(4);
+  length.writeUInt32BE(3);
+  checksum.writeUInt32BE(crc32(body));
+  const at = 8 + 25 + 21; // signature, IHDR and the three-color PLTE
+  const transparent = Buffer.concat([base.subarray(0, at), length, body, checksum, base.subarray(at)]);
+  assert.equal(readImage(transparent), undefined);
+});
+
 test('PDF: shapes, text and images make a valid file', () => {
   const b = pdf([{
     width: 612, height: 792, ops: [

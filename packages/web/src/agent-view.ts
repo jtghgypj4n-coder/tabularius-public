@@ -13,7 +13,7 @@ export interface AgentPlan {
   steps: { kind: string; why?: string }[];
 }
 
-interface RecordChange { table: string; recordId: number; kind: 'create' | 'update' | 'delete'; fields: { field: string; before: string; after: string }[] }
+interface RecordChange { file?: string; table: string; recordId: number; kind: 'create' | 'update' | 'delete'; fields: { field: string; before: string; after: string }[] }
 interface StepResult {
   step: number;
   outcome: 'ok' | 'error';
@@ -43,8 +43,8 @@ function changesTable(r: StepResult): HTMLElement | undefined {
     h('div', { class: 'dash-scroll' }, h('table', { class: 'dash-table' },
       h('thead', {}, h('tr', {}, h('th', {}, 'Record'), h('th', {}, 'Field'), h('th', {}, 'Before'), h('th', {}, 'After'))),
       h('tbody', {}, ...rows.flatMap((c) => c.kind === 'update'
-        ? c.fields.map((f) => h('tr', {}, h('td', {}, `${c.table} ${c.recordId}`), h('td', {}, f.field), h('td', {}, f.before || '–'), h('td', {}, f.after || '–')))
-        : [h('tr', {}, h('td', {}, `${c.table} ${c.recordId}`), h('td', { colspan: '3' }, c.kind === 'create' ? 'made' : 'deleted'))])))),
+        ? c.fields.map((f) => h('tr', {}, h('td', {}, `${c.file ? `${c.file} / ` : ''}${c.table} ${c.recordId}`), h('td', {}, f.field), h('td', {}, f.before || '–'), h('td', {}, f.after || '–')))
+        : [h('tr', {}, h('td', {}, `${c.file ? `${c.file} / ` : ''}${c.table} ${c.recordId}`), h('td', { colspan: '3' }, c.kind === 'create' ? 'made' : 'deleted'))])))),
     ...(r.records?.more ? [h('p', { class: 'ai-note' }, `And ${r.records.more} more records.`)] : []));
 }
 

@@ -54,7 +54,7 @@ interface Draft {
 interface DraftDryRun {
   outcome: 'ok' | 'error' | 'stalled' | 'skipped'; error?: number; steps?: number; layout?: string; step?: string; message?: string;
   /** The records the run created, changed or deleted on the copy, field by field (a script draft's only). */
-  changes?: { records: { table: string; recordId: number; kind: 'create' | 'update' | 'delete'; fields: { field: string; before: string; after: string }[] }[]; more?: number; truncated: { table: string; records: number }[]; incomplete?: boolean };
+  changes?: { records: { file?: string; table: string; recordId: number; kind: 'create' | 'update' | 'delete'; fields: { field: string; before: string; after: string }[] }[]; more?: number; truncated: { file?: string; table: string; records: number }[]; incomplete?: boolean };
 }
 
 /** What a draft's dry run did to records on the copy: a row per field, before and after. */
@@ -62,12 +62,12 @@ function dryRunChanges(c: NonNullable<DraftDryRun['changes']>): HTMLElement[] {
   const kind = { create: 'new', update: 'changed', delete: 'deleted' } as const;
   const shown = (v: string) => (v === '' ? '(empty)' : v);
   const rows = c.records.flatMap((r) => (r.fields.length ? r.fields : [{ field: '', before: '', after: '' }]).map((f, i) => h('tr', {},
-    h('th', { scope: 'row' }, i ? '' : `${r.table} ${r.recordId} (${kind[r.kind]})`),
+    h('th', { scope: 'row' }, i ? '' : `${r.file ? `${r.file} / ` : ''}${r.table} ${r.recordId} (${kind[r.kind]})`),
     h('td', {}, f.field),
     h('td', { class: 'ai-before' }, r.kind === 'create' || !f.field ? '' : shown(f.before)),
     h('td', {}, r.kind === 'delete' || !f.field ? '' : shown(f.after)))));
   const notes = [
-    ...c.truncated.map((t) => `Emptied ${t.table} (${t.records} record${t.records === 1 ? '' : 's'}).`),
+    ...c.truncated.map((t) => `Emptied ${t.file ? `${t.file} / ` : ''}${t.table} (${t.records} record${t.records === 1 ? '' : 's'}).`),
     ...(c.more ? [`And ${c.more} more record${c.more === 1 ? '' : 's'}.`] : []),
     ...(c.incomplete ? ['It wrote more than could be read back; these are the first changes.'] : []),
   ];
