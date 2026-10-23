@@ -22,6 +22,7 @@ import { renameCheckedSync as renameSync, removeFileSync as rmSync } from '../..
 
 import { cancellationScope } from '../../scripts/src/cancellation.ts';
 import { crashPoint } from '../../store/src/crash-point.ts';
+import { secret } from '../../store/src/settings.ts';
 import { holdContainerBackup } from '../../store/src/container-backup-lease.ts';
 import { isDamageError } from '../../store/src/damage.ts';
 import { accountKey } from '../../store/src/account-provisioning.ts';
@@ -95,9 +96,9 @@ export function backupSets(dest: string): string[] {
   return readdirSync(dest).filter((n) => SET.test(n) && statSync(join(dest, n)).isDirectory()).sort();
 }
 
-/** The passphrase backups are encrypted with, if one is set. */
+/** The passphrase backups are encrypted with, if one is set (set but empty is an error, not "no passphrase"). */
 export function backupKey(): string | undefined {
-  return process.env.TABULARIUS_BACKUP_KEY || undefined;
+  return secret('TABULARIUS_BACKUP_KEY');
 }
 
 /** A backup file's name without the encrypted ending. */
