@@ -81,7 +81,7 @@ The body is the `.ics` file (up to 8 MB and 5,000 events). Sign in with a `Autho
 { "imported": 12, "skipped": 1, "notes": ["an event with no readable start was skipped (1)"] }
 ```
 
-- Import is all or nothing. If the account's privileges refuse one record, none is made.
+- Import is all or nothing. If the account's privileges refuse one record, none is made. A calendar that is over the limits is refused whole, with a 400 and a message that says why, and nothing is imported: more than 5,000 events (every occurrence of a repeating event counts, so 14 endless daily events are 5,124; the message gives the count and the limit, "at least" when it stopped counting), repeating events that ask for too much work in all, or a file that ends inside an event. Before, the first 5,000 events were imported and the notes said so. Split a big calendar into several files.
 - **Repeating events** become one record per occurrence, up to 366 for each event. The rules read are daily, weekly (optionally on named days such as `BYDAY=MO,WE`), monthly on the start's day of the month, and yearly, with `INTERVAL`, `COUNT`, `UNTIL` and `EXDATE`. Any other rule imports the first occurrence only, and the notes say so. A changed single occurrence of a repeating event comes in as its own event.
 - An all-day end date is made inclusive, to match the feed.
 - Times written in UTC are stored as their UTC clock reading unless you give `zone`, which stores the reading in that zone. A time written with `TZID` is moved to `zone` when both are known zones; with no `zone` it is stored as written.

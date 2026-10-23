@@ -2,7 +2,7 @@
 // reader written here), how zones and the hours a clock skips or repeats are handled, and what the reader takes in.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { addDays, buildCalendar, escapeText, foldLine, parseDate, parseStamp, readCalendar, unescapeText, utcToZoned, zonedToUtc, zoneName, type FeedEvent } from '../src/calendar.ts';
+import { addDays, buildCalendar, CalendarReadError, escapeText, foldLine, parseDate, parseStamp, readCalendar, READ_LIMITS, unescapeText, utcToZoned, zonedToUtc, zoneName, type FeedEvent } from '../src/calendar.ts';
 import { referenceParse } from './ics-reference.ts';
 
 const stamp = new Date('2026-10-17T08:00:00Z');
@@ -201,11 +201,9 @@ test('weekly repeats use Monday weeks by default and honor WKST', () => {
   assert.ok(invalid.notes.some((note) => /invalid WKST is not read/.test(note)));
 });
 
-test('the reader is bounded: a flood of events stops at the cap', () => {
+test('the reader is bounded: a flood of events is refused whole, not read up to the cap', () => {
   const one = 'BEGIN:VEVENT\r\nDTSTART:20260101T090000\r\nSUMMARY:x\r\nEND:VEVENT\r\n';
-  const r = readCalendar('BEGIN:VCALENDAR\r\n' + one.repeat(5050) + 'END:VCALENDAR\r\n');
-  assert.equal(r.events.length, 5000);
-  assert.ok(r.notes.some((n) => /only the first 5000 events were read/.test(n)));
+  assert.throws(() => readCalendar('BEGIN:VCALENDAR\r\n' + one.repeat(5050) + 'END:VCALENDAR\r\n'), /The calendar has at least 5050 events; at most 5000/);
 });
 
 test('hostile numbers in a file cannot throw, loop or run past the calendar\'s years', () => {
@@ -237,14 +235,12 @@ test('hostile numbers in a file cannot throw, loop or run past the calendar\'s y
 test('a file of repeating events cannot keep the reader busy: work is bounded across the whole file', () => {
   const started = performance.now();
   const flood = (rule: string, start: string, n: number) => 'BEGIN:VCALENDAR\r\n' + `BEGIN:VEVENT\r\nDTSTART:${start}\r\nRRULE:${rule}\r\nSUMMARY:x\r\nEND:VEVENT\r\n`.repeat(n) + 'END:VCALENDAR\r\n';
-  // Each of these took tens of seconds before the reader kept one budget for the file and stopped at the cap.
-  const monthly = readCalendar(flood('FREQ=MONTHLY;INTERVAL=1000', '20260131T090000', 8000));
-  const yearly = readCalendar(flood('FREQ=YEARLY;INTERVAL=1000', '20000229T090000', 30_000));
-  const daily = readCalendar(flood('FREQ=DAILY', '20260101T090000', 30_000));
+  // Each of these took tens of seconds before the reader kept one budget for the file. The reader now reads on past the
+  // cap to count, so the budget is what keeps it quick; each file is refused whole.
+  for (const [rule, start, n] of [['FREQ=MONTHLY;INTERVAL=1000', '20260131T090000', 8000], ['FREQ=YEARLY;INTERVAL=1000', '20000229T090000', 30_000], ['FREQ=DAILY', '20260101T090000', 30_000]] as const) {
+    assert.throws(() => readCalendar(flood(rule, start, n)), CalendarReadError, rule);
+  }
   assert.ok(performance.now() - started < 8000, `took ${Math.round(performance.now() - started)} ms`);
-  assert.ok(monthly.events.length <= 5000 && yearly.events.length <= 5000 && daily.events.length === 5000);
-  assert.ok(daily.notes.some((n) => /only the first 5000 events were read/.test(n)));
-  assert.ok(monthly.notes.some((n) => /too much work/.test(n)) || monthly.events.length > 0);
 });
 
 test('a reading that lands past the last year of the calendar is no reading, not a malformed date', () => {
@@ -252,4 +248,22 @@ test('a reading that lands past the last year of the calendar is no reading, not
   assert.equal(utcToZoned('9999-12-31T20:00:00', 'Asia/Tokyo'), undefined);
   assert.equal(zonedToUtc('9999-12-31T12:00:00', 'UTC'), '9999-12-31T12:00:00');
   assert.equal(utcToZoned('1000-01-01T00:00:00', 'America/New_York'), undefined);
+});
+
+test('a calendar over the event limit is refused whole, with the count and the limit, where it used to be read in part', () => {
+  const events = (n: number) => wrap(...Array.from({ length: n }, (_, i) => `UID:e${i}\nDTSTART:20260101T090000\nSUMMARY:E${i}`));
+  assert.equal(readCalendar(events(READ_LIMITS.events)).events.length, READ_LIMITS.events);
+  assert.throws(() => readCalendar(events(READ_LIMITS.events + 1)), (e: Error) => e instanceof CalendarReadError
+    && /The calendar has 5001 events; at most 5000 can be imported at once\. Nothing was imported/.test(e.message));
+  // Repeating events count once per occurrence: 14 endless daily events are 5,124.
+  const endless = wrap(...Array.from({ length: 14 }, (_, i) => `UID:r${i}\nDTSTART:20260101T090000\nRRULE:FREQ=DAILY\nSUMMARY:R`));
+  assert.throws(() => readCalendar(endless), /The calendar has 5124 events; at most 5000/);
+});
+
+test('a calendar that asks for too much repeat work, or ends inside an event, is refused whole', () => {
+  const days = Array.from({ length: 20_000 }, (_, i) => addDays('2026-01-01', i).replace(/-/g, '')).join(',');
+  const heavy = wrap(...Array.from({ length: 21 }, (_, i) => `UID:h${i}\nDTSTART;VALUE=DATE:20260101\nRRULE:FREQ=DAILY;COUNT=20000\nEXDATE;VALUE=DATE:${days}\nSUMMARY:H`));
+  assert.throws(() => readCalendar(heavy), (e: Error) => e instanceof CalendarReadError && /asks for too much repeat work/.test(e.message));
+  const cut = wrap('UID:a\nDTSTART:20260101T090000\nSUMMARY:A').replace('END:VCALENDAR', '') + 'BEGIN:VEVENT\r\nUID:b\r\nDTSTART:20260102T090000\r\nSUMMARY:B\r\n';
+  assert.throws(() => readCalendar(cut), (e: Error) => e instanceof CalendarReadError && /ends inside an event/.test(e.message));
 });
