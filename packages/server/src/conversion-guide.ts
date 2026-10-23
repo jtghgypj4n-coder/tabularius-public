@@ -165,6 +165,13 @@ export function conversionGuide(store: Store, hosted: string[] = [], report: Con
       instead: 'Check Get ( LastError ) after them, or ask the assistant why a script fails ("Why?" on the error) for a rewrite.',
     });
   }
+  if (r.triggers.undecoded.length) {
+    const where = places(r.triggers.undecoded);
+    breaks.push({
+      title: 'Script triggers the reader cannot name yet', severity: 'medium', count: uses(r.triggers.undecoded), where,
+      what: `${plural(uses(r.triggers.undecoded), 'trigger')} on ${plural(r.triggers.layouts, 'layout')} have an event this build cannot name and will not run; open the layout in FileMaker to see which they are, then set them again in design mode.`,
+    });
+  }
   if (r.functions.notYet.length) {
     breaks.push({
       title: 'FileMaker functions not available yet', severity: 'high', count: uses(r.functions.notYet), where: places(r.functions.notYet),
@@ -295,6 +302,10 @@ export function conversionGuide(store: Store, hosted: string[] = [], report: Con
   if (none.length) todo.push(`Give ${none.join(', ')} a password (tabularius passwd, or Manage Security): accounts without one can't sign in.`);
   if (blank.size) todo.push(`${r.accounts.blankPassword.join(', ')} ${blank.size === 1 ? 'has' : 'have'} the file's empty password, which works only from the server's own computer: set a password.`);
   if (r.privileges.withoutSet.length) todo.push(`Give ${r.privileges.withoutSet.join(', ')} a privilege set: without one they have no access.`);
+  if ((store.schema.scripts.length || store.schema.layouts.length) && !store.schema.fileOptions?.onWindowOpen && !store.schema.fileOptions?.onWindowClose) {
+    // Whether either trigger existed in the source file is unverified: the reader does not decode them.
+    todo.push('If the original file used OnWindowOpen or OnWindowClose triggers, set them again in File options (design mode); they are not read from the file.');
+  }
 
   const rank = (x: GuideItem) => SEVERITIES.indexOf(x.severity);
   breaks.sort((a, b) => rank(a) - rank(b));
