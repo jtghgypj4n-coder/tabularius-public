@@ -11,6 +11,8 @@ import { armCrashPointForTest } from '../../store/src/crash-point.ts';
 import { Host, STORE_EXT } from '../src/host.ts';
 import { LogShipper } from '../src/logs.ts';
 import { Replication } from '../src/replication.ts';
+import { Metrics } from '../src/metrics.ts';
+import { monotonicClock } from '../../store/src/monotonic.ts';
 import { Standby } from '../src/standby.ts';
 import { runStandbyChaos } from '../../../scripts/standby-chaos.ts';
 
@@ -32,13 +34,22 @@ test('seeded 5,000-change catch-up respects bandwidth, time, and chaos invariant
 });
 
 test('live standby_behind uses the current backlog and separates two loopback standbys', async (t) => {
+  let now = Date.UTC(2026, 0, 1);
+  let elapsed = 0;
+  t.mock.method(Date, 'now', () => now);
+  t.mock.method(monotonicClock, 'now', () => elapsed);
   const dir = mkdtempSync(join(tmpdir(), 'tabularius-chaos-metric-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   createStore(join(dir, 'A' + STORE_EXT));
   const host = new Host(dir);
   const shipper = new LogShipper(host);
   const replication = new Replication(host, shipper, TOKEN);
-  const server = createServer((req, res) => void replication.handle(req, res, new URL(req.url!, 'http://localhost')));
+  const metrics = new Metrics();
+  metrics.sources = { host, clients: () => [], liveStreams: () => 0, standbys: () => replication.standbys() };
+  const server = createServer((req, res) => {
+    if (req.url === '/metrics') { res.end(metrics.render()); return; }
+    void replication.handle(req, res, new URL(req.url!, 'http://localhost'));
+  });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const address = server.address();
   assert.ok(address && typeof address !== 'string');
@@ -54,13 +65,24 @@ test('live standby_behind uses the current backlog and separates two loopback st
       await r.arrayBuffer();
     }
     assert.equal(replication.standbys().length, 2);
+    now += 10_000;
+    assert.deepEqual(replication.standbys().map((s) => s.lagSeconds), [0, 0], 'idle caught-up standbys have no lag');
     const store = host.get('A')!;
     store.applyDesign([{ op: 'createTable', name: 'Items', fields: [{ name: 'Name' }] }]);
     store.create('Items', { Name: 'synthetic' });
     shipper.ship();
+    now += 1000;
+    store.create('Items', { Name: 'second change' });
+    shipper.ship();
+    now += 3000;
     const seq = (await (await get('', '1111111111111111')).json() as { files: { seq: number }[] }).files[0].seq;
-    assert.ok(seq > 0);
+    assert.equal(seq, 2);
     assert.deepEqual(replication.standbys().map((s) => s.behind), [seq, seq]);
+    assert.deepEqual(replication.standbys().map((s) => s.lagSeconds), [4, 4]);
+    const text = await (await fetch(`http://127.0.0.1:${address.port}/metrics`)).text();
+    assert.ok(text.includes('# HELP tabularius_standby_lag_seconds Seconds since the oldest change each standby has yet to copy was taken (0 when caught up)\n'));
+    assert.ok(text.includes('# TYPE tabularius_standby_lag_seconds gauge\n'));
+    assert.equal([...text.matchAll(/^tabularius_standby_lag_seconds\{standby="[^"]+",file="A"\} 4$/gm)].length, 2);
     const changed = await get(`/A/changes?run=${run}&after=0&wait=0`, '1111111111111111');
     assert.equal(changed.status, 200);
     await changed.arrayBuffer();
@@ -69,7 +91,24 @@ test('live standby_behind uses the current backlog and separates two loopback st
     assert.equal(acknowledged.status, 200);
     await acknowledged.arrayBuffer();
     assert.deepEqual(replication.standbys().map((s) => s.behind).sort((a, b) => a - b), [0, seq]);
+    now += 2000;
+    assert.deepEqual(replication.standbys().map((s) => s.lagSeconds), [0, 6], 'acknowledging clears lag even as the clock advances');
+    const partial = await get(`/A/changes?run=${run}&after=1&wait=0`, '2222222222222222');
+    assert.equal(partial.status, 200);
+    await partial.arrayBuffer();
+    assert.deepEqual(replication.standbys().map((s) => [s.behind, s.lagSeconds]), [[0, 0], [1, 5]], 'lag follows the next unacknowledged record');
+
+    // Retention uses elapsed time; once the missing record ages out, use the oldest retained record.
+    elapsed += 10 * 60_000 + 1;
+    store.create('Items', { Name: 'after retention' });
+    shipper.ship();
+    now += 3000;
+    const expired = await get(`/A/changes?run=${run}&after=0&wait=0`, '2222222222222222');
+    assert.equal(expired.status, 410);
+    await expired.arrayBuffer();
+    assert.deepEqual(replication.standbys().map((s) => [s.behind, s.lagSeconds]), [[3, 3]]);
   } finally {
+    metrics.stop();
     replication.close(); shipper.stop(); host.close();
     server.closeAllConnections();
     await new Promise<void>((resolve) => server.close(() => resolve()));
