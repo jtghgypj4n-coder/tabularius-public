@@ -2,6 +2,7 @@
 // API in FileMaker's shapes: field names, repetitions as "Field(2)", and
 // dates in US (M/D/YYYY) or ISO format.
 
+import { ownKeyed } from './own-keys.ts';
 import { normalizeWebViewerHosts, trustedWebViewerHosts } from './web-viewer-hosts.ts';
 import { isCredentialName } from '../../scripts/src/credentials.ts';
 import { cleanSql, sqlName, sqlTokens } from './sql-tokens.ts';
@@ -1070,7 +1071,7 @@ export class Store {
     if (this.fileMode === 'native') this.ensureNativeIds(path);
     if (this.fileMode === 'native') this.sql.function('fm_decimal_key', { deterministic: true }, (v) => decimalKey(v as string | number | null));
     this.dateOrder = this.meta('dateOrder') ?? 'MDY';
-    this.repeating = this.meta('repeating') ?? {};
+    this.repeating = ownKeyed(this.meta('repeating'));
     this.calc = new Calculations(this);
     ensurePrivilegeTables(this.sql);
     // Backfill identities once; newly inserted replacement accounts receive a
@@ -1834,7 +1835,7 @@ export class Store {
     // A remote design may first be observed inside preparation that later fails.
     // Forget published entries too, so that failure cannot revive the old design.
     this.designCache = new PreparedCache<LayoutDesigns | undefined>(undefined);
-    this.repeating = this.meta('repeating') ?? {};
+    this.repeating = ownKeyed(this.meta('repeating'));
     this.layoutCache.invalidate((cache) => cache.clear());
     this.externalNamed.invalidate((cache) => cache.clear());
     this.privilegeCache.invalidate((cache) => cache.clear());

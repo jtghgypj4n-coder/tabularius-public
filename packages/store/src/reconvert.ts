@@ -1,3 +1,4 @@
+import { ownKeyed } from './own-keys.ts';
 import { renameFileSync as renameSync } from './file-ops.ts';
 // Converting a hosted file again from its .fmp12, keeping what people changed
 // since it was first converted. For stores made by an older converter (see
@@ -345,7 +346,7 @@ function carrySettings(sql: DatabaseSync): void {
   const was = meta(sql, 'repeating') as Record<string, string[]> | undefined;
   const before = (sql.prepare("SELECT json FROM old._fm_meta WHERE key = 'repeating'").get() as { json: string } | undefined);
   if (before) {
-    const merged: Record<string, string[]> = { ...(was ?? {}) };
+    const merged = ownKeyed(was);
     for (const [t, fields] of Object.entries(JSON.parse(before.json) as Record<string, string[]>)) merged[t] = [...new Set([...(merged[t] ?? []), ...fields])];
     put.run('repeating', JSON.stringify(merged));
   }

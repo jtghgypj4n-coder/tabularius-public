@@ -1,6 +1,7 @@
 // Convert an fmp12 file into a Tabularius store (SQLite): one SQL table per
 // FileMaker base table, plus metadata tables the server needs.
 
+import { ownKeyed } from './own-keys.ts';
 import { DatabaseSync } from 'node:sqlite';
 import { ensureCacheVersions } from './cache-versions.ts';
 import { basename } from 'node:path';
@@ -266,7 +267,10 @@ const STATE = '_fm_import';
 function readState(sql: DatabaseSync): ImportState | undefined {
   try {
     const row = sql.prepare(`SELECT json FROM ${STATE} WHERE key = 'state'`).get() as { json: string } | undefined;
-    return row ? JSON.parse(row.json) as ImportState : undefined;
+    if (!row) return undefined;
+    const state = JSON.parse(row.json) as ImportState;
+    state.repeating = ownKeyed(state.repeating);
+    return state;
   } catch {
     return undefined;
   }
@@ -317,7 +321,7 @@ export function importFmp12(src: string | FmpDatabase, outPath: string, onProgre
   try {
     sql.exec('PRAGMA journal_mode = WAL');
     if (!state) {
-      state = { source, stats: [], repeating: {} };
+      state = { source, stats: [], repeating: ownKeyed({}) };
       sql.exec('BEGIN');
       sql.exec(STORE_TABLES);
       sql.exec(`CREATE TABLE ${STATE} (key TEXT PRIMARY KEY, json TEXT NOT NULL)`);
