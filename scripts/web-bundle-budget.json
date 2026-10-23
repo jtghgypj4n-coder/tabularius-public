@@ -228,6 +228,10 @@
     "packages/web/src/page-templates.ts": {
       "raw": 36381,
       "gzip": 12345
+    },
+    "packages/web/src/ime.ts": {
+      "raw": 651,
+      "gzip": 389
     }
   },
   "largest": [
