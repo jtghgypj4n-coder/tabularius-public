@@ -1378,6 +1378,10 @@
       "exitCodes": "0 on success; 1 on error.",
       "example": "tabularius service --help"
     },
+    "sql-privilege": {
+      "exitCodes": "0 on success; 1 on error.",
+      "example": "tabularius sql-privilege --help"
+    },
     "stale-calcs": {
       "exitCodes": "0 on success; 1 on error.",
       "example": "tabularius stale-calcs --help"

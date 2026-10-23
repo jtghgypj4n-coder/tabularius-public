@@ -8,6 +8,6 @@
 | Accepted values | 1, true, or yes |
 | Restart needed | Yes for a running server. |
 | Explained in | [docs/environment-variables.md](../../../environment-variables.md) |
-| Code | [packages/cli/src/main.ts:1359](../../../../packages/cli/src/main.ts#L1359) |
+| Code | [packages/cli/src/main.ts:1360](../../../../packages/cli/src/main.ts#L1360) |
 
 [All environment variables](../../../environment-variables.md)

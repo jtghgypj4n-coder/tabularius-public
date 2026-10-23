@@ -522,6 +522,7 @@
   {"file":"packages/store/src/store.ts","fn":"Store/setAiAllowed","gate":"CORE","sites":[{"api":"SQLite.prepare","hash":"3b89e1bac8666bb8da9a"},{"api":"Store.sql","hash":"3b89e1bac8666bb8da9a"}]},
   {"file":"packages/store/src/store.ts","fn":"Store/setAiPolicy","gate":"CORE","sites":[{"api":"SQLite.prepare","hash":"c2e9dc39d6cf81a01c42"},{"api":"Store.sql","hash":"c2e9dc39d6cf81a01c42"}]},
   {"file":"packages/store/src/store.ts","fn":"Store/setScriptNetwork","gate":"CORE","sites":[{"api":"SQLite.prepare","hash":"15a8553f0da9fbf9d03c"},{"api":"Store.sql","hash":"15a8553f0da9fbf9d03c"}]},
+  {"file":"packages/store/src/store.ts","fn":"Store/setSqlRequiresFmxdbc","gate":"CORE","sites":[{"api":"SQLite.prepare","hash":"d33ccafaa61826472263"},{"api":"Store.sql","hash":"d33ccafaa61826472263"}]},
   {"file":"packages/store/src/store.ts","fn":"Store/setWebViewerHosts","gate":"CORE","sites":[{"api":"SQLite.prepare","hash":"83ae97e408df557a39e2"},{"api":"Store.sql","hash":"83ae97e408df557a39e2"}]},
   {"file":"packages/store/src/store.ts","fn":"Store/setPiiIsolation","gate":"CORE","sites":[{"api":"SQLite.prepare","hash":"b8e092b433d1fc3b73da"},{"api":"Store.sql","hash":"b8e092b433d1fc3b73da"}]},
   {"file":"packages/store/src/store.ts","fn":"Store/markPiiField","gate":"CORE","sites":[{"api":"SQLite.prepare","hash":"352b618cbb523673d11b"},{"api":"Store.sql","hash":"352b618cbb523673d11b"}]},

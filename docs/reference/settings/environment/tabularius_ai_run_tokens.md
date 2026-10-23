@@ -8,6 +8,6 @@ A strict cap on tokens one assistant question may use; a model call that could t
 | Accepted values | Whole number of tokens, 1 to 10,000,000 |
 | Restart needed | Yes for a running server. |
 | Explained in | [docs/environment-variables.md](../../../environment-variables.md) |
-| Code | [packages/cli/src/main.ts:1402](../../../../packages/cli/src/main.ts#L1402) |
+| Code | [packages/cli/src/main.ts:1403](../../../../packages/cli/src/main.ts#L1403) |
 
 [All environment variables](../../../environment-variables.md)

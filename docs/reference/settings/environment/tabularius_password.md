@@ -8,6 +8,6 @@ Password supplied to a CLI command that otherwise asks interactively.
 | Accepted values | Password text |
 | Restart needed | No server restart; a new command reads it on invocation. |
 | Explained in | [README.md](../../../../README.md) |
-| Code | [packages/cli/src/main.ts:1764](../../../../packages/cli/src/main.ts#L1764) |
+| Code | [packages/cli/src/main.ts:1765](../../../../packages/cli/src/main.ts#L1765) |
 
 [All environment variables](../../../environment-variables.md)
