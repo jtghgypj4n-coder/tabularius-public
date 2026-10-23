@@ -43,6 +43,7 @@ import type { Host } from './host.ts';
 import { BoundedMap } from './bounded-map.ts';
 import { said } from './said.ts';
 import { ReadAudit } from './read-audit.ts';
+import { sameSecret } from './secrets.ts';
 
 const IDLE_MS = 10 * 60_000;
 /** Files larger than this aren't copied for a scratch run (the copy takes a while and the disk). */
@@ -244,7 +245,7 @@ export class DebugApi {
     this.host = host;
     this.api = api;
     api.endListeners.add((token) => {
-      for (const [id, run] of this.runs) if (run.token === token) { this.runs.delete(id); this.end(run); }
+      for (const [id, run] of this.runs) if (sameSecret(run.token, token)) { this.runs.delete(id); this.end(run); }
     });
     this.sweep = setInterval(() => this.expire(), 60_000);
     this.sweep.unref();
@@ -423,7 +424,7 @@ export class DebugApi {
       }
 
       if (!id && req.method === 'GET') {
-        const mine = [...this.runs.values()].filter((r) => r.token === session.token && r.db === store.name);
+        const mine = [...this.runs.values()].filter((r) => sameSecret(r.token, session.token) && r.db === store.name);
         return send(200, { runs: mine.map((r) => this.view(r, r.debugger.state())) }), true;
       }
       if (!id) {
@@ -458,7 +459,7 @@ export class DebugApi {
       }
 
       const run = this.runs.get(id);
-      if (!run || run.token !== session.token || run.db !== store.name) throw new ApiError(101, 'No such debugging run', 404);
+      if (!run || !sameSecret(run.token, session.token) || run.db !== store.name) throw new ApiError(101, 'No such debugging run', 404);
       run.touched = performance.now();
       if (!action && req.method === 'GET') return send(200, this.view(run, run.debugger.state())), true;
       if (action === 'current' && req.method === 'GET') {

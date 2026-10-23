@@ -57,6 +57,7 @@ import { cleanScriptTest, SCRIPT_TEST_LIMIT, type ScriptTest } from './script-te
 import { ensureTextStyles, repetitionText, TextStyles } from './text-styles.ts';
 import { checkFormat, storedFormat } from './store-format.ts';
 import { UuidV7 } from './uuid-v7.ts';
+import { sameSecret } from './same-secret.ts';
 export { StoreError, PendingApprovalError };
 
 /** Name equality used by the existing case-insensitive account and privilege-set rules. */
@@ -4240,7 +4241,7 @@ export class Store {
    */
   changePassword(account: string, oldPassword: string, newPassword: string, from = ''): void {
     if (!this.verify(account, oldPassword, from)) throw new StoreError(212, 'The current password is wrong');
-    if (newPassword === oldPassword) throw new StoreError(960, 'The new password must be different from the current one');
+    if (sameSecret(newPassword, oldPassword)) throw new StoreError(960, 'The new password must be different from the current one');
     // Honour the set's "allow the account to change its own password" option —
     // but never when a change is currently owed (must-change or expired), since
     // refusing then would lock the account out of a sign-in it can't complete.
@@ -4372,7 +4373,7 @@ export class Store {
         const digest = importDigest(input);
         const receipt = this.sql.prepare('SELECT actor, digest, result FROM _fm_account_import_receipts WHERE key = ?').get(idempotencyKey) as { actor: string; digest: string; result: string } | undefined;
         if (receipt) {
-          if (receipt.actor !== actor || receipt.digest !== digest) throw new AccountImportError('idempotency-conflict', 409);
+          if (receipt.actor !== actor || !sameSecret(receipt.digest, digest)) throw new AccountImportError('idempotency-conflict', 409);
           return JSON.parse(receipt.result) as AccountImportResult;
         }
         if (previewToken.length > 4096) throw new AccountImportError('invalid-preview', 409);
@@ -4381,7 +4382,7 @@ export class Store {
         let binding: { actor: string; via?: string; database: string; digest: string; snapshot: string; expires: number };
         try { binding = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')); }
         catch { throw new AccountImportError('invalid-preview', 409); }
-        if (binding.actor !== actor || binding.via !== via || binding.database !== this.name || binding.digest !== digest || !Number.isFinite(binding.expires) || binding.expires <= expiryClock.now() || binding.snapshot !== this.importSnapshot()) {
+        if (binding.actor !== actor || binding.via !== via || binding.database !== this.name || !sameSecret(binding.digest, digest) || !Number.isFinite(binding.expires) || binding.expires <= expiryClock.now() || binding.snapshot !== this.importSnapshot()) {
           throw new AccountImportError('stale-or-changed-preview', 409);
         }
         const plan = planAccountImport(input, this.importAccounts(), this.privilegeSets(), actor, via, this.schema.accounts.filter((a) => a.external).map((a) => a.name), this.requireTotpForFullAccess());

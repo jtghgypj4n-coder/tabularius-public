@@ -50,6 +50,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { closeSync, constants, mkdirSync, openSync, lstatSync, statSync, type Stats } from 'node:fs';
 import { join } from 'node:path';
 import { guardedFetch } from '../../scripts/src/net-guard.ts';
+import { sameSecret } from './secrets.ts';
 
 /** The identity provider is one an administrator chose (a provider on the network is normal); its requests still go through the shared outbound guard, with a time and size limit. */
 const IDP_NET = { policy: { private: true }, timeoutMs: 15_000, maxBytes: 2 * 1024 * 1024 } as const;
@@ -604,7 +605,7 @@ export class Oidc {
     if (typeof claims.exp !== 'number' || !Number.isFinite(claims.exp) || claims.exp <= now - 60) throw new SignInError('ID token has expired');
     if (claims.nbf !== undefined && (typeof claims.nbf !== 'number' || !Number.isFinite(claims.nbf) || claims.nbf > now + 60)) throw new SignInError('ID token is not yet valid');
     if (typeof claims.sub !== 'string' || !claims.sub || typeof claims.iat !== 'number' || !Number.isFinite(claims.iat)) throw new SignInError('ID token has invalid subject or issued-at claims');
-    if (claims.nonce !== nonce) throw new SignInError('ID token does not match this sign-in');
+    if (!sameSecret(claims.nonce, nonce)) throw new SignInError('ID token does not match this sign-in');
     return claims;
   }
 

@@ -8,6 +8,6 @@ Largest record count one Data API request may ask for.
 | Accepted values | Nonnegative whole number; 0 removes the cap |
 | Restart needed | Yes; restart the server after changing its environment. |
 | Explained in | [docs/data-api-compatibility.md](../../../data-api-compatibility.md) |
-| Code | [packages/server/src/dataapi.ts:220](../../../../packages/server/src/dataapi.ts#L220) |
+| Code | [packages/server/src/dataapi.ts:221](../../../../packages/server/src/dataapi.ts#L221) |
 
 [All environment variables](../../../environment-variables.md)

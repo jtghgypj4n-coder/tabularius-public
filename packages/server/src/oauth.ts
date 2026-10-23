@@ -86,7 +86,7 @@ function legacyPasswordMark(store: Store, account: string): string {
 
 /** Whether a stored refresh mark is this account's current one (or, for a grant from before marks bound authority, its password's: the refresh then binds it to authority). */
 function markCurrent(store: Store, account: string, stored: string | null, person?: string): boolean {
-  return stored !== null && (stored === passwordMark(store, account, person) || stored === legacyPasswordMark(store, account));
+  return stored !== null && (sameSecret(stored, passwordMark(store, account, person)) || sameSecret(stored, legacyPasswordMark(store, account)));
 }
 
 const BLOCKED = 'The server isn\'t accepting new users right now; try again later.';
@@ -219,7 +219,7 @@ export class OAuthServer {
       const store = this.host.get(grant.database);
       const access = store?.sql.prepare('SELECT provenance FROM _fm_api_tokens WHERE id = ? AND account = ? COLLATE NOCASE').get(grant.access_id, grant.account);
       if (!store || !access || access.provenance === 'delegated') continue;
-      if (grant.password === legacyPasswordMark(store, grant.account)) {
+      if (sameSecret(grant.password, legacyPasswordMark(store, grant.account))) {
         let identity: { issuer: string; sub: string; person?: string; mapping: string } | undefined;
         try {
           identity = grant.identity ? JSON.parse(grant.identity) as typeof identity : undefined;
@@ -503,7 +503,7 @@ export class OAuthServer {
     if (consentToken) {
       const row = this.db.prepare('DELETE FROM consents WHERE hash = ? AND client_id = ? RETURNING redirect_uri, challenge, database, account, who, provider, expires, identity, resource, mark').get(hash(consentToken), client.id) as
         { redirect_uri: string; challenge: string; database: string; account: string; who: string | null; provider: string; expires: number; identity: string | null; resource: string | null; mark: string | null } | undefined;
-      if (!row || row.expires <= expiryClock.now() || row.redirect_uri !== target || row.challenge !== challenge || (resource ?? `${this.base(req)}/mcp`) !== row.resource) return bad('This approval has expired or was already used.');
+      if (!row || row.expires <= expiryClock.now() || row.redirect_uri !== target || !sameSecret(row.challenge, challenge) || (resource ?? `${this.base(req)}/mcp`) !== row.resource) return bad('This approval has expired or was already used.');
       const code = token('ohac_');
       this.db.prepare('DELETE FROM codes WHERE expires < ?').run(expiryClock.now());
       const st = this.host.get(row.database);
@@ -512,7 +512,7 @@ export class OAuthServer {
       const from = clientAddress(req);
       // Checked again as the person says yes: the account may have been turned off in the minutes between.
       const binding = row.identity ? JSON.parse(row.identity) as { issuer: string; sub: string; person?: string; mapping: string } : undefined;
-      const refusedNow = st && (!binding || row.mark !== passwordMark(st, row.account, binding.person) || binding.mapping !== row.account || (binding.person && st.accountInactive(binding.person)) || !st.isExternalAccount(binding.mapping) || this.allowed(st, row.account, from, true));
+      const refusedNow = st && (!binding || !sameSecret(row.mark, passwordMark(st, row.account, binding.person)) || binding.mapping !== row.account || (binding.person && st.accountInactive(binding.person)) || !st.isExternalAccount(binding.mapping) || this.allowed(st, row.account, from, true));
       if (!st || refusedNow || !st.signInLocationAllowed(row.account, from)) {
         this.db.prepare('DELETE FROM codes WHERE hash = ?').run(hash(code));
         return bad(refusedNow === true ? 'This federated sign-in is no longer valid.' : refusedNow ? refusedNow.message : 'This account can\'t sign in from here.');
@@ -703,13 +703,13 @@ p strong { color: var(--text); }
       const audience = row.resource ?? `${this.base(req)}/mcp`;
       if (resource && resource !== audience) throw new OAuthError('invalid_target', 'The resource does not match the sign-in');
       const verifier = form.get('code_verifier') ?? '';
-      if (!/^[A-Za-z0-9._~-]{43,128}$/.test(verifier) || createHash('sha256').update(verifier).digest('base64url') !== row.challenge) throw new OAuthError('invalid_grant', 'The PKCE code_verifier doesn\'t match');
+      if (!/^[A-Za-z0-9._~-]{43,128}$/.test(verifier) || !sameSecret(createHash('sha256').update(verifier).digest('base64url'), row.challenge)) throw new OAuthError('invalid_grant', 'The PKCE code_verifier doesn\'t match');
       const identity = row.identity ? JSON.parse(row.identity) as { issuer: string; sub: string; person?: string; mapping: string } : undefined;
       if (!identity && row.who !== null) throw new OAuthError('invalid_grant', 'This federated sign-in is no longer valid; sign in again');
       const targetStore = this.host.get(row.database);
       // The account is the one the code was given for, with the authority it signed in with: a code with no mark (given before marks were kept), or one bound
       // to the password only (before marks held authority; it lives a minute, so none outlasts an upgrade), or for an account since replaced by another of the same name, is refused.
-      if (targetStore && row.mark !== passwordMark(targetStore, row.account, identity?.person)) throw new OAuthError('invalid_grant', 'The account changed since it signed in; sign in again');
+      if (targetStore && !sameSecret(row.mark, passwordMark(targetStore, row.account, identity?.person))) throw new OAuthError('invalid_grant', 'The account changed since it signed in; sign in again');
       if (!targetStore || (targetStore.isExternalAccount(row.account) && (!identity || identity.mapping !== row.account)) ||
         (identity && (identity.mapping !== row.account || (identity.person && targetStore.accountInactive(identity.person)) || !targetStore.isExternalAccount(identity.mapping)))) {
         throw new OAuthError('invalid_grant', 'This federated sign-in is no longer valid; sign in again');

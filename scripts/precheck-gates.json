@@ -32,6 +32,10 @@
     "reason": "Checks server documentation links"
   },
   {
+    "file": "packages/server/test/secret-primitives.test.ts",
+    "reason": "Scans every source file for a secret compared without sameSecret"
+  },
+  {
     "file": "packages/store/test/docs-no-line-anchors.test.ts",
     "reason": "Checks documentation links avoid line anchors"
   },

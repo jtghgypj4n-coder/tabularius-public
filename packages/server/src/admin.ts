@@ -154,6 +154,7 @@ import { BUILTIN_PACKS, pluginStatus, setPluginEnabled, setPluginSecret } from '
 import type { Host } from './host.ts';
 import { requestHostName } from './public-origin.ts';
 import { secureConnection } from './exposure-headers.ts';
+import { sameSecret } from './secrets.ts';
 import { PassphraseNeeded, STORE_EXT } from './host.ts';
 import { BackupStopped, backupFolder, backupKey, backupRunning, stopBackups, backupSets, defaultBackupDir, parseTime, checkRestorePoint, restorePoint, restorePointTo, restoreRange, type BackupSchedule, type ProgressiveSchedule } from './backup.ts';
 import { ENCRYPTED_EXT } from './encrypt.ts';
@@ -769,7 +770,7 @@ export class Admin {
       const denied = this.tryPassword(clientAddress(req), said(body.password), hash);
       if (denied) return json(denied.status, { error: denied.message }, denied.retryAfter ? { 'retry-after': String(denied.retryAfter) } : {}), true;
       // The password may have been changed while this one was being checked: it was the old one that was right.
-      if (this.passwordHash() !== hash) return json(401, { error: 'The admin password was just changed: sign in again' }), true;
+      if (!sameSecret(this.passwordHash(), hash)) return json(401, { error: 'The admin password was just changed: sign in again' }), true;
       const id = randomBytes(32).toString('hex');
       this.endOldSignIns();
       this.signedIn.set(id, performance.now() + SIGN_IN_MS);
