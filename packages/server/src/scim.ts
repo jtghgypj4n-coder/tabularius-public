@@ -157,7 +157,7 @@ export class ScimDirectory {
     const asked = opts.days ?? DEFAULT_TOKEN_DAYS;
     const days = typeof asked === 'number' ? asked : typeof asked === 'string' && asked.trim() ? Number(asked) : NaN;
     // Checked here, with a message that does not offer 0 for "never": a provisioning token has no such choice.
-    if (!(days > 0 && days <= MAX_TOKEN_DAYS)) throw new StoreError(960, `Days should be above 0 and at most ${MAX_TOKEN_DAYS}: a provisioning token always expires`);
+    if (!(Number.isInteger(days) && days >= 1 && days <= MAX_TOKEN_DAYS)) throw new StoreError(960, `Days should be a whole number from 1 to ${MAX_TOKEN_DAYS}: a provisioning token always expires`);
     const expires = tokenExpiry(days);
     if (!expires) throw new StoreError(960, `Days should be above 0 and at most ${MAX_TOKEN_DAYS}: a provisioning token always expires`);
     const s = this.settings();
