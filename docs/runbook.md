@@ -36,6 +36,7 @@ The admin calls are shown as `curl` so they can be pasted into a script; each on
 
 **Do:** decide which side keeps its writes. Copy the folder on the side to be replaced somewhere safe, then run standby there with `--overwrite`:
 
+<!-- docs-example: illustrative -->
 ```sh
 tabularius standby <folder> --primary URL --token <token> --overwrite
 ```

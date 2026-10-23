@@ -905,7 +905,8 @@ test('two servers both took writes: the standby refuses a folder with its own fi
   const standby = startStep(where, 'tabularius standby <folder> --primary URL --token <token> --overwrite', { folder, token: 'a-replication-token' }, { swap: { URL: primary } });
   await until('the standby to start', () => standby.out().includes(`standby of ${primary} in ${folder}`));
   await stopChild(standby.child);
-  assert.equal(await standby.exited, 0);
+  const code = await standby.exited;
+  assert.equal(code, 0, `the standby ended with ${standby.child.signalCode ?? `code ${code}`}: ${standby.out()}`);
 });
 
 // --- the page and the tests agree ------------------------------------------------------------------------------
