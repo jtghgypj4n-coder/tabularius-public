@@ -39,6 +39,13 @@ test('explicit dialog choices survive printing even on fallback steps', async ()
   }
 });
 
+test('With dialog: On on a step whose default is the dialog is accepted and means the default', () => {
+  // The printer leaves the option out when it is the default, so the line comes back without it; it is the same step.
+  for (const name of ['Sort Records', 'Delete All Records', 'Print']) {
+    assert.deepEqual(parse(`${name} [ With dialog: On ]`)[0].params, { noDialog: false }, name);
+  }
+});
+
 test('find pause, empty Restore and open PDF options survive script text', async () => {
   const { stepLine } = await import('../../fmp12/src/index.ts');
   for (const line of [
