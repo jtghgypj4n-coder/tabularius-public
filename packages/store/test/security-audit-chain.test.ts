@@ -213,6 +213,9 @@ test('the verifier inclusion predicate uses the partial index and still includes
 
 test('the per-file chain covers more than 10,000 events and permits record-audit gaps', () => {
   const f = open();
+  // Half of these events are failed sign-ins, which are otherwise held to a share of the audit: this test is about the chain.
+  const share = process.env.TABULARIUS_SIGN_IN_FAILURE_AUDIT_SHARE;
+  process.env.TABULARIUS_SIGN_IN_FAILURE_AUDIT_SHARE = '1';
   try {
     assert.equal(f.store.verifySecurityAudit().ok, true);
     f.store.sql.exec('BEGIN IMMEDIATE');
@@ -229,7 +232,10 @@ test('the per-file chain covers more than 10,000 events and permits record-audit
     const first = f.store.sql.prepare('SELECT prev_hash FROM _fm_audit WHERE seq = 1').get();
     const state = f.store.sql.prepare('SELECT genesis_hash FROM _fm_security_chain_state').get();
     assert.equal(first?.prev_hash, state?.genesis_hash);
-  } finally { f.close(); }
+  } finally {
+    if (share === undefined) delete process.env.TABULARIUS_SIGN_IN_FAILURE_AUDIT_SHARE; else process.env.TABULARIUS_SIGN_IN_FAILURE_AUDIT_SHARE = share;
+    f.close();
+  }
 });
 
 for (const [field, value] of [

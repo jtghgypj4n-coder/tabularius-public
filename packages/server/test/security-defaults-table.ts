@@ -442,6 +442,17 @@ export const ROWS: Row[] = [
     observe: async (c) => (/budget === undefined \|\| budget === '' \? 60_000 : Number\(budget\)/.test(c.source('packages/server/src/index.ts')) ? '60 s' : 'changed'),
   },
   {
+    id: 'sign-in-failure-audit', section: 'Limits', setting: 'Failed sign-ins in the security audit',
+    default: 'After the first 1,000, failed sign-ins and lockouts may be at most 80% of a file\'s security events; past that they are not written (a lockout still locks, nothing is removed)',
+    changedBy: '`TABULARIUS_SIGN_IN_FAILURE_AUDIT_SHARE` (0 to 1; 1 for no limit)',
+    risk: 'Past the share the audit has no row for a failure, so the usage report and the failed-burst alert see fewer of them (the access log has them all); without a limit a flood of wrong passwords fills the audit',
+    how: 'read from code', expect: '0.8 / 1000',
+    observe: async (c) => {
+      const code = c.source('packages/store/src/sign-in-failures.ts');
+      return grep(code, /export const SIGN_IN_FAILURE_AUDIT_FLOOR = (1000);/) && /if \(!text\) return (0\.8);/.test(code) ? '0.8 / 1000' : 'changed';
+    },
+  },
+  {
     id: 'audit', section: 'Data at rest', setting: 'Audit trail',
     default: 'On: every record created, changed, deleted or duplicated is logged; reads are not logged; kept without limit',
     changedBy: '`logReads`, `redactSensitive`, `excludeFields` and `retentionDays` in the file\'s audit settings (console)',
