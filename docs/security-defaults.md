@@ -68,7 +68,7 @@ What `tabularius serve <folder>` does when you give it nothing else, setting by 
 
 | Setting | Default | What changes it | If you change it | Checked by |
 | --- | --- | --- | --- | --- |
-| Audit trail | On: every record created, changed, deleted or duplicated is logged; reads are not logged; kept without limit | `logReads`, `redactSensitive`, `excludeFields` and `retentionDays` in the file's audit settings (console) | Logging reads grows the log fast; a retention limit deletes history; there is no switch to turn record logging off | probed |
+| Audit trail | On: every record created, changed, deleted or duplicated is logged; reads are not logged; record entries are kept 400 days, then removed (security events are kept without limit) | `logReads`, `redactSensitive`, `excludeFields` and `retentionDays` in the file's audit settings (console) | Logging reads grows the log fast; a retention limit deletes history, so 0 (keep every entry) is the choice for anyone who must keep a complete trail; there is no switch to turn record logging off | probed |
 | Backups | On: every day, the last 7 kept, in `Backups` beside the files, not encrypted (the console reports each one's check; this row probes the schedule, count and encryption only) | `--backup-every`, `--keep`, `--backup-dir`, `--no-backups`; `TABULARIUS_BACKUP_KEY` encrypts; `--backup-s3` copies off-site | A backup folder on the same disk is lost with it; an unencrypted one holds every record and every password hash | probed |
 | Encryption at rest for the hosted files | Off: files are ordinary SQLite files | `tabularius encrypt <folder>` with `TABULARIUS_ENCRYPTION_KEY` | Anyone who can read the folder can read the data; passwords are stored as scrypt hashes either way | probed |
 
