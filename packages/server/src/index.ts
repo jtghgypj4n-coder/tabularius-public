@@ -417,6 +417,15 @@ export async function serve(opts: ServeOptions): Promise<{ server: Server; host:
     if (was) {
       const unfinished = unfinishedStandbyFiles(was);
       log(`taking over from ${was.primary}: this folder was its standby${unfinished.length ? `; ${unfinished.join(', ')} had not caught up to a whole state and may need restoring from a backup; accepted with --accept-partial-standby` : ''}`);
+      for (const [file, state] of Object.entries(was.files)) {
+        // Saved state may be malformed; reporting its time must not prevent takeover cleanup.
+        const time = state?.taken !== undefined ? state.taken : state?.at;
+        const when = typeof time === 'number' && Number.isFinite(time) && Math.abs(time) <= 8.64e15
+          ? new Date(time).toISOString() : 'an unknown time';
+        log(state?.taken !== undefined
+          ? `${file}: last change applied was taken at ${when} (run ${state.run}, change ${state.seq})`
+          : `${file}: copied whole at ${when} (no later change applied)`);
+      }
       // The copy is as the primary was some moments before it failed, or longer if the link was down: a token revoked there since
       // is alive here, and nothing says which. They are ended unless the operator knows the standby had caught up. This comes first and
       // does not depend on the standby's note, and the note is removed only at the end, so a failure part way is met again at the next start.
