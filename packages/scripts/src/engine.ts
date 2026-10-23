@@ -1313,6 +1313,8 @@ export class ScriptEngine {
   private readonly actions: ClientAction[] = [];
   private syncVersion = 0;
   private readonly warnings: string[] = [];
+  /** Save a Copy as is warned once for each script, even when it writes several files. */
+  private readonly warnedSaveCopies = new Set<Script>();
   private readonly trace?: TraceLine[];
   private executionStore?: Store;
   private identityStore?: Store;
@@ -7952,6 +7954,10 @@ export class ScriptEngine {
       this.resumeAfter(left);
     }
     if (p.copyKind === 'clone') clearRecords(path, f.store.schema);
+    if (!this.warnedSaveCopies.has(f.script)) {
+      this.warnedSaveCopies.add(f.script);
+      this.warnings.push(`Save a Copy as wrote ${basename(path)}, a Tabularius store, not a .fmp12; FileMaker cannot open it.`);
+    }
   }
 
   /**

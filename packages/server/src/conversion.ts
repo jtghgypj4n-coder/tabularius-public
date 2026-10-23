@@ -49,6 +49,8 @@ export interface ConversionReport {
     screenOnly: ConversionItem[];
     /** Only FileMaker Pro can do them (a person choosing a folder, a camera, AppleScript): error 3, as on FileMaker Server. */
     clientOnly: ConversionItem[];
+    /** Save a Copy as steps write Tabularius stores, which FileMaker cannot open. */
+    saveCopyAs: ConversionItem[];
   };
   /** Formulas that don't parse. */
   unparsed: { where: string; text: string; error: string }[];
@@ -216,6 +218,7 @@ export function conversionReport(store: Store, hosted: string[] = [], focus?: (w
   const network = new Tally(keep);
   const screenOnly = new Tally(keep);
   const clientOnly = new Tally(keep);
+  const saveCopyAs = new Tally(keep);
   // Scripts that open another file or perform its scripts need it hosted too, even with no table occurrence on it.
   const fileSteps = new Map<number, number>();
   const commentedOut: ConversionReport['commentedOut'] = [];
@@ -230,6 +233,7 @@ export function conversionReport(store: Store, hosted: string[] = [], focus?: (w
       if (step.stepId === COMMENT) return;
       if (step.stepId === SHOW_CUSTOM_DIALOG) dialogs.add(step.name, where);
       if (step.stepId === GO_TO_RELATED_RECORD && step.params?.unreadOptions?.length) relatedOptions.add(step.name, where);
+      if (step.stepId === 37) saveCopyAs.add('Save a Copy as', where);
       const canonical = scriptStepName(step.stepId);
       if (canonical.startsWith('Unknown step ')) addUnknown('step', String(step.stepId), canonical, `step(${step.calculations?.length ?? 0} calculations)`);
       for (const c of step.calculations ?? []) {
@@ -289,7 +293,7 @@ export function conversionReport(store: Store, hosted: string[] = [], focus?: (w
     unknownTokens: [...unknown.values()].sort((a, b) => a.kind.localeCompare(b.kind) || a.id.localeCompare(b.id)),
     summary: '',
     functions: { notYet: notYet.list(), undecoded: undecoded.list(), plugIns: named(plugIns).map((item) => item.name.startsWith('unknown plug-in (id only)') ? { ...item, where: [] } : item) },
-    steps: { notYet: stepsNotYet.list(), dialogs: dialogs.list(), relatedOptions: relatedOptions.list(), blocked: blocked.list(), network: network.list(), screenOnly: screenOnly.list(), clientOnly: clientOnly.list() },
+    steps: { notYet: stepsNotYet.list(), dialogs: dialogs.list(), relatedOptions: relatedOptions.list(), blocked: blocked.list(), network: network.list(), screenOnly: screenOnly.list(), clientOnly: clientOnly.list(), saveCopyAs: saveCopyAs.list() },
     unparsed: unparsed.slice(0, LIST),
     broken: broken.slice(0, LIST),
     commentedOut: commentedOut.slice(0, LIST),
