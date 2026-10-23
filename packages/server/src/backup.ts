@@ -492,6 +492,9 @@ export function claimFolder(folder: string, purpose: 'server' | 'restore' = 'ser
       }
       try {
         linkSync(pending, file);
+        // The pending name goes before the lock does: until it is gone the pid file has two names, and a rival that
+        // reads it as the lock passes sees the link count change under it and reports "path changed" instead of "already hosted".
+        rmSync(pending, { force: true });
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
         const pid = runningServer(folder);
@@ -503,6 +506,7 @@ export function claimFolder(folder: string, purpose: 'server' | 'restore' = 'ser
         renameSync(pending, file);
       }
       lock.exec('COMMIT');
+      crashPoint('claim:committed');
     } catch (claimError) {
       if (lock.isOpen && lock.isTransaction) lock.exec('ROLLBACK');
       throw claimError;
