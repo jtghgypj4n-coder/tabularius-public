@@ -26,6 +26,23 @@ The admin calls are shown as `curl` so they can be pasted into a script; each on
 | Sign-ins end early, or a certificate is "not valid yet", or backups are dated in the future | [The computer's clock was wrong](#the-computers-clock-was-wrong) |
 | The folder moved and the service or backups cannot find it | [The folder was moved](#the-folder-was-moved) |
 | The computer, its disk or the whole machine is gone | [The server is lost](#the-server-is-lost) |
+| `already has files this standby didn't copy (...)` from `tabularius standby` | [Two servers both took writes (a standby pair)](#two-servers-both-took-writes-a-standby-pair) |
+
+## Two servers both took writes (a standby pair)
+
+**You see:** `already has files this standby didn't copy (...): use an empty folder, or --overwrite to replace them` from `tabularius standby`.
+
+**Why:** the old primary came back with its own file. Replication goes one way and never merges two histories.
+
+**Do:** decide which side keeps its writes. Copy the folder on the side to be replaced somewhere safe, then run standby there with `--overwrite`:
+
+```sh
+tabularius standby <folder> --primary URL --token <token> --overwrite
+```
+
+**Check:** the replaced side follows the server whose writes you chose to keep. Confirm it has caught up before using it as a standby.
+
+**Lost:** writes in the replaced folder that were not on the server you chose to keep. Keep the saved copy if you may need them; the files are never merged. See [Failback, and when both sides took writes](standby-guarantees.md#failback-and-when-both-sides-took-writes).
 
 ## Before it goes wrong
 

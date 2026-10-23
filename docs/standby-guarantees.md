@@ -8,6 +8,10 @@ This page says what holds, what a takeover gives you, what is not copied, and wh
 `packages/server/test/standby-model.test.ts`, holds the first three; the findings it could not make hold are in
 [the audit](../notes/audits/r24-02-standby-model.md).
 
+## The model, in one sentence
+
+This is a single-writer primary with asynchronous physical replication of the files, manual promotion, no automatic failover and no fencing, so a promoted standby may lack the last seconds of acknowledged writes.
+
 ## How it works, in the words that matter
 
 - Only the hosted files (`<name>.openhbam.sqlite`) are copied. The standby copies each file once (SQLite's online backup, so
@@ -79,6 +83,14 @@ To take over, stop the standby and run `tabularius serve <standby folder>`.
   repeats the time. Nothing is done about sessions: they live in the memory of the old server and are not in the copy.
 - The promoted server accepts writes at once. Nothing stops the old primary if it is still running (no fencing, no witness):
   stop it first.
+
+### What a client sees after a takeover
+
+- Data API and web sessions from the primary are refused with 401; people sign in again, as described above.
+- A change-feed cursor from the old primary gets 410 with a fresh cursor on the promoted server; the consumer must read what it needs again.
+- Webhooks do not fire from the promoted server until an administrator sets them up again; connections and webhooks are not copied ([What is not copied](#what-is-not-copied)).
+- The address does not move automatically. Point clients at the new server by hand, through DNS, a proxy or each client's URL.
+- The MCP bearer token is the same on both servers only if both were started with the same `--mcp-token`.
 
 ## Failback, and when both sides took writes
 
