@@ -7,7 +7,7 @@ import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { serve } from '../src/index.ts';
-import { DEFAULT_RUN_TOKENS, estimateInputTokens, IMAGE_RESERVE_TOKENS } from '../src/assistant.ts';
+import { DEFAULT_RUN_TOKENS, estimateInputTokens, IMAGE_RESERVE_TOKENS, MAX_RUN_TOKENS, parseRunTokens, runBudgetOf, TOOL_SEARCH_MARGIN } from '../src/assistant.ts';
 import type { PrivilegeDefinition, Store } from '../../store/src/index.ts';
 
 const fixture = join(import.meta.dirname, '..', '..', '..', 'fixtures', 'fmp12', 'Charts.fmp12');
@@ -764,6 +764,33 @@ test('assistant: a picture is counted as a reserved number of tokens, not by its
   assert.equal(IMAGE_RESERVE_TOKENS, 5000);
   assert.ok(withImage - plain >= IMAGE_RESERVE_TOKENS && withImage - plain < IMAGE_RESERVE_TOKENS + 100, `${plain} then ${withImage}`);
   assert.ok(DEFAULT_RUN_TOKENS > 0);
+});
+
+test('assistant: the input estimate is cautious for non-English text and counts the tool search margin', () => {
+  const ask = (content: string) => estimateInputTokens('', [], [{ role: 'user', content }]);
+  // Latin text is about 4 characters a token; Chinese, Japanese and emoji can be a token or more for every UTF-16 unit.
+  assert.ok(ask('a'.repeat(300)) < 150);
+  assert.ok(ask('日本語'.repeat(100)) >= 300, String(ask('日本語'.repeat(100))));
+  assert.ok(ask('😀'.repeat(100)) >= 200, String(ask('😀'.repeat(100))));
+  const tool = { name: 't', description: 'd', input_schema: { type: 'object' } };
+  const plain = estimateInputTokens('', [tool], []);
+  const deferred = estimateInputTokens('', [{ ...tool, defer_loading: true }], []);
+  assert.ok(deferred - plain >= TOOL_SEARCH_MARGIN, `${plain} then ${deferred}`);
+});
+
+test('assistant: the run budget is a positive whole number of tokens with a ceiling, and cannot be switched off', () => {
+  for (const ok of ['1', '300000', '10000000']) assert.equal(parseRunTokens(ok), Number(ok));
+  for (const bad of ['', '0', '-5', '0.5', '1e308', '1e3', '0x10', '1_000', ' 5', '5 ', 'Infinity', 'NaN', String(MAX_RUN_TOKENS + 1), '99999999999999999999']) {
+    assert.equal(parseRunTokens(bad), undefined, `"${bad}" should be refused`);
+  }
+  // Whatever reaches the code by another way is kept inside the same bounds.
+  assert.equal(runBudgetOf(undefined), DEFAULT_RUN_TOKENS);
+  assert.equal(runBudgetOf(0), DEFAULT_RUN_TOKENS);
+  assert.equal(runBudgetOf(0.5), DEFAULT_RUN_TOKENS);
+  assert.equal(runBudgetOf(NaN), DEFAULT_RUN_TOKENS);
+  assert.equal(runBudgetOf(Infinity), MAX_RUN_TOKENS);
+  assert.equal(runBudgetOf(1e308), MAX_RUN_TOKENS);
+  assert.equal(runBudgetOf(250_000), 250_000);
 });
 
 test('assistant: a run stops before a model call that could take it past its token budget', { skip }, async () => {

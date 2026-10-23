@@ -18,7 +18,7 @@ These are the options named by `tabularius help serve`. A flag takes precedence 
 | [`--ai-key-file`](serve/ai-key-file.md) | ~/.openhbam/anthropic-key | File path | [README.md](../../../README.md) |
 | [`--ai-model`](serve/ai-model.md) | claude-opus-5-5 | Model id | [README.md](../../../README.md) |
 | [`--ai-monthly-budget`](serve/ai-monthly-budget.md) | No monthly budget cap | Positive US dollar amount, with optional leading $ | [README.md](../../../README.md) |
-| [`--ai-run-tokens`](serve/ai-run-tokens.md) | 300000 | Positive number of tokens | [README.md](../../../README.md) |
+| [`--ai-run-tokens`](serve/ai-run-tokens.md) | 300000 | Whole number of tokens, 1 to 10,000,000 | [README.md](../../../README.md) |
 | [`--ai-workspace-id`](serve/ai-workspace-id.md) | ~/.openhbam/anthropic-workspace-id if available | Workspace id | [README.md](../../../README.md) |
 | [`--allow-app-connections`](serve/allow-app-connections.md) | Off | switch (present = on) | [README.md](../../../README.md) |
 | [`--allow-blank-passwords`](serve/allow-blank-passwords.md) | Off | Switch; present allows blank passwords | [README.md](../../../README.md) |

@@ -149,7 +149,7 @@ export { applyFix as applyOptimizationFix, previewFix as previewOptimizationFix,
 export { explainScriptFailure, type ScriptFailure } from './script-failure.ts';
 export { fetchFmsExport, migrateFms, describeMigration, copySize, nativePath, readSettings, SETTINGS_FILE, FmsMigrationError, type FmsExport, type FolderSettings, type MigrationReport } from './fms-migrate.ts';
 export { dataApiSource, dataApiClient, checkSyncAllowed, describeApply, describePlan, verifySync, describeSyncVerification, parseSyncConfig, remoteRecord, CONTAINER_PULL_MAX_BYTES, FmsSyncError, type DataApiSource, type DataApiClient, type DataApiSourceOptions, type SyncConfigFile, type SyncVerificationTable } from './fms-sync.ts';
-export { Assistant, DEFAULT_MODEL, type AssistantOptions, type AiState } from './assistant.ts';
+export { Assistant, DEFAULT_MODEL, DEFAULT_RUN_TOKENS, MAX_RUN_TOKENS, parseRunTokens, runBudgetOf, type AssistantOptions, type AiState } from './assistant.ts';
 export { DigestRunner, Digests, type Digest, type DigestRun } from './digests.ts';
 
 export interface ServeOptions {
