@@ -15,8 +15,8 @@ test('serve help documents accepting partial standby files', async (t) => {
   assert.match(result.stdout, /\[--accept-partial-standby\]/);
 });
 
-for (const accept of [false, true]) {
-  test(`serve CLI ${accept ? 'accepts partial standby files only with the flag' : 'refuses partial standby files by default'}`, async (t) => {
+for (const [accept, workers] of [[false, 1], [true, 1], [false, 2], [true, 2]] as const) {
+  test(`serve CLI ${accept ? 'accepts partial standby files only with the flag' : 'refuses partial standby files by default'}${workers > 1 ? ` with --workers ${workers}` : ''}`, async (t) => {
     const dir = mkdtempSync(join(tmpdir(), 'tabularius-takeover-cli-'));
     const path = join(dir, '.openhbam-standby.json');
     const state = JSON.stringify({
@@ -27,6 +27,7 @@ for (const accept of [false, true]) {
     const { PATH, TABULARIUS_TEST_CHILD_MARKER } = commandStubEnv(t);
     const child = spawn(process.execPath, [
       '--no-warnings', main, 'serve', dir, '--port', '0', '--host', '127.0.0.1', '--no-backups', '--stats-interval', 'off',
+      ...(workers > 1 ? ['--workers', String(workers)] : []),
       ...(accept ? ['--accept-partial-standby'] : []),
     ], {
       env: { PATH, TABULARIUS_TEST_CHILD_MARKER },
