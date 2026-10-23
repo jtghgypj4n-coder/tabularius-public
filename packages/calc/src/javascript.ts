@@ -713,12 +713,14 @@ export class JavaScriptContext {
       throw new CalcError(ERR.calculation, `JavaScript context limit reached for this account (${JS_CONTEXT_ACCOUNT_LIMIT})`);
     }
     // A full pool drops the least recently used handle (the earliest idle deadline; the oldest when they tie) instead of refusing
-    // the new one. A call runs to its end before any other starts, so every handle is idle here. The dropped handle's references
-    // stop working like an expired one's, and its owner makes a new one. The per-account limit above is still a refusal, so one
-    // account cannot push out more than its own share of the pool.
+    // the new one: the requesting account's own when it holds any, so an account that keeps making handles cannot push out
+    // another account's, and the least recently used of all only when it holds none. A call runs to its end before any other
+    // starts, so every handle is idle here. The dropped handle's references stop working like an expired one's, and its owner
+    // makes a new one. The per-account limit above is still a refusal.
     if (contexts.size >= JS_CONTEXT_LIMIT) {
+      const own = account === undefined ? [] : [...contexts].filter(context => context.account === account);
       let oldest: JavaScriptContext | undefined;
-      for (const context of contexts) if (!oldest || context.expiresAt < oldest.expiresAt) oldest = context;
+      for (const context of own.length ? own : contexts) if (!oldest || context.expiresAt < oldest.expiresAt) oldest = context;
       void oldest?.close();
     }
     this.renewIdle();
