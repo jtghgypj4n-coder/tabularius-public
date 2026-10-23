@@ -66,8 +66,23 @@ test('restore a file to a moment, as a copy and in place, from the console', { s
   assert.equal(name(), 'Mistake', 'the live file is untouched');
   assert.equal((await admin('POST', { database: 'Charts', at: good, mode: 'copy', name: 'Charts before mistake' })).status, 409);
 
-  // In place: the file is put back and hosted again.
-  const replaced = await admin('POST', { database: 'Charts', at: good });
+  // No mode is a copy: the live file is left alone and the answer says so.
+  const bare = await admin('POST', { database: 'Charts', at: good, name: 'Charts by default' });
+  assert.equal(bare.status, 200, JSON.stringify(bare.body));
+  assert.equal(bare.body.mode, 'copy');
+  assert.equal(bare.body.database, 'Charts by default');
+  assert.equal(name(), 'Mistake', 'a post with no mode did not replace the live file');
+
+  // Any other mode is refused, not read as a replacement or as a copy.
+  for (const mode of ['Replace', 'REPLACE', 'overwrite', '', null, 1, true, ['replace']]) {
+    const refused = await admin('POST', { database: 'Charts', at: good, mode });
+    assert.equal(refused.status, 400, JSON.stringify(mode));
+    assert.match(refused.body.error, /mode must be "copy" or "replace"/);
+  }
+  assert.equal(name(), 'Mistake', 'a refused mode changed nothing');
+
+  // In place is asked for by name: the file is put back and hosted again.
+  const replaced = await admin('POST', { database: 'Charts', at: good, mode: 'replace' });
   assert.equal(replaced.status, 200, JSON.stringify(replaced.body));
   assert.equal(name(), 'Good edit');
 
@@ -78,7 +93,7 @@ test('restore a file to a moment, as a copy and in place, from the console', { s
   const later = Date.now();
   await sleep(30);
   host.get('Charts')!.update('Congress', 1, { Name: 'Another mistake' });
-  assert.equal((await admin('POST', { database: 'Charts', at: later })).status, 200);
+  assert.equal((await admin('POST', { database: 'Charts', at: later, mode: 'replace' })).status, 200);
   assert.equal(name(), 'After restore');
 
   // Before any backup, in the future, or a file that isn't hosted.

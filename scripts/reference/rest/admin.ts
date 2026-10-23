@@ -831,12 +831,12 @@ export const groups: RestGroup[] = [
       {
         method: 'POST',
         path: '/tabularius/admin/v1/restore',
-        summary: 'Puts a file back as it was at a moment while the server keeps running: in place (its users are disconnected, it is closed, restored and opened again) or as a new hosted copy beside it.',
+        summary: 'Puts a file back as it was at a moment while the server keeps running: by default as a new hosted copy beside it (the live file is not touched), or, when "replace" is asked for, in place (its users are disconnected, it is closed, restored and opened again).',
         permissions: WRITE,
         params: [
           { name: 'database', in: 'body', type: 'string', required: true, description: 'Hosted file, any case (404 "\\"<name>\\" is not hosted").' },
           { name: 'at', in: 'body', type: 'string or number', required: true, description: 'The moment: milliseconds since 1970, an ISO time with Z or an offset, or a local time like "2026-10-11 14:05" (as it was by the end of that minute).' },
-          { name: 'mode', in: 'body', type: 'string', description: '"replace" (default) or "copy".' },
+          { name: 'mode', in: 'body', type: 'string', description: '"copy" (default: host the restored file next to the current one) or "replace" (put it over the live file; its users are disconnected). Any other value is a 400.' },
           { name: 'name', in: 'body', type: 'string', description: 'With copy: the new file\'s name (default "<file> restored <date time>").' },
         ],
         example: {
@@ -844,7 +844,7 @@ export const groups: RestGroup[] = [
           status: 200,
           response: j({ database: 'Invoices before mistake', time: '2026-10-11T14:05:41.000Z', mode: 'copy' }),
         },
-        notes: '400 for a moment that can\'t be read, is in the future, or has no backup before it; 409 "Another restore is under way", or "A file named … is already hosted" for a copy.',
+        notes: '400 for a mode that is neither "copy" nor "replace", or a moment that can\'t be read, is in the future, or has no backup before it; 409 "Another restore is under way", or "A file named … is already hosted" for a copy.',
       },
       {
         method: 'POST',

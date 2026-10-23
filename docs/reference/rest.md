@@ -15492,7 +15492,7 @@ Source: `packages/server/src/admin.ts`
 | POST | [`/tabularius/admin/v1/backups/{set}/verify`](#admin-backups-post-tabularius-admin-v1-backups-set-verify) | Checks a backup set again now: each copy against its checksum and opened. |
 | POST | [`/tabularius/admin/v1/backups/{set}/test-restore`](#admin-backups-post-tabularius-admin-v1-backups-set-test-restore) | Restores a set to a scratch folder and opens each file as the server would, as a test; nothing hosted is touched. |
 | GET | [`/tabularius/admin/v1/restore`](#admin-backups-get-tabularius-admin-v1-restore) | How far back each hosted file can be put back, from the backups and point-in-time logs. |
-| POST | [`/tabularius/admin/v1/restore`](#admin-backups-post-tabularius-admin-v1-restore) | Puts a file back as it was at a moment while the server keeps running: in place (its users are disconnected, it is closed, restored and opened again) or as a new hosted copy beside it. |
+| POST | [`/tabularius/admin/v1/restore`](#admin-backups-post-tabularius-admin-v1-restore) | Puts a file back as it was at a moment while the server keeps running: by default as a new hosted copy beside it (the live file is not touched), or, when "replace" is asked for, in place (its users are disconnected, it is closed, restored and opened again). |
 | POST | [`/tabularius/admin/v1/records/restore`](#admin-backups-post-tabularius-admin-v1-records-restore) | Puts one record back as it was after an audit entry; the change is audited as "admin console". |
 
 <a id="admin-backups-get-tabularius-admin-v1-backups"></a>
@@ -15741,7 +15741,7 @@ from, to and sets are left out for a file with no backup.
 
 ### `POST /tabularius/admin/v1/restore`
 
-Puts a file back as it was at a moment while the server keeps running: in place (its users are disconnected, it is closed, restored and opened again) or as a new hosted copy beside it.
+Puts a file back as it was at a moment while the server keeps running: by default as a new hosted copy beside it (the live file is not touched), or, when "replace" is asked for, in place (its users are disconnected, it is closed, restored and opened again).
 
 **Permissions:** Admin console: a console sign-in (the tabularius_admin cookie from POST /tabularius/admin/v1/sign-in), or the admin password by HTTP Basic (any user name), or the folder's local channel token in x-tabularius-local (Tabularius commands on the server machine). With no admin password set, only requests from this machine (loopback) are let in. Not a GET, so it also needs the header x-tabularius-admin: 1 (403 "missing x-tabularius-admin header" without it).
 
@@ -15751,7 +15751,7 @@ Puts a file back as it was at a moment while the server keeps running: in place 
 | --- | --- | --- | --- | --- |
 | `database` | body | string | yes | Hosted file, any case (404 "\"<name>\" is not hosted"). |
 | `at` | body | string or number | yes | The moment: milliseconds since 1970, an ISO time with Z or an offset, or a local time like "2026-10-11 14:05" (as it was by the end of that minute). |
-| `mode` | body | string | no | "replace" (default) or "copy". |
+| `mode` | body | string | no | "copy" (default: host the restored file next to the current one) or "replace" (put it over the live file; its users are disconnected). Any other value is a 400. |
 | `name` | body | string | no | With copy: the new file's name (default "<file> restored <date time>"). |
 
 **Example:**
@@ -15780,7 +15780,7 @@ Response `200`:
 }
 ```
 
-400 for a moment that can't be read, is in the future, or has no backup before it; 409 "Another restore is under way", or "A file named … is already hosted" for a copy.
+400 for a mode that is neither "copy" nor "replace", or a moment that can't be read, is in the future, or has no backup before it; 409 "Another restore is under way", or "A file named … is already hosted" for a copy.
 
 <a id="admin-backups-post-tabularius-admin-v1-records-restore"></a>
 

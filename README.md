@@ -1151,11 +1151,13 @@ tabularius restore ~/Databases --at "2026-10-11 14:05" Contacts
 
 You don't need to stop the server. In the admin console, under Backups,
 **Restore a file to a moment** puts a file back while everything else keeps
-running. It can host the restored file as a new file next to the current
-one, so you can copy what was lost, or restore it in place, which
-disconnects that file's users and opens it again. The same is
+running. It hosts the restored file as a new file next to the current
+one, so you can copy what was lost, and leaves the current file alone. Only
+if you choose **Replace the file as it is now** does it restore in place,
+which disconnects that file's users and opens it again. The same is
 `POST /tabularius/admin/v1/restore` with `{database, at, mode: "copy" |
-"replace", name}`. After an in-place restore the server makes a fresh
+"replace", name}`: with no `mode` it makes a copy, and a `mode` that is
+neither is refused with a 400. After an in-place restore the server makes a fresh
 backup, so later changes can be restored on top of it.
 
 **Slowest scripts.** The admin console times every script the server runs,
