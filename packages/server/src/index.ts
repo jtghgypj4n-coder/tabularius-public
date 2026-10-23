@@ -423,15 +423,18 @@ export async function serve(opts: ServeOptions): Promise<{ server: Server; host:
     let replication: Replication | undefined;
     disposers.push(() => shipper.stop());
     // Closing or pausing a file folds its log into it: save its last changes first, when anything follows them.
-    host.beforeClose.push(() => {
+    const shipFirst = () => {
       if (admin.progressive || replication) shipper.shipBeforeCheckpoint();
-    });
+    };
+    host.beforeClose.push(shipFirst);
     // Files the server keeps from AI (--ai-exclude), from when they open.
     excludeFromAi(host, opts.aiExclude ?? []);
     // A file hosted (or opened again) from now on keeps its changes for them from its first write.
     host.onAdd.push((store) => {
+      store.beforeCheckpoint = shipFirst; // compacting or checkpointing a file ships its changes first too
       if (admin.progressive || replication) shipper.follow(store);
     });
+    for (const name of host.names()) host.get(name)!.beforeCheckpoint = shipFirst;
     replication = opts.replicationToken ? new Replication(host, shipper, opts.replicationToken) : undefined;
     if (replication) {
       const acquired = replication;
