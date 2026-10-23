@@ -75,6 +75,8 @@ test('a stored passkey key saved with base64 padding still verifies; what the br
   assert.deepEqual(verifyAssertion({ ...input, publicKey: padded }), { signCount: 1 });
   assert.throws(() => verifyAssertion({ ...input, publicKey: padded + '=' }), /base64url/);
   assert.throws(() => verifyAssertion({ ...input, publicKey: padded.replace('=', '') + '==' }), /base64url/);
+  // Malformed padding on the stored key: wrong length for the padding, too much of it, or a non-canonical last character.
+  for (const publicKey of ['QQ=', 'QQ===', 'QR==', '=', '==']) assert.throws(() => verifyAssertion({ ...input, publicKey }), /base64url/, publicKey);
   // Authenticator data is 37 bytes here, so its padded form ends in '=='.
   const authenticatorData = Buffer.from(input.authenticatorData, 'base64url').toString('base64').replace(/\+/g, '-').replace(/\//g, '_');
   assert.ok(authenticatorData.endsWith('=='));
