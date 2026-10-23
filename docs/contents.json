@@ -39,6 +39,7 @@
         "docs/writing-a-plugin.md",
         "docs/native-field-types.md",
         "docs/native-foreign-keys.md",
+        "docs/native-compat.md",
         "docs/check-solution.md",
         "docs/calendar-feeds.md",
         "docs/audits/r19-07-language-sort.md"
@@ -294,6 +295,7 @@
         "docs/reference/cli/calendar-feed.md",
         "docs/reference/cli/check-solution.md",
         "docs/reference/cli/compact.md",
+        "docs/reference/cli/compat-check.md",
         "docs/reference/cli/corpus-scan.md",
         "docs/reference/cli/ddr.md",
         "docs/reference/cli/decrypt.md",
@@ -340,6 +342,7 @@
         "docs/reference/cli/test-scripts.md",
         "docs/reference/cli/token.md",
         "docs/reference/cli/totp.md",
+        "docs/reference/cli/upgrade-file.md",
         "docs/reference/cli/upgrade.md",
         "docs/reference/cli/verify-backup.md",
         "docs/reference/cli/version.md",

@@ -13,6 +13,7 @@ Each command page includes the current help text, options, exit codes, and a tes
 | [`calendar-feed`](calendar-feed.md) | 14 |
 | [`check-solution`](check-solution.md) | 3 |
 | [`compact`](compact.md) | 1 |
+| [`compat-check`](compat-check.md) | 0 |
 | [`corpus-scan`](corpus-scan.md) | 8 |
 | [`ddr`](ddr.md) | 0 |
 | [`decrypt`](decrypt.md) | 0 |
@@ -60,6 +61,7 @@ Each command page includes the current help text, options, exit codes, and a tes
 | [`token`](token.md) | 5 |
 | [`totp`](totp.md) | 0 |
 | [`upgrade`](upgrade.md) | 3 |
+| [`upgrade-file`](upgrade-file.md) | 2 |
 | [`verify-backup`](verify-backup.md) | 2 |
 | [`version`](version.md) | 1 |
 | [`write-back`](write-back.md) | 1 |
