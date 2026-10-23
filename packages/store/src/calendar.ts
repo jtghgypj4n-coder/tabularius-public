@@ -303,6 +303,7 @@ interface Rule {
   count?: number;
   until?: string;
   byDay?: number[];
+  wkst: number;
 }
 
 /** The rule, or why it is not one this reader works out. */
@@ -315,7 +316,9 @@ function parseRule(value: string): Rule | string {
   }
   const interval = parts.INTERVAL === undefined ? 1 : Number(parts.INTERVAL);
   if (!Number.isInteger(interval) || interval < 1 || interval > 1000) return 'a repeat with an invalid INTERVAL is not read';
-  const rule: Rule = { freq, interval };
+  const wkst = parts.WKST === undefined ? 1 : WEEKDAYS.indexOf(parts.WKST);
+  if (wkst < 0) return 'a repeat with an invalid WKST is not read';
+  const rule: Rule = { freq, interval, wkst };
   if (parts.COUNT !== undefined) {
     rule.count = Number(parts.COUNT);
     if (!Number.isInteger(rule.count) || rule.count < 1) return 'a repeat with an invalid COUNT is not read';
@@ -358,8 +361,9 @@ function occurrences(first: string, rule: Rule, max: number, excluded: Set<strin
   if (rule.freq === 'DAILY') {
     for (let i = 0; more() && i < 20_000; i++, n++) if (!push(addDays(date0, i * rule.interval))) break;
   } else if (rule.freq === 'WEEKLY') {
-    const days = (rule.byDay ?? [startDate.getUTCDay()]).sort((a, b) => a - b);
-    const weekStart = addDays(date0, -startDate.getUTCDay());
+    const days = (rule.byDay ?? [startDate.getUTCDay()]).map((day) => (day - rule.wkst + 7) % 7).sort((a, b) => a - b);
+    const weekOffset = (startDate.getUTCDay() - rule.wkst + 7) % 7;
+    const weekStart = addDays(date0, -weekOffset);
     scan: for (let w = 0; ; w++) {
       for (const d of days) {
         const day = addDays(weekStart, w * 7 * rule.interval + d);

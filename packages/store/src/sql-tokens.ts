@@ -79,7 +79,8 @@ export function sqlTokens(sql: string, postgres = false): SqlToken[] {
 export function sqlName(token: SqlToken): string {
   if (token.kind !== 'identifier' && token.kind !== 'string') return token.text;
   const quote = token.text[0];
-  return token.text.slice(1, -1).split(quote + quote).join(quote);
+  const name = token.text.slice(1, -1);
+  return quote === '[' ? name : name.split(quote + quote).join(quote);
 }
 
 /** Same offsets, with literals, identifiers and comments hidden from code rewrites. */
