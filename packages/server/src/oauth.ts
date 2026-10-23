@@ -215,13 +215,19 @@ export class OAuthServer {
     // Older local OAuth grants were accidentally labelled service credentials, so a password reset did not end them.
     // Relabel them delegated (they are known by the refresh row that points at them) and bind them to the sign-in as it
     // is now, so the app stays connected; one whose password already changed since can no longer be vouched for and ends.
-    for (const grant of this.db.prepare('SELECT hash, database, account, access_id, password FROM refresh').iterate() as Iterable<{ hash: string; database: string; account: string; access_id: string; password: string | null }>) {
+    for (const grant of this.db.prepare('SELECT hash, database, account, access_id, password, identity FROM refresh').iterate() as Iterable<{ hash: string; database: string; account: string; access_id: string; password: string | null; identity: string | null }>) {
       const store = this.host.get(grant.database);
       const access = store?.sql.prepare('SELECT provenance FROM _fm_api_tokens WHERE id = ? AND account = ? COLLATE NOCASE').get(grant.access_id, grant.account);
       if (!store || !access || access.provenance === 'delegated') continue;
       if (grant.password === legacyPasswordMark(store, grant.account)) {
+        let identity: { issuer: string; sub: string; person?: string; mapping: string } | undefined;
+        try {
+          identity = grant.identity ? JSON.parse(grant.identity) as typeof identity : undefined;
+        } catch {
+          // Unreadable legacy identity text must not prevent startup; bind without a person.
+        }
         store.sql.prepare("UPDATE _fm_api_tokens SET provenance = 'delegated' WHERE id = ?").run(grant.access_id);
-        this.db.prepare('UPDATE refresh SET password = ? WHERE hash = ?').run(passwordMark(store, grant.account), grant.hash);
+        this.db.prepare('UPDATE refresh SET password = ? WHERE hash = ?').run(passwordMark(store, grant.account, identity?.person), grant.hash);
       } else {
         store.revokeApiToken(grant.access_id);
         this.db.prepare('DELETE FROM refresh WHERE hash = ?').run(grant.hash);
