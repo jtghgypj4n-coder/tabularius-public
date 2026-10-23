@@ -81,11 +81,14 @@ function closest(name: string, among: string[]): string | undefined {
 }
 
 /** Occurrence::Field names in a step's text (string literals left out). */
-function fieldRefs(line: string): string[] {
+export function fieldRefs(line: string): string[] {
   const text = line.replace(/"(?:[^"\\]|\\.)*"/g, '""');
   const out: string[] = [];
   for (const m of text.matchAll(/(?:^|[\s[(;&,=<>+\-*/¶])((?:[^\s:;[\]()"&,=<>+\-*/¶][^:;[\]()"&,=<>+\-*/¶]*?))::([^;[\]()"&,=<>+\-*/¶]+)/g)) {
-    const ref = `${m[1].trim()}::${m[2].trim().replace(/\s*\[\d+\]$/, '')}`;
+    const operator = [...m[1].matchAll(/\b(?:and|or|not|xor)\s+/gi)].at(-1);
+    const occurrence = m[1].slice(operator ? operator.index! + operator[0].length : 0).trim()
+      .replace(/^(?:\$\S+|\d\S*)\s+/, '');
+    const ref = `${occurrence}::${m[2].trim().replace(/\s*\[\d+\]$/, '')}`;
     if (!out.includes(ref)) out.push(ref);
   }
   return out.slice(0, 12);
