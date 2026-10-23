@@ -23,7 +23,7 @@ intentional. Whether Claris makes the same choice is **unverified**.
 | Formula-like text in CSV, TSV, Merge | The safety apostrophe remains on import into a text field. | Delimited exports |
 | Text newlines | The store normalizes line endings to carriage returns; delimited files encode returns as vertical tabs and the importer restores them. | Stored records and delimited files |
 | Excel text line breaks | Carriage returns are written as `&#13;` in worksheet XML, so XML newline normalization does not change them. | Excel |
-| Tabs in TSV values | A tab inside a field is changed to a space because tab is the delimiter. | TSV |
+| Tabs in TSV values | Script Export Records changes a tab inside a field to a space because tab is the delimiter. The web client's export writes a tab and other control characters as visible `\uXXXX` text. | TSV |
 | Container contents | The export carries the filename reference, not the binary payload. | All tested formats |
 | HTML table | Exported values can be read from the table, but Import Records does not import HTML. | HTML |
 | Boolean value | The schema has no native boolean field; the generated record uses a numeric `1` and checks that it returns as `1`. | All formats |

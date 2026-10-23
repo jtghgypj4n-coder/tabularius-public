@@ -50,8 +50,8 @@ const STYLES = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<styleS
   + '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>';
 
 const xml = (s: string) => s
-  // Characters XML 1.0 can't hold.
-  .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f￾￿]/g, '')
+  // Characters XML 1.0 can't hold are written as visible \uXXXX text.
+  .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\ufffe\uffff]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
   .replace(/\r/g, '&#13;');
 
