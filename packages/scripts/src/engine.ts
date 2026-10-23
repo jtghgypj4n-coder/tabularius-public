@@ -2934,6 +2934,9 @@ export class ScriptEngine {
           };
           let res = await curlHop(at, method, sentHeaders, body);
           for (let hop = 0; request.follow && res.status >= 300 && res.status < 400 && res.headers.get('location'); hop++) {
+            // The current body is unused on every redirect path, including a malformed,
+            // forbidden or over-budget next hop. Release it before any of those checks.
+            await res.body?.cancel().catch(() => {});
             const next = new URL(res.headers.get('location')!, at).toString();
             if (hop >= Math.min(request.maxRedirs < 0 ? 5 : request.maxRedirs, 5)) return { status: res.status, body: '', headers: {}, error: 'too many redirects' };
             if (!ask.allows(next)) throw new Error('the redirect address is not allowed');
@@ -2946,7 +2949,6 @@ export class ScriptEngine {
               sentHeaders = Object.fromEntries(Object.entries(sentHeaders).filter(([k]) => !/^(content-type|content-length)$/i.test(k)));
             }
             at = next;
-            await res.body?.cancel().catch(() => {});
             res = await curlHop(at, method, sentHeaders, body);
           }
           // A script run keeps up to 16 handles, each holding its response: a smaller cap than Insert from URL's.
