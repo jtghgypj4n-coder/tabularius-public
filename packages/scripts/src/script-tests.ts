@@ -193,7 +193,7 @@ async function runCase(store: Store, script: Script, given: ScriptTestGiven, wan
     }
     const layout = given.layout ?? startingPoints(store).get(script.id)?.layout ?? store.designs().layouts[0]?.name;
     const who = account(store);
-    const base = offlineScriptOptions({ session, documents, ...(who ? { account: who } : {}), timeoutMs: opts.timeoutMs ?? 10_000, maxSteps: opts.maxSteps ?? 100_000 });
+    const base = offlineScriptOptions({ session, documents, scratch: true, ...(who ? { account: who } : {}), timeoutMs: opts.timeoutMs ?? 10_000, maxSteps: opts.maxSteps ?? 100_000 });
     if (fields.length) {
       // Global fields are set the way a script would, in the same session.
       const steps: ScriptStep[] = fields.map(([k, v]) => {
