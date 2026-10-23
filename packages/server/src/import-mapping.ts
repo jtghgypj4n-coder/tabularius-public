@@ -759,8 +759,10 @@ function applyImportRun(store: Store, layout: string, rows: Cell[][], plan: { he
   const id = randomBytes(6).toString('hex');
   journal(store);
   const info = store.layout(layout);
-  store.sql.prepare('INSERT INTO _fm_imports (id, at, account, layout, tbl, file, ids, mods, cleanup) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-    .run(id, new Date().toISOString(), opts.account ?? null, info.name, info.table, opts.file ?? null, JSON.stringify(ids), JSON.stringify(mods), batch?.id ?? null);
+  store.sql.prepare('INSERT INTO _fm_imports (id, at, account, layout, tbl, owner_name, owner_id, table_id, file, ids, mods, cleanup) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(id, new Date().toISOString(), opts.account ?? null, info.name, info.table, info.owner.name, fileIdentity(info.owner),
+      info.owner.schema.tables.find((table) => table.name === info.table)!.id, opts.file ?? null,
+      JSON.stringify(ids), JSON.stringify(mods), batch?.id ?? null);
   skipped.sort((x, y) => x.row - y.row);
   return {
     id, foundSet: [...updated, ...ids], imported: ids.length, ...(action === 'add' ? {} : { updated: updated.length }), skipped,
@@ -789,9 +791,20 @@ function targetKeys(store: Store, layout: string, match: string[], target: numbe
 
 function journal(store: Store): void {
   store.sql.exec(`CREATE TABLE IF NOT EXISTS _fm_imports (id TEXT PRIMARY KEY, at TEXT NOT NULL, account TEXT, layout TEXT NOT NULL, tbl TEXT NOT NULL,
-    file TEXT, ids TEXT NOT NULL, mods TEXT NOT NULL, undone TEXT, cleanup TEXT)`);
+    owner_name TEXT, owner_id TEXT, table_id INTEGER, file TEXT, ids TEXT NOT NULL, mods TEXT NOT NULL, undone TEXT, cleanup TEXT)`);
   // Files from before Update and Replace: the cleanup batch that takes back the fields an import overwrote.
-  if (!(store.sql.prepare('PRAGMA table_info(_fm_imports)').all() as { name: string }[]).some((c) => c.name === 'cleanup')) store.sql.exec('ALTER TABLE _fm_imports ADD COLUMN cleanup TEXT');
+  const columns = new Set((store.sql.prepare('PRAGMA table_info(_fm_imports)').all() as { name: string }[]).map((c) => c.name));
+  if (!columns.has('cleanup')) store.sql.exec('ALTER TABLE _fm_imports ADD COLUMN cleanup TEXT');
+  if (!columns.has('owner_name')) store.sql.exec('ALTER TABLE _fm_imports ADD COLUMN owner_name TEXT');
+  if (!columns.has('table_id')) store.sql.exec('ALTER TABLE _fm_imports ADD COLUMN table_id INTEGER');
+  if (!columns.has('owner_id')) store.sql.exec('ALTER TABLE _fm_imports ADD COLUMN owner_id TEXT');
+}
+
+/** A random id kept in the file itself, so a different file that takes the same name and the same table ids is told apart from it. */
+function fileIdentity(store: Store): string {
+  store.sql.exec('CREATE TABLE IF NOT EXISTS _fm_file_identity (one INTEGER PRIMARY KEY CHECK (one = 1), id TEXT NOT NULL)');
+  store.sql.prepare('INSERT OR IGNORE INTO _fm_file_identity (one, id) VALUES (1, ?)').run(randomBytes(16).toString('hex'));
+  return (store.sql.prepare('SELECT id FROM _fm_file_identity WHERE one = 1').get() as { id: string }).id;
 }
 
 export interface ImportRecord { id: string; at: string; account?: string; layout: string; file?: string; imported: number; undone?: string }
@@ -854,10 +867,19 @@ export function importHistory(store: Store, limit = 20): ImportRecord[] {
 /** Takes an import back: deletes the records it made, except ones changed since, which are left and named. */
 function undoImportRun(store: Store, id: string, opts: { privileges?: Privileges; account?: string }): { deleted: number; restored?: number; kept: { recordId: number; why: string }[] } {
   journal(store);
-  const row = store.sql.prepare('SELECT * FROM _fm_imports WHERE id = ?').get(id) as { layout: string; tbl: string; ids: string; mods: string; account: string | null; undone: string | null; cleanup: string | null } | undefined;
+  const row = store.sql.prepare('SELECT * FROM _fm_imports WHERE id = ?').get(id) as { layout: string; tbl: string; owner_name: string | null; owner_id: string | null; table_id: number | null; ids: string; mods: string; account: string | null; undone: string | null; cleanup: string | null } | undefined;
   if (!row) throw new ImportError('No such import');
   if (row.undone) throw new ImportError('Already undone');
   if (opts.privileges && !opts.privileges.full && row.account !== opts.account) throw new ImportError('Only the account that imported, or [Full Access], can undo an import');
+  const info = store.layout(row.layout);
+  // An import through another file's layout is undone in that file only if it is still the file that was imported into.
+  if (info.owner !== store && (!row.owner_id || fileIdentity(info.owner) !== row.owner_id)) {
+    throw new ImportError(row.owner_id ? 'The file the import went into has been replaced' : 'This import went into another file before that file was identified, so it cannot be undone from here');
+  }
+  if (info.table !== row.tbl || (row.owner_name && info.owner.name !== row.owner_name)
+    || (row.table_id !== null && info.owner.schema.tables.find((table) => table.name === info.table)?.id !== row.table_id)) {
+    throw new ImportError('The imported layout no longer points to the original table');
+  }
   const ids = JSON.parse(row.ids) as number[];
   const mods = JSON.parse(row.mods) as number[];
   const kept: { recordId: number; why: string }[] = [];
@@ -877,7 +899,7 @@ function undoImportRun(store: Store, id: string, opts: { privileges?: Privileges
     }
   }
   ids.forEach((recordId, i) => {
-    const now = store.sql.prepare(`SELECT _fm_mod_id AS m FROM ${q(row.tbl)} WHERE _fm_record_id = ?`).get(recordId) as { m: number } | undefined;
+    const now = info.owner.sql.prepare(`SELECT _fm_mod_id AS m FROM ${q(info.table)} WHERE _fm_record_id = ?`).get(recordId) as { m: number } | undefined;
     if (!now) return;
     if (now.m !== mods[i]) {
       kept.push({ recordId, why: 'changed since it was imported' });

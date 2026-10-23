@@ -1032,7 +1032,7 @@ export class ODataEndpoint {
         }
         if (refs) {
           // Only where each related record is, not what is in it.
-          const ids = this.withinLimit(() => this.relatedIds(set, id, e, p, { left: EXPAND_LIMIT.records }, Math.min(e.top ?? MAX_RELATED, MAX_RELATED)));
+          const ids = this.withinLimit(() => this.relatedPageIds(set, id, e, p, { left: EXPAND_LIMIT.records }));
           body.value = ids.map((rid) => ({ '@odata.id': `${base}/${nav.target.name}(${rid})` }));
           nav.target.info.owner.logRead(nav.target.info.table, ids, { privileges: p });
           return send(res, 200, body);
@@ -1573,10 +1573,19 @@ export class ODataEndpoint {
 
   /**
    * The records related to one record through a navigation property, as the account sees them: records it can't view
-   * are left out, and so are fields it can't see. At most MAX_RELATED records are read for one record.
+   * are left out, and so are fields it can't see. Oversized unpaged collections are refused.
    */
   private related(set: EntitySet, id: number, e: Expansion, p: Privileges, budget: Budget): Record<string, unknown>[] {
-    return this.relatedRecords(e, this.relatedIds(set, id, e, p, budget, Math.min(e.top ?? MAX_RELATED, MAX_RELATED)), p);
+    return this.relatedRecords(e, this.relatedPageIds(set, id, e, p, budget), p);
+  }
+
+  private relatedPageIds(set: EntitySet, id: number, e: Expansion, p: Privileges, budget: Budget): number[] {
+    const ids = this.relatedIds(set, id, e, p, budget, Math.min(e.top ?? MAX_RELATED + 1, MAX_RELATED + 1));
+    if (ids.length > MAX_RELATED) {
+      throw bad(e.top !== undefined ? `$top must be at most ${MAX_RELATED.toLocaleString('en-US')} for related records, and this collection has more: page it with $top and $skip`
+        : `A related collection has more than ${MAX_RELATED.toLocaleString('en-US')} records: page it with $top (at most ${MAX_RELATED.toLocaleString('en-US')}) and $skip`);
+    }
+    return ids;
   }
 
   /**

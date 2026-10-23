@@ -164,7 +164,7 @@ when you press Ctrl-C. To host your own FileMaker file, see [QUICKSTART.md](QUIC
   the assistant with **Match with AI**), with fixes for each column (day-first
   dates, `$1,200.00`, yes/no, value list spellings, Excel dates), a preview, and
   the rows already in the file or repeated, by an email or id. The import is one
-  step that **Undo** takes back (records changed since are kept). MCP clients get
+  step that **Undo** takes back (records changed since are kept; an import through another file's layout is undone only in the file it went into). MCP clients get
   plan_import, import_records and undo_import.
 - **Record search**: `search_records` (MCP and the assistant) finds records by
   words in any table or field, ranked, with a full-text index on the server
@@ -1372,8 +1372,9 @@ runs a script. Each relationship gives the occurrences at both ends a
 navigation property to the other, so `People?$expand=Orders` puts each
 person's related orders inline (with `Orders($filter=Total gt 50;$orderby=Total desc;$top=5)`
 for fewer) and `People(12)/Orders` lists them (`People(12)/Orders/$count` counts
-them, `People(12)/Orders(40)` reads one); up to 1,000 related records come
-for each record, and a page with very many ends early with its next link. A
+them, `People(12)/Orders(40)` reads one); a collection of more than 1,000
+related records for one record is refused with a 400 unless `$top` (at most
+1,000) and `$skip` page it, and a page with very many ends early with its next link. A
 relationship is offered only when the account can read its match fields. Unlike SQL, OData follows record and field access, so any
 privilege set can use it, related records included. `POST .../Contacts/$batch`
 sends several requests in one (multipart/mixed or JSON); a change set in it

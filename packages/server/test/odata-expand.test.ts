@@ -7,6 +7,7 @@ import { copyFileSync, existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Server } from 'node:http';
+import type { Store } from '../../store/src/index.ts';
 import { serve } from '../src/index.ts';
 import { EXPAND_LIMIT } from '../src/odata.ts';
 
@@ -15,6 +16,7 @@ const skip = existsSync(fixture) ? false : 'fixtures missing: run npm run fixtur
 let dir: string;
 let server: Server;
 let root: string;
+let store: Store;
 const ids: Record<string, number> = {};
 const auth = (who: string) => ({ authorization: 'Basic ' + btoa(`${who}:pw`) });
 
@@ -25,7 +27,7 @@ before(async () => {
   const s = await serve({ dir, port: 0, watch: false, log: () => {} });
   server = s.server;
   root = `${s.url}/fmi/odata/v4/Charts`;
-  const store = s.host.get('Charts')!;
+  store = s.host.get('Charts')!;
   store.applyDesign([
     { op: 'createTable', name: 'Customers', fields: [{ name: 'CustomerID', type: 'text' }, { name: 'Name', type: 'text' }] },
     { op: 'createTable', name: 'Orders', fields: [{ name: 'CustomerID', type: 'text' }, { name: 'Total', type: 'number' }, { name: 'Note', type: 'text' }] },
@@ -122,6 +124,38 @@ test('a navigation path lists the related records', { skip }, async () => {
   assert.match(body['@odata.context'], /#Orders$/);
   assert.deepEqual(body.value.map((o: any) => o.Note), ['big']);
   assert.equal((await get('/Customers(999999)/Orders')).res.status, 404);
+});
+
+test('a related collection of more than 1,000 records is refused, and says how to page it', { skip }, async () => {
+  const parent = store.create('Customers', { CustomerID: 'MANY', Name: 'Many' }).recordId;
+  const children: number[] = [];
+  try {
+    for (let i = 0; i < 1001; i++) children.push(store.create('Orders', { CustomerID: 'MANY', Total: i }).recordId);
+    for (const path of [
+      `/Customers(${parent})/Orders?$count=true`,
+      `/Customers(${parent})/Orders/$ref?$count=true`,
+      `/Customers(${parent})?$expand=Orders`,
+    ]) {
+      const { res, body } = await get(path);
+      assert.equal(res.status, 400, `${path}: ${JSON.stringify(body).slice(0, 250)}`);
+    }
+    const unpaged = await get(`/Customers(${parent})/Orders`);
+    assert.equal(unpaged.res.status, 400);
+    assert.match(JSON.stringify(unpaged.body), /more than 1,000 records: page it with \$top \(at most 1,000\) and \$skip/);
+    // A $top over the limit says so, where it used to be cut to 1,000 without a word; a small collection still takes it.
+    const tooBig = await get(`/Customers(${parent})/Orders?$top=5000`);
+    assert.equal(tooBig.res.status, 400);
+    assert.match(JSON.stringify(tooBig.body), /\$top must be at most 1,000 for related records/);
+    assert.equal((await get(`/Customers(${ids.acme})/Orders?$top=5000`)).res.status, 200);
+    const first = await get(`/Customers(${parent})/Orders?$top=1000`);
+    const last = await get(`/Customers(${parent})/Orders?$skip=1000&$top=1`);
+    assert.equal(first.res.status, 200);
+    assert.equal(last.res.status, 200);
+    assert.equal(first.body.value.length + last.body.value.length, 1001);
+  } finally {
+    for (const child of children) store.delete('Orders', child);
+    store.delete('Customers', parent);
+  }
 });
 
 test('related records follow record and field access', { skip }, async () => {

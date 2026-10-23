@@ -33,7 +33,7 @@ import type { SqlValue } from '../../store/src/find.ts';
 import type { Host } from './host.ts';
 import { BinaryFormatError, binaryParam, binaryValue, castParamTypes, expansionBudget, isFalse, isPlainNumber } from './pgbinary.ts';
 import { passwordLoginSecondFactor } from './password-login-policy.ts';
-import { BOOLEAN_COLUMNS, catalogFunctions, FIRST_TABLE_OID, namesCatalogRelation, pgSyntax, readsCatalog, withCatalog, type CatalogData } from './pgcatalog.ts';
+import { BOOLEAN_COLUMNS, catalogFunctions, FIRST_TABLE_OID, namesCatalogRelation, pgCastColumns, pgCastProbe, type PgCastColumn, pgSyntax, readsCatalog, withCatalog, type CatalogData } from './pgcatalog.ts';
 
 /** What a `SHOW` statement names (the statement is trimmed), or undefined when it is not a one-line SHOW. A scan, not `/^SHOW\s+(.+?)\s*$/`, which backtracks over every run of blanks. */
 export function showTarget(s: string): string | undefined {
@@ -145,7 +145,9 @@ export function textValue(value: SqlValue, oid: number): Buffer | null {
 function dataRow(row: SqlValue[], cols: Column[], formats?: number[]): Buffer {
   return message('D', i16(row.length), ...row.flatMap((v, i) => {
     const oid = cols[i]?.oid ?? OID.text;
-    const b = formatOf(formats, i) === 1 ? binaryValue(v, oid) : textValue(v, oid);
+    let b: Buffer | null;
+    try { b = formatOf(formats, i) === 1 ? binaryValue(v, oid) : textValue(v, oid); }
+    catch (e) { throw e instanceof RangeError ? new PgError('22003', e.message) : e; }
     return b === null ? [i32(-1)] : [i32(b.length), b];
   }));
 }
@@ -167,6 +169,17 @@ function columnsOf(names: string[], types: (string | null)[], rows: SqlValue[][]
 }
 
 /** A catalog query's true-or-false columns, which clients read as t or f. */
+/** The types and names a query's casts give its result columns, when the select list lines up one to one with them. */
+export function withCastColumns(cols: Column[], casts: PgCastColumn[], bare?: string[]): Column[] {
+  if (casts.length !== cols.length) return cols;
+  return cols.map((column, i) => {
+    const cast = casts[i];
+    // A cast of a column is named as the bare column is: by the name SQLite gives it, when that was asked.
+    const name = cast.column && bare?.length === casts.length ? bare[i] : cast.name;
+    return { ...column, ...(cast.oid ? { oid: cast.oid } : {}), ...(name !== undefined ? { name } : {}) } as Column;
+  });
+}
+
 function booleans(cols: Column[], catalog: boolean): Column[] {
   return catalog ? cols.map((c) => (BOOLEAN_COLUMNS.has(c.name.toLowerCase()) ? { ...c, oid: OID.bool } : c)) : cols;
 }
@@ -753,8 +766,9 @@ class Connection {
    * A query in the file's terms: PostgreSQL syntax and session functions, then
    * FileMaker SQL, with PostgreSQL's catalog tables when it reads them.
    */
-  private translate(sql: string): { text: string; target: Store; catalog: boolean } {
+  private translate(sql: string): { text: string; target: Store; catalog: boolean; casts: PgCastColumn[] } {
     this.authorize();
+    const casts = pgCastColumns(sql);
     const query = pgSyntax(sql);
     const code = maskSql(query);
     const values: Record<string, string> = {
@@ -782,7 +796,15 @@ class Connection {
     // array_agg is built from a function the catalog's helpers define, so queries of the file's own tables can use it too.
     if (catalog || readsCatalog(text) || /\btabularius_array_item\b/.test(text)) catalogFunctions(target, data);
     if (catalog) text = withCatalog(text, data);
-    return { text, target, catalog };
+    return { text, target, catalog, casts };
+  }
+
+  /** The names SQLite gives the casted columns of a select list when they are bare, which a cast of them takes as its name. */
+  private bareNames(sql: string, casts: PgCastColumn[], target: Store): string[] | undefined {
+    const probe = pgCastProbe(sql, casts);
+    if (probe === undefined) return undefined;
+    // A probe that SQLite refuses (an ORDER BY of the cast that no longer matches a column of the list) leaves the names as the query wrote them.
+    try { return target.describe(this.translate(probe).text).names; } catch { return undefined; }
   }
 
   /** The file's tables and columns, as the catalog shows them. */
@@ -803,14 +825,14 @@ class Connection {
   }
 
   private run(sql: string, params: SqlValue[]): { cols: Column[]; rows: SqlValue[][] } {
-    const { text, target, catalog } = this.translate(sql);
+    const { text, target, catalog, casts } = this.translate(sql);
     const cap = maxRows();
     // Inside BEGIN a read sees the transaction's own uncommitted changes.
     const r = target.selectIn(this.tx, text, params, cap === 0 ? Infinity : cap + 1);
     if (cap > 0 && r.rows.length > cap) throw new PgError('54000', `SQL results are limited to ${cap} rows; use LIMIT and page through the result with a stable ORDER BY`);
     // Clients read the catalog on connect and for every autocomplete; only queries of the file's own tables are reads of its data.
     if (!catalog) writer.run({ account: this.user, surface: 'sql' }, () => target.logQuery(text, r.rows.length, { privileges: this.privileges }));
-    return { cols: booleans(columnsOf(r.names, r.types, r.rows), catalog), rows: r.rows };
+    return { cols: booleans(withCastColumns(columnsOf(r.names, r.types, r.rows), casts, catalog ? undefined : this.bareNames(sql, casts, target)), catalog), rows: r.rows };
   }
 
   /**
@@ -1151,9 +1173,9 @@ class Connection {
     const own = this.session(sql);
     if (own?.write) return this.returningOf(own.write);
     if (own) return own.cols;
-    const { text, target, catalog } = this.translate(sql);
+    const { text, target, catalog, casts } = this.translate(sql);
     const cols = target.describe(text);
-    return booleans(columnsOf(cols.names, cols.types, []), catalog);
+    return booleans(withCastColumns(columnsOf(cols.names, cols.types, []), casts, catalog ? undefined : this.bareNames(sql, casts, target)), catalog);
   }
 }
 

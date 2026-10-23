@@ -9,7 +9,7 @@
 // are put in front of it as a WITH clause (withCatalog), built from the
 // file's design, and the functions they call are defined (catalogFunctions).
 
-import { cleanSql, maskSql, sqlName, sqlTokens } from '../../store/src/sql-tokens.ts';
+import { cleanSql, maskSql, sqlName, sqlTokens, type SqlToken } from '../../store/src/sql-tokens.ts';
 import type { SQLInputValue, SQLOutputValue } from 'node:sqlite';
 import type { Store } from '../../store/src/index.ts';
 import type { SqlValue } from '../../store/src/find.ts';
@@ -239,6 +239,383 @@ const lit = (s: string) => `'${s.replace(/'/g, "''")}'`;
  * operators become REGEXP, arrays (always empty in the catalog) become
  * scalars and `= ANY (...)` becomes IN.
  */
+export class UnsupportedPgCast extends Error {}
+
+/** The type and the name of a result column that a PostgreSQL cast decides: the integer type of `x::int`, and the name `x` that PostgreSQL gives it. */
+/** `column` marks a name taken from a column the query reads: the result names it as the file declares it, which only the server can look up. */
+export interface PgCastColumn { oid?: number; name?: string; column?: boolean }
+
+type Words = SqlToken[];
+const isSymbol = (t: SqlToken | undefined, text: string) => t?.kind === 'symbol' && t.text === text;
+const isNameToken = (t: SqlToken | undefined): t is SqlToken => t?.kind === 'word' || t?.kind === 'identifier';
+
+/** The index of the parenthesis that closes the one at words[open], or -1. */
+function matchingParen(words: Words, open: number): number {
+  let depth = 0;
+  for (let at = open; at < words.length; at++) {
+    if (isSymbol(words[at], '(')) depth++;
+    else if (isSymbol(words[at], ')') && --depth === 0) return at;
+  }
+  return -1;
+}
+
+/** Where the operand of a cast that starts at words[from] ends (a literal, a parameter, a possibly dotted name or call, a group), or -1. */
+function operandEnd(words: Words, from: number): number {
+  const x = words[from];
+  if (!x) return -1;
+  if (isSymbol(x, '(')) { const close = matchingParen(words, from); return close < 0 ? -1 : close + 1; }
+  if (x.kind === 'string' || x.kind === 'parameter') return from + 1;
+  // .5, and the prefixed strings x'ff' and b'01'.
+  if (isSymbol(x, '.') && words[from + 1]?.kind === 'word' && /^\d/.test(words[from + 1].text)) return from + 2;
+  if (x.kind === 'word' && /^[xbn]$/i.test(x.text) && words[from + 1]?.kind === 'string' && words[from + 1].start === x.end) return from + 2;
+  if (!isNameToken(x)) return -1;
+  let at = from + 1;
+  while (isSymbol(words[at], '.') && isNameToken(words[at + 1])) at += 2;
+  if (isSymbol(words[at], '(')) { const close = matchingParen(words, at); return close < 0 ? -1 : close + 1; }
+  return at;
+}
+
+/** Whether the expression is `operand::int` (int4, integer), with integer arithmetic on it: PostgreSQL types it int4. */
+function isIntegerCast(words: Words): boolean {
+  let at = operandEnd(words, 0);
+  if (at < 0 || !isSymbol(words[at], ':') || !isSymbol(words[at + 1], ':') || !/^(?:int|int4|integer)$/i.test(words[at + 2]?.text ?? '') || words[at + 2].kind !== 'word') return false;
+  at += 3;
+  while (at < words.length) {
+    if (words[at].kind !== 'symbol' || !/^[+*-]$/.test(words[at].text) || words[at + 1]?.kind !== 'word' || !/^\d+$/.test(words[at + 1].text)) return false;
+    at += 2;
+  }
+  return true;
+}
+
+/** The names PostgreSQL gives the types it reads under other spellings (`int` is `int4`); any other type is named as written. */
+const TYPE_NAMES: Record<string, string> = {
+  int: 'int4', integer: 'int4', smallint: 'int2', bigint: 'int8', real: 'float4', float: 'float8', decimal: 'numeric', dec: 'numeric', boolean: 'bool', char: 'bpchar', character: 'bpchar', nchar: 'bpchar',
+};
+
+/** One type after `::`: its name as PostgreSQL gives it, and where it ends (a length, a time zone suffix and array brackets belong to it), or undefined. */
+function castType(words: Words, from: number): { name: string; end: number } | undefined {
+  const first = words[from];
+  if (!isNameToken(first)) return undefined;
+  let at = from + 1;
+  let last = first;
+  let dotted = false;
+  while (isSymbol(words[at], '.') && isNameToken(words[at + 1])) { last = words[at + 1]; at += 2; dotted = true; }
+  const lower = (t: SqlToken | undefined) => (t?.kind === 'word' ? t.text.toLowerCase() : '');
+  let name = last.kind === 'word' ? last.text.toLowerCase() : sqlName(last);
+  const bare = !dotted && first.kind === 'word' ? name : '';
+  if (bare === 'double' && lower(words[at]) === 'precision') { name = 'float8'; at++; }
+  else if ((bare === 'character' || bare === 'char' || bare === 'bit') && lower(words[at]) === 'varying') { name = bare === 'bit' ? 'varbit' : 'varchar'; at++; }
+  else if (bare in TYPE_NAMES) name = TYPE_NAMES[bare];
+  // A length or precision: (10) or (10, 2).
+  if (isSymbol(words[at], '(')) {
+    if (words[at + 1]?.kind !== 'word' || !/^\d+$/.test(words[at + 1].text)) return undefined;
+    // float(24) and below is a single precision number.
+    if (bare === 'float' && Number(words[at + 1].text) <= 24) name = 'float4';
+    let close = at + 2;
+    if (isSymbol(words[close], ',') && words[close + 1]?.kind === 'word' && /^\d+$/.test(words[close + 1].text)) close += 2;
+    if (!isSymbol(words[close], ')')) return undefined;
+    at = close + 1;
+  }
+  if ((bare === 'time' || bare === 'timestamp') && /^with(?:out)?$/.test(lower(words[at])) && lower(words[at + 1]) === 'time' && lower(words[at + 2]) === 'zone') {
+    if (lower(words[at]) === 'with') name = `${bare}tz`;
+    at += 3;
+  }
+  // Array brackets, with or without a size.
+  while (isSymbol(words[at], '[')) {
+    const close = words[at + 1]?.kind === 'word' && /^\d+$/.test(words[at + 1].text) ? at + 2 : at + 1;
+    if (!isSymbol(words[close], ']')) return undefined;
+    at = close + 1;
+  }
+  return { name, end: at };
+}
+
+const NOT_AN_ALIAS = /^(?:AND|OR|NOT|IN|IS|ISNULL|NOTNULL|LIKE|ILIKE|BETWEEN|COLLATE|AT|NULL|TRUE|FALSE|SIMILAR|OVERLAPS|ESCAPE|ASC|DESC|NULLS|FETCH|FOR|OFFSET|LIMIT|WINDOW|ORDER|GROUP|HAVING|WHERE|UNION|EXCEPT|INTERSECT)$/i;
+
+/** What a cast item is: its operand (for the name), the last type, and whether the single name after the type is an alias written without AS. Undefined for any other expression. */
+function castShape(words: Words): { operand: Words; type: string; alias: boolean } | undefined {
+  const end = operandEnd(words, 0);
+  if (end < 0 || !isSymbol(words[end], ':') || !isSymbol(words[end + 1], ':')) return undefined;
+  let at = end;
+  let type = '';
+  while (isSymbol(words[at], ':') && isSymbol(words[at + 1], ':')) {
+    const t = castType(words, at + 2);
+    if (!t) return undefined;
+    type = t.name;
+    at = t.end;
+  }
+  if (at === words.length) return { operand: words.slice(0, end), type, alias: false };
+  // PostgreSQL reads a name after a complete type as the column's alias: b::int x. Anything longer (IS NULL, IN (...)) is another expression.
+  if (at === words.length - 1 && isNameToken(words[at]) && !(words[at].kind === 'word' && NOT_AN_ALIAS.test(words[at].text))) return { operand: words.slice(0, end), type, alias: true };
+  return undefined;
+}
+
+/** The tokens without the parentheses that wrap all of them: (b) is b. One pass finds the matching parentheses, then each pair is stripped in a step. */
+function unwrapped(words: Words): Words {
+  if (!isSymbol(words[0], '(') || !isSymbol(words[words.length - 1], ')')) return words;
+  const match = new Int32Array(words.length).fill(-1);
+  const open: number[] = [];
+  for (let at = 0; at < words.length; at++) {
+    if (isSymbol(words[at], '(')) open.push(at);
+    else if (isSymbol(words[at], ')') && open.length > 0) match[open.pop()!] = at;
+  }
+  let lo = 0;
+  let hi = words.length - 1;
+  while (lo < hi && match[lo] === hi) { lo++; hi--; }
+  return words.slice(lo, hi + 1);
+}
+
+/** Whether the operand is a constant, a parameter or an arithmetic or comparison expression: PostgreSQL gives these no name, so a cast of one is named after its type. */
+function unnamedOperand(operand: Words): boolean {
+  const words = unwrapped(operand);
+  if (words.length === 1 && (words[0].kind === 'string' || words[0].kind === 'parameter' || (words[0].kind === 'word' && /^(?:TRUE|FALSE|NULL)$/i.test(words[0].text)))) return true;
+  // 1, 1.5, .5, x'ff'
+  if (words.length > 0 && words.every((t) => (t.kind === 'word' && /^\d/.test(t.text)) || isSymbol(t, '.') || (t.kind === 'word' && /^[xbn]$/i.test(t.text)) || t.kind === 'string')
+    && (/^\d/.test(words[0].text) || isSymbol(words[0], '.') || words[1]?.kind === 'string')) return true;
+  let depth = 0;
+  for (const [i, t] of words.entries()) {
+    if (isSymbol(t, '(')) depth++;
+    else if (isSymbol(t, ')')) depth--;
+    else if (i > 0 && depth === 0 && t.kind === 'symbol' && /^[-+*/%^|<>=!]/.test(t.text)) return true;
+  }
+  return false;
+}
+
+/** What names the operand of a cast: a column (as written; `column`) or a function; undefined for anything else. */
+function operandName(operand: Words): { name: string; column?: boolean } | undefined {
+  const words = unwrapped(operand);
+  if (!isNameToken(words[0]) || (words[0].kind === 'word' && /^(?:\d|TRUE$|FALSE$|NULL$)/i.test(words[0].text))) return undefined;
+  let at = 1;
+  while (isSymbol(words[at], '.') && isNameToken(words[at + 1])) at += 2;
+  if (at === words.length) return { name: sqlName(words[at - 1]), column: true };
+  if (at === 1 && isSymbol(words[1], '(') && matchingParen(words, 1) === words.length - 1) return { name: words[0].kind === 'word' ? words[0].text.toLowerCase() : sqlName(words[0]) };
+  return undefined;
+}
+
+/** The name PostgreSQL gives `operand::type[::type...]`: the column or function its operand names, else the last type. Undefined for any other expression. */
+function castName(words: Words): { name: string; column?: boolean; operand: Words } | undefined {
+  const shape = castShape(words);
+  if (!shape || shape.alias) return undefined;
+  const named = operandName(shape.operand);
+  if (named) return { ...named, operand: unwrapped(shape.operand) };
+  return unnamedOperand(shape.operand) ? { name: shape.type, operand: shape.operand } : undefined;
+}
+
+/** The items of a query's select list as tokens, and where the list starts and ends in the text (at FROM, or the end). Undefined for anything that is not a SELECT. */
+function selectList(sql: string): { items: Words[]; start: number; end: number } | undefined {
+  const tokens = sqlTokens(sql, true).filter((t) => t.kind !== 'space' && t.kind !== 'comment');
+  if (tokens[0]?.kind !== 'word' || tokens[0].text.toUpperCase() !== 'SELECT') return undefined;
+  const items: Words[] = [[]];
+  let depth = 0;
+  let end = sql.length;
+  for (let at = 1; at < tokens.length; at++) {
+    const t = tokens[at];
+    if (t.kind === 'symbol' && (t.text === '(' || t.text === '[')) depth++;
+    else if (t.kind === 'symbol' && (t.text === ')' || t.text === ']')) depth--;
+    else if (depth === 0 && t.kind === 'symbol' && t.text === ',') { items.push([]); continue; }
+    else if (depth === 0 && t.kind === 'word' && t.text.toUpperCase() === 'FROM') { end = t.start; break; }
+    items[items.length - 1].push(t);
+  }
+  const first = items[0][0];
+  if (first?.kind === 'word' && /^(?:DISTINCT|ALL)$/i.test(first.text)) items[0].shift();
+  return { items, start: items[0][0]?.start ?? end, end };
+}
+
+/** What an item is once an alias is set aside: the expression, and whether a name follows it with or without AS. */
+function itemParts(item: Words): { expr: Words; aliased: boolean } {
+  const last = item[item.length - 1];
+  const asAlias = item.length > 2 && item[item.length - 2].kind === 'word' && item[item.length - 2].text.toUpperCase() === 'AS' && isNameToken(last);
+  // b::int x: an alias without AS, which names the column and is not part of the expression.
+  const bare = !asAlias && castShape(item)?.alias === true;
+  return { expr: asAlias ? item.slice(0, -2) : bare ? item.slice(0, -1) : item, aliased: asAlias || bare };
+}
+
+/**
+ * What the PostgreSQL casts in a query's select list decide about its result columns, one entry per select item, or none when the items do not line up
+ * with the columns (a star expands to the table's columns). Read from the tokens: a long run of spaces costs no more than any other text.
+ */
+export function pgCastColumns(sql: string): PgCastColumn[] {
+  const list = selectList(sql);
+  if (!list) return [];
+  const out: PgCastColumn[] = [];
+  for (const item of list.items) {
+    const { expr, aliased } = itemParts(item);
+    // A star expands to as many columns as the table has, so the items no longer line up with the result columns.
+    if (expr.length > 0 && expr[expr.length - 1].text === '*' && expr[expr.length - 1].kind === 'symbol' && (expr.length === 1 || isSymbol(expr[expr.length - 2], '.'))) return [];
+    const column: PgCastColumn = {};
+    if (isIntegerCast(expr)) column.oid = 23;
+    if (!aliased) { const named = castName(expr); if (named) { column.name = named.name; if (named.column) column.column = true; } }
+    out.push(column);
+  }
+  return out;
+}
+
+/**
+ * The query with each cast of a column in its select list replaced by the bare column, or undefined when there is none. The name SQLite gives the bare column
+ * (the file's spelling, a subquery's own) is the name of the cast, the same as for the column itself, whatever the query's tables are.
+ */
+export function pgCastProbe(sql: string, casts: PgCastColumn[]): string | undefined {
+  if (!casts.some((c) => c.column)) return undefined;
+  const list = selectList(sql);
+  if (!list || list.items.length !== casts.length || list.items.some((item) => item.length === 0)) return undefined;
+  const text = (tokens: Words) => sql.slice(tokens[0].start, tokens[tokens.length - 1].end);
+  const parts = list.items.map((item, i) => (casts[i].column ? text(castName(itemParts(item).expr)!.operand) : text(item)));
+  return `${sql.slice(0, list.start)}${parts.join(', ')}${list.end < sql.length ? ' ' : ''}${sql.slice(list.end)}`;
+}
+
+/** PostgreSQL types a cast converts to SQLite's own. */
+const CAST_CONVERT = new Map<string, string>([
+  ['int', 'INTEGER'], ['int2', 'INTEGER'], ['int4', 'INTEGER'], ['int8', 'INTEGER'], ['integer', 'INTEGER'], ['smallint', 'INTEGER'], ['bigint', 'INTEGER'],
+  ['numeric', 'NUMERIC'], ['decimal', 'NUMERIC'], ['float', 'REAL'], ['float4', 'REAL'], ['float8', 'REAL'], ['real', 'REAL'], ['double precision', 'REAL'],
+  ['text', 'TEXT'], ['varchar', 'TEXT'], ['character varying', 'TEXT'],
+]);
+
+/** PostgreSQL types a cast names that SQLite has no counterpart for: the value is kept as it is, as before casts were converted. */
+const CAST_KEEP = new Set(('date time timetz timestamp timestamptz interval bool boolean bytea uuid json jsonb xml oid name char character bpchar bit varbit money '
+  + 'inet cidr macaddr macaddr8 citext hstore tsvector tsquery point int4range int8range numrange daterange tsrange tstzrange serial smallserial bigserial '
+  + 'regclass regtype regnamespace regproc regprocedure regrole regoperator regoper regconfig regdictionary int2vector oidvector pg_node_tree aclitem '
+  + 'pg_lsn txid_snapshot anyelement anyarray record void unknown cstring').split(' '));
+
+/** Words that end an operand's left side: an operator or a clause word, not a value. */
+const NOT_OPERAND = /^(?:AND|OR|NOT|IN|IS|LIKE|ILIKE|BETWEEN|SELECT|WHERE|WHEN|THEN|ELSE|FROM|ON|BY|HAVING|WITH|AS|CASE|DISTINCT|ALL|UNION|LIMIT|OFFSET)$/i;
+
+const MAX_OPERAND_CHAIN = 100;
+
+/** A token of the query, or a cast already rewritten (a group); `nesting` is how many casts are inside the group. */
+interface CastItem { text: string; kind: SqlToken['kind'] | 'group'; nesting?: number }
+
+/** Casts inside casts deeper than this are refused: each level copies the operand before it, and SQLite reads no expression more than a thousand deep. */
+const MAX_CAST_NESTING = 500;
+
+/** Where the operand that ends at items[end] begins, or -1: a literal, a name, a call, a bracketed group, an index, a CASE expression, or an earlier cast. */
+function castOperandStart(items: CastItem[], end: number, chain = 0): number {
+  // A chain of FILTER, OVER or index clauses this long is not an operand: left to the error below instead of the stack.
+  if (chain > MAX_OPERAND_CHAIN) return -1;
+  const sig = (from: number) => { let at = from; while (at >= 0 && (items[at].kind === 'space' || items[at].kind === 'comment')) at--; return at; };
+  const isOpen = (x: CastItem, c: string) => x.kind === 'symbol' && x.text === c;
+  const dotted = (at: number) => {
+    let start = at;
+    for (;;) {
+      const dot = sig(start - 1);
+      const name = dot >= 0 && isOpen(items[dot], '.') ? sig(dot - 1) : -1;
+      if (name < 0 || (items[name].kind !== 'word' && items[name].kind !== 'identifier') || NOT_OPERAND.test(items[name].text)) return start;
+      start = name;
+    }
+  };
+  const it = items[end];
+  if (it.kind === 'group' || it.kind === 'string' || it.kind === 'parameter') return end;
+  if (it.kind === 'identifier') return dotted(end);
+  if (it.kind === 'word') {
+    if (/^END$/i.test(it.text)) {
+      let depth = 0;
+      for (let j = end; j >= 0; j--) {
+        if (items[j].kind !== 'word') continue;
+        if (/^END$/i.test(items[j].text)) depth++;
+        else if (/^CASE$/i.test(items[j].text) && --depth === 0) return j;
+      }
+      return -1;
+    }
+    if (NOT_OPERAND.test(it.text)) return -1;
+    // sum(a) OVER w: the call before OVER is the operand.
+    const over = sig(end - 1);
+    if (over >= 0 && items[over].kind === 'word' && /^OVER$/i.test(items[over].text)) { const prior = sig(over - 1); return prior >= 0 ? castOperandStart(items, prior, chain + 1) : -1; }
+    return dotted(end);
+  }
+  if (it.kind === 'symbol' && (it.text === ')' || it.text === ']')) {
+    let depth = 0;
+    let open = end;
+    for (; open >= 0; open--) {
+      const x = items[open];
+      if (x.kind !== 'symbol') continue;
+      if (x.text === ')' || x.text === ']') depth++;
+      else if ((x.text === '(' || x.text === '[') && --depth === 0) break;
+    }
+    if (open < 0) return -1;
+    const before = sig(open - 1);
+    if (before < 0) return open;
+    const b = items[before];
+    // count(*) FILTER (WHERE a), sum(a) OVER (...), percentile_cont(.5) WITHIN GROUP (...): the call before the clause is the operand.
+    if (items[open].text === '(' && b.kind === 'word') {
+      const clause = /^(?:FILTER|OVER)$/i.test(b.text) ? before : /^GROUP$/i.test(b.text) && /^WITHIN$/i.test(items[sig(before - 1)]?.text ?? '') ? sig(before - 1) : -1;
+      if (clause >= 0) { const prior = sig(clause - 1); return prior >= 0 ? castOperandStart(items, prior, chain + 1) : -1; }
+    }
+    if (items[open].text === '[') {
+      const inner = b.kind === 'word' ? !NOT_OPERAND.test(b.text) || /^ARRAY$/i.test(b.text) : b.kind === 'identifier' || b.kind === 'group' || (b.kind === 'symbol' && (b.text === ')' || b.text === ']'));
+      return inner ? castOperandStart(items, before, chain + 1) : open;
+    }
+    return (b.kind === 'word' && !NOT_OPERAND.test(b.text)) || b.kind === 'identifier' ? dotted(before) : open;
+  }
+  return -1;
+}
+
+/** `value::type` in a query of the file's own tables: types with a SQLite counterpart convert, other known types keep the value as it is, and a name PostgreSQL does not have is refused. */
+function rewritePgCasts(sql: string, catalog: boolean, kept: Map<string, string>): string {
+  if (!sql.includes('::')) return sql;
+  const tokens = sqlTokens(sql, true);
+  const items: CastItem[] = [];
+  const significant = (at: number) => { while (at < tokens.length && (tokens[at].kind === 'space' || tokens[at].kind === 'comment')) at++; return at; };
+  for (let i = 0; i < tokens.length; i++) {
+    const t = tokens[i];
+    if (!(t.kind === 'symbol' && t.text === ':' && tokens[i + 1]?.text === ':' && tokens[i + 1].start === t.end)) { items.push({ text: t.text, kind: t.kind }); continue; }
+    let at = significant(i + 2);
+    const name = tokens[at];
+    if (!name || (name.kind !== 'word' && name.kind !== 'identifier')) throw new UnsupportedPgCast('This PostgreSQL cast expression is not supported');
+    // Quoted names were replaced by opaque keys; the type's own name is read from the original.
+    const nameOf = (token: SqlToken) => sqlName({ ...token, text: kept.get(token.text) ?? token.text }).toLowerCase();
+    const writtenOf = (token: SqlToken) => kept.get(token.text) ?? token.text;
+    let type = nameOf(name);
+    let written = writtenOf(name);
+    at++;
+    if (tokens[at]?.text === '.' && (tokens[at + 1]?.kind === 'word' || tokens[at + 1]?.kind === 'identifier')) {
+      type = nameOf(tokens[at + 1]);
+      written = `${written}.${writtenOf(tokens[at + 1])}`;
+      at += 2;
+    }
+    const wordAt = (k: number, re: RegExp) => { const n = significant(k); return tokens[n]?.kind === 'word' && re.test(tokens[n].text) ? n : -1; };
+    const follow = (re: RegExp) => { const n = wordAt(at, re); if (n >= 0) at = n + 1; return n >= 0; };
+    // Two-word names.
+    if (type === 'double') { if (follow(/^precision$/i)) type = 'double precision'; }
+    else if (type === 'character' || type === 'bit') { if (follow(/^varying$/i)) type = type === 'bit' ? 'varbit' : 'character varying'; }
+    // A length or precision: (10) or (10, 2).
+    const lengthAt = significant(at);
+    if (tokens[lengthAt]?.text === '(') {
+      let k = significant(lengthAt + 1);
+      if (tokens[k]?.kind === 'word' && /^\d+$/.test(tokens[k].text)) {
+        k = significant(k + 1);
+        if (tokens[k]?.text === ',' && tokens[significant(k + 1)]?.kind === 'word' && /^\d+$/.test(tokens[significant(k + 1)].text)) k = significant(significant(k + 1) + 1);
+        if (tokens[k]?.text === ')') at = k + 1;
+      }
+    }
+    // The time zone suffix of the date and time types, which follows the precision: timestamp(3) without time zone.
+    if ((type === 'timestamp' || type === 'time') && follow(/^with(?:out)?$/i) && !(follow(/^time$/i) && follow(/^zone$/i))) throw new UnsupportedPgCast(`The PostgreSQL cast to ${written} is not supported`);
+    let end = at;
+    let array = false;
+    for (;;) {
+      const bracket = significant(end);
+      const t2 = tokens[bracket];
+      // A bracket pair with a space in it is read as a quoted name, and cleaned to a name made of spaces.
+      if (t2 && t2.kind === 'identifier' && /^(?:\[\s*\]|"\s*")$/.test(kept.get(t2.text) ?? t2.text)) { array = true; end = bracket + 1; continue; }
+      if (t2?.text === '[' && tokens[significant(bracket + 1)]?.text === ']') { array = true; end = significant(bracket + 1) + 1; continue; }
+      break;
+    }
+    i = end - 1;
+    let last = items.length - 1;
+    while (last >= 0 && (items[last].kind === 'space' || items[last].kind === 'comment')) last--;
+    const start = last < 0 ? -1 : castOperandStart(items, last);
+    if (start < 0) throw new UnsupportedPgCast('This PostgreSQL cast expression is not supported');
+    const operand = items.slice(start, last + 1);
+    let nesting = 1;
+    for (const x of operand) if ((x.nesting ?? 0) >= nesting) nesting = x.nesting! + 1;
+    if (nesting > MAX_CAST_NESTING) throw new UnsupportedPgCast('PostgreSQL casts are nested too deeply');
+    const value = operand.map((x) => x.text).join('');
+    items.length = start;
+    // Catalog queries came from tools that expect PostgreSQL's own types, which the catalog's values already have: casts there are dropped, as they always were.
+    const converted = array || catalog ? undefined : CAST_CONVERT.get(type);
+    if (!catalog && !converted && !CAST_KEEP.has(type) && !CAST_CONVERT.has(type)) throw new UnsupportedPgCast(`The PostgreSQL cast to ${written} is not supported`);
+    items.push({ text: converted ? `CAST(${value} AS ${converted})` : value, kind: 'group', nesting });
+  }
+  return items.map((x) => x.text).join('');
+}
+
 export function pgSyntax(sql: string): string {
   sql = cleanSql(sql, true);
   // Opaque tokens keep regex compatibility rewrites away from user values and
@@ -266,12 +643,12 @@ export function pgSyntax(sql: string): string {
     kept.set(key, t.text);
     return key;
   }).join('');
+  sql = rewritePgCasts(sql, catalog, kept);
   const parts = sql.split(/('(?:[^']|'')*')/);
   for (let i = 0; i < parts.length; i += 2) {
     let p = parts[i]
       .replace(/("pg_catalog"|\bpg_catalog)\s*\.\s*/gi, '')
       .replace(/(?:"public"|\bpublic)\s*\.\s*(?=["\w])/gi, '')
-      .replace(/::\s*("[^"]+"|\w+(?:\s+varying|\s+precision|\s+with(?:out)?\s+time\s+zone)?)(\s*\(\s*\d+(?:\s*,\s*\d+)?\s*\))?(\s*\[\s*\])?/gi, '')
       .replace(/\bILIKE\b/gi, 'LIKE');
     if (catalog) {
       p = p

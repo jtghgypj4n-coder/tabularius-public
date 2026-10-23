@@ -14,9 +14,9 @@ import { createStore, LOCKOUT, Store, totpCode } from '../../store/src/index.ts'
 import type { SignInFailures } from '../../store/src/sign-in-failures.ts';
 import { Host } from '../src/host.ts';
 import { serve } from '../src/index.ts';
-import { numberedParams, PgServer, PGWIRE_LIMIT, splitStatements } from '../src/pgwire.ts';
-import { pgSyntax, riskyPattern } from '../src/pgcatalog.ts';
-import { binaryParam, castParamTypes, decimalText, decodeNumeric, encodeNumeric } from '../src/pgbinary.ts';
+import { numberedParams, PgServer, PGWIRE_LIMIT, splitStatements, withCastColumns } from '../src/pgwire.ts';
+import { pgCastColumns, pgCastProbe, pgSyntax, riskyPattern, UnsupportedPgCast } from '../src/pgcatalog.ts';
+import { binaryParam, binaryValue, castParamTypes, decimalText, decodeNumeric, encodeNumeric } from '../src/pgbinary.ts';
 
 // BI tools and ODBC/JDBC drivers connect over the PostgreSQL protocol.
 const fixture = join(import.meta.dirname, '..', '..', '..', 'fixtures', 'fmp12', 'Charts.fmp12');
@@ -1156,6 +1156,20 @@ test('binary parameters read as their text form would, and casts name parameter 
   assert.deepEqual([...castParamTypes('SELECT * FROM t WHERE a < $1::numeric AND b = $2 :: date AND c = $3::double precision')], [[1, 1700], [2, 1082], [3, 701]]);
 });
 
+test('a binary timestamp before the epoch decodes with its fraction', () => {
+  for (const oid of [1114, 1184]) for (const [micros, expected] of [
+    [-1n, '1999-12-31 23:59:59.999999'],
+    [-1001n, '1999-12-31 23:59:59.998999'],
+    [-1000001n, '1999-12-31 23:59:58.999999'],
+    [0n, '2000-01-01 00:00:00'],
+    [1001n, '2000-01-01 00:00:00.001001'],
+  ] as const) {
+    const value = Buffer.alloc(8);
+    value.writeBigInt64BE(micros);
+    assert.equal(binaryParam(value, oid), expected, `${oid}: ${micros}`);
+  }
+});
+
 test('extended queries in the binary format, as asyncpg and Npgsql ask', { skip }, async () => {
   const c = await Client.open({ user: 'Ann', password: 'pw', database: 'Charts' });
   try {
@@ -1285,6 +1299,267 @@ test('PostgreSQL syntax as SQLite reads it', () => {
     `SELECT array_to_string(d.datacl, ' '), trim(x, '"'), a FROM (SELECT value AS u FROM json_each(t.o)) AS u, pg_class`);
   assert.equal(pgSyntax(`SELECT E'a\\nb', 'c\\n'`), `SELECT 'a\nb', 'c\\n'`);
   assert.equal(pg(`SELECT n FROM generate_series(1, 3) s(n) JOIN pg_class ON true`), `SELECT n FROM (WITH RECURSIVE s(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM s WHERE n < 3) SELECT n FROM s) AS s JOIN pg_class ON true`);
+});
+
+test('a PostgreSQL cast converts to a SQLite type, keeps a value of a type SQLite has no counterpart for, and refuses a name PostgreSQL does not have', () => {
+  assert.equal(pgSyntax("SELECT '12'::integer + 1 AS n"), "SELECT CAST('12' AS INTEGER) + 1 AS n");
+  assert.equal(pgSyntax('SELECT ?1::integer + 1 AS n'), 'SELECT CAST(?1 AS INTEGER) + 1 AS n');
+  assert.equal(pgSyntax('SELECT $1::integer + 1 AS n'), 'SELECT CAST($1 AS INTEGER) + 1 AS n');
+  assert.equal(pgSyntax('SELECT a::numeric(10,2), b::varchar(10), c::double precision, d::character varying FROM t'), 'SELECT CAST(a AS NUMERIC), CAST(b AS TEXT), CAST(c AS REAL), CAST(d AS TEXT) FROM t');
+  // The types the parameter typing and the binary format already know, and the other types of PostgreSQL, keep the value.
+  assert.equal(pgSyntax('SELECT a::date, a::time, a::timestamp, a::timestamptz, a::bool, a::boolean, a::bytea, a::uuid, a::json, a::oid, a::name, a::interval FROM t'), 'SELECT a, a, a, a, a, a, a, a, a, a, a, a FROM t');
+  assert.equal(pgSyntax('SELECT $1::pg_catalog.oid, $2::bool, $3::timestamp with time zone, $4::time without time zone FROM t'), 'SELECT $1, $2, $3, $4 FROM t');
+  assert.equal(pgSyntax('SELECT * FROM t WHERE x = ANY($1::int[])'), 'SELECT * FROM t WHERE x = ANY($1)');
+  assert.equal(pgSyntax('SELECT ARRAY[1,2]::int[], a::int[] FROM t'), 'SELECT ARRAY[1,2], a FROM t');
+  // The operand is a whole expression: a group, a call, a CASE, a dotted or quoted name, an earlier cast.
+  assert.equal(pgSyntax('SELECT ((a+b)*c)::int, lower(upper(x))::text, t."My Col"::int, x::text::int FROM t'), 'SELECT CAST(((a+b)*c) AS INTEGER), CAST(lower(upper(x)) AS TEXT), CAST(t."My Col" AS INTEGER), CAST(CAST(x AS TEXT) AS INTEGER) FROM t');
+  assert.equal(pgSyntax('SELECT CASE WHEN a THEN 1 ELSE 2 END::int, -1::int, f(1, (2 + 3))::int FROM t'), 'SELECT CAST(CASE WHEN a THEN 1 ELSE 2 END AS INTEGER), -CAST(1 AS INTEGER), CAST(f(1, (2 + 3)) AS INTEGER) FROM t');
+  for (const name of ['nosuchtype', '__proto__', 'constructor', 'toString', 'hasOwnProperty']) assert.throws(() => pgSyntax(`SELECT a::${name} FROM t`), /cast to .* is not supported/, name);
+  assert.throws(() => pgSyntax('SELECT a::'), /not supported/);
+  // A window or filter clause belongs to the call before it, a quoted type name is the type, and the precision comes before the time zone.
+  assert.equal(pgSyntax('SELECT count(*) FILTER (WHERE a)::int, sum(a) OVER (PARTITION BY b)::int, sum(a) OVER w::int, percentile_cont(0.5) WITHIN GROUP (ORDER BY a)::int FROM t'),
+    'SELECT CAST(count(*) FILTER (WHERE a) AS INTEGER), CAST(sum(a) OVER (PARTITION BY b) AS INTEGER), CAST(sum(a) OVER w AS INTEGER), CAST(percentile_cont(0.5) WITHIN GROUP (ORDER BY a) AS INTEGER) FROM t');
+  assert.equal(pgSyntax('SELECT x::"int4", y::"text", z::"char", w::"public"."int4" FROM t'), 'SELECT CAST(x AS INTEGER), CAST(y AS TEXT), z, CAST(w AS INTEGER) FROM t');
+  assert.throws(() => pgSyntax('SELECT x::"nosuchtype" FROM t'), /cast to "nosuchtype" is not supported/);
+  assert.equal(pgSyntax('SELECT x::timestamp(3) without time zone, y::time(0) with time zone, z::int [ ], w::int[] FROM t'), 'SELECT x, y, z, w FROM t');
+  // A catalog query keeps the casts of the tools that wrote it dropped.
+  assert.equal(pgSyntax('SELECT c.oid::pg_catalog.regclass, c.relname::text FROM pg_catalog.pg_class c'), 'SELECT c.oid, c.relname FROM pg_class c');
+});
+
+test('a long word, a long run of spaces or many casts are read in time proportional to their length', () => {
+  const started = Date.now();
+  pgSyntax(`SELECT ${'a'.repeat(200_000)} FROM t`);
+  pgSyntax(`SELECT ${'a'.repeat(200_000)}::int FROM t`);
+  pgSyntax(`SELECT ${'(('.repeat(3000)}a${'))'.repeat(3000)}::int FROM t`);
+  pgSyntax(`SELECT ${'a::int, '.repeat(5000)} 1 FROM t`);
+  // A quadratic scan takes over a minute for the first of these; a generous bound, not a measurement.
+  assert.ok(Date.now() - started < 10_000, `${Date.now() - started} ms`);
+});
+
+test('the select list of a query is read in time proportional to its length, whatever the spaces in it', () => {
+  const spaces = ' '.repeat(200_000);
+  for (const sql of [`SELECT 1${spaces}, 2`, `SELECT x${spaces}::int${spaces}FROM t`, `SELECT 1${spaces}AS${spaces}n, 2 AS m FROM t`, `SELECT x::int ${'AS '.repeat(30_000)} FROM t`, `SELECT ${spaces}*${spaces}FROM t`]) {
+    const started = Date.now();
+    pgCastColumns(sql);
+    pgSyntax(sql);
+    // The regular expressions this replaced took 27 s and 50 s for the first two; a generous bound, not a measurement.
+    assert.ok(Date.now() - started < 1_000, `${Date.now() - started} ms: ${sql.slice(0, 30)}`);
+  }
+});
+
+test('the result types and names that casts give the columns are named only where the select list lines up with the result columns', () => {
+  const oids = (sql: string) => pgCastColumns(sql).map((column) => column.oid);
+  assert.deepEqual(oids("SELECT '12'::integer + 1 AS n, a, b::text"), [23, undefined, undefined]);
+  assert.deepEqual(oids('SELECT ARRAY[1,2] AS a, 3::int AS n FROM t'), [undefined, 23]);
+  assert.deepEqual(oids('SELECT *, 1::int AS x FROM t'), []);
+  assert.deepEqual(oids('SELECT t.*, 1::int AS x FROM t'), []);
+  assert.deepEqual(oids('SELECT 1::int AS x, * FROM t'), []);
+  assert.deepEqual(oids('SELECT count(*), 1::int AS x FROM t'), [undefined, 23]);
+  assert.deepEqual(oids('SELECT DISTINCT a::int, count(*)::int FROM t'), [23, 23]);
+  // An unaliased cast keeps the name of its operand, as PostgreSQL names it; an alias wins, and an expression keeps SQLite's name.
+  const names = (sql: string) => pgCastColumns(sql).map((column) => column.name);
+  assert.deepEqual(names('SELECT A::int, B, t.C::text, "D"::numeric(10, 2), x::text::int, lower(y)::text, count(*)::int FROM t'), ['A', undefined, 'C', 'D', 'x', 'lower', 'count']);
+  assert.deepEqual(names("SELECT A::int AS n, '1'::int, 1::int, (a)::int, a::int + 1, $1::int FROM t"), [undefined, 'int4', 'int4', 'a', undefined, 'int4']);
+  // A name after the type is an alias written without AS (a quoted one too), and it names the column; an expression that goes on after the type has no cast's name.
+  assert.deepEqual(names('SELECT b::int x, b::text "y", b::varchar x, b::double precision z, b::numeric(10, 2) w, b::timestamp(3) with time zone t, b::int[] u FROM t'), Array(7).fill(undefined));
+  assert.deepEqual(names('SELECT b::int IS NULL, b::int IN (5, 6), b::int x y, b::text COLLATE "C", b::int BETWEEN 1 AND 2 FROM t'), Array(5).fill(undefined));
+  assert.deepEqual(oids('SELECT b::int x, b::integer "y", b::int AS z FROM t'), [23, 23, 23]);
+  // Constants and parameters are named after the last type, as PostgreSQL names its types; redundant parentheses are looked through.
+  assert.deepEqual(names("SELECT '1'::int, 1::text, true::text, null::int, (1)::numeric, e'x'::int, $1::int, x'ff'::text, 1.5::real, .5::float, '1'::int::text, (b + 1)::bigint, 'a'::double precision, 'a'::character varying, 1::timestamp with time zone, 1::time without time zone, 1::int[], 1::\"Mixed\", 1::pg_catalog.int2, 1::decimal(10, 2), 1::char(3), 1::boolean FROM t"),
+    ['int4', 'text', 'text', 'int4', 'numeric', 'int4', 'int4', 'text', 'float4', 'float8', 'text', 'int8', 'float8', 'varchar', 'timestamptz', 'time', 'int4', 'Mixed', 'int2', 'numeric', 'bpchar', 'bool']);
+  assert.deepEqual(names('SELECT (b)::int, ((t.b))::text, (lower(c))::text, b::int::text, (b)::int AS n FROM t'), ['b', 'b', 'lower', 'b', undefined]);
+  // A column operand's name is looked up as the file declares it; a function's is not.
+  assert.deepEqual(pgCastColumns('SELECT a::text, T.a::int, lower(a)::text FROM t').map((column) => column.column), [true, true, undefined]);
+});
+
+test('a cast of a column takes the name SQLite gives the bare column, in the order of the select list', () => {
+  const cols = [{ name: 'CAST(a AS TEXT)', oid: 25 }, { name: 'CAST(a AS INTEGER)', oid: 25 }, { name: 'lower(a)', oid: 25 }];
+  const casts = pgCastColumns('SELECT a::text, T.a::int, lower(a)::text FROM t');
+  assert.deepEqual(withCastColumns(cols, casts, ['A', 'A', 'x']).map((c) => c.name), ['A', 'A', 'lower']);
+  assert.deepEqual(withCastColumns(cols, casts, undefined).map((c) => c.name), ['a', 'a', 'lower']);
+  assert.deepEqual(withCastColumns(cols, casts, ['A']).map((c) => c.name), ['a', 'a', 'lower']);
+});
+
+test('the probe of a select list holds the casted columns bare, and only then', () => {
+  const probe = (sql: string) => pgCastProbe(sql, pgCastColumns(sql));
+  assert.equal(probe('SELECT a::text, (T.b)::int AS n, 1::text, c::int x, lower(d)::text, e FROM t WHERE 1'), 'SELECT a, (T.b)::int AS n, 1::text, c::int x, lower(d)::text, e FROM t WHERE 1');
+  assert.equal(probe('SELECT DISTINCT a::text, (b)::text FROM t'), 'SELECT DISTINCT a, b FROM t');
+  assert.equal(probe('SELECT a::text'), 'SELECT a');
+  assert.equal(probe('SELECT 1::text, lower(a)::text FROM t'), undefined);
+  assert.equal(probe('SELECT *, a::text FROM t'), undefined);
+  // An empty item is a syntax error that SQLite reports; it is not read.
+  assert.equal(probe('SELECT a::text, , b FROM t'), undefined);
+});
+
+test('parentheses nested thousands deep around a cast operand are read in bounded time', () => {
+  for (const operand of ['a', '1', 'f(a)']) {
+    const sql = `SELECT ${'('.repeat(20_000)}${operand}${')'.repeat(20_000)}::int FROM t`;
+    const started = Date.now();
+    pgCastColumns(sql);
+    try { pgSyntax(sql); } catch (e) { assert.ok(e instanceof UnsupportedPgCast, String(e)); }
+    // The recursive version took 1.6 s at 8,000 and ran out of stack or memory beyond; a generous bound, not a measurement.
+    assert.ok(Date.now() - started < 1_000, `${Date.now() - started} ms: ${operand}`);
+  }
+});
+
+test('casts nested in parentheses are read in bounded time, in either shape', () => {
+  for (const [shape, sql] of [['one open', `SELECT ${'('.repeat(32_000)}A${')::text'.repeat(32_000)} FROM t`], ['two open', `SELECT ${'(('.repeat(16_000)}A${')::text)'.repeat(16_000)} FROM t`]]) {
+    const started = Date.now();
+    pgCastColumns(sql);
+    assert.throws(() => pgSyntax(sql), (e) => e instanceof UnsupportedPgCast && /nested too deeply/.test(e.message), shape);
+    // Each cast used to copy the whole operand before it: 7 s at 32,000 levels, minutes at a few hundred thousand. A generous bound, not a measurement.
+    assert.ok(Date.now() - started < 1_000, `${Date.now() - started} ms: ${shape}`);
+  }
+  // The nesting that queries have is converted.
+  assert.match(pgSyntax(`SELECT ${'('.repeat(100)}A${')::text'.repeat(100)} FROM t`), /^SELECT .*CAST\(.* AS TEXT\)/);
+});
+
+test('the pieces of a cast type are read as PostgreSQL reads them', () => {
+  const names = (sql: string) => pgCastColumns(sql).map((column) => column.name);
+  // An array size belongs to the type; a type that is not well formed is not a cast to read a name from.
+  assert.deepEqual(names('SELECT 1::int[3], 1::int[][], b::int[3] x, 1::numeric(x), 1::int(3, 4, 5), 1::int[ FROM t'), ['int4', 'int4', undefined, undefined, undefined, undefined]);
+  // A schema-qualified name is the type as written, not one of the spellings PostgreSQL reads as another type.
+  assert.deepEqual(names('SELECT 1::myschema.int, 1::myschema.double, 1::int, 1::dec, 1::nchar, 1::float(3), 1::float(40), 1::float FROM t'), ['int', 'double', 'int4', 'numeric', 'bpchar', 'float4', 'float8', 'float8']);
+  // Words that go on after a complete type are not an alias.
+  const oids = (sql: string) => pgCastColumns(sql).map((column) => column.oid);
+  assert.deepEqual(oids('SELECT b::int ISNULL, b::int NOTNULL, b::int x, b::int AT, b::int COLLATE FROM t'), [undefined, undefined, 23, undefined, undefined]);
+  // Function names are folded to lower case, as PostgreSQL folds them.
+  assert.deepEqual(names('SELECT COUNT(*)::int, Lower(y)::text, "Quoted"(y)::text FROM t'), ['count', 'lower', 'Quoted']);
+});
+
+test('a long chain of window, filter or index clauses is refused, not a stack overflow', () => {
+  for (const chain of [' FILTER (WHERE a)'.repeat(5000), ' OVER'.repeat(100_000), '[1]'.repeat(5000)]) {
+    const sql = `SELECT sum(a)${chain}::int FROM t`;
+    assert.throws(() => pgSyntax(sql), (e) => e instanceof UnsupportedPgCast);
+  }
+});
+
+test('the types and names of the casts go to the result columns only when they line up with them', () => {
+  const cols = [{ name: 'CAST(A AS INTEGER)', oid: 25 }, { name: 'B', oid: 25 }];
+  assert.deepEqual(withCastColumns(cols, [{ oid: 23, name: 'A' }, {}]), [{ name: 'A', oid: 23 }, { name: 'B', oid: 25 }]);
+  assert.deepEqual(withCastColumns(cols, [{ oid: 23 }]), cols);
+  assert.deepEqual(withCastColumns(cols, []), cols);
+  assert.deepEqual(withCastColumns(cols, [{}, {}, {}]), cols);
+});
+
+test('an integer column in the binary format is four bytes', () => {
+  assert.deepEqual([...binaryValue(13, 23)!], [0, 0, 0, 13]);
+  assert.deepEqual([...binaryValue(-2, 23)!], [255, 255, 255, 254]);
+  assert.deepEqual([...binaryValue('7', 23)!], [0, 0, 0, 7]);
+  assert.throws(() => binaryValue(2 ** 31, 23), /out of range for type int4/);
+  assert.throws(() => binaryValue(1.5, 23), /not a whole number/);
+  // Not a whole number: nothing that Number() would turn into one.
+  for (const value of ['', ' ', '0x10', '1e3', '1.0', new Uint8Array(0), true]) assert.throws(() => binaryValue(value as never, 23), /not a whole number/, String(value));
+});
+
+test('integer casts type the result columns of simple and parameterized queries', { skip }, async () => {
+  const c = await Client.open({ user: 'Ann', password: 'pw', database: 'Charts' });
+  try {
+    const result = await c.query("SELECT '12'::integer + 1 AS n");
+    assert.equal(result.error, undefined);
+    assert.deepEqual(result.rows, [['13']]);
+    assert.deepEqual(result.oids, [23]);
+    // The star expands to several columns: the cast is not matched to one of them by position.
+    const plain = await c.query('SELECT *, 1 AS x FROM Congress LIMIT 1');
+    const cast = await c.query('SELECT *, 1::int AS x FROM Congress LIMIT 1');
+    assert.equal(cast.error, undefined);
+    assert.deepEqual(cast.oids, plain.oids);
+    assert.deepEqual(cast.rows, plain.rows);
+    // And in the binary format, an int4 column is four bytes.
+    c.send('P', Buffer.concat([cstr('cast'), cstr('SELECT $1::integer + 1 AS n'), i16(0)]));
+    c.send('D', Buffer.concat([Buffer.from('S'), cstr('cast')]));
+    c.send('S');
+    const described = c.results(await c.until('Z'));
+    assert.deepEqual(described.oids, [23]);
+    c.send('B', Buffer.concat([cstr(''), cstr('cast'), i16(0), i16(1), i32(2), Buffer.from('12'), i16(0)]));
+    c.send('E', Buffer.concat([cstr(''), i32(0)]));
+    c.send('S');
+    assert.deepEqual(c.results(await c.until('Z')).rows, [['13']]);
+    c.send('P', Buffer.concat([cstr('bin'), cstr("SELECT '12'::integer + 1 AS n"), i16(0)]));
+    c.send('B', Buffer.concat([cstr(''), cstr('bin'), i16(0), i16(0), i16(1), i16(1)]));
+    c.send('E', Buffer.concat([cstr(''), i32(0)]));
+    c.send('S');
+    const row = (await c.until('Z')).find((m) => m.type === 'D')!;
+    assert.equal(row.body.readInt32BE(2), 4);
+    assert.equal(row.body.readInt32BE(6), 13);
+  } finally { c.close(); }
+});
+
+test('casts name and type their result columns over the wire, on generated data', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'tabularius-pg-casts-'));
+  createStore(join(dir, 'Casts.openhbam.sqlite'));
+  const localHost = new Host(dir);
+  const store = localHost.get('Casts')!;
+  store.applyDesign([
+    { op: 'createTable', name: 'T', fields: [{ name: 'A', type: 'text' }, { name: 'B', type: 'text' }] },
+    // Another table that spells a column of T differently, and a field that a catalog column of PostgreSQL's is spelled like.
+    { op: 'createTable', name: 'U', fields: [{ name: 'a', type: 'text' }, { name: 'Q', type: 'text' }] },
+    { op: 'createTable', name: 'V', fields: [{ name: 'Relname', type: 'text' }] },
+  ] as never);
+  store.create('T', { A: '3000000000', B: 'b1' });
+  store.create('U', { a: 'u1', Q: 'q1' });
+  store.create('V', { Relname: 'v1' });
+  const full = store.privilegeSets().find((p) => p.id === 1)!;
+  store.savePrivilegeSet({ ...full, extendedPrivileges: [...full.extendedPrivileges, 'fmxdbc'] });
+  store.setPassword('Ann', 'pw', full.name);
+  const pg = new PgServer(localHost, { port: 0 });
+  t.after(async () => { pg.close(); await localHost.close(); rmSync(dir, { recursive: true, force: true }); });
+  const port = await pg.listen();
+  const c = await Client.open({ user: 'Ann', password: 'pw', database: 'Casts', port });
+  try {
+    // An unaliased cast keeps the name of its operand, and the integer cast is int4.
+    const named = await c.query('SELECT A::int, B, T.A::numeric AS n, count(*)::int FROM T GROUP BY A, B');
+    assert.equal(named.error, undefined);
+    assert.deepEqual(named.columns, ['A', 'B', 'n', 'count']);
+    // One rule for a bare column and a cast of it: the file's spelling, whatever case the query used. A name after the type is an alias, and the cast of a constant is named after its type.
+    const cased = await c.query("SELECT a, a::text, t.b::text, a::int x, b::text \"Y\", '1'::int, 1::text, (b)::text, true::text, a::int IS NULL FROM T");
+    assert.equal(cased.error, undefined);
+    assert.deepEqual(cased.columns.slice(0, 9), ['A', 'A', 'B', 'x', 'Y', 'int4', 'text', 'B', 'text']);
+    assert.deepEqual([named.oids[0], named.oids[3]], [23, 23]);
+    // The name is the one SQLite gives the bare column of the query's own table, whatever another table calls it; a subquery's column keeps its own spelling.
+    const named_ = async (sql: string) => { const r = await c.query(sql); assert.equal(r.error, undefined, sql); return r.columns; };
+    assert.deepEqual(await named_('SELECT a, a::text, T.a::text FROM T'), ['A', 'A', 'A']);
+    assert.deepEqual(await named_('SELECT a, A::int FROM U'), ['a', 'a']);
+    assert.deepEqual(await named_('SELECT t.a::text, a::text, t.a FROM T t'), ['A', 'A', 'A']);
+    assert.deepEqual(await named_('SELECT a::text, a FROM (SELECT 1 AS a) s'), ['a', 'a']);
+    assert.deepEqual(await named_('SELECT a::text FROM (SELECT A FROM T) s'), ['A']);
+    // A query of the catalog is named as written: the file's own field spelled like a catalog column does not rename it.
+    assert.deepEqual(await named_('SELECT RELNAME::text FROM pg_class LIMIT 1'), ['RELNAME']);
+    c.send('P', Buffer.concat([cstr('catalog'), cstr('SELECT RELNAME::text FROM pg_class'), i16(0)]));
+    c.send('D', Buffer.concat([Buffer.from('S'), cstr('catalog')]));
+    c.send('S');
+    assert.deepEqual(c.results(await c.until('Z')).columns, ['RELNAME']);
+    // The names of a statement that is only described are the same.
+    c.send('P', Buffer.concat([cstr('named'), cstr('SELECT a::text, B::int x, t.a::text FROM T t'), i16(0)]));
+    c.send('D', Buffer.concat([Buffer.from('S'), cstr('named')]));
+    c.send('S');
+    assert.deepEqual(c.results(await c.until('Z')).columns, ['A', 'x', 'A']);
+    // Casts nested in parentheses are refused beyond a depth no query has, and the server goes on.
+    const casts = await c.query(`SELECT ${'('.repeat(2_000)}A${')::text'.repeat(2_000)} FROM T`);
+    assert.match(casts.error ?? '', /nested too deeply/);
+    assert.deepEqual((await c.query('SELECT 1 AS ok')).rows, [['1']]);
+    // A deeply nested operand is answered or refused, and the server goes on.
+    const nested = `SELECT ${'('.repeat(20_000)}a${')'.repeat(20_000)}::int FROM T`;
+    const deep = await c.query(nested);
+    assert.ok(deep.error !== undefined || deep.rows.length === 1);
+    assert.deepEqual((await c.query('SELECT 1 AS ok')).rows, [['1']]);
+    // A star expands to several columns: no column is matched to a cast by position.
+    const plain = await c.query('SELECT *, 1 AS x FROM T');
+    const star = await c.query('SELECT *, 1::int AS x FROM T');
+    assert.equal(star.error, undefined);
+    assert.deepEqual(star.columns, plain.columns);
+    assert.deepEqual(star.oids, plain.oids);
+    // A window or filter clause and a quoted type name are read as before.
+    assert.deepEqual((await c.query('SELECT count(*) FILTER (WHERE A IS NOT NULL)::int AS n, sum(1) OVER ()::int AS m FROM T')).rows, [['1', '1']]);
+    assert.deepEqual((await c.query('SELECT B::"text" AS b, 1::"int4" AS i FROM T')).rows, [['b1', '1']]);
+    // A value outside int4 in the binary format is an error of its own, and the connection goes on.
+    c.send('P', Buffer.concat([cstr('big'), cstr('SELECT A::int AS a FROM T'), i16(0)]));
+    c.send('B', Buffer.concat([cstr(''), cstr('big'), i16(0), i16(0), i16(1), i16(1)]));
+    c.send('E', Buffer.concat([cstr(''), i32(0)]));
+    c.send('S');
+    assert.match(c.results(await c.until('Z')).error!, /^22003 a value is out of range for type int4/);
+    assert.deepEqual((await c.query('SELECT 1 AS ok')).rows, [['1']]);
+  } finally { c.close(); }
 });
 
 test('the catalog: tables and columns for BI tools and JDBC metadata', { skip }, async () => {

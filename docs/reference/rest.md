@@ -4671,7 +4671,7 @@ Records of an entity set, with $filter, $search, $select, $orderby, $top, $skip,
 | `$count` | query | boolean | no | true: add @odata.count |
 | `$format` | query | string | no | json only (else 501) |
 | `$apply` | query | string | no | Groups and totals: filter(…) steps, then one groupby((A,B)[,aggregate(…)]) or aggregate(…); aggregates are "Property with sum\|min\|max\|average\|countdistinct as Name" or "$count as Name". Only stored fields; $filter, $orderby, $top, $skip and $count then work on the rows it gives, which have no ROWID ($select and $expand: 400; other transformations: 501). Reads at most 500,000 records (400: filter first) |
-| `$expand` | query | string | no | Navigation properties to put inline, comma-separated (* for all), each optionally with ($select=…;$filter=…;$orderby=…;$top=n;$skip=n), the options separated by ;; up to 1,000 related records come for each record (with $filter or $orderby, every match is read first) |
+| `$expand` | query | string | no | Navigation properties to put inline, comma-separated (* for all), each optionally with ($select=…;$filter=…;$orderby=…;$top=n;$skip=n), the options separated by ;; a record with more than 1,000 related records is refused with a 400 unless $top (at most 1,000) and $skip page them (with $filter or $orderby, every match is read first) |
 | `Prefer` | header | string | no | odata.maxpagesize=n: page size (default 1000, at most 10,000) |
 
 **Example:**
@@ -5079,7 +5079,7 @@ Response `200`:
 }
 ```
 
-A navigation property answers {"@odata.context": …#{target set}, "value": [records]}, the records the account can view (up to 1,000; $count=true adds @odata.count of all of them). Nav({rowid}) (with $select and $expand) answers that record, with its ETag, while it is related to this one and the account can view it, else 404 code "101". Navigation goes one relationship at a time; anything after a property is 404 code "3". Other methods answer 405.
+A navigation property answers {"@odata.context": …#{target set}, "value": [records]}, the records the account can view (a collection of more than 1,000 is refused with a 400 unless $top, at most 1,000, and $skip page it; $count=true adds @odata.count of all of them). Nav({rowid}) (with $select and $expand) answers that record, with its ETag, while it is related to this one and the account can view it, else 404 code "101". Navigation goes one relationship at a time; anything after a property is 404 code "3". Other methods answer 405.
 
 <a id="odata-get-head-fmi-odata-v4-database-entityset-id-property-value"></a>
 
