@@ -584,6 +584,7 @@
         "docs/versioning.md",
         "docs/release-builds.md",
         "docs/audits/audit-windows.md",
+        "docs/audits/audit-time.md",
         "docs/audits/r20-11-overload-capacity.md",
         "docs/signing.md",
         "docs/audits/audit-edge-limits.md",
