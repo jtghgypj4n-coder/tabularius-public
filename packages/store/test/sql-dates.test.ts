@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { asText } from '@tabularius/calc';
 import { createStore, Store } from '../src/index.ts';
-import { fileMakerSqlSyntax, oneStatement, placeholders, SQL_DATE_FUNCTIONS } from '../src/sql-dates.ts';
+import { fileMakerSqlSyntax, oneStatement, placeholders, SQL_DATE_FUNCTIONS, sqlDateFunctions } from '../src/sql-dates.ts';
 
 let dir: string;
 let store: Store;
@@ -71,6 +71,33 @@ test('NOW and CURTIMESTAMP use one clock reading across a date boundary', () => 
     globalThis.Date = actualDate;
     if (zone === undefined) delete process.env.TZ; else process.env.TZ = zone;
   }
+});
+
+test('injected SQL clock gives local readings of the same instant in several zones', () => {
+  const prior = process.env.TZ;
+  const functions = sqlDateFunctions(() => new Date('2026-03-08T07:30:00Z'));
+  try {
+    for (const [zone, expected] of [
+      ['America/New_York', '2026-03-08T03:30:00'],
+      ['Europe/London', '2026-03-08T07:30:00'],
+      ['Asia/Kolkata', '2026-03-08T13:00:00'],
+    ]) {
+      process.env.TZ = zone;
+      assert.equal(functions.NOW(), expected);
+      assert.equal(functions.CURTIMESTAMP(), expected);
+    }
+  } finally {
+    if (prior === undefined) delete process.env.TZ; else process.env.TZ = prior;
+  }
+});
+
+test('SQL interval arithmetic preserves leap days in years below 100', () => {
+  const add = SQL_DATE_FUNCTIONS.fm_date_add;
+  assert.equal(add('0004-01-31', 1, 'MONTH', 1), '0004-02-29');
+  assert.equal(add('0004-02-28', 1, 'DAY', 1), '0004-02-29');
+  assert.equal(add('0004-02-28T23:30:00', 1, 'HOUR', 1), '0004-02-29T00:30:00');
+  assert.equal(SQL_DATE_FUNCTIONS.DAYOFWEEK('0004-02-29'), 1);
+  assert.equal(SQL_DATE_FUNCTIONS.fm_dateadd('0004-03-01', '0004-02-28', -1), 2);
 });
 
 test('ROWMODID is the modification count column', () => {

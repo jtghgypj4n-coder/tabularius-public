@@ -277,15 +277,17 @@ export class Schedules {
   /** Runs and failed runs since the server started (for metrics). */
   private readonly counts = new Map<string, { runs: number; failures: number }>();
   private readonly backupProblems = new Map<string, { dest: string; at: number; unavailable?: string }>();
+  private readonly now: () => number;
   private stopped = false;
   /** Sends a text to every connected client and says how many it reached (a message schedule's task). */
   broadcast?: (text: string) => number;
   /** Set once the console's sync is up; sync schedules need it. */
   syncJobs?: SyncJobs;
 
-  constructor(host: Host, log: (m: string) => void = () => {}) {
+  constructor(host: Host, log: (m: string) => void = () => {}, now: () => number = Date.now) {
     this.host = host;
     this.log = log;
+    this.now = now;
     const f = join(host.dir, FILE);
     if (existsSync(f)) {
       try {
@@ -548,7 +550,7 @@ export class Schedules {
   }
 
   /** Runs a schedule's script now (the console's "Run now", and each scheduled time). */
-  async run(id: string, manual = true, scheduledAt = Date.now()): Promise<ScheduleRun> {
+  async run(id: string, manual = true, scheduledAt = this.now()): Promise<ScheduleRun> {
     const s = this.get(id);
     if (!s) throw new ScheduleError('no such schedule');
     if (this.running.has(id)) throw new ScheduleError('the schedule is already running');
@@ -556,7 +558,9 @@ export class Schedules {
       throw new ScheduleError(`the schedule already ran on ${localDay(scheduledAt)}`);
     }
     this.running.add(id);
-    const started = Date.now();
+    const started = this.now();
+    const began = performance.now();
+    const elapsed = () => Math.max(0, Math.round(performance.now() - began));
     let run: ScheduleRun;
     try {
       if (s.kind === 'backup') {
@@ -575,7 +579,7 @@ export class Schedules {
           const check = await verifyAfterBackup(s.dest ?? defaultBackupDir(this.host.dir), basename(made.dir), (m) => this.log(`schedule "${s.name}": ${m}`));
           if (!check.ok) throw new ScheduleError(describeCheck(basename(made.dir), check));
         }
-        run = { at: new Date(started).toISOString(), error: 0, result: basename(made.dir), steps: 0, ms: Date.now() - started, ...(manual ? { manual } : {}) };
+        run = { at: new Date(started).toISOString(), error: 0, result: basename(made.dir), steps: 0, ms: elapsed(), ...(manual ? { manual } : {}) };
       } else if (s.kind === 'verify') {
         // Every page of each hosted file, off the request path; a damaged one fails the run and names the file.
         const names = s.database ? [s.database] : this.host.names();
@@ -585,18 +589,18 @@ export class Schedules {
           if (r.state !== 'ok') bad.push(`${name}: ${r.detail}`);
         }
         if (bad.length) throw new ScheduleError(`${bad.length === 1 ? 'a file' : `${bad.length} files`} failed the check: ${bad.join('; ')}`);
-        run = { at: new Date(started).toISOString(), error: 0, result: `${names.length} ${names.length === 1 ? 'file' : 'files'} ok`, steps: 0, ms: Date.now() - started, ...(manual ? { manual } : {}) };
+        run = { at: new Date(started).toISOString(), error: 0, result: `${names.length} ${names.length === 1 ? 'file' : 'files'} ok`, steps: 0, ms: elapsed(), ...(manual ? { manual } : {}) };
       } else if (s.kind === 'message') {
         if (!this.broadcast) throw new ScheduleError('this server has no connected clients to message');
         const reached = this.broadcast(s.message ?? '');
-        run = { at: new Date(started).toISOString(), error: 0, result: `${reached} ${reached === 1 ? 'client' : 'clients'}`, steps: 0, ms: Date.now() - started, ...(manual ? { manual } : {}) };
+        run = { at: new Date(started).toISOString(), error: 0, result: `${reached} ${reached === 1 ? 'client' : 'clients'}`, steps: 0, ms: elapsed(), ...(manual ? { manual } : {}) };
       } else {
         const held = heldBack(s.database, this.host);
         if (held) throw new ScheduleError(held);
         const store = this.host.get(s.database);
         if (!store) throw new ScheduleError(`"${s.database}" is not hosted`);
         if (s.sync) {
-          run = await this.runSync(s, started, manual);
+          run = await this.runSync(s, started, elapsed, manual);
         } else {
           store.requireActiveAccount(s.account);
           const privileges = store.privileges(s.account);
@@ -638,17 +642,21 @@ export class Schedules {
             ...(connections ? { connections } : {}),
             ...(opts.profile ? { profile: opts.profile } : {}),
           }), { file: store.name, script: s.script, account: s.account, kind: 'schedule' });
-          run = { at: new Date(started).toISOString(), error: r.error, result: r.result, steps: r.steps, ms: Date.now() - started, ...(r.warnings?.length ? { warnings: r.warnings.slice(0, 100) } : {}), ...(withheld ? { message: `ran without its connections: ${changed.slice(0, 3).join(', ')} changed since they were last approved for this schedule` } : {}), ...(manual ? { manual } : {}) };
+          run = { at: new Date(started).toISOString(), error: r.error, result: r.result, steps: r.steps, ms: elapsed(), ...(r.warnings?.length ? { warnings: r.warnings.slice(0, 100) } : {}), ...(withheld ? { message: `ran without its connections: ${changed.slice(0, 3).join(', ')} changed since they were last approved for this schedule` } : {}), ...(manual ? { manual } : {}) };
         }
       }
     } catch (e) {
       const code = (e as { code?: unknown }).code;
-      run = { at: new Date(started).toISOString(), error: typeof code === 'number' ? code : -1, result: '', steps: 0, ms: Date.now() - started, message: (e as Error).message, ...(manual ? { manual } : {}) };
+      run = { at: new Date(started).toISOString(), error: typeof code === 'number' ? code : -1, result: '', steps: 0, ms: elapsed(), message: (e as Error).message, ...(manual ? { manual } : {}) };
     } finally {
       this.running.delete(id);
     }
     // Deleted while it ran: nothing to keep.
     if (this.get(id)) {
+      // A clock correction must not make a later run appear older after restart.
+      const previous = this.history.get(id)?.[0];
+      const prior = previous && Date.parse(previous.at);
+      if (prior !== undefined && Number.isFinite(prior)) run.at = new Date(Math.max(started, prior + 1)).toISOString();
       this.history.set(id, [run, ...(this.history.get(id) ?? [])].slice(0, HISTORY));
       const c = this.counts.get(id) ?? { runs: 0, failures: 0 };
       this.counts.set(id, { runs: c.runs + 1, failures: c.failures + (run.error ? 1 : 0) });
@@ -672,7 +680,7 @@ export class Schedules {
   }
 
   /** One scheduled sync: a check unless the schedule opted into sending or pulling. */
-  private async runSync(s: Schedule, started: number, manual: boolean): Promise<ScheduleRun> {
+  private async runSync(s: Schedule, started: number, elapsed: () => number, manual: boolean): Promise<ScheduleRun> {
     const jobs = this.syncJobs;
     if (!jobs) throw new ScheduleError('sync is not running on this server');
     const before = (this.history.get(s.id) ?? [])[0]?.conflicts ?? 0;
@@ -683,7 +691,7 @@ export class Schedules {
       else this.host.logs?.write('Event', 'Information', s.database, `Sync "${s.name}": no records are waiting for a decision any more`);
     }
     return {
-      at: new Date(started).toISOString(), error: r.problem ? -1 : 0, result: r.summary, steps: r.changed, ms: Date.now() - started,
+      at: new Date(started).toISOString(), error: r.problem ? -1 : 0, result: r.summary, steps: r.changed, ms: elapsed(),
       ...(r.problem ? { message: r.problem } : {}), ...(r.conflicts ? { conflicts: r.conflicts } : {}), ...(manual ? { manual } : {}),
     };
   }
@@ -693,7 +701,7 @@ export class Schedules {
     for (const id of [...this.timers.keys()]) this.disarm(id);
   }
 
-  private arm(s: Schedule, from = Date.now()): void {
+  private arm(s: Schedule, from = this.now()): void {
     this.disarm(s.id);
     if (!s.enabled || this.stopped || s.onOpen) return;
     let at = nextRun(s, from);
@@ -714,12 +722,12 @@ export class Schedules {
 
   /** Check the wall clock periodically: a changed system clock does not move an existing timeout. */
   private waitFor(s: Schedule, at: number): void {
-    const wait = Math.max(0, Math.min(at - Date.now(), 60_000));
+    const wait = Math.max(0, Math.min(at - this.now(), 60_000));
     const version = this.timerVersions.get(s.id);
     const timer = setTimeout(() => {
       // An edit, removal, or stop can replace this timer while its callback is pending.
       if (this.timers.get(s.id) !== timer || this.timerVersions.get(s.id) !== version || !this.get(s.id) || this.stopped) return;
-      if (Date.now() < at) return this.waitFor(s, at);
+      if (this.now() < at) return this.waitFor(s, at);
       this.timers.delete(s.id);
       this.due.delete(s.id);
       // The last run is still going: this time is skipped, and the log says so (a run never overlaps itself).
@@ -732,7 +740,7 @@ export class Schedules {
       }
       void this.run(s.id, false, at).catch(() => {}).finally(() => {
         const current = this.get(s.id);
-        if (!this.stopped && current && this.timerVersions.get(s.id) === version) this.arm(current, Date.now() + 1);
+        if (!this.stopped && current && this.timerVersions.get(s.id) === version) this.arm(current, this.now() + 1);
       });
     }, wait);
     timer.unref();

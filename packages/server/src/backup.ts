@@ -66,9 +66,9 @@ export interface BackupResult {
   removed: string[];
 }
 
-function stamp(d = new Date(), ms = false): string {
+function stamp(d = new Date(), ms = false, utc = false): string {
   const p = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}${p(d.getSeconds())}${ms ? '.' + String(d.getMilliseconds()).padStart(3, '0') : ''}`;
+  return `${utc ? d.getUTCFullYear() : d.getFullYear()}-${p((utc ? d.getUTCMonth() : d.getMonth()) + 1)}-${p(utc ? d.getUTCDate() : d.getDate())}_${p(utc ? d.getUTCHours() : d.getHours())}${p(utc ? d.getUTCMinutes() : d.getMinutes())}${p(utc ? d.getUTCSeconds() : d.getSeconds())}${ms ? '.' + String(utc ? d.getUTCMilliseconds() : d.getMilliseconds()).padStart(3, '0') : ''}`;
 }
 
 /** Advance the sortable folder label as a calendar value, even if the host clock moved backwards. */
@@ -818,10 +818,11 @@ export async function scheduleProgressive(host: Host, opts: { every: number; des
           mkdirSync(dir, { recursive: true });
           // Encrypted as written, so no log is ever readable on disk.
           const latest = readdirSync(dir).filter((name) => LOGS.test(name)).sort().at(-1)?.slice(0, 21);
-          let label = stamp(new Date(at), true);
+          // New log names are UTC; the old local-name format remains readable in the same set.
+          let label = stamp(new Date(at), true, true);
           if (latest && label <= latest) label = afterStamp(latest);
-          while (existsSync(join(dir, `${label}.log${key ? ENCRYPTED_EXT : ''}`))) label = afterStamp(label);
-          cur = { ...startLog(join(dir, `${label}.log${key ? ENCRYPTED_EXT : ''}`), key, store.name), started: at };
+          while (existsSync(join(dir, `${label}Z.log${key ? ENCRYPTED_EXT : ''}`))) label = afterStamp(label);
+          cur = { ...startLog(join(dir, `${label}Z.log${key ? ENCRYPTED_EXT : ''}`), key, store.name), started: at };
           current.set(store.name, cur);
         }
         const stored = writeLog(cur, { at, seq: 0, data });
