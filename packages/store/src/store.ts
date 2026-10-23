@@ -5495,8 +5495,8 @@ export class Store {
   }
 
   /** Records a provisioning token being issued or revoked (the token lives in the SCIM directory; see scim.ts). */
-  logProvisioningToken(issued: boolean, by?: string): void {
-    this.logSecurity(issued ? 'scim-token-issued' : 'scim-token-revoked', { account: by });
+  logProvisioningToken(issued: boolean, by?: string, expires?: string): void {
+    this.logSecurity(issued ? 'scim-token-issued' : 'scim-token-revoked', { account: by, ...(expires ? { detail: { expires } } : {}) });
   }
 
   /**
