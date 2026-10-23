@@ -8,7 +8,7 @@ const PASSKEY_SECOND_FACTOR_REQUIRED = 9000;
 import { ViewerState, viewerKey, viewerMessage, restoreViewer, type ViewerAction } from './web-viewer.ts';
 import { SessionLifetime } from './session-lifetime.ts';
 import { mergeObjectState, mergeObjectRecord, mergeFoundObjectRows, refreshMatches, checkpointCache, foundPortalPage, foundPortalRange } from './refresh.ts';
-import { Api, ApiError, PIECED_FROM, listDatabases, retryableRequest, retrying, unreachableRequest, type ExportFormat } from './api.ts';
+import { Api, ApiError, PIECED_FROM, fileListOff, listDatabases, retryableRequest, retrying, unreachableRequest, type ExportFormat } from './api.ts';
 import { OfflineCopy, copyKey, deriveBits, exportKey, importKey, indexedDbShelf, newSalt, type OfflineKey, type QueuedEdit } from './offline.ts';
 import { passkeySupported, signInWithPasskey, signInWithPasskeyFactor, signInWithRecoveryCode, type PasskeyLogin } from './webauthn.ts';
 import { scriptFailureMessage } from './script-error.ts';
@@ -522,7 +522,8 @@ async function showLogin(message?: string): Promise<void> {
   // Without a connection, the files this browser keeps offline copies of can still be opened, with their password.
   let unreachable = false;
   let busy = false;
-  const online = await listDatabases().catch((e) => { if (e instanceof ApiError && e.status === 503) busy = true; else unreachable = true; return [] as string[]; });
+  // A server that keeps its list of files off (the default) answers so: that is not an unreachable server, the name is typed.
+  const online = await listDatabases().catch((e) => { if (e instanceof ApiError && e.status === 503) busy = true; else if (!fileListOff(e)) unreachable = true; return [] as string[]; });
   if (busy) {
     showBusyScreen();
     return;
@@ -536,6 +537,7 @@ async function showLogin(message?: string): Promise<void> {
   const typed = !dbs.length && !unreachable;
   const select = (typed ? h('input', { name: 'db', required: '', autocomplete: 'off', spellcheck: 'false' }) : h('select', { name: 'db', required: '' })) as HTMLSelectElement;
   if (!typed) for (const d of dbs) select.append(h('option', { value: d }, d));
+  if (typed) select.setAttribute('aria-describedby', 'login-file-hint');
   // A link to one file (/app/?db=Name, as the admin console opens a file it has just hosted) picks it.
   const wanted = new URLSearchParams(location.search).get('db');
   const last = wanted ?? localStorageGet('openhbam.db');
@@ -572,7 +574,8 @@ async function showLogin(message?: string): Promise<void> {
     ...(unreachable ? [h('p', { class: 'login-empty' }, dbs.length
       ? "The server can't be reached, so only the files this browser keeps offline copies of can be opened. Changes to fields are sent once the connection is back."
       : "The server can't be reached, and this browser keeps no offline copies. The list of files comes back with the connection.")] : []),
-    dbs.length || typed ? h('label', {}, 'File', select) : '',
+    dbs.length || typed ? h('label', {}, typed ? 'File name' : 'File', select) : '',
+    ...(typed ? [h('p', { id: 'login-file-hint', class: 'login-empty' }, "This server does not list its files. Type the name of the file to open.")] : []),
     h('label', {}, 'Account name', account),
     h('label', {}, 'Password', password),
     otpLabel,

@@ -311,7 +311,7 @@ say what each reason means). A file that uses Encryption at Rest waits there for
 serving the folder you are looking at: `tabularius doctor <folder>` counts the files it would host.
 
 The sign-in page lists the hosted files only when the server was started with `--list-files-publicly`; otherwise
-a person types the file's name, and a name that is not hosted looks like a wrong password.
+it shows a **File name** box and a person types the file's name (`/app/?db=Name` fills it in), and a name that is not hosted looks like a wrong password.
 
 ## The first open of a big file is slow
 
