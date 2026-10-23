@@ -4,7 +4,21 @@ A PostgreSQL query may return at most **100,000 rows** by default.
 `TABULARIUS_PGWIRE_MAX_ROWS` sets a different whole-number cap, read
 per query (0 removes the cap, as `TABULARIUS_DATA_API_MAX_LIMIT=0` does for the Data API); for example, `TABULARIUS_PGWIRE_MAX_ROWS=200000` allows larger results. Results a connection keeps open in portals (the extended protocol's suspended results) share a total of 100,000 rows, or `TABULARIUS_PGWIRE_MAX_BUFFERED_ROWS`; one full result always fits, so a larger `TABULARIUS_PGWIRE_MAX_ROWS` raises the total too. Closing a portal frees its rows; over the total the query answers SQLSTATE 54000.
 Invalid or non-positive values (including 0) fall back to 100,000.
-The server reads one
+
+Bound parameters in a connection's portals share a separate **64 MiB
+(67,108,864 bytes)** cap. `TABULARIUS_PGWIRE_MAX_PARAM_BYTES` sets a positive
+whole-number byte limit, read at each Bind; unset, invalid or non-positive
+values (including 0) keep the default. Text counts by its UTF-8 byte length,
+binary parameters by their input byte length, and nulls count as zero.
+A Bind that would exceed the total, including a single Bind larger than the
+cap, answers SQLSTATE `54000` with the limit and advice to close portals or
+send smaller parameters. Parameter lengths are checked before decoding.
+Closing a portal frees its bytes; replacing its name counts only the new
+parameters. Sync outside a transaction clears the portals and frees their
+bytes; Sync inside a transaction keeps them. The extended protocol requires
+Sync after an error, and an aborted transaction also needs ROLLBACK or COMMIT.
+
+For the per-query row cap, the server reads one
 extra row to detect overflow and refuses larger results before sending any
 rows, with SQLSTATE `54000` and this message:
 
