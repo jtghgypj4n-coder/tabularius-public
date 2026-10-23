@@ -62,6 +62,12 @@ world-readable.
 - A plug-in install that is interrupted can leave a staging folder named `.installing-<plug-in id>-<random>` in the
   plug-ins folder. It is not swept automatically; remove it by hand once no install is running.
 
+## Changes that can affect existing use
+
+- **SQL casts on the PostgreSQL connection.** `::int`, `::numeric`, `::real`, `::text` and their long names (`CAST(x AS integer)`, `double precision`, `varchar` and so on) now convert the value, where they used to pass it through unchanged. `'1.5'::int` gives 1, a number cast to text becomes text, and a result column carries the cast's type and, unnamed, its name. A cast to a type with no counterpart here (`::uuid`, `::interval` and the like) keeps the value as before, and a type name PostgreSQL does not have is refused with an error that names it. A tool that relied on a cast doing nothing sees the converted value.
+- **Import undo records which file it went into.** An import made through a layout of another file is undone in that file only if it is still the file that was imported into. Imports now add a small table (`_fm_file_identity`) to a data file, holding a random id; it is created when the file is first imported into or undone from, and older versions leave it alone. An import made through such a layout before this change has no recorded file, so **Undo** refuses it with a message instead of guessing. Imports into the layout's own file are not affected.
+- **Related records.** A relationship that gives more than 1,000 related records for one record is refused with a 400 (page it with `$top`, at most 1,000, and `$skip`), instead of reading them all.
+
 ## Stopping and restarting
 
 A stop signal (Ctrl+C, `SIGTERM` from a service manager, a restart, an upgrade) ends the server in this order:

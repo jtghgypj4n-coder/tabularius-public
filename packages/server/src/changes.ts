@@ -383,7 +383,7 @@ export class Webhooks {
     const q = this.queues.get(h.id);
     if (!q?.length) return;
     this.busy.add(h.id);
-    const batch = q.slice(0, MAX_BATCH);
+    const batch = q.splice(0, MAX_BATCH);
     const body = JSON.stringify({ webhook: h.id, database: h.database, changes: batch.map((b) => b.entry) });
     const signature = 'sha256=' + createHmac('sha256', h.secret).update(body).digest('hex');
     const state = this.state(h.id);
@@ -397,14 +397,12 @@ export class Webhooks {
           // Only the status is used. Cancel success and error bodies before delivery or retry.
           await r.body?.cancel().catch(() => {});
           if (r.status < 200 || r.status >= 300) throw new Error(`the address answered HTTP ${r.status}`);
-          q.splice(0, batch.length);
           state.delivered += batch.length;
           state.lastOk = new Date().toISOString();
           break;
         } catch (e) {
           state.lastError = { at: new Date().toISOString(), message: (e as Error).message };
           if (attempt >= TRIES || this.stopped) {
-            q.splice(0, batch.length);
             state.dropped += batch.length;
             this.log(`webhook ${h.id} (${diagnosticEndpoint(h.url)}): dropped ${batch.length} changes after ${attempt} tries: ${redactDiagnosticText((e as Error).message)}`);
             break;

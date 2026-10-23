@@ -66,6 +66,13 @@ function multipart(items: (string | string[])[]): string {
 const post = (path: string, body: unknown) => `POST ${path} HTTP/1.1\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(body)}`;
 const patch = (path: string, body: unknown) => `PATCH ${path} HTTP/1.1\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(body)}`;
 
+test('a JSON batch subrequest keeps its exact numbers and refuses duplicate keys', () => {
+  for (const body of ['{"Payload":{"big":9007199254740993}}', '{"Payload":{"x":1,"x":2}}']) {
+    const raw = `{"requests":[{"id":"1","method":"POST","url":"Values","body":${body}}]}`;
+    assert.equal(batchRequests('application/json', Buffer.from(raw)).units[0].requests[0].body.toString(), body);
+  }
+});
+
 async function batch(body: string, headers: Record<string, string> = basic('Ann'), file = 'Charts') {
   const res = await fetch(`${root}/${file}/$batch`, { method: 'POST', headers: { 'content-type': 'multipart/mixed; boundary=batch_b', ...headers }, body });
   const text = await res.text();

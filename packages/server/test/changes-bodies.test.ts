@@ -4,9 +4,36 @@ import assert from 'node:assert/strict';
 import { getEventListeners } from 'node:events';
 import { dirname } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { generatedStore, localServer } from '../../scripts/test/outbound-engine-helpers.ts';
+import { deferred, generatedStore, localServer } from '../../scripts/test/outbound-engine-helpers.ts';
 import { ChangeFeed, Webhooks } from '../src/changes.ts';
 import type { Host } from '../src/host.ts';
+
+test('unsent changes stay pending when a delivery batch is held while the queue overflows', async (t) => {
+  const store = generatedStore(t);
+  const host = { dir: dirname(store.path), get: () => store } as unknown as Host;
+  const hooks = new Webhooks(host, { subscribe: () => {} } as unknown as ChangeFeed, true);
+  t.after(() => hooks.stop());
+  const hook = hooks.create({ database: store.name, url: 'https://example.com/hook' });
+  const internals = hooks as unknown as { enqueue: (file: string, entry: { seq: number; kind: 'create'; table: string; at: string }) => void; queues: Map<string, { entry: { seq: number } }[]> };
+  const first = deferred<Response>();
+  const second = deferred<Response>();
+  const sent: number[][] = [];
+  hooks.fetch = async (_url, init) => {
+    sent.push((JSON.parse(String(init?.body)) as { changes: { seq: number }[] }).changes.map((c) => c.seq));
+    return sent.length === 1 ? first.promise : second.promise;
+  };
+  for (let seq = 1; seq <= 500; seq++) internals.enqueue(store.name, { seq, kind: 'create', table: 'Records', at: '' });
+  const flushing = hooks.flush();
+  assert.deepEqual([sent[0][0], sent[0].at(-1)], [1, 500]);
+  for (let seq = 501; seq <= 5500; seq++) internals.enqueue(store.name, { seq, kind: 'create', table: 'Records', at: '' });
+  first.resolve(new Response(null, { status: 204 }));
+  await flushing;
+  assert.equal(sent[1][0], 501);
+  assert.equal(internals.queues.get(hook.id)?.[0]?.entry.seq, 1001);
+  assert.deepEqual([hooks.list()[0].delivered, hooks.list()[0].dropped], [500, 0]);
+  hooks.stop();
+  second.resolve(new Response(null, { status: 204 }));
+});
 
 for (const mode of ['changes', 'digest'] as const) for (const retry of [false, true]) {
   test(`${mode} delivery cancels ${retry ? 'failed and successful' : 'successful'} response bodies`, { timeout: 10_000 }, async (t) => {

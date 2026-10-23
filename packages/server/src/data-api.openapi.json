@@ -5369,7 +5369,7 @@
             "name": "$expand",
             "in": "query",
             "required": false,
-            "description": "Navigation properties to put inline, comma-separated (* for all), each optionally with ($select=…;$filter=…;$orderby=…;$top=n;$skip=n), the options separated by ;; up to 1,000 related records come for each record (with $filter or $orderby, every match is read first)",
+            "description": "Navigation properties to put inline, comma-separated (* for all), each optionally with ($select=…;$filter=…;$orderby=…;$top=n;$skip=n), the options separated by ;; a record with more than 1,000 related records is refused with a 400 unless $top (at most 1,000) and $skip page them (with $filter or $orderby, every match is read first)",
             "schema": {
               "type": "string"
             }
@@ -6347,7 +6347,7 @@
           "OData"
         ],
         "summary": "One property of a record.",
-        "description": "**Permissions:** HTTP Basic (account name and password), a Data API session token (Bearer or X-FM-Data-Access-Token), or a scoped API token (Bearer ohbt_…; surfaces must include fmodata, and a layout-limited token is refused with 403). The privilege set needs the fmodata extended privilege (401 code \"9\"). Field access applies (404 code \"102\" for a property the account can't see).\n\nA navigation property answers {\"@odata.context\": …#{target set}, \"value\": [records]}, the records the account can view (up to 1,000; $count=true adds @odata.count of all of them). Nav({rowid}) (with $select and $expand) answers that record, with its ETag, while it is related to this one and the account can view it, else 404 code \"101\". Navigation goes one relationship at a time; anything after a property is 404 code \"3\". Other methods answer 405.",
+        "description": "**Permissions:** HTTP Basic (account name and password), a Data API session token (Bearer or X-FM-Data-Access-Token), or a scoped API token (Bearer ohbt_…; surfaces must include fmodata, and a layout-limited token is refused with 403). The privilege set needs the fmodata extended privilege (401 code \"9\"). Field access applies (404 code \"102\" for a property the account can't see).\n\nA navigation property answers {\"@odata.context\": …#{target set}, \"value\": [records]}, the records the account can view (a collection of more than 1,000 is refused with a 400 unless $top, at most 1,000, and $skip page it; $count=true adds @odata.count of all of them). Nav({rowid}) (with $select and $expand) answers that record, with its ETag, while it is related to this one and the account can view it, else 404 code \"101\". Navigation goes one relationship at a time; anything after a property is 404 code \"3\". Other methods answer 405.",
         "security": [
           {
             "basicAuth": []
@@ -6433,7 +6433,7 @@
           "OData"
         ],
         "summary": "One property of a record.",
-        "description": "**Permissions:** HTTP Basic (account name and password), a Data API session token (Bearer or X-FM-Data-Access-Token), or a scoped API token (Bearer ohbt_…; surfaces must include fmodata, and a layout-limited token is refused with 403). The privilege set needs the fmodata extended privilege (401 code \"9\"). Field access applies (404 code \"102\" for a property the account can't see).\n\nA navigation property answers {\"@odata.context\": …#{target set}, \"value\": [records]}, the records the account can view (up to 1,000; $count=true adds @odata.count of all of them). Nav({rowid}) (with $select and $expand) answers that record, with its ETag, while it is related to this one and the account can view it, else 404 code \"101\". Navigation goes one relationship at a time; anything after a property is 404 code \"3\". Other methods answer 405.",
+        "description": "**Permissions:** HTTP Basic (account name and password), a Data API session token (Bearer or X-FM-Data-Access-Token), or a scoped API token (Bearer ohbt_…; surfaces must include fmodata, and a layout-limited token is refused with 403). The privilege set needs the fmodata extended privilege (401 code \"9\"). Field access applies (404 code \"102\" for a property the account can't see).\n\nA navigation property answers {\"@odata.context\": …#{target set}, \"value\": [records]}, the records the account can view (a collection of more than 1,000 is refused with a 400 unless $top, at most 1,000, and $skip page it; $count=true adds @odata.count of all of them). Nav({rowid}) (with $select and $expand) answers that record, with its ETag, while it is related to this one and the account can view it, else 404 code \"101\". Navigation goes one relationship at a time; anything after a property is 404 code \"3\". Other methods answer 405.",
         "security": [
           {
             "basicAuth": []

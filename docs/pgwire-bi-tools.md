@@ -46,6 +46,7 @@ Problems from the SQL engine itself (an unknown table or function) come back as 
 - The privilege functions (`has_table_privilege`, `has_schema_privilege` and the rest) answer with `1` or `0` as numbers, not `t` or `f`. They answer for a connection that only reads: `select`, `references` and `usage` are held, `insert`, `update`, `delete`, `create` and the like are not. A tool that treats any number as true, including 0, would see every privilege as held; Metabase's privilege query is written in a language that does (Clojure), but how its JDBC layer hands these columns over was not run.
 - `array_agg` gives PostgreSQL's array text (`{a,"b c",NULL}`), as `text`, not as an array type. `array_to_string`, `array_remove`, `array_length` and `array_upper` read that text.
 - `format_type` has no type modifiers, so `varchar(100)` is `character varying`.
+- SQL casts convert (`'1.5'::int` is 1, `1::text` is text) and name and type their result column; a cast to a type with no counterpart here keeps the value, and a type name PostgreSQL does not have is refused. See [Upgrading](upgrading.md#changes-that-can-affect-existing-use).
 - A hidden `tableoid` column is there when a query names it and is not part of `SELECT *`.
 
 ## Fixed by running the list

@@ -148,18 +148,20 @@ function multipartUnits(contentType: string, raw: Buffer): BatchUnit[] {
 // --- JSON ----------------------------------------------------------------------
 
 function jsonUnits(raw: Buffer): BatchUnit[] {
+  const source = raw.toString('utf8');
   let doc: unknown;
   try {
-    doc = parseRequestJson(raw.toString('utf8'));
+    doc = parseRequestJson(source);
   } catch {
     throw new BatchError('The $batch body is not valid JSON');
   }
   const list = (doc as { requests?: unknown })?.requests;
   if (!Array.isArray(list)) throw new BatchError('A JSON $batch is {"requests": [...]}');
+  const rawBodies = requestBodySources(source);
   const units: BatchUnit[] = [];
   const seen = new Set<string>();
   const closed = new Set<string>();
-  for (const r of list as Record<string, unknown>[]) {
+  for (const [index, r] of (list as Record<string, unknown>[]).entries()) {
     if (!r || typeof r !== 'object') throw new BatchError('Each request in a JSON $batch is an object');
     const id = r.id === undefined ? undefined : String(r.id);
     if (id === undefined || id === '') throw new BatchError('Each request in a JSON $batch has an id');
@@ -173,7 +175,7 @@ function jsonUnits(raw: Buffer): BatchUnit[] {
     for (const d of dependsOn ?? []) if (!seen.has(d) && !closed.has(d) && units.at(-1)?.group !== d) throw new BatchError(`Request "${id}" depends on "${d}", which isn't before it`);
     const body = r.body === undefined || r.body === null ? Buffer.alloc(0)
       : typeof r.body === 'string' && !/json/i.test(headers['content-type'] ?? 'application/json') ? Buffer.from(r.body, 'utf8')
-        : Buffer.from(JSON.stringify(r.body), 'utf8');
+        : Buffer.from(rawBodies[index] ?? JSON.stringify(r.body), 'utf8');
     if (body.length && !headers['content-type']) headers['content-type'] = 'application/json';
     const request: BatchRequest = { id, method: r.method.toUpperCase(), url: r.url, headers, body, ...(dependsOn ? { dependsOn } : {}) };
     const group = r.atomicityGroup === undefined || r.atomicityGroup === null ? undefined : String(r.atomicityGroup);
@@ -189,6 +191,60 @@ function jsonUnits(raw: Buffer): BatchUnit[] {
     seen.add(id);
   }
   return units;
+}
+
+/** Locate JSON request bodies in the validated source so numeric lexemes and duplicate keys survive dispatch. */
+function requestBodySources(source: string): (string | undefined)[] {
+  const space = (at: number) => { while (/\s/.test(source[at] ?? '')) at++; return at; };
+  const end = (start: number): number => {
+    let at = space(start);
+    if (source[at] === '"') {
+      for (at++; at < source.length; at++) {
+        if (source[at] === '\\') at++;
+        else if (source[at] === '"') return at + 1;
+      }
+    }
+    if (source[at] === '{' || source[at] === '[') {
+      const stack = [source[at] === '{' ? '}' : ']'];
+      for (at++; at < source.length; at++) {
+        if (source[at] === '"') { at = end(at) - 1; continue; }
+        if (source[at] === '{' || source[at] === '[') stack.push(source[at] === '{' ? '}' : ']');
+        else if (source[at] === stack.at(-1)) { stack.pop(); if (!stack.length) return at + 1; }
+      }
+    }
+    while (at < source.length && !/[,}\]\s]/.test(source[at])) at++;
+    return at;
+  };
+  const members = (start: number): { key: string; start: number; end: number }[] => {
+    const found: { key: string; start: number; end: number }[] = [];
+    let at = space(start) + 1;
+    while (source[space(at)] !== '}') {
+      at = space(at);
+      const keyEnd = end(at);
+      const key = JSON.parse(source.slice(at, keyEnd)) as string;
+      const valueStart = space(space(keyEnd) + 1);
+      const valueEnd = end(valueStart);
+      found.push({ key, start: valueStart, end: valueEnd });
+      at = space(valueEnd);
+      if (source[at] !== ',') break;
+      at++;
+    }
+    return found;
+  };
+  const requests = members(space(0)).findLast((m) => m.key === 'requests');
+  if (!requests || source[requests.start] !== '[') return [];
+  const bodies: (string | undefined)[] = [];
+  let at = requests.start + 1;
+  while (source[space(at)] !== ']') {
+    at = space(at);
+    const requestEnd = end(at);
+    const body = source[at] === '{' ? members(at).findLast((m) => m.key === 'body') : undefined;
+    bodies.push(body ? source.slice(body.start, body.end) : undefined);
+    at = space(requestEnd);
+    if (source[at] !== ',') break;
+    at++;
+  }
+  return bodies;
 }
 
 // --- answers ---------------------------------------------------------------------
