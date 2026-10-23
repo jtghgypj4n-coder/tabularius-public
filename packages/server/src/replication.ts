@@ -50,6 +50,8 @@ export interface StandbyClient {
   /** The last change it asked to follow from, and when. */
   seq: number;
   behind: number;
+  /** Seconds since the oldest unacknowledged change was taken; zero when caught up. */
+  lagSeconds: number;
   at: number;
 }
 
@@ -71,7 +73,7 @@ export class Replication {
   private readonly token: string;
   private readonly files = new Map<Store, Followed>();
   /** Standbys seen lately, by address and file. */
-  private readonly clients = new Map<string, { client: StandbyClient; seen: number }>();
+  private readonly clients = new Map<string, { client: Omit<StandbyClient, 'lagSeconds'>; seen: number }>();
   private readonly follower: LogFollower;
   private readonly shipper: LogShipper;
 
@@ -114,10 +116,14 @@ export class Replication {
   /** Standbys that asked for changes in the last minute. */
   standbys(): StandbyClient[] {
     const recent = monotonicClock.now() - 60_000;
+    const now = Date.now();
     for (const [k, c] of this.clients) if (c.seen < recent) this.clients.delete(k);
     return [...this.clients.values()].map(({ client }) => {
       const followed = this.followed(client.file);
-      return { ...client, behind: followed ? Math.max(0, followed.f.seq - client.seq) : client.behind };
+      const behind = followed ? Math.max(0, followed.f.seq - client.seq) : client.behind;
+      // If the missing change aged out, use the oldest retained one: this standby is too far behind and will recopy.
+      const oldest = followed?.f.recent.find((r) => r.seq === client.seq + 1) ?? followed?.f.recent[0];
+      return { ...client, behind, lagSeconds: behind && oldest ? (now - oldest.at) / 1000 : 0 };
     });
   }
 

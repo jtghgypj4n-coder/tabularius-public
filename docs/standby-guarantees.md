@@ -19,8 +19,9 @@ This page says what holds, what a takeover gives you, what is not copied, and wh
 - The standby copies the file again when the run is not the one it follows (the primary restarted), when it is further behind
   than the primary keeps (410), when a change it needs is missing, or when its file is not as it left it (see below).
 - The primary lists each standby it has heard from in the last minute (admin console, and the
-  `tabularius_standby_behind` and `tabularius_standby_last_seen_timestamp_seconds` metrics, where behind counts changes, not
-  seconds).
+  `tabularius_standby_behind`, `tabularius_standby_lag_seconds` and `tabularius_standby_last_seen_timestamp_seconds` metrics).
+  Behind counts changes; lag seconds measures the age of the oldest unacknowledged change, or 0 when caught up. Replication
+  is asynchronous: a takeover can lose up to that many seconds of acknowledged writes.
 
 ## What always holds
 
@@ -122,6 +123,6 @@ These are listed rather than guessed. Each is behaviour the code has today, with
 | `--workers` with a standby | `serve --workers N --replication-token T` is refused at start; run one process |
 | Encryption at rest with a standby | Not offered ([ADMIN.md](../ADMIN.md)); `serve` does not refuse the combination and no test runs it |
 | Standby disk full, or a copy cut off | The error is logged and retried with a growing delay; the half copy is a `.standby-partial` file that the next `serve` on the folder sweeps |
-| How long a takeover takes, how many seconds behind a standby may be | Not measured: lag is reported in changes, and a copy of a large file takes as long as the copy |
+| How long a takeover takes, how many seconds behind a standby may be | No fixed bound: lag is reported in changes and in seconds by `tabularius_standby_lag_seconds`; asynchronous replication means a takeover can lose up to that many seconds of acknowledged writes. A copy of a large file takes as long as the copy |
 | A standby's own edits to its file (a command line change such as `passwd` while the standby is stopped) | The standby copies the file again over them and logs one line; this is the audit's first finding |
 | What FileMaker Server does in any of these cases | Unverified: no FileMaker behaviour was consulted <!-- known-difference: Standby servers ;; Which of the standby behaviours listed on this page match FileMaker Server's own failover or cluster features is unverified; the feature is Tabularius's own ;; Someone expecting FileMaker's behaviour in a failover may see a different one ;; A FileMaker Server run or a Claris page on its failover --> |

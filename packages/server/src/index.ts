@@ -377,6 +377,11 @@ export async function serve(opts: ServeOptions): Promise<{ server: Server; host:
     if (was) {
       const unfinished = unfinishedStandbyFiles(was);
       log(`taking over from ${was.primary}: this folder was its standby${unfinished.length ? `; ${unfinished.join(', ')} had not caught up to a whole state and may need restoring from a backup` : ''}`);
+      for (const [file, state] of Object.entries(was.files)) {
+        log(state.taken !== undefined
+          ? `${file}: last change applied was taken at ${new Date(state.taken).toISOString()} (run ${state.run}, change ${state.seq})`
+          : `${file}: copied whole at ${new Date(state.at).toISOString()} (no later change applied)`);
+      }
       rmSync(join(opts.dir, STANDBY_STATE), { force: true });
       // The copy is as the primary was some moments before it failed, or longer if the link was down: a token revoked there since
       // is alive here, and nothing says which. They are ended unless the operator knows the standby had caught up.

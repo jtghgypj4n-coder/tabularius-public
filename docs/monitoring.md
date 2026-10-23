@@ -143,6 +143,7 @@ standby acknowledged, so downloading a response alone does not reduce it.
 | `tabularius_schedule_failures_total` | counter | `schedule`, `id` | Runs ending with an error since server startup. |
 | `tabularius_certificate_expiry_timestamp_seconds` | gauge | None | HTTPS certificate expiry time. The family has no sample when expiry is unavailable. |
 | `tabularius_standby_behind` | gauge | `standby`, `file` | Current primary sequence minus the last sequence the standby acknowledged. |
+| `tabularius_standby_lag_seconds` | gauge | `standby`, `file` | Seconds since the oldest change the standby has yet to copy was taken; 0 when caught up. |
 | `tabularius_standby_last_seen_timestamp_seconds` | gauge | `standby`, `file` | Time the standby last requested changes. |
 
 ### Process resources
