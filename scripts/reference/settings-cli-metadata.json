@@ -785,6 +785,13 @@
       "accepted": "auto or a positive whole number",
       "restart": "Yes for a running server.",
       "explainedBy": "docs/environment-variables.md"
+    },
+    "TABULARIUS_PGWIRE_MAX_PARAM_BYTES": {
+      "description": "Total bound parameter bytes that one SQL connection's portals may hold.",
+      "default": "67108864 (64 MiB)",
+      "accepted": "Positive whole number of bytes; 0 or an invalid value keeps the default",
+      "restart": "No; read at each Bind.",
+      "explainedBy": "docs/pgwire-results.md"
     }
   },
   "serveFlags": {

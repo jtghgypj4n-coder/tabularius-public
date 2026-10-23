@@ -59,6 +59,8 @@ export const PGWIRE_LIMIT = { signedPerAccount: 32, signedGlobal: 256 };
 const MAX_PREPARED = 1000;
 /** Total materialised portal rows one connection may retain, even if a query's own cap is raised or disabled. */
 const MAX_BUFFERED_ROWS_PER_CONNECTION = 100_000;
+/** Total bound parameter bytes one connection may retain across its portals. */
+const MAX_PARAM_BYTES_PER_CONNECTION = 64 * 1024 * 1024;
 /** The longest account name a startup message may carry. */
 const MAX_USER = 255;
 const SSL_REQUEST = 80877103;
@@ -228,6 +230,8 @@ interface Prepared {
 interface Portal {
   sql: string;
   params: SqlValue[];
+  /** UTF-8 text bytes and binary input bytes from Bind; nulls count as zero. */
+  paramBytes: number;
   /** Result format codes from Bind. */
   formats: number[];
   result?: { cols: Column[]; rows: SqlValue[][] };
@@ -1018,6 +1022,18 @@ class Connection {
         // As PostgreSQL: no format code means text, one applies to every parameter, otherwise one per parameter.
         if (formats.length > 1 && formats.length !== n) throw new PgError('08P01', `bind message has ${formats.length} parameter formats but ${n} parameters`);
         if (n !== st.types.length) throw new PgError('08P01', `bind message supplies ${n} parameters, but prepared statement "${name}" requires ${st.types.length}`);
+        const given = Number(process.env.TABULARIUS_PGWIRE_MAX_PARAM_BYTES);
+        const cap = Number.isInteger(given) && given > 0 ? given : MAX_PARAM_BYTES_PER_CONNECTION;
+        let alreadyBound = 0;
+        for (const [name, held] of this.portals) {
+          if (name !== portal) alreadyBound += held.paramBytes;
+        }
+        let paramBytes = 0;
+        const checkParamBytes = () => {
+          if (alreadyBound + paramBytes > cap) {
+            throw new PgError('54000', `bound SQL parameters on this connection are limited to ${cap} bytes; close portals or send smaller parameters`);
+          }
+        };
         const params: SqlValue[] = [];
         // One allowance for the text all of this Bind's binary arrays expand to, in proportion to the bytes sent.
         const budget = expansionBudget(body.length);
@@ -1029,6 +1045,8 @@ class Connection {
           }
           // Any other negative length, or one past the end of the message, is malformed: never read as NULL or as a shorter value.
           if (len < 0 || pos + len > body.length) throw new PgError('08P01', 'insufficient data left in message');
+          paramBytes += len;
+          checkParamBytes(); // Refuse the length before decoding or copying the parameter.
           const oid = st.types[i] ?? 0;
           const raw = body.subarray(pos, pos + len);
           pos += len;
@@ -1054,7 +1072,8 @@ class Connection {
           if (cols && cols.length !== results.length) throw new PgError('08P01', `bind message has ${results.length} result formats but query has ${cols.length} columns`);
         }
         if (!this.portals.has(portal) && this.portals.size >= MAX_PREPARED) throw new PgError('54000', 'too many portals on this connection; close some');
-        this.portals.set(portal, { sql: st.sql, params, formats: results, sent: 0 });
+        checkParamBytes();
+        this.portals.set(portal, { sql: st.sql, params, paramBytes, formats: results, sent: 0 });
         this.send(message('2'));
         return;
       }

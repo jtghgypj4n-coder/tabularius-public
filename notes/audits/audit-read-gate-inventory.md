@@ -387,12 +387,12 @@ The following reasons apply to the exact enumerated expressions in each named fu
 | [packages/server/src/optimization.ts:316](../../packages/server/src/optimization.ts#L316) `sizes` | `SQLite.all` (316); `SQLite.prepare` (316); `Store.sql` (316) | DESIGN |
 | [packages/server/src/optimization.ts:449](../../packages/server/src/optimization.ts#L449) `speedFindings` | `Store.recordCount` (449, 492, 510) | DESIGN |
 | [packages/server/src/optimization.ts:564](../../packages/server/src/optimization.ts#L564) `heldBytes` | `SQLite.get` (564); `SQLite.prepare` (564); `Store.sql` (564) | DESIGN |
-| [packages/server/src/pgwire.ts:786](../../packages/server/src/pgwire.ts#L786) `Connection/translate` | `Calculations.translateSQL` (786) | SQL |
-| [packages/server/src/pgwire.ts:820](../../packages/server/src/pgwire.ts#L820) `Connection/catalog` | `Store.describe` (820) | SQL |
-| [packages/server/src/pgwire.ts:831](../../packages/server/src/pgwire.ts#L831) `Connection/run` | `Store.selectIn` (831) | SQL |
-| [packages/server/src/pgwire.ts:958](../../packages/server/src/pgwire.ts#L958) `Connection/validateSyntax` | `SQLite.prepare` (958); `Store.sql` (958) | SQL |
-| [packages/server/src/pgwire.ts:1177](../../packages/server/src/pgwire.ts#L1177) `Connection/describe` | `Store.describe` (1177) | SQL |
-| [packages/server/src/pgwire.ts:807](../../packages/server/src/pgwire.ts#L807) `Connection/bareNames` | `Store.describe` (807) | SQL |
+| [packages/server/src/pgwire.ts:790](../../packages/server/src/pgwire.ts#L790) `Connection/translate` | `Calculations.translateSQL` (790) | SQL |
+| [packages/server/src/pgwire.ts:824](../../packages/server/src/pgwire.ts#L824) `Connection/catalog` | `Store.describe` (824) | SQL |
+| [packages/server/src/pgwire.ts:835](../../packages/server/src/pgwire.ts#L835) `Connection/run` | `Store.selectIn` (835) | SQL |
+| [packages/server/src/pgwire.ts:962](../../packages/server/src/pgwire.ts#L962) `Connection/validateSyntax` | `SQLite.prepare` (962); `Store.sql` (962) | SQL |
+| [packages/server/src/pgwire.ts:1196](../../packages/server/src/pgwire.ts#L1196) `Connection/describe` | `Store.describe` (1196) | SQL |
+| [packages/server/src/pgwire.ts:811](../../packages/server/src/pgwire.ts#L811) `Connection/bareNames` | `Store.describe` (811) | SQL |
 | [packages/server/src/pgwrite.ts:404](../../packages/server/src/pgwrite.ts#L404) `returningColumns` | `Store.describe` (404) | SQL |
 | [packages/server/src/pgwrite.ts:431](../../packages/server/src/pgwrite.ts#L431) `executeWrite/reader` | `Store.selectIn` (431) | SQL |
 | [packages/server/src/pii.ts:122](../../packages/server/src/pii.ts#L122) `holdsOnlyUuids` | `Store.query` (122) | REDACTION |
