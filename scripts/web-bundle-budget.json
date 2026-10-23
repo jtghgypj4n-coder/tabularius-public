@@ -212,6 +212,10 @@
     "packages/web/app.css": {
       "raw": 107526,
       "gzip": 22420
+    },
+    "packages/web/src/page-templates.ts": {
+      "raw": 36381,
+      "gzip": 12345
     }
   },
   "largest": [
@@ -219,9 +223,9 @@
     "packages/web/src/layout.ts",
     "packages/web/src/assistant.ts",
     "packages/web/src/api.ts",
+    "packages/web/src/page-templates.ts",
     "packages/web/src/menubar.ts",
     "packages/web/src/offline.ts",
-    "packages/web/src/import-dialog.ts",
-    "packages/web/src/preview.ts"
+    "packages/web/src/import-dialog.ts"
   ]
 }
