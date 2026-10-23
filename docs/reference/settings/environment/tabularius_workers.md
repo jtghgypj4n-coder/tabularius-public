@@ -8,6 +8,6 @@ The number of worker processes, or `auto` for one per CPU core.
 | Accepted values | auto or a positive whole number |
 | Restart needed | Yes for a running server. |
 | Explained in | [docs/environment-variables.md](../../../environment-variables.md) |
-| Code | [packages/cli/src/main.ts:1429](../../../../packages/cli/src/main.ts#L1429) |
+| Code | [packages/cli/src/main.ts:1447](../../../../packages/cli/src/main.ts#L1447) |
 
 [All environment variables](../../../environment-variables.md)

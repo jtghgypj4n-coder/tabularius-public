@@ -8,6 +8,6 @@ Hosted folder used when tabularius starts with no command.
 | Accepted values | Folder path |
 | Restart needed | No server restart; a new command reads it on invocation. |
 | Explained in | [docs/moving-a-solution.md](../../../moving-a-solution.md) |
-| Code | [packages/cli/src/main.ts:1060](../../../../packages/cli/src/main.ts#L1060) |
+| Code | [packages/cli/src/main.ts:1069](../../../../packages/cli/src/main.ts#L1069) |
 
 [All environment variables](../../../environment-variables.md)

@@ -16,6 +16,7 @@ import { readSecret } from './prompt.ts';
 import { askServer } from './ask-server.ts';
 import { defaultBundleName, diagnostics, writeBundle } from './diagnostics.ts';
 import { doctorText, runDoctor } from './doctor.ts';
+import { runExposure } from './exposure.ts';
 import { startDemo } from './demo.ts';
 import { checkPort, defaults, installed, installService, serviceFile, uninstallService, servicePlainRefusal, defaultServiceHost, upgrade, validateServicePublicUrl, type Platform, type ServiceOptions } from './service.ts';
 import { claimFolder } from '../../server/src/backup.ts';
@@ -254,6 +255,14 @@ Hosting (point it at a folder of .fmp12 files; each is converted once):
                                              be reached (Node version, folder, disk, port, certificate,
                                              backups, service, address), with one fix for each. Changes
                                              nothing; exits 1 if there is a problem
+  tabularius doctor --exposure [--url https://...] [--port 8080] [--sql-port N]
+                                             What a running server is open to, with what to change:
+                                             the addresses it listens on, plain HTTP, HSTS and browser
+                                             headers, the public URL, the admin console, the AI (MCP)
+                                             connector, the SQL port and trusted proxies. Asks the
+                                             server without a password and signs nothing in; reads the
+                                             installed service's options. Changes nothing; exits 1 if
+                                             there is a problem
   tabularius diagnostics [<folder>] [--out <file.zip|folder>] [--include-names] [--full]
                                              Collect what a bug report needs and nothing it must not
                                              carry: versions, system, settings that are switches or
@@ -1197,6 +1206,15 @@ function main(argv: string[]): number {
     // flag() takes its pair out of args, so each is read once, before the folder is picked from what is left.
     const port = flag(args, '--port');
     const url = flag(args, '--url');
+    if (args.includes('--exposure')) {
+      // What a running server is open to; asks it like a stranger would (no password), and reads the installed service's options.
+      const sqlPort = flag(args, '--sql-port');
+      runExposure({ ...(url ? { url } : {}), ...(port ? { port: Number(port) } : {}), ...(sqlPort ? { sqlPort: Number(sqlPort) } : {}), service: installed() }).then((checks) => {
+        process.stdout.write(doctorText(checks));
+        if (checks.some((c) => c.level === 'problem')) process.exitCode = 1;
+      }, (e) => { process.stderr.write(`error: ${plainError(e)}\n`); process.exitCode = 1; });
+      return 0;
+    }
     const embedUrl = flag(args, '--ai-embed-url');
     const embedModel = flag(args, '--ai-embed-model');
     const full = args.includes('--full');

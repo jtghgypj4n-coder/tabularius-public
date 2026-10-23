@@ -22,7 +22,7 @@ Each command page includes the current help text, options, exit codes, and a tes
 | [`design-diff`](design-diff.md) | 1 |
 | [`design-text`](design-text.md) | 0 |
 | [`diagnostics`](diagnostics.md) | 3 |
-| [`doctor`](doctor.md) | 5 |
+| [`doctor`](doctor.md) | 7 |
 | [`dump`](dump.md) | 2 |
 | [`encrypt`](encrypt.md) | 0 |
 | [`export`](export.md) | 0 |
