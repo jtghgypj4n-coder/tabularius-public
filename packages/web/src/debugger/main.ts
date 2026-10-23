@@ -495,7 +495,7 @@ async function start(): Promise<void> {
     slider.value = String(at);
     first.disabled = back.disabled = at === 0;
     forward.disabled = last.disabled = end;
-    replayLabel.textContent = `Run step ${at + 1} of ${rec.steps.length}, before it runs${rec.stopped ? ' (the run was stopped there: too many steps to record)' : ''}`;
+    replayLabel.textContent = `Run step ${at + 1} of ${rec.steps.length}, before it runs${rec.stopped ? ' (the run was stopped there: too many steps, or too much data in its variables, to record)' : ''}`;
     const parts: HTMLElement[] = [];
     const stack = h('ol', { class: 'g-stack' }, ...[...s.stack].reverse().map((f) => {
       const a = h('a', {}, `${f.script} (step ${f.index + 1})`);
