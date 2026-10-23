@@ -306,6 +306,7 @@
         "docs/reference/cli/doctor.md",
         "docs/reference/cli/dump.md",
         "docs/reference/cli/encrypt.md",
+        "docs/reference/cli/exit-bundle.md",
         "docs/reference/cli/export-sql.md",
         "docs/reference/cli/export.md",
         "docs/reference/cli/fidelity.md",
