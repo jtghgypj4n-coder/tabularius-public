@@ -15487,6 +15487,8 @@ Source: `packages/server/src/admin.ts`
 | --- | --- | --- |
 | GET | [`/tabularius/admin/v1/backups`](#admin-backups-get-tabularius-admin-v1-backups) | The backup settings and the sets there are: where they go, how many are kept, the schedule, the last backup, and each set with its size, last check and last test restore (the same as status.backups). |
 | POST | [`/tabularius/admin/v1/backup`](#admin-backups-post-tabularius-admin-v1-backup) | Backs up every hosted file now, keeping as many sets as the schedule (or --backup-keep) says; the new set is checked in the background. |
+| POST | [`/tabularius/admin/v1/exit-bundle`](#admin-backups-post-tabularius-admin-v1-exit-bundle) | Writes a portable copy of a whole hosted file to <hosted folder>/Exports/<name>: every table (data.sqlite and CSV), every container file, globals, serial counters, schema, design and account names, with a manifest of SHA-256 hashes. The copy is plaintext, even when files are encrypted at rest. |
+| POST | [`/tabularius/admin/v1/exit-bundle/discard`](#admin-backups-post-tabularius-admin-v1-exit-bundle-discard) | Removes an unfinished portable copy (Exports/<name>.partial), which holds a plaintext snapshot of the whole file. |
 | POST | [`/tabularius/admin/v1/backup-folder`](#admin-backups-post-tabularius-admin-v1-backup-folder) | Sets the folder backups go to (an empty string goes back to <folder>/Backups). It is saved in the folder's settings, so the next start keeps it. |
 | POST | [`/tabularius/admin/v1/backup/stop`](#admin-backups-post-tabularius-admin-v1-backup-stop) | Stops the backups that are running or waiting (Back up now and the scheduled ones). Each ends after the file it is copying; its half-made set is removed and no old set is pruned. |
 | POST | [`/tabularius/admin/v1/backups/{set}/verify`](#admin-backups-post-tabularius-admin-v1-backups-set-verify) | Checks a backup set again now: each copy against its checksum and opened. |
@@ -15560,6 +15562,97 @@ Response `200`:
 ```
 
 Also starts an off-site copy when one is set up. The check's outcome shows in status.backups.sets[].check. A body naming a "database" is 400: a backup covers every hosted file, and restores depend on that. 409 {"error": "The backup was stopped"} when POST /backup/stop ended it.
+
+<a id="admin-backups-post-tabularius-admin-v1-exit-bundle"></a>
+
+### `POST /tabularius/admin/v1/exit-bundle`
+
+Writes a portable copy of a whole hosted file to <hosted folder>/Exports/<name>: every table (data.sqlite and CSV), every container file, globals, serial counters, schema, design and account names, with a manifest of SHA-256 hashes. The copy is plaintext, even when files are encrypted at rest.
+
+**Permissions:** Admin console: a console sign-in (the tabularius_admin cookie from POST /tabularius/admin/v1/sign-in), or the admin password by HTTP Basic (any user name), or the folder's local channel token in x-tabularius-local (Tabularius commands on the server machine). With no admin password set, only requests from this machine (loopback) are let in. Not a GET, so it also needs the header x-tabularius-admin: 1 (403 "missing x-tabularius-admin header" without it). It also needs a second sign-in in the body: an active account with [Full Access] (and its password), checked like any sign-in (lockouts, blank passwords from the network, "must change password", local-only accounts).
+
+**Parameters:**
+
+| Name | In | Type | Required | Description |
+| --- | --- | --- | --- | --- |
+| `database` | body | string | yes | The hosted file (404 "is not hosted"). |
+| `name` | body | string | yes | The folder name under Exports: a letter or digit first, then letters, digits, dots, dashes and underscores, 80 at most, not ending in .partial (400 otherwise). |
+| `account` | body | string | yes | A Full Access account of that file. |
+| `password` | body | string | yes | Its password. Never written to any log. |
+
+**Example:**
+
+```http
+POST /tabularius/admin/v1/exit-bundle
+Cookie: tabularius_admin=6b1f0c2e6b1f0c2e6b1f0c2e6b1f0c2e6b1f0c2e6b1f0c2e6b1f0c2e6b1f0c2e
+x-tabularius-admin: 1
+Content-Type: application/json
+
+{
+  "database": "Invoices",
+  "name": "invoices-2026-10-22",
+  "account": "Admin",
+  "password": "(the account's password)"
+}
+```
+
+Response `200`:
+
+```json
+{
+  "ok": true,
+  "folder": "Exports/invoices-2026-10-22",
+  "tables": 12,
+  "rows": 250000,
+  "containers": 40
+}
+```
+
+403: the account is not an active Full Access account or the password is wrong (one answer for both), the address may not sign in to that account, the password must be changed first, or the account signs in with a second factor (an export cannot ask for one; use an account without one). Every refusal is a data-export-refused security event, a finished copy a data-exported event. 404: the file is not hosted. 400: missing account or password, or a bad name. 409: the folder already exists, an export to it is already running, Exports is not a plain folder, or a stopped copy cannot be resumed. A copy that was stopped part way stays in Exports/<name>.partial (plaintext too) and the same request continues it; discard it with POST /exit-bundle/discard.
+
+<a id="admin-backups-post-tabularius-admin-v1-exit-bundle-discard"></a>
+
+### `POST /tabularius/admin/v1/exit-bundle/discard`
+
+Removes an unfinished portable copy (Exports/<name>.partial), which holds a plaintext snapshot of the whole file.
+
+**Permissions:** Admin console: a console sign-in (the tabularius_admin cookie from POST /tabularius/admin/v1/sign-in), or the admin password by HTTP Basic (any user name), or the folder's local channel token in x-tabularius-local (Tabularius commands on the server machine). With no admin password set, only requests from this machine (loopback) are let in. Not a GET, so it also needs the header x-tabularius-admin: 1 (403 "missing x-tabularius-admin header" without it). The same second sign-in as POST /exit-bundle.
+
+**Parameters:**
+
+| Name | In | Type | Required | Description |
+| --- | --- | --- | --- | --- |
+| `database` | body | string | yes | The hosted file. |
+| `name` | body | string | yes | The folder name the copy was started with. |
+| `account` | body | string | yes | A Full Access account of that file. |
+| `password` | body | string | yes | Its password. |
+
+**Example:**
+
+```http
+POST /tabularius/admin/v1/exit-bundle/discard
+Cookie: tabularius_admin=6b1f0c2e6b1f0c2e6b1f0c2e6b1f0c2e6b1f0c2e6b1f0c2e6b1f0c2e6b1f0c2e
+x-tabularius-admin: 1
+Content-Type: application/json
+
+{
+  "database": "Invoices",
+  "name": "invoices-2026-10-22",
+  "account": "Admin",
+  "password": "(the account's password)"
+}
+```
+
+Response `200`:
+
+```json
+{
+  "ok": true,
+  "discarded": "Exports/invoices-2026-10-22.partial"
+}
+```
+
+404 when there is no unfinished copy. 409 when it is not a plain folder owned by the server's user, other users can open it, or an export to that name is running. Audited as data-exported with detail discarded.
 
 <a id="admin-backups-post-tabularius-admin-v1-backup-folder"></a>
 

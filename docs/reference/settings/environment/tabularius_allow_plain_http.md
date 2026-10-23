@@ -8,6 +8,6 @@ Lets the server listen beyond this computer over plain HTTP, which it otherwise 
 | Accepted values | 1, true, yes or on |
 | Restart needed | Yes for a running server. |
 | Explained in | [docs/security-defaults.md](../../../security-defaults.md) |
-| Code | [packages/cli/src/main.ts:1315](../../../../packages/cli/src/main.ts#L1315) |
+| Code | [packages/cli/src/main.ts:1324](../../../../packages/cli/src/main.ts#L1324) |
 
 [All environment variables](../../../environment-variables.md)

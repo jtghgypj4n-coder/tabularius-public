@@ -8,6 +8,6 @@ A file holding the SMTP account for `--send-mail` (`~/.openhbam/smtp` by default
 | Accepted values | file or directory path |
 | Restart needed | Yes for a running server. |
 | Explained in | [docs/environment-variables.md](../../../environment-variables.md) |
-| Code | [packages/cli/src/main.ts:677](../../../../packages/cli/src/main.ts#L677) |
+| Code | [packages/cli/src/main.ts:686](../../../../packages/cli/src/main.ts#L686) |
 
 [All environment variables](../../../environment-variables.md)
