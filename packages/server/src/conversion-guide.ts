@@ -66,12 +66,32 @@ function webViewers(store: Store): { layout: string; online: boolean }[] {
   const out: { layout: string; online: boolean }[] = [];
   const walk = (layout: string, objects: LayoutObject[]) => {
     for (const o of objects) {
-      if (o.kind === 'web-viewer') out.push({ layout, online: !/^\s*"data:/i.test(o.webUrl ?? '') });
+      if (o.kind === 'web-viewer') {
+        const url = o.webUrl ?? '';
+        const inlineLoadsInternet = /(?:src|href)\s*=\s*\\?["']?https?:\/\/|url\s*\(\s*\\?["']?https?:\/\//i.test(url);
+        out.push({ layout, online: !/^\s*"data:/i.test(url) || inlineLoadsInternet });
+      }
       if (o.children?.length) walk(layout, o.children);
     }
   };
   for (const l of store.designs().layouts) walk(l.name, l.objects);
   return out;
+}
+
+/** The conversion-guide entry for web viewers, split out so its classification can be tested with synthetic layouts. */
+export function webViewerGuide(store: Store): GuideItem | undefined {
+  const viewers = webViewers(store);
+  if (!viewers.length) return undefined;
+  const online = viewers.filter((v) => v.online);
+  const layouts = [...new Set(online.map((v) => v.layout))];
+  return {
+    title: 'Web viewers', severity: online.length ? 'high' : 'low', count: viewers.length, where: layouts.slice(0, WHERE).map((l) => `Layout "${l}"`),
+    what: online.length
+      ? `${plural(online.length, 'web viewer')} load an http(s) page or inline HTML that loads content from the internet, including CDN scripts. An https page loads only when its host is listed by an administrator for this file; otherwise its address shows as text. External resources in solution HTML are blocked.` +
+        (viewers.length > online.length ? ` ${plural(viewers.length - online.length, 'other')} show a page made in the file (a data: URL), which works.` : '')
+      : 'They show pages made in the file (data: URLs), which work, in a sandbox that can\'t reach the app.',
+    ...(online.length ? { instead: 'For a web page, ask an administrator to list its trusted host for this file (https only). For solution HTML, include its scripts, styles and images in the data: URL, or show the address as a link a button opens with Open URL.' } : {}),
+  };
 }
 
 const CONTAINERS = 'Container files stored outside the file';
@@ -242,19 +262,8 @@ export function conversionGuide(store: Store, hosted: string[] = [], report: Con
       instead: 'Turn on Script network for this file in the admin console when this copy is the live one (or start the server with --allow-script-network to allow every file). The Data API and webhooks let other systems reach Tabularius instead.',
     });
   }
-  const viewers = webViewers(store);
-  const online = viewers.filter((v) => v.online);
-  if (viewers.length) {
-    const layouts = [...new Set(online.map((v) => v.layout))];
-    differs.push({
-      title: 'Web viewers', severity: online.length ? 'medium' : 'low', count: viewers.length, where: layouts.slice(0, WHERE).map((l) => `Layout "${l}"`),
-      what: online.length
-        ? `${plural(online.length, 'web viewer')} load${online.length === 1 ? 's' : ''} a page from the internet, which loads only from a host an administrator lists for this file (Hosted files, Web viewers may load); until then the web client shows the address as text.` +
-          (viewers.length > online.length ? ` ${plural(viewers.length - online.length, 'other')} show a page made in the file (a data: URL), which works.` : '')
-        : 'They show pages made in the file (data: URLs), which work, in a sandbox that can\'t reach the app.',
-      ...(online.length ? { instead: 'List the host in the admin console (Hosted files, "Web viewers may load"; https only), build the page in the file as a data: URL ("data:text/html," & a field or variable holding the HTML), or show the address as a link a button opens with Open URL.' } : {}),
-    });
-  }
+  const viewers = webViewerGuide(store);
+  if (viewers) differs.push(viewers);
   if (r.steps.dialogs.length) {
     differs.push({
       title: 'Dialogs in scripts that run without a person', severity: 'medium', count: uses(r.steps.dialogs), where: places(r.steps.dialogs),
