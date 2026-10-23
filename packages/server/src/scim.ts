@@ -34,7 +34,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { StoreError, isFullAccess, type Store } from '../../store/src/index.ts';
 import { expiryClock } from '../../store/src/clock.ts';
-import { DEFAULT_TOKEN_DAYS, tokenExpiry } from './token-expiry.ts';
+import { DEFAULT_TOKEN_DAYS, MAX_TOKEN_DAYS, tokenExpiry } from './token-expiry.ts';
 import { ApiError, readJson, type DataApi } from './dataapi.ts';
 import type { Host } from './host.ts';
 
@@ -154,8 +154,12 @@ export class ScimDirectory {
    * `days` (1 to 3650), 90 when none is asked for. Refused, with the current token left as it was, when the days are not valid.
    */
   issueToken(opts: { defaultPrivilegeSet?: string | null; days?: unknown } = {}): string {
-    const expires = tokenExpiry(opts.days ?? DEFAULT_TOKEN_DAYS);
-    if (!expires) throw new StoreError(960, 'A provisioning token always expires. Days should be from 1 to 3650');
+    const asked = opts.days ?? DEFAULT_TOKEN_DAYS;
+    const days = typeof asked === 'number' ? asked : typeof asked === 'string' && asked.trim() ? Number(asked) : NaN;
+    // Checked here, with a message that does not offer 0 for "never": a provisioning token has no such choice.
+    if (!(days > 0 && days <= MAX_TOKEN_DAYS)) throw new StoreError(960, `Days should be above 0 and at most ${MAX_TOKEN_DAYS}: a provisioning token always expires`);
+    const expires = tokenExpiry(days);
+    if (!expires) throw new StoreError(960, `Days should be above 0 and at most ${MAX_TOKEN_DAYS}: a provisioning token always expires`);
     const s = this.settings();
     if (opts.defaultPrivilegeSet !== undefined) s.defaultPrivilegeSet = opts.defaultPrivilegeSet === null ? undefined : this.checkSet(opts.defaultPrivilegeSet);
     const token = TOKEN_PREFIX + randomBytes(32).toString('base64url');

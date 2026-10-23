@@ -427,13 +427,13 @@ The following reasons apply to the exact enumerated expressions in each named fu
 | [packages/server/src/scim.ts:123](../../packages/server/src/scim.ts#L123) `ScimDirectory/table` | `Store.sql` (123) | AUTH |
 | [packages/server/src/scim.ts:129](../../packages/server/src/scim.ts#L129) `ScimDirectory/settings` | `SQLite.get` (129); `SQLite.prepare` (129); `Store.sql` (129) | AUTH |
 | [packages/server/src/scim.ts:137](../../packages/server/src/scim.ts#L137) `ScimDirectory/save` | `SQLite.prepare` (137); `Store.sql` (137) | AUTH |
-| [packages/server/src/scim.ts:215](../../packages/server/src/scim.ts#L215) `ScimDirectory/rows` | `SQLite.all` (215); `SQLite.prepare` (215, 218); `Store.sql` (215, 218) | AUTH |
-| [packages/server/src/scim.ts:242](../../packages/server/src/scim.ts#L242) `ScimDirectory/setMemberships` | `SQLite.prepare` (242); `Store.sql` (242) | AUTH |
-| [packages/server/src/scim.ts:279](../../packages/server/src/scim.ts#L279) `ScimDirectory/atomically` | `Store.sql` (279) | AUTH |
-| [packages/server/src/scim.ts:319](../../packages/server/src/scim.ts#L319) `ScimDirectory/revokePersonTokens` | `SQLite.all` (319); `SQLite.prepare` (319); `Store.sql` (319) | AUTH |
-| [packages/server/src/scim.ts:370](../../packages/server/src/scim.ts#L370) `ScimDirectory/create/scim_user_create` | `SQLite.prepare` (370); `Store.sql` (370) | AUTH |
-| [packages/server/src/scim.ts:391](../../packages/server/src/scim.ts#L391) `ScimDirectory/update/scim_user_update` | `SQLite.prepare` (391); `Store.sql` (391) | AUTH |
-| [packages/server/src/scim.ts:414](../../packages/server/src/scim.ts#L414) `ScimDirectory/remove/scim_user_remove` | `SQLite.prepare` (414); `Store.sql` (414) | AUTH |
+| [packages/server/src/scim.ts:219](../../packages/server/src/scim.ts#L219) `ScimDirectory/rows` | `SQLite.all` (219); `SQLite.prepare` (219, 222); `Store.sql` (219, 222) | AUTH |
+| [packages/server/src/scim.ts:246](../../packages/server/src/scim.ts#L246) `ScimDirectory/setMemberships` | `SQLite.prepare` (246); `Store.sql` (246) | AUTH |
+| [packages/server/src/scim.ts:283](../../packages/server/src/scim.ts#L283) `ScimDirectory/atomically` | `Store.sql` (283) | AUTH |
+| [packages/server/src/scim.ts:323](../../packages/server/src/scim.ts#L323) `ScimDirectory/revokePersonTokens` | `SQLite.all` (323); `SQLite.prepare` (323); `Store.sql` (323) | AUTH |
+| [packages/server/src/scim.ts:374](../../packages/server/src/scim.ts#L374) `ScimDirectory/create/scim_user_create` | `SQLite.prepare` (374); `Store.sql` (374) | AUTH |
+| [packages/server/src/scim.ts:395](../../packages/server/src/scim.ts#L395) `ScimDirectory/update/scim_user_update` | `SQLite.prepare` (395); `Store.sql` (395) | AUTH |
+| [packages/server/src/scim.ts:418](../../packages/server/src/scim.ts#L418) `ScimDirectory/remove/scim_user_remove` | `SQLite.prepare` (418); `Store.sql` (418) | AUTH |
 | [packages/server/src/script-failure.ts:212](../../packages/server/src/script-failure.ts#L212) `explainScriptFailure` | `Store.row` (212) | RECORD |
 | [packages/server/src/security.ts:80](../../packages/server/src/security.ts#L80) `importApproximations` | `SQLite.all` (80); `SQLite.prepare` (80); `Store.sql` (80) | DESIGN |
 | [packages/server/src/security.ts:116](../../packages/server/src/security.ts#L116) `securityOf` | `Store.pendingChanges` (116) | DESIGN |
