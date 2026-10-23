@@ -41,6 +41,15 @@ test('the offline switch covers URLs, cURL options and connection URLs before an
   assert.deepEqual(sent, ['https://allowed.example/']);
 });
 
+test('a missing connection names scratch runs, while ordinary runs keep the server message', async () => {
+  const scratch = await insert('connection://approved/path', { network: true, scratch: true });
+  assert.equal(scratch.result, '3|');
+  assert.match(JSON.stringify(scratch.trace), /connections are not available in scratch runs/);
+  const ordinary = await insert('connection://approved/path', { network: true });
+  assert.equal(ordinary.result, '3|');
+  assert.match(JSON.stringify(ordinary.trace), /this server has no connections/);
+});
+
 test('a file whose network access is off refuses web requests in the words it was given, wherever it is on the call stack', async () => {
   const sent: string[] = [];
   const network: typeof fetch = async (url) => { sent.push(String(url)); return new Response('sent'); };

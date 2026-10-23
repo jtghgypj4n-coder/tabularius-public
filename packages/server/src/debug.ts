@@ -97,8 +97,8 @@ function copySession(from: ScriptSession): ScriptSession {
 }
 
 /** Scratch execution receives only capabilities belonging to its temporary directory. */
-function scratchOptions(copy: { dir: string }): { network: false; networkOff: () => string; documents: string } {
-  return { network: false, networkOff: () => OFFLINE_RUN_NOTICE, documents: join(copy.dir, 'Documents') };
+function scratchOptions(copy: { dir: string }): { network: false; networkOff: () => string; documents: string; scratch: true } {
+  return { network: false, networkOff: () => OFFLINE_RUN_NOTICE, documents: join(copy.dir, 'Documents'), scratch: true };
 }
 
 /** Closes a scratch copy and deletes its folder. */

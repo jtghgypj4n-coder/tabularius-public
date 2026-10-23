@@ -477,6 +477,8 @@ export interface RunOptions {
    * through one, which adds its credentials. Only where Insert from URL may use the network at all.
    */
   connections?: ScriptConnections;
+  /** A scratch copy for debugging or script tests: server resources such as connections are not available. */
+  scratch?: boolean;
   /**
    * Send Mail via SMTP really sends, through the server operator's account, when they switched it on.
    * Absent, the step is error 3. Outbound test mode takes its place when set, and mail from a capture-only
@@ -8961,7 +8963,9 @@ export class ScriptEngine {
     const connections = this.opts.connections;
     const address = parseConnectionUrl(url);
     if (!address) throw new ScriptError(ERROR.urlFormat, 'A connection address looks like connection://name/folder/file (the name is the connection\'s, from the admin console)');
-    if (!connections) throw new ScriptError(ERROR.unavailable, `Insert from URL can't use the connection ${address.name}: this server has no connections`);
+    if (!connections) throw new ScriptError(ERROR.unavailable, this.opts.scratch
+      ? `Insert from URL can't use the connection ${address.name}: connections are not available in scratch runs`
+      : `Insert from URL can't use the connection ${address.name}: this server has no connections`);
     const curl = p.slots?.[129] !== undefined ? parseCurl(asText(this.eval(f, p.slots[129])), (v) => this.getVariable(f, v, 1)) : undefined;
     if (curl?.awsSigv4) throw new ScriptError(ERROR.unavailable, 'A connection adds its own credentials, so --aws-sigv4 is not used with one');
     const request = curlRequest(url, curl);
