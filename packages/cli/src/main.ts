@@ -50,6 +50,8 @@ import { scriptText } from '../../fmp12/src/index.ts';
 import { lintScript } from '../../store/src/index.ts';
 import { applyStarter, STARTER_NAMES } from '../../store/src/index.ts';
 import { NATIVE_REFUSAL } from '../../store/src/index.ts';
+import { checkNativeCompat, planNativeUpgrade, upgradeNativeFile } from '../../store/src/native-compat.ts';
+import { safeExistingPath } from '../../store/src/safe-path.ts';
 import { resolveAiKey } from './ai-key.ts';
 import { readSecretFile } from './secret-file.ts';
 import { corpusScan, scanFile } from './corpus-scan.ts';
@@ -526,6 +528,12 @@ Hosting (point it at a folder of .fmp12 files; each is converted once):
                                              not console authentication.
   tabularius new <folder> <database> [--native] [--starter crm|inventory|invoicing|tasks|booking [--no-sample]]
                                      Start a database (no FileMaker file needed), empty or with a ready-to-use app
+  tabularius compat-check <folder> <database>
+                                             Read-only list of native features a compat export would lose;
+                                             one finding per line, exit 1 if any are found
+  tabularius upgrade-file <folder> <database> --to native [--apply]
+                                             Preview a one-way compat-to-native upgrade; --apply backs
+                                             up the hosted folder first, then converts stored dates to ISO
   tabularius design <folder> <database> <changes.json>
                                              Apply design changes (tables, fields, layouts,
                                              scripts; see docs/design-mode.md)
@@ -2899,6 +2907,49 @@ function main(argv: string[]): number {
         store.close();
       }
       console.log(`created ${database}; set a password with: tabularius passwd ${path} ${database} Admin`);
+      return 0;
+    }
+    case 'compat-check': {
+      const [database, ...extra] = args;
+      if (!database || extra.length) throw new Error('compat-check: give exactly <folder> <database>');
+      const problem = databaseNameProblem(database);
+      if (problem) throw new Error(`compat-check: "${database}" is not a usable database name. ${problem}`);
+      const file = join(path, database + STORE_EXT);
+      if (!existsSync(file)) throw new Error(`compat-check: no database named "${database}" in ${path}`);
+      const safe = safeExistingPath(path, database + STORE_EXT);
+      if (!safe) throw new Error(`compat-check: ${database} is a linked file or outside the hosted folder`);
+      const findings = checkNativeCompat(safe);
+      for (const finding of findings) {
+        console.log(`${finding.table ?? '(file)'}::${finding.field ?? '(file)'}: ${finding.description}`);
+      }
+      if (!findings.length) console.log(`${database}: no native-only features found`);
+      return findings.length ? 1 : 0;
+    }
+    case 'upgrade-file': {
+      const to = flag(args, '--to');
+      const apply = bool(args, '--apply');
+      const [database, ...extra] = args;
+      if (!database || extra.length || to !== 'native') throw new Error('upgrade-file: give <folder> <database> --to native [--apply]');
+      const problem = databaseNameProblem(database);
+      if (problem) throw new Error(`upgrade-file: "${database}" is not a usable database name. ${problem}`);
+      const file = join(path, database + STORE_EXT);
+      if (!existsSync(file)) throw new Error(`upgrade-file: no database named "${database}" in ${path}`);
+      const safe = safeExistingPath(path, database + STORE_EXT);
+      if (!safe) throw new Error(`upgrade-file: ${database} is a linked file or outside the hosted folder`);
+      const plan = planNativeUpgrade(safe);
+      if (plan.alreadyNative) { console.log(`${database}: already native; there is no conversion back to compat`); return 0; }
+      if (plan.blockers.length) throw new Error(`upgrade-file: cannot upgrade:\n${plan.blockers.join('\n')}`);
+      if (!apply) {
+        console.log(`${database}: would upgrade to native and check ${plan.dateValues} stored date/timestamp values for ISO conversion; nothing changed. Run again with --apply`);
+        return 0;
+      }
+      later((async () => {
+        const release = claimFolder(path, 'restore');
+        try {
+          const result = await upgradeNativeFile(safe, async () => (await backupFolder(path, defaultBackupDir(path), 0)).dir);
+          console.log(`${database}: upgraded to native; ${result.dateValues} stored date/timestamp values checked; backup: ${result.backup}`);
+        } finally { release(); }
+      })());
       return 0;
     }
     case 'design-text': {
