@@ -219,6 +219,9 @@ export interface ReadResult {
 
 export const READ_LIMITS = { events: 5000, occurrencesPerEvent: 366, bytes: 8 * 1024 * 1024 } as const;
 
+/** A calendar file that cannot be read as a whole (too many events, too much repeat work, cut off). The message is for the person importing it. */
+export class CalendarReadError extends Error {}
+
 /** Content lines with folds undone: a line starting with a space or a tab continues the one before it. */
 export function unfold(text: string): string[] {
   const out: string[] = [];
@@ -399,6 +402,8 @@ function occurrences(first: string, rule: Rule, max: number, excluded: Set<strin
  * The events in an .ics file. A repeating event becomes one event per occurrence (up to READ_LIMITS.occurrencesPerEvent),
  * for the rules this reads: DAILY, WEEKLY (optionally on named days), MONTHLY on the start's day of the month and YEARLY,
  * with INTERVAL, COUNT, UNTIL and EXDATE. Any other rule imports the first occurrence only, and says so in `notes`.
+ * All or nothing: a calendar with more than READ_LIMITS.events events (counting each occurrence), one that asks for
+ * too much repeat work, or one that ends inside an event is refused with a CalendarReadError, never read in part.
  */
 export function readCalendar(text: string): ReadResult {
   const notes: string[] = [];
@@ -408,11 +413,13 @@ export function readCalendar(text: string): ReadResult {
   const lines = unfold(text);
   let depth = 0;
   let props: Prop[] | undefined;
-  let capped = false;
+  // Every event the file holds, counting occurrences, for the message. Once it is over the limit nothing more is worked
+  // out: each further event counts as one, and the message says "at least".
+  let total = 0;
+  let loose = false;
   // Work the repeat rules may do in all, whatever the file holds.
   const budget = { left: 400_000 };
   for (const line of lines) {
-    if (capped) break;
     if (!line) continue;
     const upper = line.toUpperCase();
     if (upper === 'BEGIN:VEVENT' && depth === 0) {
@@ -431,10 +438,10 @@ export function readCalendar(text: string): ReadResult {
       const done = props;
       props = undefined;
       depth = 0;
-      // Past the cap nothing more is kept, so nothing more is worked out.
-      if (events.length >= READ_LIMITS.events) {
-        capped = true;
-        break;
+      if (total > READ_LIMITS.events) {
+        total++;
+        loose = true;
+        continue;
       }
       const one = (n: string) => done.find((p) => p.name === n);
       const start = one('DTSTART') && readTime(one('DTSTART')!);
@@ -500,22 +507,22 @@ export function readCalendar(text: string): ReadResult {
           if (!list.length) note('a repeating event with every occurrence excluded was skipped');
         }
       }
-      for (const e of list) {
-        if (events.length >= READ_LIMITS.events) {
-          capped = true;
-          break;
-        }
-        events.push(e);
-      }
+      total += list.length;
+      for (const e of list) if (events.length < READ_LIMITS.events) events.push(e);
       continue;
     }
-    if (depth === 1) {
+    if (depth === 1 && total <= READ_LIMITS.events) {
       const p = parseLine(line);
       if (p) props.push(p);
     }
   }
+  if (props) throw new CalendarReadError('The file ends inside an event (a BEGIN:VEVENT with no END:VEVENT), so it looks cut short. Nothing was imported');
+  if (total > READ_LIMITS.events) {
+    throw new CalendarReadError(`The calendar has ${loose ? 'at least ' : ''}${total} events; at most ${READ_LIMITS.events} can be imported at once. Nothing was imported. Split the file into smaller calendars`);
+  }
+  if (budget.left < 0) {
+    throw new CalendarReadError('The calendar asks for too much repeat work (repeating events that go on for years, or that exclude most of their days). Nothing was imported. Remove those events or split the file');
+  }
   for (const [reason, n] of unread) notes.push(`${reason} (${n})`);
-  if (capped) notes.push(`only the first ${READ_LIMITS.events} events were read`);
-  if (budget.left < 0) notes.push('some repeating events were cut short: the file asked for too much work');
   return { events, notes };
 }

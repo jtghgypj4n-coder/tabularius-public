@@ -472,6 +472,14 @@ export const ROWS: Row[] = [
     observe: async (c) => (grep(c.source('packages/calc/src/zip.ts'), /(ARCHIVE_MAX_ENTRIES = 4096;)/) && grep(c.source('packages/calc/src/zip.ts'), /(ARCHIVE_MAX_RATIO = 1000;)/) && grep(c.source('packages/scripts/src/xlsx.ts'), /(MAX_XML_DEPTH = 64;)/) ? '4096 entries, 1000:1, depth 64' : 'changed'),
   },
   {
+    id: 'calendar-import-limits', section: 'Limits', setting: 'Calendar (.ics) import size',
+    default: 'At most 8 MiB and 5000 events (each occurrence of a repeating event counts); a file over a limit, or cut off inside an event, is refused whole and nothing is imported',
+    changedBy: 'Not switchable',
+    risk: 'A partial import that looks complete is worse than a refusal',
+    how: 'read from code', expect: '5000 events, refused whole',
+    observe: async (c) => (grep(c.source('packages/store/src/calendar.ts'), /(READ_LIMITS = \{ events: 5000,)/) && /class CalendarReadError/.test(c.source('packages/store/src/calendar.ts')) ? '5000 events, refused whole' : 'changed'),
+  },
+  {
     id: 'request-time', section: 'Limits', setting: 'Time one request may hold the server',
     default: 'A minute; then it is stopped (error 812)',
     changedBy: '`TABULARIUS_REQUEST_BUDGET_MS` (0 for none)',
