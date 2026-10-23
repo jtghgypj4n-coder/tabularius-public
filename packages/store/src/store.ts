@@ -706,6 +706,11 @@ export function generateTempPassword(minLength = 0): string {
  */
 export const PASSWORD_POLICY = { blankFromNetwork: false };
 
+/** The most API tokens an account may hold that still work (expired ones do not count), and the most proposals one approval-gated agent may have waiting. */
+export const MAX_API_TOKENS_PER_ACCOUNT = 1000;
+export const MAX_PENDING_PER_AGENT = 500;
+
+
 const LOCAL = new Set(['', 'mcp', '127.0.0.1', '::1', '::ffff:127.0.0.1']);
 
 const PASSKEY_REFUSED = 'That passkey was not accepted; try again';
@@ -3203,6 +3208,8 @@ export class Store {
       })) as FieldData;
     }
     const id = this.securityChange(() => {
+      const waiting = (this.sql.prepare('SELECT COUNT(*) AS n FROM _fm_pending WHERE agent = ? COLLATE NOCASE').get(account) as { n: number }).n;
+      if (waiting >= MAX_PENDING_PER_AGENT) throw new StoreError(812, `"${account}" already has ${MAX_PENDING_PER_AGENT.toLocaleString('en')} changes waiting for approval, the most one agent can have. Approve or reject some of them (Manage Security, Pending changes), then the agent can propose more`);
       const r = this.sql.prepare('INSERT INTO _fm_pending (at, agent, kind, layout, tbl, record_id, data, mod_id, summary) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
         .run(new Date().toISOString(), account, kind, info.name, info.table, recordId ?? null, data ? JSON.stringify(data) : null, modId ?? null, summary);
       this.logSecurity('agent-change-proposed', { account, target: info.name, detail: { id: Number(r.lastInsertRowid), kind, ...(recordId !== undefined ? { recordId } : {}) } });
@@ -4747,6 +4754,11 @@ export class Store {
         }
         if (surfaces && !surfaces.includes('fmrest') && !surfaces.includes('fmmcp')) throw new StoreError(960, 'A layout-scoped token must allow the Data API (fmrest) or AI apps (fmmcp)');
       }
+      // A token that expired over 30 days ago is of no use and goes; the rest count toward the cap, which refuses rather than drops, so nothing that works stops.
+      const now = expiryClock.now();
+      this.sql.prepare('DELETE FROM _fm_api_tokens WHERE account = ? COLLATE NOCASE AND expires IS NOT NULL AND expires < ?').run(account, new Date(now - 30 * 86_400_000).toISOString());
+      const working = (this.sql.prepare('SELECT COUNT(*) AS n FROM _fm_api_tokens WHERE account = ? COLLATE NOCASE AND (expires IS NULL OR expires > ?)').get(account, new Date(now).toISOString()) as { n: number }).n;
+      if (working >= MAX_API_TOKENS_PER_ACCOUNT) throw new StoreError(812, `"${account}" already has ${MAX_API_TOKENS_PER_ACCOUNT.toLocaleString('en')} API tokens that work, the most one account can have. Revoke tokens that are no longer used (Manage Security, API tokens), then try again`);
       const id = randomBytes(6).toString('hex');
       const secret = randomBytes(24).toString('base64url');
       const token = `ohbt_${id}.${secret}`;
