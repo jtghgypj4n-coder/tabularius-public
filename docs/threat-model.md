@@ -5,7 +5,7 @@ One page: what Tabularius is built to defend, against whom, and what it does not
 ## What is protected
 
 - **The records in the hosted files**, and who may read or change each field, layout, script and file, as the file's accounts and privilege sets say.
-- **The accounts**: passwords (stored as scrypt hashes), second factors, API tokens, passkeys and recovery codes, and the sessions that come from them.
+- **The accounts**: passwords and recovery codes (stored as salted scrypt hashes), second factors, API tokens, passkeys, and the sessions that come from them.
 - **The administrator's powers**: the admin console, the Admin API, and `/mcp` with administrator rights.
 - **The server's reach**: what a script, a webhook, an AI request or a plug-in may connect to or run.
 - **The files and backups as they sit on disk**, to the extent the operating system's permissions on the data folder (and encryption at rest, when turned on) protect them.
