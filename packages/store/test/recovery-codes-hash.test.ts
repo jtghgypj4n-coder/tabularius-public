@@ -1,13 +1,13 @@
 // Recovery codes are kept salted and slow-hashed, compared in constant time, and used once. A code stored by an
 // earlier version (an unsalted SHA-256) is still checked, once, by its old method.
-import { test, mock } from 'node:test';
+import { test, mock, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto, { createHash } from 'node:crypto';
 import { syncBuiltinESMExports } from 'node:module';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createStore, Store } from '../src/index.ts';
+import { createStore, LOCKOUT, Store } from '../src/index.ts';
 
 function fresh() {
   const dir = mkdtempSync(join(tmpdir(), 'tabularius-rcv-'));
@@ -128,5 +128,52 @@ test('the async check agrees with the sync one: one use, legacy codes accepted o
     f.store.sql.prepare('INSERT INTO _fm_recovery_codes (account, code_hash, created) VALUES (?, ?, ?)').run('Admin', sha('aaaa-bbbb-cccc'), '2025-01-01T00:00:00.000Z');
     assert.equal(await f.store.useRecoveryCodeAsync('Admin', 'aaaa-bbbb-cccc', '127.0.0.1'), true);
     assert.equal(await f.store.useRecoveryCodeAsync('Admin', 'aaaa-bbbb-cccc', '127.0.0.1'), false);
+  } finally { f.close(); }
+});
+
+/** Counts the scrypt jobs started (answering each at once), so a test sees how much hashing a burst was allowed to start. */
+function countScrypts(t: TestContext) {
+  const jobs = t.mock.method(crypto, 'scrypt', ((_p: unknown, _s: unknown, length: number, callback: (error: Error | null, key: Buffer) => void) => {
+    queueMicrotask(() => callback(null, Buffer.alloc(length)));
+  }) as typeof crypto.scrypt);
+  syncBuiltinESMExports();
+  t.after(() => { jobs.mock.restore(); syncBuiltinESMExports(); });
+  return jobs;
+}
+
+test('a burst of wrong codes sent at once cannot get past the account lockout', async (t) => {
+  const f = fresh();
+  const jobs = countScrypts(t);
+  try {
+    f.store.generateRecoveryCodes('Admin', 10);
+    const from = '203.0.113.5';
+    const burst = await Promise.all(Array.from({ length: LOCKOUT.attempts + 10 }, () => f.store.useRecoveryCodeAsync('Admin', 'zzzz-zzzz-zzzz', from)));
+    assert.ok(burst.every((ok) => !ok));
+    assert.ok(jobs.mock.callCount() <= LOCKOUT.attempts * 10, `${jobs.mock.callCount()} hash jobs for ${LOCKOUT.attempts} allowed attempts`);
+    const after = jobs.mock.callCount();
+    assert.equal(await f.store.useRecoveryCodeAsync('Admin', 'zzzz-zzzz-zzzz', from), false);
+    assert.equal(jobs.mock.callCount(), after, 'a locked-out place is refused without hashing');
+  } finally { f.close(); }
+});
+
+test('a burst of wrong codes for many names sent at once cannot get past the address lockout', async (t) => {
+  const f = fresh();
+  const jobs = countScrypts(t);
+  try {
+    const from = '203.0.113.6';
+    await Promise.all(Array.from({ length: LOCKOUT.addressAttempts + 20 }, (_, i) => f.store.useRecoveryCodeAsync(`who${i}`, 'zzzz-zzzz-zzzz', from)));
+    assert.ok(jobs.mock.callCount() <= LOCKOUT.addressAttempts * 10, `${jobs.mock.callCount()} hash jobs for ${LOCKOUT.addressAttempts} allowed attempts`);
+  } finally { f.close(); }
+});
+
+test('a good code still signs in, and the reserved failure is cleared, when sent alone', async () => {
+  const f = fresh();
+  try {
+    const codes = f.store.generateRecoveryCodes('Admin', 2);
+    const from = '203.0.113.7';
+    for (let i = 0; i < LOCKOUT.attempts - 1; i++) assert.equal(await f.store.useRecoveryCodeAsync('Admin', 'zzzz-zzzz-zzzz', from), false);
+    assert.equal(await f.store.useRecoveryCodeAsync('Admin', codes[0], from), true);
+    for (let i = 0; i < LOCKOUT.attempts - 1; i++) assert.equal(await f.store.useRecoveryCodeAsync('Admin', 'zzzz-zzzz-zzzz', from), false);
+    assert.equal(await f.store.useRecoveryCodeAsync('Admin', codes[1], from), true, 'a success cleared the account counter');
   } finally { f.close(); }
 });
