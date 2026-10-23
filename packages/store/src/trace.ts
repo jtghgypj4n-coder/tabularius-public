@@ -91,7 +91,7 @@ export function formulaShape(formula: string, customFunctions: string[]): string
   return `related ${n(/::/g)} sql ${n(/executesql\s*\(/gi)} cf ${cf} agg ${n(/\b(?:sum|count|list|max|min|average|stdev|stdevp|variance)\s*\(/gi)} get ${n(/\bget\s*\(/gi)} len ${formula.length}`;
 }
 
-function traceStatement(st: StatementSync, sql: string): StatementSync {
+function traceStatement(st: StatementSync, sql: string, traced: boolean): StatementSync {
   return new Proxy(st, {
     get(target, prop) {
       const v = Reflect.get(target, prop, target);
@@ -104,7 +104,7 @@ function traceStatement(st: StatementSync, sql: string): StatementSync {
           const rows = prop === 'all' ? (out as unknown[]).length : prop === 'get' ? (out === undefined ? 0 : 1) : Number((out as { changes?: number | bigint })?.changes ?? 0);
           if (prop === 'run') rowsWritten += rows;
           const ms = performance.now() - t0;
-          if (tracing() && ms >= minMs()) log(String(prop), sql, rows, ms, callers());
+          if (traced && ms >= minMs()) log(String(prop), sql, rows, ms, callers());
           return out;
         };
       }
@@ -112,7 +112,7 @@ function traceStatement(st: StatementSync, sql: string): StatementSync {
         // Timed from the first row to the last, so it includes the reader's own work between rows.
         return function* (...args: unknown[]) {
           statements++;
-          const from = tracing() ? callers() : '';
+          const from = traced ? callers() : '';
           const t0 = performance.now();
           let rows = 0;
           try {
@@ -121,7 +121,7 @@ function traceStatement(st: StatementSync, sql: string): StatementSync {
               yield row;
             }
           } finally {
-            if (tracing()) log('iterate', sql, rows, performance.now() - t0, from);
+            if (traced) log('iterate', sql, rows, performance.now() - t0, from);
           }
         };
       }
@@ -132,18 +132,20 @@ function traceStatement(st: StatementSync, sql: string): StatementSync {
 
 /** The database, traced or counted when requested; the database itself otherwise. */
 export function traceDatabase(db: DatabaseSync): DatabaseSync {
-  if (!tracing() && process.env.TABULARIUS_COUNT_SQL !== '1') return db;
+  // Whether to log is decided once, when the database is opened, as before the counting mode was added.
+  const traced = tracing();
+  if (!traced && process.env.TABULARIUS_COUNT_SQL !== '1') return db;
   return new Proxy(db, {
     get(target, prop) {
       const v = Reflect.get(target, prop, target);
       if (typeof v !== 'function') return v;
-      if (prop === 'prepare') return (sql: string) => traceStatement(target.prepare(sql), sql);
+      if (prop === 'prepare') return (sql: string) => traceStatement(target.prepare(sql), sql, traced);
       if (prop === 'exec') {
         return (sql: string) => {
           const t0 = performance.now();
           target.exec(sql);
           const ms = performance.now() - t0;
-          if (tracing() && ms >= minMs()) log('exec', sql, undefined, ms, callers());
+          if (traced && ms >= minMs()) log('exec', sql, undefined, ms, callers());
         };
       }
       return (v as (...a: unknown[]) => unknown).bind(target);
