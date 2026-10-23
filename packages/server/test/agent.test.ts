@@ -266,3 +266,37 @@ test('agent: a plan far too large is refused with 413, and the server carries on
   assert.equal(r.status, 413);
   assert.equal((await fetch(`${base}/tabularius/admin/v1/sign-in-info`)).status, 200);
 });
+
+test('agent: a script that runs with full access does not report to the account the records it cannot view', { skip }, async () => {
+  store.applyDesign([{ op: 'createScript', name: 'Hidden churn', text: 'New Record/Request\nSet Field [ Invoices::Status ; "Void" ]\nCommit Records/Requests [ With dialog: Off ]\nNew Record/Request\nSet Field [ Invoices::Status ; "Open" ]\nCommit Records/Requests [ With dialog: Off ]\nDelete Record/Request [ With dialog: Off ]' }] as never);
+  // Full access cannot be set from script text (only a file made by FileMaker carries it): set it on the script as imported.
+  (store.schema.scripts.find((x) => x.name === 'Hidden churn') as { fullAccess?: boolean }).fullAccess = true;
+  store.savePrivilegeSet({ name: 'Runner', records: { view: 'Status <> "Void"', edit: false, create: false, delete: false },
+    layouts: 'viewOnly', valueLists: 'viewOnly', scripts: 'modifiable', extendedPrivileges: ['fmrest'] } as never);
+  store.setPassword('Runner', 'pw', 'Runner');
+  const runner = await login('Runner');
+  const before = count();
+  const plan = { summary: 'Churn', layout: 'Invoices', steps: [{ kind: 'script', script: 'Hidden churn' }] };
+  const r = await api(runner, '/step', { plan, step: 0, state: { layout: 'Invoices', foundSet: [] } });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.result.outcome, 'ok', JSON.stringify(r.body));
+  assert.equal(count(), before + 1, 'the script did make the Void record');
+  // The Void record it made is not counted or listed to an account that may not view it; the deleted Open one was never hidden from it.
+  assert.equal(r.body.result.created, 0, JSON.stringify(r.body.result));
+  assert.equal(r.body.result.deleted, 1, JSON.stringify(r.body.result));
+  assert.doesNotMatch(JSON.stringify(r.body.result), /Void/);
+});
+
+test('agent: a record a full-access script made and deleted is not reported to an account that could not have viewed it', { skip }, async () => {
+  store.applyDesign([{ op: 'createScript', name: 'Void and gone', text: 'New Record/Request\nSet Field [ Invoices::Status ; "Void" ]\nCommit Records/Requests [ With dialog: Off ]\nDelete Record/Request [ With dialog: Off ]' }] as never);
+  (store.schema.scripts.find((x) => x.name === 'Void and gone') as { fullAccess?: boolean }).fullAccess = true;
+  const runner = await login('Runner');
+  const plan = { summary: 'Churn', layout: 'Invoices', steps: [{ kind: 'script', script: 'Void and gone' }] };
+  const r = await api(runner, '/step', { plan, step: 0, state: { layout: 'Invoices', foundSet: [] } });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.result.outcome, 'ok', JSON.stringify(r.body));
+  // The record is gone, and what it held (the status "Void") is in no part of the answer: not counted, not listed.
+  assert.equal(r.body.result.created, 0, JSON.stringify(r.body.result));
+  assert.equal(r.body.result.deleted, 0, JSON.stringify(r.body.result));
+  assert.doesNotMatch(JSON.stringify(r.body.result), /Void/);
+});

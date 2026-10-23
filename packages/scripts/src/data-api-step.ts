@@ -95,6 +95,7 @@ function respond(store: Store, body: Record<string, unknown>, opts: { account?: 
         const m = /^(offset|limit)\.(.+)$/.exec(k);
         if (m && Number.isFinite(Number(v))) (portals[m[2]] ??= {})[m[1] as 'offset' | 'limit'] = Number(v);
       }
+      privileges?.in(store).checkLayout(name);
       const info = store.layout(name);
       const dataInfo = (found: number, total: number, returned: number) => ({
         database: store.name, layout: response, table: info.occurrence, totalRecordCount: total, foundCount: found, returnedCount: returned,
@@ -120,7 +121,7 @@ function respond(store: Store, body: Record<string, unknown>, opts: { account?: 
     case 'create': return (body.portalData !== undefined ? atomically : <T>(fn: () => T) => fn())(() => {
       const r = store.create(needLayout(), object('fieldData') as Record<string, string>, write);
       const portalData = object('portalData');
-      if (Object.keys(portalData).length) store.updatePortals(needLayout(), r.recordId, portalData as Record<string, Record<string, string>[]>, [], write);
+      if (Object.keys(portalData).length) store.updatePortals(needLayout(), r.recordId, portalData as Record<string, Record<string, string>[]>, [], { ...write, justCreated: true });
       return { recordId: String(r.recordId), modId: String(r.modId) };
     });
     case 'update': return (body.portalData !== undefined || (body.fieldData as Record<string, unknown> | undefined)?.deleteRelated !== undefined ? atomically : <T>(fn: () => T) => fn())(() => {

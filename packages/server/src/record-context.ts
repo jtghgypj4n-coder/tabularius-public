@@ -124,7 +124,7 @@ export function describeRecord(
   const empty: string[] = [];
   for (const f of visibleFields(from.table, own, false)) {
     if (!reads && worked(f) && !asked.includes(f.name)) continue;
-    const v = shown(f, reads || !worked(f) ? keyValue(from, f, row) : seen[f.name], VALUE_CHARS);
+    const v = shown(f, reads || !worked(f) ? keyValue(from, f, row, p) : seen[f.name], VALUE_CHARS);
     if (v === undefined) empty.push(f.name);
     else fields[f.name] = v;
   }

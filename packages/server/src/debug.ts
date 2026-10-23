@@ -37,7 +37,7 @@ import { join } from 'node:path';
 import { Store, StoreError, occurrence, type EvaluateOptions } from '../../store/src/index.ts';
 import { q } from '../../store/src/import.ts';
 import { asText, num, text } from '../../calc/src/index.ts';
-import { OFFLINE_RUN_NOTICE, RunProfile, ScriptDebugger, ScriptSession, recordRun, type DebugCommand, type DebugState } from '../../scripts/src/index.ts';
+import { OFFLINE_RUN_NOTICE, RunProfile, ScriptDebugger, ScriptError, ScriptSession, recordRun, type DebugCommand, type DebugState } from '../../scripts/src/index.ts';
 import { ApiError, badPathError, readJson, sessionPrivileges, type DataApi, type Session } from './dataapi.ts';
 import type { Host } from './host.ts';
 import { BoundedMap } from './bounded-map.ts';
@@ -325,7 +325,7 @@ export class DebugApi {
         if (recordId !== undefined && to) {
           const occ = occurrence(store, to.id);
           if (occ) {
-            fields = store.get(store.occurrenceInfo(occ), recordId).fieldData;
+            fields = store.get(store.occurrenceInfo(occ), recordId, undefined, undefined, privileges).fieldData;
             reads.add(occ.store, occ.table.name, [recordId]);
           }
         }
@@ -441,7 +441,7 @@ export class DebugApi {
         const to = currentStore.calc.occurrence(info.occurrence);
         if (recordId !== undefined && to) {
           const occ = occurrence(currentStore, to.id);
-          if (occ) Object.assign(fields, currentStore.get(currentStore.occurrenceInfo(occ), recordId).fieldData);
+          if (occ) Object.assign(fields, currentStore.get(currentStore.occurrenceInfo(occ), recordId, undefined, undefined, sessionPrivileges(currentStore, session)).fieldData);
         }
         const variables = globalsOf(currentStore, session);
         const redaction = diagnosticsOf(currentStore);
@@ -484,8 +484,8 @@ export class DebugApi {
       }
       throw new ApiError(3, 'Command is unavailable', 405);
     } catch (e) {
-      const err = e instanceof ApiError ? e : e instanceof URIError ? badPathError() : e instanceof StoreError ? new ApiError(e.code, e.message, 400) : new ApiError(-1, (e as Error).message);
-      if (!(e instanceof URIError) && !(e instanceof ApiError) && !(e instanceof StoreError)) console.error(e);
+      const err = e instanceof ApiError ? e : e instanceof URIError ? badPathError() : e instanceof StoreError ? new ApiError(e.code, e.message, 400) : e instanceof ScriptError ? new ApiError(3, e.message, 400) : new ApiError(-1, (e as Error).message);
+      if (!(e instanceof URIError) && !(e instanceof ApiError) && !(e instanceof StoreError) && !(e instanceof ScriptError)) console.error(e);
       send(err.status, { error: { code: err.code, message: err.message } });
     }
     return true;

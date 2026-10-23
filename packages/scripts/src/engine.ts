@@ -5632,8 +5632,9 @@ export class ScriptEngine {
     if (pending?.has(key)) return observed(fromStored(pending.get(key)!, calcType(field.type)));
     if (id === undefined) {
       if (!field.options?.global) return text('');
-      // A global's stored value is the same in every record; read it from any.
-      id = info.owner.findIds(info)[0];
+      // A global's stored value is the same in every record; read it from any the account may view. With none, the first record
+      // is still the one read, which refuses it (200) as it always did: the id goes straight to record() and no further.
+      id = info.owner.findIds(info, this.reading)[0] ?? (this.privileges ? info.owner.findIds(info)[0] : undefined);
       if (id === undefined) return text('');
     }
     if (field.type === 'container') {
