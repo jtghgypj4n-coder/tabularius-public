@@ -50,7 +50,7 @@ import { localUrl, openLocalAccess } from './local-admin.ts';
 import { compressResponse } from './compression.ts';
 import { redirectPlainHttp } from './plain-redirect.ts';
 import { handleTrust } from './local-tls.ts';
-import { claimFolder, sweepCrashLeftovers, defaultBackupDir, scheduleBackups, scheduleProgressive } from './backup.ts';
+import { claimFolder, runningServer, sweepCrashLeftovers, defaultBackupDir, scheduleBackups, scheduleProgressive } from './backup.ts';
 import type { ProgressiveSchedule } from './backup.ts';
 import { Connections, scriptConnections } from './connections.ts';
 import { S3, scheduleOffsite, type OffsiteSchedule, type S3Options } from './s3.ts';
@@ -265,6 +265,10 @@ export async function serve(opts: ServeOptions): Promise<{ server: Server; host:
   catch { /* The normal standbyState read handles missing or unreadable state. */ }
   const unfinished = takeoverState ? unfinishedStandbyFiles(takeoverState) : [];
   if (unfinished.length && !opts.acceptPartialStandbyFiles) {
+    // A folder another process hosts (a standby still running in it, say) says so first, read from its pid file without
+    // claiming or changing anything; a cluster's workers share the front process's claim.
+    const rival = opts.cluster ? undefined : runningServer(opts.dir);
+    if (rival !== undefined && rival !== process.pid) throw new Error(`${opts.dir} is already hosted by process ${rival}`);
     throw new Error(`Cannot serve: ${unfinished.join(', ')}: the copy of each file did not reach a whole state; serving it risks a file that is a mid-copy snapshot. Restore the file from a backup or copy it again from the main server, or start serve with --accept-partial-standby to host it anyway.`);
   }
   // One request can't hold the server's thread for more than a minute (TABULARIUS_REQUEST_BUDGET_MS; 0 for no limit).
