@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { mimeOf } from '../src/containers.ts';
 import { FmpDatabase, decodeMergeFields } from '../src/index.ts';
+import { items, privilegeSets, readAccounts } from '../src/schema.ts';
 import { fontStack } from '../src/styles.ts';
+import { Node } from '../src/tree.ts';
 import { parseDate, typedValue } from '../src/values.ts';
 
 test('fmp12-18: inherited MIME keys use a string fallback that SQLite can bind', () => {
@@ -80,4 +82,39 @@ test('fmp12-1: impossible calendar dates stay as stored text', () => {
   assert.equal(typedValue('2/29/2024', 'date'), '2024-02-29');
   assert.equal(parseDate('2024-02-29', 'ISO'), '2024-02-29');
   assert.equal(parseDate('2025-02-29', 'ISO'), undefined);
+});
+
+// Names in a file are the file's to choose: none may read the prototype of a plain object.
+const NAMES = ['constructor', 'toString', '__proto__', 'hasOwnProperty'];
+const named = (name: string): Node => {
+  const n = new Node();
+  n.kv.set(16, Uint8Array.from([...name].map((c) => c.charCodeAt(0) ^ 0x5a)));
+  return n;
+};
+const catalog = (names: string[]): Node => {
+  const root = new Node();
+  names.forEach((name, i) => root.children.set(i + 1, named(name)));
+  return root;
+};
+
+test('fmp12-23: themes and fonts named like inherited keys are read as plain names', () => {
+  for (const kind of ['theme', 'font']) {
+    const got = items(catalog(NAMES));
+    assert.deepEqual(got.map((c) => c.name), NAMES, kind);
+    for (const c of got) assert.equal(typeof c.name, 'string', `${kind} ${c.name}`);
+  }
+});
+
+test('fmp12-24: accounts named like inherited keys are read as plain names', () => {
+  const accounts = readAccounts(catalog(NAMES));
+  assert.deepEqual(accounts.map((a) => a.name), NAMES);
+});
+
+test('fmp12-25: privilege sets named like inherited keys keep their names and ids', () => {
+  const sets = privilegeSets(catalog(NAMES.map((n) => n)), undefined);
+  assert.deepEqual(sets.map((s) => s.name), NAMES);
+  assert.deepEqual(sets.map((s) => s.id), [1, 2, 3, 4]);
+  // And a built-in name is still taken only by the built-in id.
+  const [full] = privilegeSets(catalog(['[Full Access]']), undefined);
+  assert.equal(full.name, '[Full Access]');
 });
