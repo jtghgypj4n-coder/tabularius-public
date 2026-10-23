@@ -10145,6 +10145,21 @@ export class Store {
     return { names: columns.map((c) => c.name), types: columns.map((c) => c.type) };
   }
 
+  /** Declared SQL types plus schema field types for columns read straight through, without running the query. */
+  describeTyped(sqlText: string): { names: string[]; types: (string | null)[]; fieldTypes: (FieldType | null)[] } {
+    return this.withDesignRead(() => {
+      const columns = this.readOnly(sqlText).columns();
+      const tables = new Map(this.schema.tables.map((t) => [t.name, new Map(t.fields.map((f) => [f.name, f.type]))]));
+      return {
+        names: columns.map((c) => c.name),
+        types: columns.map((c) => c.type),
+        // SQLite retains the original table/column through aliases and joins; expressions have no origin.
+        fieldTypes: columns.map((c) => c.database === 'main' && c.table && c.column
+          ? tables.get(c.table)?.get(c.column) ?? null : null),
+      };
+    });
+  }
+
   /** SQL for analysis (used by the MCP server), on a read-only connection. */
   query(sqlText: string, limit = 500): Record<string, SqlValue>[] {
     const rows: Record<string, SqlValue>[] = [];

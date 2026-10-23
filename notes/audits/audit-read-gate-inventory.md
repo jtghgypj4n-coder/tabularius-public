@@ -387,12 +387,10 @@ The following reasons apply to the exact enumerated expressions in each named fu
 | [packages/server/src/optimization.ts:316](../../packages/server/src/optimization.ts#L316) `sizes` | `SQLite.all` (316); `SQLite.prepare` (316); `Store.sql` (316) | DESIGN |
 | [packages/server/src/optimization.ts:449](../../packages/server/src/optimization.ts#L449) `speedFindings` | `Store.recordCount` (449, 492, 510) | DESIGN |
 | [packages/server/src/optimization.ts:564](../../packages/server/src/optimization.ts#L564) `heldBytes` | `SQLite.get` (564); `SQLite.prepare` (564); `Store.sql` (564) | DESIGN |
-| [packages/server/src/pgwire.ts:786](../../packages/server/src/pgwire.ts#L786) `Connection/translate` | `Calculations.translateSQL` (786) | SQL |
-| [packages/server/src/pgwire.ts:820](../../packages/server/src/pgwire.ts#L820) `Connection/catalog` | `Store.describe` (820) | SQL |
-| [packages/server/src/pgwire.ts:831](../../packages/server/src/pgwire.ts#L831) `Connection/run` | `Store.selectIn` (831) | SQL |
-| [packages/server/src/pgwire.ts:958](../../packages/server/src/pgwire.ts#L958) `Connection/validateSyntax` | `SQLite.prepare` (958); `Store.sql` (958) | SQL |
-| [packages/server/src/pgwire.ts:1177](../../packages/server/src/pgwire.ts#L1177) `Connection/describe` | `Store.describe` (1177) | SQL |
-| [packages/server/src/pgwire.ts:807](../../packages/server/src/pgwire.ts#L807) `Connection/bareNames` | `Store.describe` (807) | SQL |
+| [packages/server/src/pgwire.ts:807](../../packages/server/src/pgwire.ts#L807) `Connection/translate` | `Calculations.translateSQL` (807) | SQL |
+| [packages/server/src/pgwire.ts:852](../../packages/server/src/pgwire.ts#L852) `Connection/run` | `Store.selectIn` (852) | SQL |
+| [packages/server/src/pgwire.ts:980](../../packages/server/src/pgwire.ts#L980) `Connection/validateSyntax` | `SQLite.prepare` (980); `Store.sql` (980) | SQL |
+| [packages/server/src/pgwire.ts:828](../../packages/server/src/pgwire.ts#L828) `Connection/bareNames` | `Store.describe` (828) | SQL |
 | [packages/server/src/pgwrite.ts:404](../../packages/server/src/pgwrite.ts#L404) `returningColumns` | `Store.describe` (404) | SQL |
 | [packages/server/src/pgwrite.ts:431](../../packages/server/src/pgwrite.ts#L431) `executeWrite/reader` | `Store.selectIn` (431) | SQL |
 | [packages/server/src/pii.ts:122](../../packages/server/src/pii.ts#L122) `holdsOnlyUuids` | `Store.query` (122) | REDACTION |
@@ -882,8 +880,8 @@ The following reasons apply to the exact enumerated expressions in each named fu
 | [packages/store/src/store.ts:10048](../../packages/store/src/store.ts#L10048) `Store/refreshDecimalSqlViews` | `SQLite.get` (10048); `SQLite.prepare` (10048, 10053); `SQLite.all` (10053) | CORE |
 | [packages/store/src/store.ts:10067](../../packages/store/src/store.ts#L10067) `Store/internalRoots` | `SQLite.get` (10067); `SQLite.prepare` (10067, 10069); `SQLite.all` (10069) | CORE |
 | [packages/store/src/store.ts:10102](../../packages/store/src/store.ts#L10102) `Store/selectCurrent` | `SQLite.iterate` (10102) | CORE |
-| [packages/store/src/store.ts:10151](../../packages/store/src/store.ts#L10151) `Store/query` | `SQLite.iterate` (10151) | CORE |
-| [packages/store/src/store.ts:10185](../../packages/store/src/store.ts#L10185) `Store/queryWithOriginsCurrent` | `SQLite.iterate` (10185); `SQLite.all` (10192, 10195); `SQLite.prepare` (10192, 10195) | CORE |
+| [packages/store/src/store.ts:10166](../../packages/store/src/store.ts#L10166) `Store/query` | `SQLite.iterate` (10166) | CORE |
+| [packages/store/src/store.ts:10200](../../packages/store/src/store.ts#L10200) `Store/queryWithOriginsCurrent` | `SQLite.iterate` (10200); `SQLite.all` (10207, 10210); `SQLite.prepare` (10207, 10210) | CORE |
 | [packages/store/src/store.ts:1209](../../packages/store/src/store.ts#L1209) `Store/ensureNativeIds` | `SQLite.all` (1209, 1221); `SQLite.prepare` (1209, 1212, 1220, 1221); `Store.sql` (1209, 1212, 1215, 1219, 1220, 1221, 1224, 1226) | CORE |
 | [packages/store/src/store.ts:1234](../../packages/store/src/store.ts#L1234) `Store/nativeIdGuards` | `Store.sql` (1234, 1235, 1237) | CORE |
 | [packages/store/src/store.ts:10118](../../packages/store/src/store.ts#L10118) `Store/selectIn` | `Store.select` (10118) | CORE |

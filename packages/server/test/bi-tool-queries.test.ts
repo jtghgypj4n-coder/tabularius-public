@@ -256,7 +256,7 @@ test('unnest takes a column list and WITH ORDINALITY', async () => {
   assert.deepEqual([o.error, o.rows, o.columns], [undefined, [], ['key_columns']]);
   // A join against unnest of an outer table's column is not translated: it is an error, not a hang.
   const lateral = await query('SELECT k.attnum FROM pg_index ix, unnest(ix.indkey) AS k(attnum)');
-  assert.equal(lateral.error?.code, '42000');
+  assert.equal(lateral.error?.code, '42703');
 });
 
 test('the privileges the catalog reports are those of a connection that only reads', async () => {

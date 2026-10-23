@@ -66,7 +66,20 @@ const GSS_REQUEST = 80877104;
 const CANCEL_REQUEST = 80877102;
 const PROTOCOL_3 = 196608;
 
-const OID = { bool: 16, bytea: 17, int8: 20, text: 25, float8: 701, numeric: 1700, jsonb: 3802, uuid: 2950 } as const;
+const OID = { bool: 16, bytea: 17, int8: 20, text: 25, float8: 701, date: 1082, time: 1083, timestamp: 1114, numeric: 1700, jsonb: 3802, uuid: 2950 } as const;
+
+/** PostgreSQL Appendix A: https://www.postgresql.org/docs/current/errcodes-appendix.html */
+export const SQLSTATE_BY_STORE_CODE: Readonly<Partial<Record<number, string>>> = Object.freeze({
+  102: '42703', // undefined_column: store.ts field lookups (including fields hidden by privileges).
+  106: '42P01', // undefined_table: store.ts table lookups, e.g. addFieldIndex and restoreDeletedRow.
+  200: '42501', // insufficient_privilege: store.ts checkRecordRule and privilege checks deny access.
+  212: '28000', // invalid_authorization_specification: store.ts account/password/passkey checks.
+  301: '55P03', // lock_not_available: store.ts record/transaction conflicts; activity.ts expired record leases.
+  812: '53000', // insufficient_resources: activity.ts lock cap AND errors.ts CPU/memory caps; not just connections.
+  8310: '42000', // syntax_error_or_access_rule_violation: readOnlyChecked/selectCurrent mix statement, access and parameter checks.
+});
+// 201 also covers calculated/container fields and unsupported field operations, not just privilege denial.
+// Other codes keep 42000 rather than claiming a more specific PostgreSQL condition without evidence.
 
 class PgError extends Error {
   readonly code: string;
@@ -152,15 +165,18 @@ function dataRow(row: SqlValue[], cols: Column[], formats?: number[]): Buffer {
   }));
 }
 
-/** Column types: from the column's declared type, else what its values are. */
-function columnsOf(names: string[], types: (string | null)[], rows: SqlValue[][]): Column[] {
+/** Column types: direct temporal fields, then declared SQL types, else what the values are. */
+function columnsOf(names: string[], types: (string | null)[], rows: SqlValue[][], fieldTypes: (string | null)[] = []): Column[] {
   return names.map((name, i) => {
+    const fieldType = fieldTypes[i];
+    if (fieldType === 'date' || fieldType === 'time' || fieldType === 'timestamp') return { name, oid: OID[fieldType] };
     const t = (types[i] ?? '').toUpperCase();
     if (t === 'BOOLEAN') return { name, oid: OID.bool };
     if (t === 'BIGINT') return { name, oid: OID.int8 };
     if (t === 'DECIMAL_TEXT') return { name, oid: OID.numeric };
     if (t === 'JSON_TEXT') return { name, oid: OID.jsonb };
     if (t === 'UUID_TEXT') return { name, oid: OID.uuid };
+    // Container pointers stay numeric; compatibility of a different SQL container representation is unverified.
     if (t === 'REAL' || t === 'INTEGER') return { name, oid: OID.numeric };
     if (t) return { name, oid: OID.text };
     const v = rows.find((r) => r[i] !== null && r[i] !== undefined)?.[i] as unknown;
@@ -608,10 +624,15 @@ class Connection {
   private sendError(e: unknown): void {
     if (this.transaction === 'T') this.transaction = 'E';
     const writes = this.server.writes;
+    // SQLite resolves unknown SQL names before the store can raise its own field/table errors.
+    const sqlite = e instanceof Error && (e as Error & { code?: string }).code === 'ERR_SQLITE_ERROR';
+    const sqlstate = sqlite && e.message.startsWith('no such table: ') ? SQLSTATE_BY_STORE_CODE[106]
+      : sqlite && e.message.startsWith('no such column: ') ? SQLSTATE_BY_STORE_CODE[102] : undefined;
     const err = e instanceof PgError ? e
       : e instanceof BinaryFormatError ? new PgError(e.code, e.message)
       : e instanceof WriteRefusal ? new PgError('0A000', e.message)
-      : (e instanceof StoreError || (writes && e instanceof PrivilegeError)) ? new PgError(writes ? writeState(e.code) : e.code === 212 ? '28000' : '42000', writes && e.code !== 212 && writeState(e.code) !== '42000' ? `FileMaker ${e.code}: ${e.message}` : e.message)
+      : (e instanceof StoreError || (writes && e instanceof PrivilegeError)) ? new PgError(writes ? writeState(e.code) : SQLSTATE_BY_STORE_CODE[e.code] ?? '42000', writes && e.code !== 212 && writeState(e.code) !== '42000' ? `FileMaker ${e.code}: ${e.message}` : e.message)
+      : sqlstate ? new PgError(sqlstate, (e as Error).message)
       : isFault(e, { sql: true }) ? (logFault(e), new PgError('XX000', FAULT_MESSAGE)) : new PgError('42000', (e as Error).message);
     this.send(errorMsg(err.code, err.message));
   }
@@ -817,8 +838,8 @@ class Connection {
         const t = store.calc.occurrenceTable(to.id);
         if (!t) return [];
         // The columns a query of it returns, typed as results are.
-        const { names, types } = t.store.describe(`SELECT * FROM "${t.table.name.replace(/"/g, '""')}"`);
-        const columns = columnsOf(names, types, []).filter((c) => !c.name.startsWith('_fm_'));
+        const { names, types, fieldTypes } = t.store.describeTyped(`SELECT * FROM "${t.table.name.replace(/"/g, '""')}"`);
+        const columns = columnsOf(names, types, [], fieldTypes).filter((c) => !c.name.startsWith('_fm_'));
         return [{ oid: FIRST_TABLE_OID + i, name: to.name, columns }];
       }),
     };
@@ -832,7 +853,8 @@ class Connection {
     if (cap > 0 && r.rows.length > cap) throw new PgError('54000', `SQL results are limited to ${cap} rows; use LIMIT and page through the result with a stable ORDER BY`);
     // Clients read the catalog on connect and for every autocomplete; only queries of the file's own tables are reads of its data.
     if (!catalog) writer.run({ account: this.user, surface: 'sql' }, () => target.logQuery(text, r.rows.length, { privileges: this.privileges }));
-    return { cols: booleans(withCastColumns(columnsOf(r.names, r.types, r.rows), casts, catalog ? undefined : this.bareNames(sql, casts, target)), catalog), rows: r.rows };
+    const { fieldTypes } = target.describeTyped(text);
+    return { cols: booleans(withCastColumns(columnsOf(r.names, r.types, r.rows, fieldTypes), casts, catalog ? undefined : this.bareNames(sql, casts, target)), catalog), rows: r.rows };
   }
 
   /**
@@ -1174,8 +1196,8 @@ class Connection {
     if (own?.write) return this.returningOf(own.write);
     if (own) return own.cols;
     const { text, target, catalog, casts } = this.translate(sql);
-    const cols = target.describe(text);
-    return booleans(withCastColumns(columnsOf(cols.names, cols.types, []), casts, catalog ? undefined : this.bareNames(sql, casts, target)), catalog);
+    const cols = target.describeTyped(text);
+    return booleans(withCastColumns(columnsOf(cols.names, cols.types, [], cols.fieldTypes), casts, catalog ? undefined : this.bareNames(sql, casts, target)), catalog);
   }
 }
 
