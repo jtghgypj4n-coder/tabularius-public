@@ -1,7 +1,7 @@
 // PostgreSQL's binary format for values, for clients that ask for it: asyncpg
 // and Npgsql use it for every value whose type they know, and psycopg and
 // pgjdbc can. Results come in the column types the Postgres wire server
-// describes (text, numeric, bool, bytea); parameters come in the types the
+// describes (including date, time and timestamp); parameters come in the types the
 // client named at Parse (or a cast in the query names), and are read into the
 // value the text format gives, so a query sees the same thing whichever format
 // the client picked. Booleans are the exception: 1 or 0, as FileMaker keeps them.
@@ -89,7 +89,7 @@ export function decodeNumeric(b: Buffer): string {
   return `${sign === NUMERIC_NEG ? '-' : ''}${int || '0'}${frac ? '.' + frac : ''}`;
 }
 
-/** A result value in the binary format of its column's type; null for SQL NULL (or a number field holding no number). */
+/** A result in its column's binary format; null for SQL NULL or invalid numeric/temporal text. */
 export function binaryValue(value: SqlValue, oid: number): Buffer | null {
   const v = value as unknown;
   if (v === null || v === undefined) return null;
@@ -99,6 +99,28 @@ export function binaryValue(value: SqlValue, oid: number): Buffer | null {
       const n = BigInt(String(v));
       const out = Buffer.alloc(8);
       out.writeBigInt64BE(n);
+      return out;
+    }
+    case BINARY_OID.date: {
+      const days = isoDateDays(String(v));
+      if (days === null) return null;
+      const out = Buffer.alloc(4);
+      out.writeInt32BE(days);
+      return out;
+    }
+    case BINARY_OID.time: case BINARY_OID.timestamp: {
+      const text = String(v);
+      let us: bigint | null;
+      if (oid === BINARY_OID.time) us = isoTimeMicros(text);
+      else {
+        const days = isoDateDays(text.slice(0, 10));
+        const time = isoTimeMicros(text.slice(11));
+        us = days !== null && time !== null && /^[T ]$/.test(text[10] ?? '')
+          ? BigInt(days) * 86_400_000_000n + time : null;
+      }
+      if (us === null) return null;
+      const out = Buffer.alloc(8);
+      out.writeBigInt64BE(us);
       return out;
     }
     case BINARY_OID.uuid: return Buffer.from(String(v).replace(/-/g, ''), 'hex');
@@ -113,6 +135,23 @@ export function binaryValue(value: SqlValue, oid: number): Buffer | null {
 }
 
 const EPOCH_2000 = Date.UTC(2000, 0, 1);
+
+/** Strict ISO calendar dates: Date's parser alone would roll February 30 into March. */
+function isoDateDays(text: string): number | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text) || text.startsWith('0000-')) return null;
+  // Parsing the explicit UTC form also preserves years 0001..0099 (Date.UTC offsets them by 1900).
+  const ms = Date.parse(`${text}T00:00:00Z`);
+  if (!Number.isFinite(ms) || new Date(ms).toISOString().slice(0, 10) !== text) return null;
+  return (ms - EPOCH_2000) / 86_400_000;
+}
+
+function isoTimeMicros(text: string): bigint | null {
+  const m = /^(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,6}))?$/.exec(text);
+  if (!m || m[0] !== text) return null;
+  const [h, min, s] = m.slice(1, 4).map(Number);
+  if (h > 23 || min > 59 || s > 59) return null;
+  return BigInt(h * 3600 + min * 60 + s) * 1_000_000n + BigInt((m[4] ?? '').padEnd(6, '0'));
+}
 
 const pad = (n: number, w = 2) => String(n).padStart(w, '0');
 
@@ -143,9 +182,9 @@ export function binaryParam(b: Buffer, oid: number): SqlValue | undefined {
     }
     case BINARY_OID.timestamp: case BINARY_OID.timestamptz: {
       const us = b.readBigInt64BE(0);
-      const ms = Number(us / 1000n);
-      const d = new Date(EPOCH_2000 + ms);
-      const frac = Number(us % 1_000_000n);
+      // Floor to the whole second: bigint division truncates toward zero before the epoch.
+      const frac = Number((us % 1_000_000n + 1_000_000n) % 1_000_000n);
+      const d = new Date(EPOCH_2000 + Number((us - BigInt(frac)) / 1_000_000n) * 1000);
       return `${pad(d.getUTCFullYear(), 4)}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}${frac ? '.' + pad(frac, 6).replace(/0+$/, '') : ''}`;
     }
     case 0: case BINARY_OID.text: case BINARY_OID.varchar: case BINARY_OID.bpchar: case BINARY_OID.name: case BINARY_OID.unknown:

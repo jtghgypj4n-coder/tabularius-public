@@ -27,6 +27,35 @@ concurrent connections, and SQLite's own query work can still consume more
 memory. The measurements below cover three modest text columns.
 Streaming rows in batches with no cap is a possible follow-up.
 
+## Date and time result types
+
+A result column that reads a field directly carries its schema type, including
+through an alias or join and when there are no rows:
+
+| Field | PostgreSQL result type | OID |
+| --- | --- | ---: |
+| Date | `date` | 1082 |
+| Time | `time without time zone` | 1083 |
+| Timestamp | `timestamp without time zone` | 1114 |
+| Text | `text` | 25 |
+
+Expressions, casts and function results do not inherit a field's date/time type;
+for example, `d || 'x'`, `CAST(d AS TEXT)` and `date(d)` remain text. Text results
+preserve stored values, including invalid imported text. Dates normally use
+`YYYY-MM-DD`, times `HH:MM:SS` with optional fractional seconds, and timestamps
+either `YYYY-MM-DDTHH:MM:SS` (the store's normalized form) or a space separator.
+
+Binary results encode dates as days since 2000-01-01, times as microseconds since
+midnight, and timestamps as microseconds since 2000-01-01, without timezone
+conversion. Accepted binary input text has a valid calendar date in years
+0001–9999, hours 00–23, minutes/seconds 00–59 and at most six fractional digits.
+Invalid or unsupported text is returned as SQL NULL in binary format, rather
+than an incorrect value. Text format still returns it unchanged.
+
+ParameterDescription is unchanged: parameters retain client-given or cast types.
+Containers are unchanged (their stored integer pointers are reported as
+`numeric`); the appropriate SQL representation of containers is **unverified**.
+
 ## Measurement
 
 Measured before the change on 2026-10-15, macOS arm64, Node v22.22.2, against
