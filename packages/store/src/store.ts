@@ -733,6 +733,9 @@ const WRITE_SHARE_MS = 5_000;
  * admin token.
  */
 const TOKEN_SURFACES = new Set(['fmrest', 'fmodata', 'fmxdbc', 'fmmcp']);
+/** Days an API token lives when its maker names no date, and the most it may be given; the server's TABULARIUS_TOKEN_DEFAULT_DAYS and the longest a person can ask for follow these. */
+export const API_TOKEN_DEFAULT_DAYS = 90;
+export const API_TOKEN_MAX_DAYS = 3650;
 /**
  * A record-access rule whose value changes with the wall clock, not with the
  * data: it is never cached, since no write would mark a stale set dirty. Covers
@@ -4759,6 +4762,9 @@ export class Store {
       this.sql.prepare('DELETE FROM _fm_api_tokens WHERE account = ? COLLATE NOCASE AND expires IS NOT NULL AND expires < ?').run(account, new Date(now - 30 * 86_400_000).toISOString());
       const working = (this.sql.prepare('SELECT COUNT(*) AS n FROM _fm_api_tokens WHERE account = ? COLLATE NOCASE AND (expires IS NULL OR expires > ?)').get(account, new Date(now).toISOString()) as { n: number }).n;
       if (working >= MAX_API_TOKENS_PER_ACCOUNT) throw new StoreError(812, `"${account}" already has ${MAX_API_TOKENS_PER_ACCOUNT.toLocaleString('en')} API tokens that work, the most one account can have. Revoke tokens that are no longer used (Manage Security, API tokens), then try again`);
+      // A token always expires: one made without a date lives the default, and none lives past the longest a person can ask for.
+      const expires = opts.expires ?? new Date(expiryClock.now() + API_TOKEN_DEFAULT_DAYS * 86_400_000);
+      if (!Number.isFinite(expires.getTime()) || expires.getTime() > expiryClock.now() + API_TOKEN_MAX_DAYS * 86_400_000 + 60_000) throw new StoreError(960, `A token lives at most ${API_TOKEN_MAX_DAYS} days`);
       const id = randomBytes(6).toString('hex');
       const secret = randomBytes(24).toString('base64url');
       const token = `ohbt_${id}.${secret}`;
@@ -4767,7 +4773,7 @@ export class Store {
       this.sql.prepare(`INSERT INTO _fm_api_tokens (id, label, account, token_hash, read_only, created, expires, surfaces, layouts, identity, provenance)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
         id, opts.label ?? null, account, createHash('sha256').update(token).digest('hex'),
-        opts.readOnly ? 1 : 0, new Date().toISOString(), opts.expires ? opts.expires.toISOString() : null,
+        opts.readOnly ? 1 : 0, new Date().toISOString(), expires.toISOString(),
         surfaces ? JSON.stringify(surfaces) : null, layouts ? JSON.stringify(layouts) : null, opts.identity ? JSON.stringify(opts.identity) : null, provenance);
       this.logSecurity('api-token-issued', { target: account, detail: { id, ...(opts.label ? { label: opts.label } : {}), readOnly: !!opts.readOnly, ...(surfaces ? { surfaces } : {}), ...(layouts ? { layouts } : {}) } });
       return token;
@@ -4925,11 +4931,11 @@ export class Store {
   }
 
   /** API tokens for this file, newest first; the secret is never shown again. */
-  apiTokens(): { id: string; label?: string; account: string; readOnly: boolean; created: string; expires?: string; lastUsed?: string; surfaces?: string[]; layouts?: string[] }[] {
+  apiTokens(): { id: string; label?: string; account: string; readOnly: boolean; created: string; expires?: string; needsReissue?: true; lastUsed?: string; surfaces?: string[]; layouts?: string[] }[] {
     return (this.sql.prepare('SELECT id, label, account, read_only, created, expires, last_used, surfaces, layouts FROM _fm_api_tokens ORDER BY created DESC, rowid DESC').all() as
       { id: string; label: string | null; account: string; read_only: number; created: string; expires: string | null; last_used: string | null; surfaces: string | null; layouts: string | null }[])
       .map((r) => ({ id: r.id, account: r.account, readOnly: !!r.read_only, created: r.created,
-        ...(r.label ? { label: r.label } : {}), ...(r.expires ? { expires: r.expires } : {}), ...(r.last_used ? { lastUsed: r.last_used } : {}),
+        ...(r.label ? { label: r.label } : {}), ...(r.expires ? { expires: r.expires } : { needsReissue: true as const }), ...(r.last_used ? { lastUsed: r.last_used } : {}),
         ...(r.surfaces ? { surfaces: JSON.parse(r.surfaces) as string[] } : {}), ...(r.layouts ? { layouts: JSON.parse(r.layouts) as string[] } : {}) }));
   }
 
@@ -4956,7 +4962,8 @@ export class Store {
     const want = Buffer.from(row.token_hash, 'hex');
     const got = createHash('sha256').update(token).digest();
     if (want.length !== got.length || !timingSafeEqual(want, got)) return undefined;
-    if (row.expires && !(Date.parse(row.expires) > expiryClock.now())) return undefined;
+    // A token made before every token had to expire has no date: it is refused until it is made again (listed with needsReissue).
+    if (!row.expires || !(Date.parse(row.expires) > expiryClock.now())) return undefined;
     if (this.accountInactive(row.account) || this.mustChangePassword(row.account)) return undefined;
     const identity = row.identity ? JSON.parse(row.identity) as { issuer: string; sub: string; person?: string; mapping: string } : undefined;
     if (this.isExternal(row.account) && row.provenance !== 'service' && (!identity || identity.mapping.toLowerCase() !== row.account.toLowerCase())) return undefined;

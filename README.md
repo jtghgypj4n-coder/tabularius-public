@@ -642,8 +642,8 @@ For integrations, mint a scoped API token instead of embedding a password. A
 token acts as one account (so it carries that account's privilege set), is used
 as a Bearer token on the Data API and SQL endpoints, and can be revoked on its
 own. `--read-only` makes it refuse every write and script. A token stops
-working after 90 days unless `--expires-days N` says otherwise (`--expires-days 0`
-makes one that never expires; `TABULARIUS_TOKEN_DEFAULT_DAYS` changes the default).
+working after 90 days unless `--expires-days N` (up to 3650) says otherwise; every
+token expires, and `TABULARIUS_TOKEN_DEFAULT_DAYS` changes the default.
 
 <!-- docs-example: illustrative -->
 ```sh

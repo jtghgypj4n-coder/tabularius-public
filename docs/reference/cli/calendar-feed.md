@@ -8,7 +8,7 @@ This command's usage comes from `tabularius help calendar-feed`. Statements comp
 Usage:
   tabularius calendar-feed <folder> <database> create --account A --layout L --start FIELD [--end F] [--title F] [--description F] [--location F]
                                              [--zone UTC|Europe/London] [--query '[{"Status":"open"}]'] [--limit N] [--label L]
-                                             [--expires-days N|0] [--public-url https://host] [--json]
+                                             [--expires-days N] [--public-url https://host] [--json]
                                              A calendar link for a layout's date field: a read-only API token
                                              scoped to that layout, as <account>, and the address that carries
                                              the field choices. The address is shown once, as a token is.

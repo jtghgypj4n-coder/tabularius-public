@@ -733,7 +733,7 @@
     "TABULARIUS_TOKEN_DEFAULT_DAYS": {
       "description": "Days an API or AI-app token lives when no lifetime is asked for (calendar feed addresses keep their own default).",
       "default": "90 days",
-      "accepted": "Whole or decimal number of days up to 3650; 0 for tokens that never expire",
+      "accepted": "Whole or decimal number of days above 0 and up to 3650; anything else keeps 90",
       "restart": "No server restart; read when a token is made.",
       "explainedBy": "docs/security-defaults.md"
     },

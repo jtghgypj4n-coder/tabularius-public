@@ -1788,13 +1788,13 @@ export class Admin {
               const wanted = String(body.agent ? body.agent.name : body.account ?? '').trim().toLowerCase();
               const account = store.accounts().find((a) => a.name.toLowerCase() === wanted && !a.inactive);
               if (!account) throw new StoreError(960, `${store.name} has no account named ${JSON.stringify(said(body.account))}`);
-              // Left out, the token takes the default lifetime; 0 days is "never", asked for on purpose.
+              // Left out, the token takes the default lifetime; every token expires.
               const days = body.days === undefined || body.days === null || (body.days as unknown) === '' ? undefined : body.days;
-              if (days !== undefined && !(typeof days === 'number' && Number.isInteger(days) && days >= 0 && days <= 3650)) throw new StoreError(960, 'Days should be from 1 to 3650, or 0 for a token that never expires');
+              if (days !== undefined && !(typeof days === 'number' && Number.isInteger(days) && days >= 1 && days <= 3650)) throw new StoreError(960, 'Days should be from 1 to 3650; a token always expires');
               const expires = tokenExpiry(days);
               const label = said(body.label).trim().slice(0, 200) || `AI app: ${account.name} in ${store.name}`;
               const token = store.createApiToken(account.name, {
-                label, surfaces: ['fmmcp'], readOnly: body.readOnly === true, ...(expires ? { expires } : {}),
+                label, surfaces: ['fmmcp'], readOnly: body.readOnly === true, expires,
                 ...(Array.isArray(body.layouts) && body.layouts.length ? { layouts: body.layouts.map(String) } : {}),
                 provenance: 'service',
               });

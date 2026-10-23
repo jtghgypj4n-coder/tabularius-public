@@ -255,8 +255,8 @@ export const ROWS: Row[] = [
   {
     id: 'api-tokens', section: 'Sign-in and accounts', setting: 'API tokens (`ohbt_`) made for an account',
     default: 'Expire after 90 days (a calendar feed address, 365), and can write, unless made read-only or given another lifetime',
-    changedBy: 'Chosen when the token is made (`--expires-days` or `expiresDays`, 0 for none; `readOnly`, surfaces, layouts), or for every new one except calendar feeds with `TABULARIUS_TOKEN_DEFAULT_DAYS` (0 for none); the console lists and revokes them',
-    risk: 'A token that leaks works until it expires or someone revokes it. Asking for 0 days makes one that never expires, and the security health page lists those. Tokens made before this default keep the lifetime they had',
+    changedBy: 'Chosen when the token is made (`--expires-days` or `expiresDays`, 1 to 3650 days; `readOnly`, surfaces, layouts), or for every new one except calendar feeds with `TABULARIUS_TOKEN_DEFAULT_DAYS`; the console lists and revokes them',
+    risk: 'A token that leaks works until it expires or someone revokes it. A token cannot be made without an expiry. Tokens made before every token had to expire have none: they no longer work and the console lists them as needing to be made again',
     how: 'probed', expect: 'expires in 90 days, read-write',
     observe: async (c) => c.apiTokenShape(),
   },

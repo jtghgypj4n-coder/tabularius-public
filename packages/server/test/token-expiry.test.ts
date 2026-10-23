@@ -1,5 +1,5 @@
 // A token made without saying how long it lives gets a lifetime: 90 days for API and AI-app tokens, a year for calendar feed
-// addresses. 0 days is "never", asked for on purpose; TABULARIUS_TOKEN_DEFAULT_DAYS changes the default for tokens.
+// addresses. Nobody can ask for none: 0 days is refused; TABULARIUS_TOKEN_DEFAULT_DAYS changes the default for tokens.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -22,27 +22,23 @@ const withEnv = <T>(value: string | undefined, run: () => T): T => {
   try { return run(); } finally { if (was === undefined) delete process.env.TABULARIUS_TOKEN_DEFAULT_DAYS; else process.env.TABULARIUS_TOKEN_DEFAULT_DAYS = was; }
 };
 
-test('tokenExpiry: nothing asked takes the default, 0 means never, anything else is checked', () => {
+test('tokenExpiry: nothing asked takes the default, anything else is checked, and 0 is refused', () => {
   withEnv(undefined, () => {
     assert.equal(defaultTokenDays(), DEFAULT_TOKEN_DAYS);
     for (const blank of [undefined, null, '']) near(tokenExpiry(blank), DEFAULT_TOKEN_DAYS);
     near(tokenExpiry(30), 30);
     near(tokenExpiry('7'), 7);
     near(tokenExpiry(1 / 48), 1 / 48);
-    assert.equal(tokenExpiry(0), undefined, 'asked for on purpose');
-    assert.equal(tokenExpiry('0'), undefined);
     near(tokenExpiry(undefined, DEFAULT_FEED_DAYS), DEFAULT_FEED_DAYS);
-    assert.equal(tokenExpiry(undefined, 0), undefined, 'a default of none');
-    for (const bad of [-1, 3651, NaN, Infinity, 'soon', true, {}, [], ' ']) {
+    for (const bad of [0, '0', -1, 3651, NaN, Infinity, 'soon', true, {}, [], ' ']) {
       assert.throws(() => tokenExpiry(bad), (e) => e instanceof StoreError && e.code === 960, String(JSON.stringify(bad)));
     }
   });
 });
 
-test('TABULARIUS_TOKEN_DEFAULT_DAYS changes the default, 0 turns it off, and nonsense keeps the 90 days', () => {
+test('TABULARIUS_TOKEN_DEFAULT_DAYS changes the default; 0 and nonsense keep the 90 days', () => {
   withEnv('30', () => { assert.equal(defaultTokenDays(), 30); near(tokenExpiry(undefined), 30); });
-  withEnv('0', () => { assert.equal(defaultTokenDays(), 0); assert.equal(tokenExpiry(undefined), undefined); near(tokenExpiry(5), 5); });
-  for (const nonsense of ['soon', '-3', '99999', ' ']) withEnv(nonsense, () => assert.equal(defaultTokenDays(), DEFAULT_TOKEN_DAYS, nonsense));
+  for (const nonsense of ['0', '0.0', 'soon', '-3', '99999', ' ']) withEnv(nonsense, () => assert.equal(defaultTokenDays(), DEFAULT_TOKEN_DAYS, nonsense));
 });
 
 let dir: string;
@@ -73,7 +69,7 @@ const security = (body: unknown) => post('/tabularius/security/v1/databases/Shop
 const admin = (body: unknown) => post('/tabularius/admin/v1/mcp/tokens', { database: 'Shop', account: 'Ann', ...(body as object) }, { 'x-tabularius-admin': '1' });
 const expiryOf = (token: string) => host.get('Shop')!.apiTokens().find((t) => token.startsWith(`ohbt_${t.id}.`))!.expires;
 
-test('Manage Security: a token made with no lifetime expires in 90 days; 0 is never; a bad number is refused', async () => {
+test('Manage Security: a token made with no lifetime expires in 90 days; 0 and a bad number are refused', async () => {
   const made = async (body: object) => {
     const r = await security({ account: 'Ann', ...body });
     return { status: r.status, token: ((await r.json()) as { token?: string }).token };
@@ -85,13 +81,10 @@ test('Manage Security: a token made with no lifetime expires in 90 days; 0 is ne
   near(expiryOf(nulled.token!), DEFAULT_TOKEN_DAYS);
   const short = await made({ expiresDays: 7 });
   near(expiryOf(short.token!), 7);
-  const never = await made({ expiresDays: 0 });
-  assert.equal(never.status, 200);
-  assert.equal(expiryOf(never.token!), undefined, 'asked for on purpose');
-  for (const expiresDays of [-1, 'soon', 5000]) assert.equal((await made({ expiresDays })).status, 400, String(expiresDays));
+  for (const expiresDays of [0, -1, 'soon', 5000]) assert.equal((await made({ expiresDays })).status, 400, String(expiresDays));
 });
 
-test('the admin console: an AI app token made with no lifetime expires in 90 days; 0 is never', async () => {
+test('the admin console: an AI app token made with no lifetime expires in 90 days; 0 is refused', async () => {
   const made = async (body: object) => {
     const r = await admin(body);
     assert.equal(r.status, 201, await r.clone().text());
@@ -99,8 +92,7 @@ test('the admin console: an AI app token made with no lifetime expires in 90 day
   };
   near(expiryOf(await made({})), DEFAULT_TOKEN_DAYS);
   near(expiryOf(await made({ days: 30 })), 30);
-  assert.equal(expiryOf(await made({ days: 0 })), undefined, 'asked for on purpose');
-  for (const days of [-1, 1.5, 'x', 4000]) assert.equal((await admin({ days })).status, 400, String(days));
+  for (const days of [0, -1, 1.5, 'x', 4000]) assert.equal((await admin({ days })).status, 400, String(days));
 });
 
 test('the token command and calendar feeds follow the same rule', async () => {
@@ -113,5 +105,5 @@ test('the token command and calendar feeds follow the same rule', async () => {
   };
   near(feed(), DEFAULT_FEED_DAYS);
   near(feed(10), 10);
-  assert.equal(feed(0), undefined, 'asked for on purpose');
+  assert.throws(() => feed(0), (e) => (e as { status?: number }).status === 400, 'a feed address cannot be made to last for ever either');
 });

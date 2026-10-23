@@ -8,6 +8,6 @@ Address ranges allowed to supply the configured proxy header.
 | Accepted values | Comma-separated IP addresses or CIDR ranges |
 | Restart needed | Yes for a running server. |
 | Explained in | [ADMIN.md](../../../../ADMIN.md) |
-| Code | [packages/cli/src/main.ts:1304](../../../../packages/cli/src/main.ts#L1304) |
+| Code | [packages/cli/src/main.ts:1303](../../../../packages/cli/src/main.ts#L1303) |
 
 [All environment variables](../../../environment-variables.md)
