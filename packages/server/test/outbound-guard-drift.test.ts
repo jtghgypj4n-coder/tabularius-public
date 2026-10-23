@@ -38,6 +38,7 @@ const ALLOWED: Record<string, Allowed> = {
   'packages/cli/src/ask-server.ts': { reason: 'the command line asking the server on this machine for its own folder, at the address in the folder\'s own access file' },
   'packages/cli/src/service.ts': { reason: 'the service installer\'s health check of the server it just installed, on this machine' },
   'packages/cli/src/doctor.ts': { reason: 'the doctor command checking the certificate at the address the administrator typed after --url (or the server on this machine): run from a command line, never by a script or a request' },
+  'packages/cli/src/exposure.ts': { reason: 'the doctor command\'s exposure check: it tries this computer\'s own addresses and ports, and the address the administrator typed after --url, to say who can reach the server; run from a command line, never by a script or a request' },
   'packages/calc/src/javascript.ts': { reason: 'the JavaScript sandbox: this file REPLACES net, tls, dgram, dns and http2 connect functions with a refusal; it makes no connection' },
 };
 
