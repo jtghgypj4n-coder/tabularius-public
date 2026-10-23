@@ -48,3 +48,12 @@ test('modern layouts: the editor warns from nine tenths of the formula limit, an
   assert.equal(over.level, 'over');
   assert.match(over.text, /only in Tabularius/);
 });
+
+test('web-b-59: a layout name stays inside the starter page script', () => {
+  const hostile = 'Q</script><script>alert(document.domain)</script>\u2028';
+  const page = starterPage('Safe', hostile);
+  assert.equal((page.match(/<script>/g) ?? []).length, 1);
+  assert.ok(page.includes('\\u003c/script>'));
+  assert.ok(page.includes('\\u2028'));
+  assert.equal(page.includes('\u2028'), false);
+});

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { CopyMoved, OfflineCopy, copyKey, deriveBits, exportKey, importKey, memoryShelf, newSalt, type CopyKey } from '../src/offline.ts';
+import { CopyMoved, KEEP_LIMIT, OfflineCopy, copyKey, deriveBits, exportKey, importKey, memoryShelf, newSalt, settleRequest, type CopyKey } from '../src/offline.ts';
 
 const deriveKey = async (password: string, salt: Uint8Array): Promise<CopyKey> => copyKey(await deriveBits(password, salt));
 import { Api, ApiError, OFFLINE, keepable } from '../src/api.ts';
@@ -10,6 +10,52 @@ async function copyFor(shelf = memoryShelf(), password = 'secret', db = 'Tasks',
   const key = await deriveKey(password, salt);
   return { shelf, salt, key, copy: await OfflineCopy.create(shelf, db, account, salt, key) };
 }
+
+test('web-b-57: reopening trims responses kept across short sessions', async () => {
+  const { shelf, key, salt } = await copyFor();
+  const other = await OfflineCopy.create(shelf, 'Other', 'Admin', salt, key);
+  await other.keep('GET /other', { kept: true });
+  for (let session = 0; session < 30; session++) {
+    const copy = await OfflineCopy.open(shelf, 'Tasks', 'Admin', key) as OfflineCopy;
+    for (let item = 0; item < 99; item++) await copy.keep(`GET /session/${session}/${item}`, { item });
+  }
+  const own = [...shelf.data.responses.keys()].filter((k) => k.startsWith('Tasks\u0000admin\u0000'));
+  assert.ok(own.length <= KEEP_LIMIT + 100, String(own.length));
+  assert.deepEqual(await other.recall('GET /other'), { kept: true });
+});
+
+test('web-b-58: readwrite shelf results wait for transaction completion', async () => {
+  const fake = () => ({
+    tx: { oncomplete: null, onabort: null, onerror: null, error: null } as unknown as IDBTransaction,
+    req: { onsuccess: null, onerror: null, result: 'stored', error: null } as unknown as IDBRequest<string>,
+  });
+  const aborted = fake();
+  const failed = settleRequest(aborted.tx, aborted.req, 'readwrite');
+  aborted.req.onsuccess?.({} as Event);
+  Object.assign(aborted.tx, { error: new Error('quota') });
+  aborted.tx.onabort?.({} as Event);
+  await assert.rejects(failed, /quota/);
+
+  const errored = fake();
+  const refused = settleRequest(errored.tx, errored.req, 'readwrite');
+  Object.assign(errored.tx, { error: new Error('transaction failed') });
+  errored.tx.onerror?.({} as Event);
+  await assert.rejects(refused, /transaction failed/);
+
+  const completed = fake();
+  let resolved = false;
+  const saved = settleRequest(completed.tx, completed.req, 'readwrite').then((v) => { resolved = true; return v; });
+  completed.req.onsuccess?.({} as Event);
+  await Promise.resolve();
+  assert.equal(resolved, false);
+  completed.tx.oncomplete?.({} as Event);
+  assert.equal(await saved, 'stored');
+
+  const read = fake();
+  const reading = settleRequest(read.tx, read.req, 'readonly');
+  read.req.onsuccess?.({} as Event);
+  assert.equal(await reading, 'stored');
+});
 
 test('offline copy: opens only with the password that made it, and removing it deletes everything', async () => {
   const { shelf, salt, copy } = await copyFor();

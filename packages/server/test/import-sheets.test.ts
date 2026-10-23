@@ -111,3 +111,14 @@ test('a request with several ZIPs shares one limit between them', async () => {
   assert.equal(readImportTablesRequest(type, body(['One.zip', zip({ 'A.csv': half })])).sheets.length, 1);
   assert.throws(() => readImportTablesRequest(type, body(['One.zip', zip({ 'A.csv': half })], ['Two.zip', zip({ 'B.csv': half })])), /Two\.zip: .*expands to more than/);
 });
+
+test('web-b-9: import overrides keep a sheet named __proto__ as an own key', async () => {
+  const { readImportTablesRequest } = await import('../src/import-tables-route.ts');
+  const overrides = JSON.stringify({ ['__proto__']: { Name: 'skip' } });
+  const body = Buffer.from(`--b\r\ncontent-disposition: form-data; name="file"; filename="__proto__.csv"\r\ncontent-type: text/csv\r\n\r\nName\r\nOne\r\n--b\r\ncontent-disposition: form-data; name="overrides"\r\n\r\n${overrides}\r\n--b--\r\n`);
+  const parsed = readImportTablesRequest('multipart/form-data; boundary=b', body);
+  assert.deepEqual(parsed.sheets.map((s) => s.name), ['__proto__']);
+  assert.equal(Object.hasOwn(parsed.overrides, '__proto__'), true);
+  assert.equal(parsed.overrides['__proto__'].Name, 'skip');
+  assert.equal(({} as Record<string, unknown>).Name, undefined);
+});

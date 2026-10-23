@@ -48,24 +48,40 @@ export interface ListenHooks {
 export function listen(api: Api, onChange: (c: Change) => void, onExpired: () => void, onMessage?: (text: string) => void, hooks: ListenHooks = {}): () => void {
   let stopped = false;
   let abort = new AbortController();
+  let activeReader: ReadableStreamDefaultReader<string> | undefined;
+  const notify = (handler: () => void): void => {
+    try { handler(); } catch (e) { console.warn('Live update handler failed', e); }
+  };
   const run = async () => {
     let failures = 0;
     let dropped = false;
     while (!stopped) {
+      let reader: ReadableStreamDefaultReader<string> | undefined;
       try {
         const r = await fetch(`${base(api)}/events`, { headers: { authorization: `Bearer ${api.token}` }, signal: abort.signal });
+        if (stopped) {
+          await r.body?.cancel().catch(() => {});
+          return;
+        }
         if (r.status === 401) {
-          onExpired();
+          await r.body?.cancel().catch(() => {});
+          notify(onExpired);
           return;
         }
         if (!r.ok || !r.body) throw new Error(`the live-update connection answered HTTP ${r.status}`);
         failures = 0;
-        hooks.onState?.(true);
+        notify(() => hooks.onState?.(true));
         if (dropped) {
           dropped = false;
-          hooks.onReconnect?.();
+          notify(() => hooks.onReconnect?.());
         }
-        const reader = r.body.pipeThrough(new TextDecoderStream()).getReader();
+        if (stopped) {
+          await r.body.cancel().catch(() => {});
+          return;
+        }
+        reader = r.body.pipeThrough(new TextDecoderStream()).getReader();
+        activeReader = reader;
+        if (stopped) return;
         let buf = '';
         for (;;) {
           const { value, done } = await reader.read();
@@ -78,21 +94,27 @@ export function listen(api: Api, onChange: (c: Change) => void, onExpired: () =>
             const event = /^event: (.*)$/m.exec(block)?.[1];
             const data = /^data: (.*)$/m.exec(block)?.[1];
             if (event === 'expired') {
-              onExpired();
+              notify(onExpired);
               return;
             }
-            if (event === 'change' && data) onChange(JSON.parse(data) as Change);
-            if (event === 'message' && data) onMessage?.((JSON.parse(data) as { text: string }).text);
+            if (event === 'change' && data) notify(() => onChange(JSON.parse(data) as Change));
+            if (event === 'message' && data) notify(() => onMessage?.((JSON.parse(data) as { text: string }).text));
+            if (stopped) return;
           }
         }
       } catch (e) {
         if (stopped) return;
         console.warn('Live updates disconnected', e);
+      } finally {
+        if (reader) {
+          if (activeReader === reader) activeReader = undefined;
+          await reader.cancel().catch(() => {});
+        }
       }
       // The stream ended or failed: whatever changes while it is down are missed, so the window refreshes when it is back.
       dropped = true;
       failures++;
-      if (failures >= SAY_AFTER) hooks.onState?.(false);
+      if (failures >= SAY_AFTER) notify(() => hooks.onState?.(false));
       await new Promise((ok) => setTimeout(ok, reconnectDelay(failures)));
     }
   };
@@ -100,6 +122,7 @@ export function listen(api: Api, onChange: (c: Change) => void, onExpired: () =>
   return () => {
     stopped = true;
     abort.abort();
+    void activeReader?.cancel().catch(() => {});
     abort = new AbortController();
   };
 }
