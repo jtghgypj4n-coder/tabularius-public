@@ -63,7 +63,8 @@ test('a killed scan retains its last anonymous progress and stage times', async 
   try {
     const entry = join(dir, 'child.mjs');
     writeFileSync(entry, `process.stderr.write('tabularius-scan-progress ' + JSON.stringify({stage:'records',bytesRead:8192,tablesConverted:2,recordsConverted:30,peakHeapBytes:4096,stageMs:{schema:12,tables:4,records:3}}) + '\\n'); setInterval(() => {}, 1000);`);
-    const scan = await scanInChild(entry, join(dir, 'nothing.fmp12'), false, 250);
+    // The limit runs from the spawn, so it must outlast the child's start-up on a busy runner, or the kill comes before its first line.
+    const scan = await scanInChild(entry, join(dir, 'nothing.fmp12'), false, 5_000);
     assert.equal(scan.status, 'timeout');
     assert.equal(scan.progress?.stage, 'records');
     assert.equal(scan.progress?.bytesRead, 8192);
