@@ -428,7 +428,7 @@ export async function serve(opts: ServeOptions): Promise<{ server: Server; host:
     disposers.push(() => shipper.stop());
     // Closing or pausing a file folds its log into it: save its last changes first, when anything follows them.
     host.beforeClose.push(() => {
-      if (admin.progressive || replication) shipper.ship();
+      if (admin.progressive || replication) shipper.shipBeforeCheckpoint();
     });
     // Files the server keeps from AI (--ai-exclude), from when they open.
     excludeFromAi(host, opts.aiExclude ?? []);
