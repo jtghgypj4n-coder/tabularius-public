@@ -19,6 +19,13 @@ test('the register is up to date with the markers', () => {
   assert.equal(readFileSync(REGISTER, 'utf8'), render(entries), 'run npm run docs:known-differences');
 });
 
+test('source comments are omitted before excerpts are shortened', () => {
+  const { entries } = pages({ 'a.md': '# A\n\n| This is unverified <!-- engine.ts writeField --> and documented here | shows | settles | <!-- known-difference: Scripts ;; behavior ;; shows ;; settles -->\n' });
+  assert.equal(entries.length, 1);
+  assert.doesNotMatch(entries[0].excerpt, /<!--|-->/);
+  assert.match(render(entries), /This is unverified and documented here/);
+});
+
 test('the README and the moving guide link to the register', () => {
   for (const file of ['README.md', 'docs/moving-a-solution.md']) {
     assert.match(readFileSync(join(ROOT, file), 'utf8'), /\(\.?\.?\/?(?:docs\/)?known-differences\.md\)/, `${file} links known-differences.md`);
