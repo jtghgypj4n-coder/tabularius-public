@@ -216,6 +216,13 @@ test('MBS RegEx: execute options are honoured, or refused', () => {
   assert.equal(r('RegEx.FindMatches', digits, 'a1b', 0, 1), '\r1\r\r\r');
 });
 
+test('MBS RegEx NotEmpty retries non-empty alternatives at the same position', () => {
+  const r = direct({});
+  assert.equal(r('RegEx.ReplaceAll', 'baaac', 'a*', 'X', 'NotEmpty'), 'bXXXc');
+  assert.equal(r('RegEx.Match', '(|a)', 'a', 'NotEmpty'), 1);
+  assert.equal(r('RegEx.Match', 'a*?', 'aaa', 'NotEmpty'), 1);
+});
+
 test('MBS RegEx: Execute keeps the captures, not the text searched', () => {
   const r = direct({});
   const ref = r('RegEx.Compile', '(?<word>w\\w+)');

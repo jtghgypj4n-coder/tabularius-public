@@ -56,6 +56,14 @@ test('MBS List: matching, columns and counting', () => {
   assert.equal(x('List.RegExMatch', L('Hello¶Test¶World¶House¶Test'), 'H(.*)o', 0, 0, 1), L('Hello¶House'));
 });
 
+test('MBS List.RegExMatch batches ordinary values within the regex budget', () => {
+  const values = Array.from({ length: 20_000 }, (_, i) => `item${i}`).join('\r');
+  const t0 = Date.now();
+  const got = x('List.RegExMatch', values, '9$');
+  assert.deepEqual(String(got).split('\r').filter(Boolean), Array.from({ length: 20_000 }, (_, i) => `item${i}`).filter((s) => /9$/.test(s)));
+  assert.ok(Date.now() - t0 < 8000, `${Date.now() - t0} ms`);
+});
+
 test('MBS List: sets, duplicates and cleaning up', () => {
   assert.equal(x('List.And', L('1¶2¶3¶4'), L('3¶4¶5¶6'), 1), L('3¶4'));
   assert.equal(x('List.Or', L('1¶2¶3¶4'), L('3¶4¶5¶6'), 1), L('1¶2¶3¶4¶5¶6'));

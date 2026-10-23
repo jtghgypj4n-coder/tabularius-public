@@ -85,6 +85,22 @@ test('MBS JSON: GetPathItem and SetPathItem, with list paths and FileMaker paths
   same(j('JSON.SetPathItem', '{"a":1}', 'a', ''), '{"a":1}');
 });
 
+test('MBS JSON paths preserve numeric object keys while arrays still use numeric indexes', () => {
+  const j = direct({});
+  same(j('JSON.SetPathItem', '{}', '007', '1'), '{"007":1}');
+  same(j('JSON.SetPathItem', '{}', '12345678901234567890', '1'), '{"12345678901234567890":1}');
+  assert.equal(j('JSON.GetPathItem', '{"007":1}', '007'), '1');
+  assert.equal(j('JSON.GetPathItem', '["first","second"]', '0'), '"first"');
+});
+
+test('MBS JSON compares raw large numbers exactly for equality, merging and array lookup', () => {
+  const j = direct({});
+  assert.equal(j('JSON.Equals', '{"id":9007199254740993}', '{"id":9007199254740992}'), 0);
+  same(j('JSON.Merge', '[9007199254740992]', '[9007199254740993]'), '[9007199254740992,9007199254740993]');
+  assert.equal(j('JSON.FindValueInArray', '[9007199254740992,9007199254740993]', '9007199254740993'), 1);
+  assert.equal(j('JSON.Equals', '1.0', '1'), 1);
+});
+
 test('MBS JSON: reading values, sizes, types and lists', () => {
   const j = direct({});
   assert.equal(j('JSON.GetArraySize', '[1, 2, 3, 4]'), 4);
