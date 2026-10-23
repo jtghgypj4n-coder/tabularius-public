@@ -96,3 +96,22 @@ test('records in a table with an ordinary name still draw serials', () => file((
   const b = store.create('Plain', {}).recordId;
   assert.deepEqual([a, b].map((id) => store.get('Plain', id).fieldData.N), [3, 5]);
 }));
+
+test('serials and globals stored in a damaged shape read as unset instead of throwing', () => {
+  for (const damaged of [{ T: null }, { T: 'text' }, { T: 7 }, { T: [] }, null, 5]) file((store) => {
+    store.applyDesign([{ op: 'createTable', name: 'T', fields: [
+      { name: 'S', type: 'number', options: { autoEnter: { serial: { next: '4', increment: 1 } } } },
+      { name: 'G', options: { global: true } },
+    ] }]);
+    const t = store.schema.tables[0];
+    for (const key of ['serials', 'globals']) {
+      store.sql.prepare('INSERT INTO _fm_meta VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET json = excluded.json').run(key, JSON.stringify(damaged));
+    }
+    assert.equal(store.calc.peekSerial(t, t.fields[0]), '4');
+    assert.equal(store.calc.globalValue(t, t.fields[1]), null);
+    assert.equal(nextSerial(store, t, t.fields[0]), '4');
+    assert.equal(store.calc.peekSerial(t, t.fields[0]), '5');
+    store.calc.setGlobal(t, t.fields[1], 'v');
+    assert.equal(store.calc.globalValue(t, t.fields[1]), 'v');
+  });
+});
