@@ -5,10 +5,10 @@
 // "Checked by" says how a row is observed: "probed" is a request to the running server (or a file it made), "read from
 // code" is a constant or a line of source that the test reads, because nothing on a running server shows it from this side.
 
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { LOCKOUT, PASSWORD_POLICY } from '../../store/src/index.ts';
-import { DEFAULT_RUN_TOKENS } from '../src/assistant.ts';
 
 export interface Ctx {
   base: string;
@@ -305,11 +305,24 @@ export const ROWS: Row[] = [
   },
   {
     id: 'ai-run-budget', section: 'What can reach outside', setting: 'Token budget for one assistant question',
-    default: '300,000 tokens (as billed: cached input at a tenth), strict: before each model call the worst it could add is reserved, and a pasted picture counts 5,000 tokens, so a call that could pass the budget is not made',
-    changedBy: '`--ai-run-tokens N` or `TABULARIUS_AI_RUN_TOKENS`',
-    risk: 'A higher number lets one question, or a loop of tool steps, spend more of the day and month limits. There is no way to turn the budget off, and no dollar budget for one question (the monthly one is `--ai-monthly-budget`)',
-    how: 'probed', expect: '300000',
-    observe: async () => String(DEFAULT_RUN_TOKENS),
+    default: '300,000 tokens (as billed: cached input at a tenth), strict: before each model call the worst it could add is reserved (text counted cautiously, a pasted picture as 5,000 tokens, and a margin when the provider\'s tool search is used), so a call that could pass the budget is not made',
+    changedBy: '`--ai-run-tokens N` or `TABULARIUS_AI_RUN_TOKENS`: a whole number from 1 to 10,000,000',
+    risk: 'A higher number lets one question, or a loop of tool steps, spend more of the day and month limits. The budget cannot be switched off (zero, fractions, 1e308 and numbers above 10,000,000 are refused at start), and there is no dollar budget for one question (the monthly one is `--ai-monthly-budget`)',
+    how: 'probed', expect: 'one question up to 300,000 tokens; 1e308 refused',
+    observe: async (c) => {
+      // A key in a private file (outside the hosted folder), so a server with the assistant on can start.
+      const home = mkdtempSync(join(tmpdir(), 'tabularius-defaults-key-'));
+      const key = join(home, 'key');
+      writeFileSync(key, ['probe', 'key'].join('-'), { mode: 0o600 });
+      try {
+        const on = await c.other(['--ai', '--ai-key-file', key]);
+        const budget = /one question may use up to ([\d,]+) tokens/.exec(on)?.[1];
+        const off = await c.refused(['--ai', '--ai-key-file', key, '--ai-run-tokens', '1e308']);
+        return `one question up to ${budget} tokens; 1e308 ${/needs a whole number of tokens/.test(off) ? 'refused' : 'accepted'}`;
+      } finally {
+        rmSync(home, { recursive: true, force: true });
+      }
+    },
   },
   {
     id: 'ai-policy', section: 'What can reach outside', setting: 'Per-file AI-visible policy',

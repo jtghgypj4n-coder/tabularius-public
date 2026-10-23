@@ -133,13 +133,15 @@ export interface AssistantOptions {
   /**
    * Tokens one question (a run of model calls and tool steps) may use, as billed (cached input at a tenth). Strict:
    * before each model call the worst case it could add is reserved, and a call that could take the run past this is
-   * not made (DEFAULT_RUN_TOKENS when not set).
+   * not made. A whole number up to MAX_RUN_TOKENS (DEFAULT_RUN_TOKENS when not set); it cannot be switched off.
    */
   runTokens?: number;
 }
 
 /** What one run may use unless --ai-run-tokens says otherwise: far above an ordinary question, well below a runaway loop. */
 export const DEFAULT_RUN_TOKENS = 300_000;
+/** The most --ai-run-tokens may be set to: a budget that cannot be switched off by a huge number. */
+export const MAX_RUN_TOKENS = 10_000_000;
 /** Tokens counted for each picture before it is sent (the provider's largest charge for one is about 4,800). */
 export const IMAGE_RESERVE_TOKENS = 5000;
 /** The most a model call may write, unless its route says otherwise. */
@@ -148,21 +150,47 @@ const DEFAULT_MAX_TOKENS = 4096;
 /** What an answer's tokens count against the daily limit: cached input is billed at a tenth. */
 export const billedTokens = (u: Pick<Usage, 'inputTokens' | 'cachedTokens' | 'outputTokens'>) => u.inputTokens - u.cachedTokens + Math.ceil(u.cachedTokens / 10) + u.outputTokens;
 
+/** A whole number of tokens from 1 to MAX_RUN_TOKENS written in plain digits (no 1e308, 0.5, 0x10 or signs), else undefined. */
+export function parseRunTokens(value: string): number | undefined {
+  if (!/^[1-9][0-9]{0,8}$/.test(value)) return undefined;
+  const n = Number(value);
+  return n <= MAX_RUN_TOKENS ? n : undefined;
+}
+
+/** The budget a run gets: the setting when it is a whole number in bounds, the ceiling above it, else the default. */
+export function runBudgetOf(setting: number | undefined): number {
+  if (setting === undefined || Number.isNaN(setting) || setting < 1) return DEFAULT_RUN_TOKENS;
+  return Number.isInteger(setting) || setting === Infinity ? Math.min(setting, MAX_RUN_TOKENS) : DEFAULT_RUN_TOKENS;
+}
+
+/** Tokens held back when the tools are found by the provider's tool search: its own tool, and what a search returns. */
+export const TOOL_SEARCH_MARGIN = 10_000;
+
 /**
- * A safe guess at the input of a model call, for reserving it before it is sent: a token for every 3 characters
- * (providers average about 4), and each picture as IMAGE_RESERVE_TOKENS instead of by its base64 length.
+ * A cautious guess at the tokens of some text, for reserving them before a call: a token for every 3 ASCII characters
+ * (providers average about 4), and a whole token for every other UTF-16 unit (Chinese, Japanese, emoji and the like can
+ * cost that much or more).
+ */
+function textTokens(text: string): number {
+  let ascii = 0;
+  let other = 0;
+  for (let i = 0; i < text.length; i++) text.charCodeAt(i) < 128 ? ascii++ : other++;
+  return Math.ceil(ascii / 3) + other;
+}
+
+/**
+ * A cautious guess at the input of a model call, for reserving it before it is sent. Pictures count IMAGE_RESERVE_TOKENS
+ * each instead of their base64 length. Every tool definition is counted, deferred ones too (all of them could be loaded
+ * by tool search during the run), and a margin is added when tool search is in use.
  */
 export function estimateInputTokens(system: string, tools: unknown[], messages: { role?: string; content: string | object[] }[]): number {
-  let chars = system.length + JSON.stringify(tools).length;
-  let images = 0;
+  let tokens = textTokens(system) + textTokens(JSON.stringify(tools));
+  if (tools.some((t) => (t as { defer_loading?: boolean }).defer_loading)) tokens += TOOL_SEARCH_MARGIN;
   for (const m of messages) {
-    if (typeof m.content === 'string') chars += m.content.length;
-    else for (const b of m.content) {
-      if ((b as { type?: string }).type === 'image') images++;
-      else chars += JSON.stringify(b).length;
-    }
+    if (typeof m.content === 'string') tokens += textTokens(m.content);
+    else for (const b of m.content) tokens += (b as { type?: string }).type === 'image' ? IMAGE_RESERVE_TOKENS : textTokens(JSON.stringify(b));
   }
-  return Math.ceil(chars / 3) + images * IMAGE_RESERVE_TOKENS;
+  return tokens;
 }
 
 /** Texts per request to the embedding endpoint. */
@@ -1890,7 +1918,7 @@ export class Assistant {
       const stopped = (reason: string) => ({ reply: `I stopped there: ${reason}.`, proposals: [] as Proposal[], foundSets: [] as FoundSet[], drafts: [] as Draft[],
         charts: [] as ChartOut[], dashboards: [] as DashboardOut[], cleanups: [] as CleanupOut[], automations: [] as AutomationOut[], tools: used, usage });
       // The run's strict token budget: what the run has used plus the worst the next call could add must fit.
-      const runBudget = Number.isFinite(this.opts.runTokens) && this.opts.runTokens! > 0 ? this.opts.runTokens! : DEFAULT_RUN_TOKENS;
+      const runBudget = runBudgetOf(this.opts.runTokens);
       let lastInput = 0;
       for (let turn = 0; turn < (this.opts.maxTurns ?? 12); turn++) {
         progress.signal?.throwIfAborted();

@@ -325,9 +325,10 @@ when you press Ctrl-C. To host your own FileMaker file, see [QUICKSTART.md](QUIC
   what the assistant may use per day (cached input counts at a tenth); past it, questions wait until the next day (UTC).
   `--ai-account-daily-tokens 200000` does the same per account, and shows
   each person their own usage. One question has a
-  strict budget of its own, `--ai-run-tokens` (default 300,000 tokens, cached
-  input at a tenth): before each model call the most it could add is
-  counted (the input so far, a pasted picture as 5,000 tokens, and the
+  strict budget of its own, `--ai-run-tokens` (default 300,000 tokens, a whole number
+  up to 10,000,000, cached input at a tenth): before each model call the most it could add is
+  counted (the input so far, counted cautiously, with a margin when the
+  provider's tool search is used; a pasted picture as 5,000 tokens; and the
   most the answer may write), and a call that could take the question past
   the budget is not made; the answer says so and keeps what it found. There
   is no dollar budget for one question, only the month's. The count is

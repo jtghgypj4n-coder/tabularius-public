@@ -23,7 +23,7 @@ import { FmpDatabase, fileSource, encryptionInfo, readLayoutDesigns, segmentOf, 
 import { BUILT_IN_EXTENDED_PRIVILEGES, addCensus, styleCensus, styleCensusText, calcFidelity, censusText, exportSql, exportSqlSummary, planImportTables, importTables, importTablesSummary, notionMarkdownSheet, MAX_IMPORT_ROWS, type SheetInput, type ColumnOverrides, type ColumnKind, findStaleCalcs, layoutCensus, type LayoutCensus, createStore, designReport, importFmp12, PASSWORD_POLICY, DEFAULT_MIN_PASSWORD_LENGTH, reconvert, reconvertCheck, verifySecurityAudit, verifyRecordAudit, anchorHead, checkAnchor, Store, syncPlan, openForPlanning, applySync, readSyncLog, releaseHeldTables, type ConflictPolicy, writeBackKit, designText, writeDesignText, diffDesigns, planDesignApply, readDesignFolder, type DesignOp, type ReconvertPreview, csvField } from '../../store/src/index.ts';
 import { xlsxSheetNames } from '../../scripts/src/xlsx.ts';
 import { importFileRowIterator, neverAllowed, parseAllowList, SCREEN_STEPS, SERVER_STEPS, testScripts, type ScriptTestResult } from '../../scripts/src/index.ts';
-import { conversionReport, explainScriptFailure, type ScriptFailure, DEFAULT_MODEL, Host, serve, serveCluster, serveStdio, aiStatus, STORE_EXT, ENCRYPTED_EXT, encryptFileSync, decryptFileSync, setAdminPassword, adminPasswordProblem, tokenExpiry, readLocalMcpToken, backupFolder, backupSets, defaultBackupDir, parseInterval, parseTime, restoreAt, restoreBackup, AccountChangesError, type AccountDifference, type ChangedSince, verifySet, describeCheck, resolveEmbedEndpoint, resolveImageEmbed, localCertificateFiles, Standby, S3, s3FromEnv, mirrorDown, fetchFmsExport, migrateFms, describeMigration, copySize, readSettings, runningServer, dataApiSource, dataApiClient, checkSyncAllowed, describeApply, describePlan, verifySync, describeSyncVerification, parseSyncConfig, CONTAINER_PULL_MAX_BYTES, type FmsExport } from '../../server/src/index.ts';
+import { conversionReport, explainScriptFailure, type ScriptFailure, DEFAULT_MODEL, DEFAULT_RUN_TOKENS, MAX_RUN_TOKENS, parseRunTokens, Host, serve, serveCluster, serveStdio, aiStatus, STORE_EXT, ENCRYPTED_EXT, encryptFileSync, decryptFileSync, setAdminPassword, adminPasswordProblem, tokenExpiry, readLocalMcpToken, backupFolder, backupSets, defaultBackupDir, parseInterval, parseTime, restoreAt, restoreBackup, AccountChangesError, type AccountDifference, type ChangedSince, verifySet, describeCheck, resolveEmbedEndpoint, resolveImageEmbed, localCertificateFiles, Standby, S3, s3FromEnv, mirrorDown, fetchFmsExport, migrateFms, describeMigration, copySize, readSettings, runningServer, dataApiSource, dataApiClient, checkSyncAllowed, describeApply, describePlan, verifySync, describeSyncVerification, parseSyncConfig, CONTAINER_PULL_MAX_BYTES, type FmsExport } from '../../server/src/index.ts';
 // optimize's report (kept apart from the busy import line above).
 import { sheetsFromFile, checkSheetNames, sheetNameOf } from '../../server/src/import-sheets.ts';
 import { optimizationReport, openApiDocument, typesFromOpenApi, checkSolution, checkSolutionText, createFeed, importIcs, listFeeds, revokeFeed } from '../../server/src/index.ts';
@@ -1400,7 +1400,7 @@ function main(argv: string[]): number {
         const perAccount = flag(args, '--ai-account-daily-tokens') ?? process.env.TABULARIUS_AI_ACCOUNT_DAILY_TOKENS;
         if (perAccount !== undefined && !(Number(perAccount) > 0)) throw new Error('serve: --ai-account-daily-tokens needs a number of tokens, like 200000');
         const perRun = flag(args, '--ai-run-tokens') ?? process.env.TABULARIUS_AI_RUN_TOKENS;
-        if (perRun !== undefined && !(Number.isFinite(Number(perRun)) && Number(perRun) > 0)) throw new Error('serve: --ai-run-tokens needs a number of tokens, like 300000');
+        if (perRun !== undefined && parseRunTokens(perRun) === undefined) throw new Error(`serve: --ai-run-tokens needs a whole number of tokens from 1 to ${MAX_RUN_TOKENS.toLocaleString('en-US')}, like 300000`);
         const budget = flag(args, '--ai-monthly-budget') ?? process.env.TABULARIUS_AI_MONTHLY_BUDGET;
         if (budget !== undefined && !(Number(budget.replace(/^\$/, '')) > 0)) throw new Error('serve: --ai-monthly-budget needs US dollars, like 150');
         const fastModel = flag(args, '--ai-fast-model') ?? process.env.TABULARIUS_AI_FAST_MODEL;
@@ -1409,7 +1409,7 @@ function main(argv: string[]): number {
           apiKey, keySource, keyFile, workspaceId, workspaceFile, model: flag(args, '--ai-model') ?? process.env.TABULARIUS_AI_MODEL,
           ...(fastModel ? { fastModel } : {}), ...(budget !== undefined ? { monthlyBudgetUsd: Number(budget.replace(/^\$/, '')) } : {}),
           ...(daily !== undefined ? { dailyTokens: Number(daily) } : {}), ...(perAccount !== undefined ? { accountDailyTokens: Number(perAccount) } : {}),
-          ...(perRun !== undefined ? { runTokens: Number(perRun) } : {}),
+          ...(perRun !== undefined ? { runTokens: parseRunTokens(perRun) } : {}),
         };
       } else {
         // An embedding model on its own (a local Ollama or LM Studio) needs no Anthropic key: the embedding and RAG
@@ -1441,7 +1441,7 @@ function main(argv: string[]): number {
           console.log(`hosting ${path} with ${workers} worker processes`);
           console.log(`Web client: ${url}/app/   Admin: ${url}/admin/   Data API: ${url}/fmi/data/vLatest   MCP: ${url}/mcp`);
           if (!mcpToken) console.log(`  AI apps need a token at /mcp: run  tabularius mcp-token ${path}  to print the administrator's, or make one for an account in the admin console (Connect an AI app)`);
-          if (ai) console.log(`AI assistant on (${ai.model ?? DEFAULT_MODEL}): questions and what it reads go to Anthropic`);
+          if (ai) console.log(`AI assistant on (${ai.model ?? DEFAULT_MODEL}): questions and what it reads go to Anthropic; one question may use up to ${(ai.runTokens ?? DEFAULT_RUN_TOKENS).toLocaleString('en-US')} tokens`);
           console.log(backups ? `backups every ${every} to ${dest ?? defaultBackupDir(path)}, keeping ${keep}${process.env.TABULARIUS_BACKUP_KEY ? ', encrypted' : ''}` : 'backups off');
         }, (e) => {
           process.stderr.write(`error: ${plainError(e)}\n`);
@@ -1493,7 +1493,7 @@ function main(argv: string[]): number {
         }
         console.log(`Web client: ${url}/app/   Admin: ${url}/admin/   Data API: ${url}/fmi/data/vLatest   MCP: ${url}/mcp`);
         if (!mcpToken) console.log(`  AI apps need a token at /mcp: run  tabularius mcp-token ${path}  to print the administrator's, or make one for an account in the admin console (Connect an AI app)`);
-        if (ai) console.log(`AI assistant on (${ai.model ?? DEFAULT_MODEL}): questions and what it reads go to Anthropic`);
+        if (ai) console.log(`AI assistant on (${ai.model ?? DEFAULT_MODEL}): questions and what it reads go to Anthropic; one question may use up to ${(ai.runTokens ?? DEFAULT_RUN_TOKENS).toLocaleString('en-US')} tokens`);
         console.log(backups ? `backups every ${every} to ${dest ?? defaultBackupDir(path)}, keeping ${keep}${process.env.TABULARIUS_BACKUP_KEY ? ', encrypted' : ''}` : 'backups off');
         if (openPage) openBrowser(`${url}/admin/#welcome`);
         if (offsite) console.log(`backups copied off-site to ${offsite.url}${process.env.TABULARIUS_BACKUP_KEY ? ' (encrypted)' : ''}`);

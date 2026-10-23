@@ -116,6 +116,8 @@ test('every row of the table holds on a server started with no flags', async (t)
       const p = await freePort();
       const e = await run(['serve', folder, '--port', String(p), ...args], home);
       extras.push(e);
+      // The banner lines (the assistant's among them) follow the address line `run` waits for; backups is the last.
+      for (let waited = 0; !/\nbackups /.test(e.output()) && waited < 5000; waited += 50) await new Promise((r) => setTimeout(r, 50));
       const out = e.output();
       await e.stop();
       return out;
