@@ -176,7 +176,7 @@ class World {
     return n;
   }
 
-  async startServer(n: Node, extra: { keepApiTokensOnTakeover?: boolean } = {}): Promise<void> {
+  async startServer(n: Node, extra: { keepApiTokensOnTakeover?: boolean; acceptPartialStandbyFiles?: boolean } = {}): Promise<void> {
     n.server = await serve({ dir: n.dir, port: 0, watch: false, replicationToken: TOKEN, ...extra, log: (m) => void n.log.push(m) });
     n.link.target = Number(new URL(n.server.url).port);
   }
@@ -424,8 +424,21 @@ async function failover(w: World, how: { settled: boolean; split: boolean; prima
   w.note(`promote: the standby holds ${k} of ${oldTimeline.length - 1} committed edits; ${oldTimeline.length - 1 - k} are lost to it`);
   if (!how.split && !how.primaryStays) await w.stopServer(old);
 
-  // The standby's folder served on its own.
-  await w.startServer(next);
+  // The standby's folder served on its own. A copy that had not reached a whole state (the standby crashed mid-copy, say) is
+  // refused, by name and with the flag that accepts it, and the standby's state is kept for the next attempt; a planned,
+  // settled failover is never refused. The run then accepts it, as an operator who has weighed it would.
+  try {
+    await w.startServer(next);
+  } catch (e) {
+    assert.ok(!how.settled, `a settled failover is not refused: ${(e as Error).message}`);
+    const message = (e as Error).message;
+    assert.match(message, new RegExp(`Cannot serve: .*${DB}.*did not reach a whole state`), message);
+    assert.match(message, /--accept-partial-standby/, message);
+    assert.ok(existsSync(join(next.dir, STANDBY_STATE)), 'a refused takeover keeps the standby state for the next attempt');
+    w.note('promotion refused: the copy had not reached a whole state; served with --accept-partial-standby');
+    await w.startServer(next, { acceptPartialStandbyFiles: true });
+    assert.ok(next.log.some((m) => /accepted with --accept-partial-standby/.test(m)), `the accepted takeover says so: ${next.log.join(' | ')}`);
+  }
   assert.ok(next.log.some((m) => m.startsWith(`taking over from ${old.link.url}`)), `takeover is logged: ${next.log.join(' | ')}`);
   assert.ok(!existsSync(join(next.dir, STANDBY_STATE)), 'the standby state is removed once the folder is served');
   next.timeline = keep.map((t) => ({ d: t.d, model: cloneModel(t.model) }));
