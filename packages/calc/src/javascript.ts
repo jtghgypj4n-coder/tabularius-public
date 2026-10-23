@@ -669,7 +669,7 @@ export async function stopJavaScript(): Promise<void> {
   await Promise.all([...[...sandboxes.values()].map(stopSandbox), ...[...contexts].map(context => context.close())]);
 }
 
-/** A server-wide bound as well as the smaller per-account and registry per-session bounds. Allocation is lazy. */
+/** A server-wide bound as well as the smaller per-account and registry per-session bounds. Allocation is lazy. A full pool drops its least recently used handle. */
 export const JS_CONTEXT_LIMIT = 32;
 /**
  * The account key is [store.path, account], not a person across files: one person with accounts on four files
@@ -712,7 +712,15 @@ export class JavaScriptContext {
     if (account !== undefined && [...contexts].filter(context => context.account === account).length >= JS_CONTEXT_ACCOUNT_LIMIT) {
       throw new CalcError(ERR.calculation, `JavaScript context limit reached for this account (${JS_CONTEXT_ACCOUNT_LIMIT})`);
     }
-    if (contexts.size >= JS_CONTEXT_LIMIT) throw new CalcError(ERR.calculation, `JavaScript context limit reached for this server (${JS_CONTEXT_LIMIT})`);
+    // A full pool drops the least recently used handle (the earliest idle deadline; the oldest when they tie) instead of refusing
+    // the new one. A call runs to its end before any other starts, so every handle is idle here. The dropped handle's references
+    // stop working like an expired one's, and its owner makes a new one. The per-account limit above is still a refusal, so one
+    // account cannot push out more than its own share of the pool.
+    if (contexts.size >= JS_CONTEXT_LIMIT) {
+      let oldest: JavaScriptContext | undefined;
+      for (const context of contexts) if (!oldest || context.expiresAt < oldest.expiresAt) oldest = context;
+      void oldest?.close();
+    }
     this.renewIdle();
     contexts.add(this);
   }
