@@ -327,7 +327,6 @@ The following reasons apply to the exact enumerated expressions in each named fu
 | [packages/server/src/insight.ts:968](../../packages/server/src/insight.ts#L968) `checkCalculation` | `Store.findIds` (968); `Store.evaluate` (972) | DESIGN |
 | [packages/server/src/insight.ts:1151](../../packages/server/src/insight.ts#L1151) `solutionOverview/counts` | `Store.query` (1151) | DESIGN |
 | [packages/server/src/live.ts:205](../../packages/server/src/live.ts#L205) `Live/handle` | `Store.canView` (205) | LIVE |
-| [packages/server/src/live.ts:?](../../packages/server/src/live.ts#L1) `Live/stream/listener` |  | LIVE |
 | [packages/server/src/live.ts:279](../../packages/server/src/live.ts#L279) `Live/visibleRecord` | `Store.canViewRecord` (279) | LIVE |
 | [packages/server/src/logs.ts:77](../../packages/server/src/logs.ts#L77) `LogShipper/follow` | `SQLite.get` (77); `SQLite.prepare` (77); `Store.sql` (77, 78, 79, 80) | ADMIN |
 | [packages/server/src/logs.ts:89](../../packages/server/src/logs.ts#L89) `LogShipper/releaseIfIdle` | `Store.sql` (89) | ADMIN |
