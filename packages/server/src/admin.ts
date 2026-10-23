@@ -74,7 +74,7 @@ import { auditCsvField } from '../../store/src/audit-output.ts';
 //                                                    storage that can be undone; POST { table, field, preview?, expect? } makes one, { id } undoes one
 //   GET  /tabularius/admin/v1/solution-map            the cross-file dependency graph across every hosted file
 //   GET  /tabularius/admin/v1/restore                 how far back each file can be put back
-//   POST /tabularius/admin/v1/restore                 { database, at, mode: "replace" | "copy", name }: put a file
+//   POST /tabularius/admin/v1/restore                 { database, at, mode: "copy" (default) | "replace", name }: put a file
 //                                                    back as it was at a moment, in place or as a new file
 //   POST /tabularius/admin/v1/backups/{set}/verify     check a backup set again now (backup-verify.ts)
 //   POST /tabularius/admin/v1/files/{name}/reconvert-preview   what converting again would change (a dry run)
@@ -2012,11 +2012,15 @@ export class Admin {
 
   /**
    * Puts a hosted file back as it was at a moment, from the backups and
-   * point-in-time logs, while the server keeps running. "replace" closes the
-   * file (its users are disconnected), restores it in place and opens it again;
-   * "copy" hosts the restored file under a new name next to the current one.
+   * point-in-time logs, while the server keeps running. "copy", the default,
+   * hosts the restored file under a new name next to the current one and leaves
+   * the live file alone; "replace" closes the file (its users are disconnected),
+   * restores it in place and opens it again, and has to be asked for.
    */
   async restore(body: Record<string, unknown>): Promise<{ database: string; time: string; mode: string }> {
+    // A copy unless "replace" is asked for by name; a mode that is neither is refused rather than guessed at.
+    const mode = body.mode === undefined ? 'copy' : body.mode;
+    if (mode !== 'copy' && mode !== 'replace') throw new RestoreError(400, 'mode must be "copy" or "replace" (copy, the default, hosts the restored file next to the current one; replace puts it over the live file)');
     if (this.restoring) throw new RestoreError(409, 'Another restore is under way');
     const name = said(body.database);
     const file = this.host.files().find((f) => f.name.toLowerCase() === name.toLowerCase());
@@ -2038,7 +2042,6 @@ export class Admin {
     if (!Number.isFinite(at)) throw new RestoreError(400, 'Give the moment to go back to, like 2026-10-11 14:05');
     if (at > Date.now() + 60_000) throw new RestoreError(400, 'That moment hasn\'t happened yet');
     at = Math.min(at, Date.now());
-    const mode = body.mode === 'copy' ? 'copy' : 'replace';
     this.restoring = true;
     try {
       // Save the latest changes, so moments up to now can be reached.

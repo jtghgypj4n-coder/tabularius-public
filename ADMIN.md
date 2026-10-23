@@ -780,8 +780,13 @@ account. Review account status after a restore and deactivate it again if
 needed.
 
 While the server runs, the admin console's **Restore a file to a moment**
-puts one file back, either as a copy hosted next to the current one or in
-place (that file's users are disconnected and it reopens).
+puts one file back, by default as a copy hosted next to the current one (the
+current file is not touched), or, when you choose **Replace the file as it is
+now**, in place (that file's users are disconnected and it reopens). The Admin
+API's `POST /restore` does the same: with no `mode` it makes a copy, and only
+`"mode": "replace"` replaces the live file. `tabularius restore` on the
+command line is a different, offline command and still puts the files back
+over the folder.
 
 For a machine to take over if the server fails, run a **standby**:
 `tabularius serve <folder> --replication-token T` on the main server and
@@ -1022,7 +1027,7 @@ Calls that need a database take `?database=` (or `?db=`); leaving it out, or nam
 | `POST /files/{name}/reconvert`, `/files/{name}/reconvert-preview` | Convert a file again from its `.fmp12`, or dry-run it |
 | `POST /reconvert-all` | `{"preview": true}` dry-runs every outdated file; `{"files": [...]}` converts them |
 | `POST /records/restore` | `{database, table, recordId, seq}`: put a record back as it was after an audit entry |
-| `POST /restore` | `{database, at, mode: "copy" \| "replace", name}` |
+| `POST /restore` | `{database, at, mode: "copy" \| "replace", name}`: `copy` is the default and leaves the live file alone; `replace` has to be asked for; any other `mode` is a 400 |
 | `POST /uploads`, `PUT /uploads/{id}?offset=N`, `POST /uploads/{id}/finish` | Upload and host a `.fmp12` in pieces |
 | `GET/POST /schedules`, `/schedules/{id}`, `/schedules/{id}/run`, `/schedules/{id}/runs` | Script schedules and their last runs |
 | `POST /message`, `POST /clients/{id}/message`, `POST /clients/{id}/disconnect` | Message or disconnect people |

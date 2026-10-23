@@ -440,9 +440,9 @@
         <label>As it was at <input type="datetime-local" id="restore-at" step="1"></label>
       </p>
       <p>
-        <label><input type="radio" name="restore-mode" value="copy" checked> As a new file next to it</label>
-        <label><input type="radio" name="restore-mode" value="replace"> In place (disconnects its users)</label>
-        <button id="restore-go">Restore</button>
+        <label><input type="radio" name="restore-mode" value="copy" checked> As a new file next to it (the file as it is now is not touched)</label>
+        <label><input type="radio" name="restore-mode" value="replace"> Replace the file as it is now (disconnects its users)</label>
+        <button id="restore-go">Restore as a new file</button>
       </p>
       <p id="restore-result" role="status"></p>
     </details>
@@ -4565,17 +4565,22 @@ async function loadRestore() {
 }
 $('restore-box').addEventListener('toggle', () => { if ($('restore-box').open) loadRestore(); });
 $('restore-db').addEventListener('change', () => { $('restore-at').value = ''; showRange(); });
+// The button says what it will do: only the second choice replaces the live file.
+const restoreChoice = () => document.querySelector('input[name="restore-mode"]:checked').value;
+for (const radio of document.querySelectorAll('input[name="restore-mode"]')) {
+  radio.addEventListener('change', () => { $('restore-go').textContent = restoreChoice() === 'replace' ? 'Replace the live file' : 'Restore as a new file'; });
+}
 $('restore-go').addEventListener('click', async () => {
   const database = $('restore-db').value;
   const at = $('restore-at').value;
-  const mode = document.querySelector('input[name="restore-mode"]:checked').value;
+  const mode = restoreChoice();
   if (!at) return say('Choose the moment to go back to.');
-  if (mode === 'replace' && !confirm(`Put ${database} back as it was at ${new Date(at).toLocaleString()}? Its users are disconnected and changes since then are replaced.`)) return;
+  if (mode === 'replace' && !confirm(`Replace ${database} with how it was at ${new Date(at).toLocaleString()}? Its users are disconnected and every change since then is lost from the live file.`)) return;
   $('restore-go').disabled = true;
   $('restore-result').textContent = 'Restoring…';
   try {
     const r = await call('POST', '/tabularius/admin/v1/restore', { database, at: at.replace('T', ' '), mode });
-    $('restore-result').innerHTML = `<span class="ok">Restored</span> ${esc(r.database)} as it was at ${esc(when(r.time))}${r.mode === 'copy' ? ' (hosted as a new file)' : ''}.`;
+    $('restore-result').innerHTML = `<span class="ok">Restored</span> ${esc(r.database)} as it was at ${esc(when(r.time))}${r.mode === 'copy' ? ' (hosted as a new file; the live file was not changed)' : ' (the live file was replaced)'}.`;
     refresh();
     loadRestore();
   } catch (err) {
