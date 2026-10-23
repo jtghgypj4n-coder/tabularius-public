@@ -254,7 +254,7 @@ test('a reading that lands past the last year of the calendar is no reading, not
 test('a calendar over the event limit is refused whole, with the count and the limit, where it used to be read in part', () => {
   const events = (n: number) => wrap(...Array.from({ length: n }, (_, i) => `UID:e${i}\nDTSTART:20260101T090000\nSUMMARY:E${i}`));
   assert.equal(readCalendar(events(READ_LIMITS.events)).events.length, READ_LIMITS.events);
-  assert.throws(() => readCalendar(events(READ_LIMITS.events + 1)), (e: Error) => e instanceof CalendarReadError
+  assert.throws(() => readCalendar(events(READ_LIMITS.events + 1)), (e: Error) => e instanceof CalendarReadError && (e as CalendarReadError).code === 960
     && /The calendar has 5001 events; at most 5000 can be imported at once\. Nothing was imported/.test(e.message));
   // Repeating events count once per occurrence: 14 endless daily events are 5,124.
   const endless = wrap(...Array.from({ length: 14 }, (_, i) => `UID:r${i}\nDTSTART:20260101T090000\nRRULE:FREQ=DAILY\nSUMMARY:R`));
@@ -264,7 +264,7 @@ test('a calendar over the event limit is refused whole, with the count and the l
 test('a calendar that asks for too much repeat work, or ends inside an event, is refused whole', () => {
   const days = Array.from({ length: 20_000 }, (_, i) => addDays('2026-01-01', i).replace(/-/g, '')).join(',');
   const heavy = wrap(...Array.from({ length: 21 }, (_, i) => `UID:h${i}\nDTSTART;VALUE=DATE:20260101\nRRULE:FREQ=DAILY;COUNT=20000\nEXDATE;VALUE=DATE:${days}\nSUMMARY:H`));
-  assert.throws(() => readCalendar(heavy), (e: Error) => e instanceof CalendarReadError && /asks for too much repeat work/.test(e.message));
+  assert.throws(() => readCalendar(heavy), (e: Error) => e instanceof CalendarReadError && (e as CalendarReadError).code === 960 && /asks for too much repeat work/.test(e.message));
   const cut = wrap('UID:a\nDTSTART:20260101T090000\nSUMMARY:A').replace('END:VCALENDAR', '') + 'BEGIN:VEVENT\r\nUID:b\r\nDTSTART:20260102T090000\r\nSUMMARY:B\r\n';
-  assert.throws(() => readCalendar(cut), (e: Error) => e instanceof CalendarReadError && /ends inside an event/.test(e.message));
+  assert.throws(() => readCalendar(cut), (e: Error) => e instanceof CalendarReadError && (e as CalendarReadError).code === 960 && /ends inside an event/.test(e.message));
 });
