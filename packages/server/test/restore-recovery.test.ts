@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { createStore } from '../../store/src/index.ts';
 import { spawn, spawnSync } from 'node:child_process';
@@ -67,6 +67,25 @@ test('two claimant processes racing a stale pid leave exactly one owner each tim
     assert.equal(readFileSync(join(folder, '.openhbam.pid'), 'utf8'), String(winners[0].pid));
     await pair.send('release');
     assert.equal(existsSync(join(folder, '.openhbam.pid')), false);
+  }
+});
+
+test('a claim has dropped its pending name by the time it lets go of the lock', (t) => {
+  // A rival that takes the lock next reads the pid file; a second name for it (link count 2) that disappears meanwhile fails that read as "path changed".
+  for (const stale of [false, true]) {
+    const folder = mkdtempSync(join(tmpdir(), 'restore-claim-pending-'));
+    t.after(() => rmSync(folder, { recursive: true, force: true }));
+    if (stale) writeFileSync(join(folder, '.openhbam.pid'), '99999999');
+    const result = spawnSync(process.execPath, ['--no-warnings', '--input-type=module', '-e', `
+      import { claimFolder } from ${JSON.stringify(new URL('../src/backup.ts', import.meta.url).href)};
+      import { armCrashPointForTest } from ${JSON.stringify(new URL('../../store/src/crash-point.ts', import.meta.url).href)};
+      armCrashPointForTest('claim:committed');
+      claimFolder(process.argv[1]);
+    `, folder], { encoding: 'utf8', timeout: 30_000 });
+    assert.equal(result.error, undefined);
+    assert.equal(result.status, 73, result.stderr);
+    assert.deepEqual(readdirSync(folder).filter((name) => name.endsWith('.tmp')), [], `stale=${stale}`);
+    assert.equal(statSync(join(folder, '.openhbam.pid')).nlink, 1, `stale=${stale}`);
   }
 });
 
