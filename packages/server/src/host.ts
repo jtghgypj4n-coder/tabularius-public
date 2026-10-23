@@ -4,6 +4,7 @@
 // converted store is the live database from then on; the .fmp12 is never
 // written to, and is not re-imported over a store that may have edits.
 
+import { uploadConversionLimits } from './conversion-limits.ts';
 import { cancellationScope } from '../../scripts/src/cancellation.ts';
 import { setTimeout as cancellationDelay } from 'node:timers/promises';
 import { workerResult } from './worker-result.ts';
@@ -45,12 +46,10 @@ export const STORE_EXT = '.openhbam.sqlite';
  * is stopped after a time budget so a file that makes the reader loop can't
  * block the single conversion slot for good. Generous defaults; raise them with
  * TABULARIUS_CONVERT_MEMORY (MB) and TABULARIUS_CONVERT_TIMEOUT (seconds, 0 = none)
- * for an environment that hosts genuinely large uploads.
+ * for an environment that hosts genuinely large uploads. The memory cap cannot
+ * be disabled: zero or invalid input warns once and keeps the 2048 MB default.
  */
-const UPLOAD_CONVERT_LIMITS = {
-  memoryMb: Math.max(0, Math.trunc(Number(process.env.TABULARIUS_CONVERT_MEMORY ?? 2048)) || 0),
-  timeoutMs: Math.max(0, Math.trunc(Number(process.env.TABULARIUS_CONVERT_TIMEOUT ?? 900)) || 0) * 1000,
-};
+const UPLOAD_CONVERT_LIMITS = uploadConversionLimits();
 
 /** The account row a container link is tied to. */
 export interface LinkAccount { name: string; identity: string }

@@ -1,3 +1,4 @@
+import { positiveWholeNumber } from '../../server/src/setting-values.ts';
 import { renameFileSync as renameSync, removeFileSync as rmSync } from '../../store/src/file-ops.ts';
 // Running the server as a service, and upgrading it in place.
 //
@@ -480,6 +481,7 @@ export function uninstallService(o: Pick<ServiceOptions, 'platform' | 'home' | '
  * process id is in the folder (.openhbam.pid). False when there is none to ask.
  */
 export function stopOwnServer(folder: string, platform: NodeJS.Platform = process.platform, control = { kill: process.kill.bind(process), exited: exitsWithin, request: requestStop }): boolean {
+  const graceMs = positiveWholeNumber('TABULARIUS_STOP_GRACE_MS', process.env.TABULARIUS_STOP_GRACE_MS, 30_000);
   let pid: number;
   try {
     pid = Number(readFileSync(join(folder, '.openhbam.pid'), 'utf8'));
@@ -499,7 +501,7 @@ export function stopOwnServer(folder: string, platform: NodeJS.Platform = proces
   // A server busy in one long request can't hear the signal: after a grace
   // period it is stopped outright. Saved edits are safe (each is committed to
   // the database's log as it is made); only the request in progress is lost.
-  if (!control.exited(pid, Number(process.env.TABULARIUS_STOP_GRACE_MS) || 30_000)) {
+  if (!control.exited(pid, graceMs)) {
     if (platform === 'win32') throw new Error('The Windows server did not stop gracefully; stop it with Ctrl-C and retry. The task was not forcibly ended.');
     try {
       control.kill(pid, 'SIGKILL');

@@ -7,8 +7,8 @@ These are the options named by `tabularius help serve`. A flag takes precedence 
 | [`--accept-partial-standby`](serve/accept-partial-standby.md) | Off: a failover from an unfinished copy is refused | No value (a switch) | [docs/standby-guarantees.md](../../standby-guarantees.md) |
 | [`--acme-directory`](serve/acme-directory.md) | Default ACME directory | ACME directory URL | [docs/reference/settings/serve-flags.md](serve-flags.md) |
 | [`--ai`](serve/ai.md) | Off | Switch; present enables the assistant | [README.md](../../../README.md) |
-| [`--ai-account-daily-tokens`](serve/ai-account-daily-tokens.md) | Unset | Positive number of tokens | [README.md](../../../README.md) |
-| [`--ai-daily-tokens`](serve/ai-daily-tokens.md) | Unset | Positive number of tokens | [README.md](../../../README.md) |
+| [`--ai-account-daily-tokens`](serve/ai-account-daily-tokens.md) | Unset | Positive number of tokens; decimal digits only for numbers, within the safe integer range | [README.md](../../../README.md) |
+| [`--ai-daily-tokens`](serve/ai-daily-tokens.md) | Unset | Positive number of tokens; decimal digits only for numbers, within the safe integer range | [README.md](../../../README.md) |
 | [`--ai-embed-model`](serve/ai-embed-model.md) | Provider default model | Embedding model id | [README.md](../../../README.md) |
 | [`--ai-embed-url`](serve/ai-embed-url.md) | Embedding service off | ollama, lmstudio, or an embedding endpoint URL | [README.md](../../../README.md) |
 | [`--ai-exclude`](serve/ai-exclude.md) | No excluded files | Comma-separated hosted file names | [README.md](../../../README.md) |
@@ -35,10 +35,10 @@ These are the options named by `tabularius help serve`. A flag takes precedence 
 | [`--capture-only-copies-to-redirect`](serve/capture-only-copies-to-redirect.md) | Off | switch (present = on) | [docs/reference/settings/serve-flags.md](serve-flags.md) |
 | [`--connections-per-address`](serve/connections-per-address.md) | 64 | Positive safe integer | [ADMIN.md](../../../ADMIN.md) |
 | [`--host`](serve/host.md) | 127.0.0.1, or 0.0.0.0 with automatic HTTPS | Listen address | [README.md](../../../README.md) |
-| [`--http-port`](serve/http-port.md) | 80 | Port from 0 to 65535 | [docs/reference/settings/serve-flags.md](serve-flags.md) |
+| [`--http-port`](serve/http-port.md) | 80 | Port from 0 to 65535; decimal digits only for numbers, within the safe integer range | [docs/reference/settings/serve-flags.md](serve-flags.md) |
 | [`--https`](serve/https.md) | Off | local or comma-separated DNS names | [README.md](../../../README.md) |
 | [`--https-email`](serve/https-email.md) | Unset | Contact email address | [README.md](../../../README.md) |
-| [`--keep`](serve/keep.md) | 7 | Whole number of 1 or more | [README.md](../../../README.md) |
+| [`--keep`](serve/keep.md) | 7 | Whole number of 1 or more; decimal digits only for numbers, within the safe integer range | [README.md](../../../README.md) |
 | [`--keep-api-tokens-on-takeover`](serve/keep-api-tokens-on-takeover.md) | Off: API tokens end when a standby takes over | No value (a switch) | [docs/standby-guarantees.md](../../standby-guarantees.md) |
 | [`--ldap-base-dn`](serve/ldap-base-dn.md) | Unset | LDAP distinguished name, template, attribute, or password as named by the variable | [README.md](../../../README.md) |
 | [`--ldap-bind-dn-template`](serve/ldap-bind-dn-template.md) | Unset | LDAP distinguished name, template, attribute, or password as named by the variable | [README.md](../../../README.md) |
@@ -65,7 +65,7 @@ These are the options named by `tabularius help serve`. A flag takes precedence 
 | [`--oidc-name`](serve/oidc-name.md) | Hostname of the configured issuer URL | Claim or display name | [README.md](../../../README.md) |
 | [`--oidc-trust-email`](serve/oidc-trust-email.md) | Unset | Switch; present trusts provider email | [README.md](../../../README.md) |
 | [`--open`](serve/open.md) | Off | Switch; present opens the admin welcome page | [docs/reference/settings/serve-flags.md](serve-flags.md) |
-| [`--port`](serve/port.md) | 8080, or 443 with automatic HTTPS | Port number from 0 to 65535 | [README.md](../../../README.md) |
+| [`--port`](serve/port.md) | 8080, or 443 with automatic HTTPS | Port number from 0 to 65535; decimal digits only for numbers, within the safe integer range | [README.md](../../../README.md) |
 | [`--progressive`](serve/progressive.md) | Off | Interval such as 5m, or off | [README.md](../../../README.md) |
 | [`--proxy-header`](serve/proxy-header.md) | Unset | x-forwarded-for, forwarded, or x-real-ip | [README.md](../../../README.md) |
 | [`--public-url`](serve/public-url.md) | Taken from the listen address | Absolute public URL | [README.md](../../../README.md) |
@@ -74,11 +74,11 @@ These are the options named by `tabularius help serve`. A flag takes precedence 
 | [`--s3-endpoint`](serve/s3-endpoint.md) | AWS S3 endpoint | S3-compatible endpoint URL | [README.md](../../../README.md) |
 | [`--s3-region`](serve/s3-region.md) | AWS_REGION or the provider default | S3 region name | [docs/reference/settings/serve-flags.md](serve-flags.md) |
 | [`--send-mail`](serve/send-mail.md) | Off | Switch; present enables SMTP sending | [README.md](../../../README.md) |
-| [`--sql-port`](serve/sql-port.md) | Off | Port from 0 to 65535 | [README.md](../../../README.md) |
+| [`--sql-port`](serve/sql-port.md) | Off | Port from 0 to 65535; decimal digits only for numbers, within the safe integer range | [README.md](../../../README.md) |
 | [`--sql-writes`](serve/sql-writes.md) | Off: the SQL connection is read-only | No value (a switch) | [docs/pgwire-writes.md](../../pgwire-writes.md) |
 | [`--stats-interval`](serve/stats-interval.md) | 1m | Interval such as 1m, or off | [README.md](../../../README.md) |
 | [`--test-outbound`](serve/test-outbound.md) | Off | Switch; present captures outbound effects | [docs/moving-a-solution.md](../../moving-a-solution.md) |
 | [`--tls-cert`](serve/tls-cert.md) | Unset | PEM certificate file path | [README.md](../../../README.md) |
 | [`--tls-key`](serve/tls-key.md) | Unset | PEM private key file path | [README.md](../../../README.md) |
 | [`--trusted-proxies`](serve/trusted-proxies.md) | No trusted proxy addresses | Comma-separated IP addresses or CIDR ranges | [README.md](../../../README.md) |
-| [`--workers`](serve/workers.md) | One process | Whole number from 1 to 64, or auto | [README.md](../../../README.md) |
+| [`--workers`](serve/workers.md) | One process | Whole number from 1 to 64, or auto; decimal digits only for numbers, within the safe integer range | [README.md](../../../README.md) |

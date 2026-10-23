@@ -1,4 +1,6 @@
-// TABULARIUS_TRACE_SQL=1: each SQL statement a store runs is logged to stderr
+// TABULARIUS_TRACE_SQL accepts 1/true/yes/on (case-insensitive) to enable tracing;
+// unset, "", 0/false/no/off disable it. Other values disable tracing and warn once.
+// When enabled, each SQL statement a store runs is logged to stderr
 // with its shape, the rows it returned and how long it took, so a slow or
 // memory-hungry request on a real file can be pinned to one statement without
 // showing any of the file's data. The shape keeps SQL keywords and
@@ -45,10 +47,18 @@ function minMs(): number {
   return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
-/** Whether statements are traced (TABULARIUS_TRACE_SQL set to anything but "" or "0"). */
+let warnedInvalidTracing = false;
+
+/** Whether SQL tracing was explicitly enabled. Invalid settings fail closed. */
 export function tracing(): boolean {
   const v = process.env.TABULARIUS_TRACE_SQL;
-  return !!v && v !== '0';
+  if (v === undefined || /^(?:|0|false|no|off)$/i.test(v)) return false;
+  if (/^(?:1|true|yes|on)$/i.test(v)) return true;
+  if (!warnedInvalidTracing) {
+    warnedInvalidTracing = true;
+    console.warn('Warning: TABULARIUS_TRACE_SQL accepts 1/true/yes/on or empty/0/false/no/off; tracing is disabled');
+  }
+  return false;
 }
 
 /** The nearest functions of Tabularius's code on the stack, innermost first. */

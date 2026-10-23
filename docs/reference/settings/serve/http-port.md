@@ -5,10 +5,10 @@
 | Setting | Value |
 | --- | --- |
 | Default | 80 |
-| Accepted values | Port from 0 to 65535 |
+| Accepted values | Port from 0 to 65535; decimal digits only for numbers, within the safe integer range |
 | Restart needed | Yes; serve flags are read when the server starts. |
-| Environment | [`TABULARIUS_HTTP_PORT`](../environment/tabularius_http_port.md) |
+| Environment | No direct environment equivalent |
 | Explained in | [docs/reference/settings/serve-flags.md](../serve-flags.md) |
-| Code | [packages/cli/src/main.ts:1273](../../../../packages/cli/src/main.ts#L1273) |
+| Code | [packages/cli/src/main.ts:1274](../../../../packages/cli/src/main.ts#L1274) |
 
 [All serve flags](../serve-flags.md)

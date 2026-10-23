@@ -1,5 +1,6 @@
 // Admission for short HTTP requests. Long-lived live-update streams use their
 // own per-session bound and never occupy a short-request slot.
+import { positiveWholeNumber } from './setting-values.ts';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { clientAddress } from './client-address.ts';
 
@@ -39,7 +40,7 @@ export class RequestGate {
   private readonly waiting: Waiter[] = [];
   private shedCount = 0;
 
-  constructor(limit = 32, queueLimit = 64, waitMs = 750) {
+  constructor(limit = positiveWholeNumber('TABULARIUS_REQUEST_LIMIT', process.env.TABULARIUS_REQUEST_LIMIT, 32, { min: 4 }), queueLimit = 64, waitMs = 750) {
     if (!Number.isInteger(limit) || limit < 4 || !Number.isInteger(queueLimit) || queueLimit < 0 || !Number.isInteger(waitMs) || waitMs < 1) throw new Error('Invalid request gate settings');
     this.limit = limit;
     this.queueLimit = queueLimit;

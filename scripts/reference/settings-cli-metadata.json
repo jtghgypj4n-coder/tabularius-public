@@ -1,5 +1,5 @@
 {
-  "intro": "Most `tabularius serve` options can be set in the environment instead of on the\ncommand line, which suits a service definition or a container. A command-line\nflag wins over the variable. Secrets (`TABULARIUS_OIDC_CLIENT_SECRET`,\n`TABULARIUS_LDAP_SEARCH_PASSWORD`, `TABULARIUS_BACKUP_KEY`, `TABULARIUS_ENCRYPTION_KEY`,\n`TABULARIUS_SECRETS_KEY`, `TABULARIUS_S3_SECRET_KEY`) are read only from the\nenvironment, never from a flag, so they stay out of process listings; they are\ndescribed where the feature is ([README](../README.md), [ADMIN](../ADMIN.md)).\n\nThe `docs:check` gate fails when code reads a `TABULARIUS_*` variable or\naccepts a serve flag without a metadata entry. The existing docs drift test\nalso checks variable names across the documentation.",
+  "intro": "Most `tabularius serve` options can be set in the environment instead of on the\ncommand line, which suits a service definition or a container. A command-line\nflag wins over the variable. Secrets (`TABULARIUS_OIDC_CLIENT_SECRET`,\n`TABULARIUS_LDAP_SEARCH_PASSWORD`, `TABULARIUS_BACKUP_KEY`, `TABULARIUS_ENCRYPTION_KEY`,\n`TABULARIUS_SECRETS_KEY`, `TABULARIUS_S3_SECRET_KEY`) are read only from the\nenvironment, never from a flag, so they stay out of process listings; they are\ndescribed where the feature is ([README](../README.md), [ADMIN](../ADMIN.md)).\n\nThe `docs:check` gate fails when code reads a `TABULARIUS_*` variable or\naccepts a serve flag without a metadata entry. The existing docs drift test\nalso checks variable names across the documentation.\n\nSettings marked \"decimal digits only\" require whole numbers (for example `512`), not\nempty text, signs, exponent or hexadecimal notation, fractions, or numbers beyond\nthe safe integer range. An error names the setting; conversion memory and the\naggregate upload quota warn and keep their safe defaults. Port `0` still requests\nan automatically assigned port.\n\nThe existing zero/off semantics and parsers for `TABULARIUS_CONVERT_TIMEOUT`,\n`TABULARIUS_MAX_UPLOAD`, `TABULARIUS_UPLOAD_IDLE_HOURS`,\n`TABULARIUS_REQUEST_QUEUE`, `TABULARIUS_PGWIRE_MAX_ROWS`,\n`TABULARIUS_REQUEST_BUDGET_MS`, and `TABULARIUS_TRACE_SQL_MIN_MS` are unchanged: zero\nretains each setting's documented disabling behavior. Fractional monetary budgets are also unchanged.",
   "clientExampleNote": "- `TABULARIUS_AUTH` is the name an example in [Connect an AI app](connect-ai.md)\n  gives to the client-side variable holding the bearer token; it belongs to the\n  MCP client's configuration.",
   "environment": {
     "TABULARIUS_ACME_DIRECTORY": {
@@ -12,14 +12,14 @@
     "TABULARIUS_AI_ACCOUNT_DAILY_TOKENS": {
       "description": "A cap on tokens per account per day.",
       "default": "Unset",
-      "accepted": "Positive number of tokens",
+      "accepted": "Positive number of tokens; decimal digits only for numbers, within the safe integer range",
       "restart": "Yes for a running server.",
       "explainedBy": "docs/environment-variables.md"
     },
     "TABULARIUS_AI_DAILY_TOKENS": {
       "description": "A cap on tokens per day.",
       "default": "Unset",
-      "accepted": "Positive number of tokens",
+      "accepted": "Positive number of tokens; decimal digits only for numbers, within the safe integer range",
       "restart": "Yes for a running server.",
       "explainedBy": "docs/environment-variables.md"
     },
@@ -145,7 +145,7 @@
     "TABULARIUS_BACKUP_KEEP": {
       "description": "How many backups to keep (7 by default).",
       "default": "7",
-      "accepted": "Whole number of 1 or more",
+      "accepted": "Whole number of 1 or more; decimal digits only for numbers, within the safe integer range",
       "restart": "Yes for a running server.",
       "explainedBy": "docs/environment-variables.md"
     },
@@ -192,9 +192,9 @@
       "explainedBy": "README.md"
     },
     "TABULARIUS_CONVERT_MEMORY": {
-      "description": "Memory budget for a conversion process, in MB.",
+      "description": "Memory budget for an uploaded file conversion worker, in MB. The memory cap cannot be turned off. Zero, empty or invalid input logs one warning and keeps the 2048 MB default.",
       "default": "2048 MB",
-      "accepted": "Nonnegative number of MB; 0 disables the limit",
+      "accepted": "Positive safe whole number of MB, decimal digits only; 0 or invalid uses 2048",
       "restart": "Yes for a running server.",
       "explainedBy": "docs/environment-variables.md"
     },
@@ -222,14 +222,14 @@
     "TABULARIUS_DRAIN_SECONDS": {
       "description": "How long a stopping server lets requests that are already running finish before it closes them (1 to 86400, 20 by default; see [Upgrading](upgrading.md), \"Stopping and restarting\").",
       "default": "20 seconds",
-      "accepted": "1 to 86400",
+      "accepted": "Whole seconds from 1 to 86400, decimal digits only",
       "restart": "Yes for a running server.",
       "explainedBy": "docs/upgrading.md"
     },
     "TABULARIUS_ENCRYPTION_KEY": {
-      "description": "Passphrase used to unlock encrypted hosted files.",
+      "description": "Passphrase used to unlock encrypted hosted files. A set-but-empty or whitespace-only value refuses startup; unset it to run without encryption, or give a passphrase. Nonblank passphrases are used unchanged.",
       "default": "No encryption passphrase",
-      "accepted": "Passphrase for encrypted hosted files",
+      "accepted": "Nonblank passphrase for encrypted hosted files; unset for no encryption",
       "restart": "Yes for a running server.",
       "explainedBy": "README.md"
     },
@@ -299,7 +299,7 @@
     "TABULARIUS_HTTP_PORT": {
       "description": "The port that answers the certificate challenge and redirects to https (80 by default).",
       "default": "80",
-      "accepted": "Port number",
+      "accepted": "Port number; decimal digits only for numbers, within the safe integer range",
       "restart": "Yes for a running server.",
       "explainedBy": "docs/environment-variables.md"
     },
@@ -404,7 +404,7 @@
     "TABULARIUS_MAX_UPLOAD_IN_PROGRESS": {
       "description": "Combined byte reservation allowed across ongoing uploads and conversions.",
       "default": "20 GiB",
-      "accepted": "Positive bytes",
+      "accepted": "Positive safe whole bytes, decimal digits only; 0 or invalid uses the default with a warning",
       "restart": "Yes for a running server.",
       "explainedBy": "ADMIN.md"
     },
@@ -509,7 +509,7 @@
     "TABULARIUS_PGWIRE_MAX_BUFFERED_ROWS": {
       "description": "Combined result rows that one SQL connection may hold in portals.",
       "default": "100000",
-      "accepted": "Positive whole number of rows",
+      "accepted": "Positive whole number of rows; decimal digits only for numbers, within the safe integer range",
       "restart": "Yes; restart the server after changing its environment.",
       "explainedBy": "docs/pgwire-results.md"
     },
@@ -586,7 +586,7 @@
     "TABULARIUS_REQUEST_LIMIT": {
       "description": "How many requests each worker runs at once before further ones wait in a queue (32 by default, at least 4). Two of the slots are kept for sign-in and static files. See [Performance](performance.md).",
       "default": "32",
-      "accepted": "Whole number of 4 or more",
+      "accepted": "Whole number of 4 or more; decimal digits only for numbers, within the safe integer range",
       "restart": "Yes for a running server.",
       "explainedBy": "docs/performance.md"
     },
@@ -663,7 +663,7 @@
     "TABULARIUS_SQL_PORT": {
       "description": "The port for the PostgreSQL-compatible SQL connection.",
       "default": "SQL listener off",
-      "accepted": "Port number from 0 to 65535",
+      "accepted": "Port number from 0 to 65535; decimal digits only for numbers, within the safe integer range",
       "restart": "Yes for a running server.",
       "explainedBy": "docs/environment-variables.md"
     },
@@ -684,7 +684,7 @@
     "TABULARIUS_STOP_GRACE_MS": {
       "description": "How long `tabularius service stop` waits for the server to finish before it ends it (30000 by default).",
       "default": "30000 ms",
-      "accepted": "Nonnegative milliseconds",
+      "accepted": "Positive safe whole milliseconds, decimal digits only",
       "restart": "Yes for a running server.",
       "explainedBy": "docs/service-files.md"
     },
@@ -738,9 +738,9 @@
       "explainedBy": "docs/security-defaults.md"
     },
     "TABULARIUS_TRACE_SQL": {
-      "description": "Enables SQL statement tracing to stderr.",
+      "description": "Enables SQL statement tracing to stderr only for explicit true values. Unrecognized values disable tracing and log one warning per process naming the setting.",
       "default": "Off",
-      "accepted": "Any nonempty value except 0 enables tracing",
+      "accepted": "1, true, yes, on enable; empty, 0, false, no, off disable (case-insensitive)",
       "restart": "Yes; restart the server after changing its environment.",
       "explainedBy": "docs/performance.md"
     },
@@ -782,14 +782,14 @@
     "TABULARIUS_WARM_HEAP_MB": {
       "description": "Memory budget for the background warming worker, in MB.",
       "default": "1536 MB",
-      "accepted": "Number of MB; minimum 256",
+      "accepted": "Positive safe whole MB, decimal digits only; values below 256 use 256",
       "restart": "Yes for a running server.",
       "explainedBy": "ADMIN.md"
     },
     "TABULARIUS_WORKERS": {
       "description": "The number of worker processes, or `auto` for one per CPU core.",
       "default": "one process",
-      "accepted": "auto or a positive whole number",
+      "accepted": "auto or a positive whole number; decimal digits only for numbers, within the safe integer range",
       "restart": "Yes for a running server.",
       "explainedBy": "docs/environment-variables.md"
     },
@@ -814,12 +814,12 @@
     },
     "--ai-account-daily-tokens": {
       "default": "Unset",
-      "accepted": "Positive number of tokens",
+      "accepted": "Positive number of tokens; decimal digits only for numbers, within the safe integer range",
       "explainedBy": "README.md"
     },
     "--ai-daily-tokens": {
       "default": "Unset",
-      "accepted": "Positive number of tokens",
+      "accepted": "Positive number of tokens; decimal digits only for numbers, within the safe integer range",
       "explainedBy": "README.md"
     },
     "--ai-embed-model": {
@@ -954,7 +954,7 @@
     },
     "--http-port": {
       "default": "80",
-      "accepted": "Port from 0 to 65535",
+      "accepted": "Port from 0 to 65535; decimal digits only for numbers, within the safe integer range",
       "explainedBy": "docs/reference/settings/serve-flags.md"
     },
     "--https": {
@@ -969,7 +969,7 @@
     },
     "--keep": {
       "default": "7",
-      "accepted": "Whole number of 1 or more",
+      "accepted": "Whole number of 1 or more; decimal digits only for numbers, within the safe integer range",
       "explainedBy": "README.md"
     },
     "--keep-api-tokens-on-takeover": {
@@ -1094,7 +1094,7 @@
     },
     "--port": {
       "default": "8080, or 443 with automatic HTTPS",
-      "accepted": "Port number from 0 to 65535",
+      "accepted": "Port number from 0 to 65535; decimal digits only for numbers, within the safe integer range",
       "explainedBy": "README.md"
     },
     "--progressive": {
@@ -1134,7 +1134,7 @@
     },
     "--sql-port": {
       "default": "Off",
-      "accepted": "Port from 0 to 65535",
+      "accepted": "Port from 0 to 65535; decimal digits only for numbers, within the safe integer range",
       "explainedBy": "README.md"
     },
     "--sql-writes": {
@@ -1169,7 +1169,7 @@
     },
     "--workers": {
       "default": "One process",
-      "accepted": "Whole number from 1 to 64, or auto",
+      "accepted": "Whole number from 1 to 64, or auto; decimal digits only for numbers, within the safe integer range",
       "explainedBy": "README.md"
     },
     "--acme-directory": {

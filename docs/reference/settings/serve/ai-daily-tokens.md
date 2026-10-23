@@ -5,10 +5,10 @@
 | Setting | Value |
 | --- | --- |
 | Default | Unset |
-| Accepted values | Positive number of tokens |
+| Accepted values | Positive number of tokens; decimal digits only for numbers, within the safe integer range |
 | Restart needed | Yes; serve flags are read when the server starts. |
-| Environment | [`TABULARIUS_AI_DAILY_TOKENS`](../environment/tabularius_ai_daily_tokens.md) |
+| Environment | No direct environment equivalent |
 | Explained in | [README.md](../../../../README.md) |
-| Code | [packages/cli/src/main.ts:1416](../../../../packages/cli/src/main.ts#L1416) |
+| Code | [packages/cli/src/main.ts:1421](../../../../packages/cli/src/main.ts#L1421) |
 
 [All serve flags](../serve-flags.md)

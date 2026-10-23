@@ -18,6 +18,7 @@
 // prepared statements, row limits), with parameters and results in the text or
 // the binary format, per value, as Bind asks (pgbinary.ts).
 
+import { positiveWholeNumber } from './setting-values.ts';
 import { isUtf8 } from 'node:buffer';
 import { cleanSql, maskSql, sqlTokens } from '../../store/src/sql-tokens.ts';
 import { noteSurfaceSignIn } from './surface-access.ts';
@@ -1179,8 +1180,7 @@ class Connection {
     // TABULARIUS_PGWIRE_MAX_BUFFERED_ROWS (default 100,000) caps what this connection's portals hold together, but at
     // least one full result always fits: a larger TABULARIUS_PGWIRE_MAX_ROWS raises it, and 0 (no row cap) lifts it.
     const perQuery = maxRows();
-    const given = Number(process.env.TABULARIUS_PGWIRE_MAX_BUFFERED_ROWS);
-    const total = Number.isInteger(given) && given > 0 ? given : MAX_BUFFERED_ROWS_PER_CONNECTION;
+    const total = this.server.maxBufferedRows;
     const cap = perQuery === 0 ? Infinity : Math.max(perQuery, total);
     if (alreadyBuffered + result.rows.length > cap) {
       throw new PgError('54000', `buffered SQL results on this connection are limited to ${cap} rows; close portals to free their rows`);
@@ -1211,6 +1211,9 @@ export interface PgServerOptions {
 }
 
 export class PgServer {
+  get maxBufferedRows(): number {
+    return positiveWholeNumber('TABULARIUS_PGWIRE_MAX_BUFFERED_ROWS', process.env.TABULARIUS_PGWIRE_MAX_BUFFERED_ROWS, MAX_BUFFERED_ROWS_PER_CONNECTION);
+  }
   readonly host: Host;
   readonly log: (m: string) => void;
   private readonly opts: PgServerOptions;
@@ -1269,6 +1272,8 @@ export class PgServer {
   }
 
   constructor(host: Host, opts: PgServerOptions) {
+    // Validate at startup as well as on each query, where this limit has always been read.
+    void this.maxBufferedRows;
     this.host = host;
     this.opts = opts;
     this.log = opts.log ?? (() => {});

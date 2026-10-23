@@ -8,6 +8,6 @@ Passphrase used to seal outside-connection secrets.
 | Accepted values | Passphrase text |
 | Restart needed | Yes for a running server. |
 | Explained in | [README.md](../../../../README.md) |
-| Code | [packages/server/src/connections.ts:719](../../../../packages/server/src/connections.ts#L719) |
+| Code | [packages/server/src/connections.ts:721](../../../../packages/server/src/connections.ts#L721) |
 
 [All environment variables](../../../environment-variables.md)

@@ -215,7 +215,7 @@ test('Compose: the folder, the port, the restart policy and the stop time fit th
   assert.deepEqual(service('compose.https.yaml').expose, [e.PORT]);
   assert.deepEqual(service('compose.https.yaml', 'caddy').ports, ['80:80', '443:443'], 'Caddy publishes 80 (certificates and redirects) and 443');
   // The stop time is longer than the longest the server's own service stop waits for the final save.
-  const stopWait = Number(/TABULARIUS_STOP_GRACE_MS\) \|\| (\d+)_000/.exec(read('packages/cli/src/service.ts'))?.[1]);
+  const stopWait = Number(/TABULARIUS_STOP_GRACE_MS, (\d+)_000\)/.exec(read('packages/cli/src/service.ts'))?.[1]);
   assert.ok(stopWait >= 1);
   for (const file of COMPOSE) {
     const grace = /^(\d+)s$/.exec(String(service(file).stop_grace_period))?.[1];

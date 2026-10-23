@@ -4,6 +4,7 @@
 // so a long pass over a large table never holds up a request; until it
 // finishes, layout reads show the result from before the latest change.
 
+import { positiveWholeNumber } from './setting-values.ts';
 import { Worker } from 'node:worker_threads';
 import type { Store } from '../../store/src/index.ts';
 
@@ -11,10 +12,10 @@ import type { Store } from '../../store/src/index.ts';
 const SETTLE_MS = 2_000;
 /** Longest a busy file waits for a quiet moment. */
 const MAX_WAIT_MS = 30_000;
-/** The warming thread's memory, in MB (TABULARIUS_WARM_HEAP_MB). */
-const WARM_HEAP_MB = Math.max(256, Number(process.env.TABULARIUS_WARM_HEAP_MB) || 1536);
 
 export class Warmer {
+  /** The warming thread's memory, in MB; retain the minimum allocation of 256 MB. */
+  private readonly heapMb = Math.max(256, positiveWholeNumber('TABULARIUS_WARM_HEAP_MB', process.env.TABULARIUS_WARM_HEAP_MB, 1536));
   private worker?: Worker;
   private running?: string;
   private readonly queue = new Map<string, string>();
@@ -94,7 +95,7 @@ export class Warmer {
     if (!this.worker) {
       // Its own memory cap: a pass that would need more stops (that layout is worked out on request instead),
       // rather than pushing the machine into swapping beside the server's processes.
-      const w = new Worker(new URL('./warm-worker.ts', import.meta.url), { resourceLimits: { maxOldGenerationSizeMb: WARM_HEAP_MB } });
+      const w = new Worker(new URL('./warm-worker.ts', import.meta.url), { resourceLimits: { maxOldGenerationSizeMb: this.heapMb } });
       w.unref();
       w.on('message', (m: { done: string; layouts: number }) => {
         if (this.worker !== w) return;
