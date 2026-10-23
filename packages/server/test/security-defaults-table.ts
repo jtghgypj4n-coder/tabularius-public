@@ -464,6 +464,18 @@ export const ROWS: Row[] = [
     observe: async (c) => (/budget === undefined \|\| budget === '' \? 60_000 : Number\(budget\)/.test(c.source('packages/server/src/index.ts')) ? '60 s' : 'changed'),
   },
   {
+    id: 'growth-caps', section: 'Limits', setting: 'What one account, agent or session can pile up',
+    default: '1,000 API tokens that work per account, 500 changes waiting for approval per approval-gated agent, 3 debugger runs or recordings at a time per session; past a limit the call is refused (error 812) and says what to do',
+    changedBy: 'Not switchable',
+    risk: 'Without a limit one account or agent could fill the file with tokens or proposals, or fill the disk with debugger copies',
+    how: 'read from code', expect: '1000 / 500 / 3',
+    observe: async (c) => {
+      const store = c.source('packages/store/src/store.ts');
+      const debug = c.source('packages/server/src/debug.ts');
+      return [grep(store, /export const MAX_API_TOKENS_PER_ACCOUNT = (1000);/), grep(store, /export const MAX_PENDING_PER_AGENT = (500);/), grep(debug, /export const MAX_RUNS_PER_SESSION = (3);/)].join(' / ');
+    },
+  },
+  {
     id: 'audit', section: 'Data at rest', setting: 'Audit trail',
     default: 'On: every record created, changed, deleted or duplicated is logged; reads are not logged; kept without limit',
     changedBy: '`logReads`, `redactSensitive`, `excludeFields` and `retentionDays` in the file\'s audit settings (console)',

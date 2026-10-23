@@ -60,6 +60,7 @@ What `tabularius serve <folder>` does when you give it nothing else, setting by 
 | Size of a file import in the web client | 50 MiB plus 256 KiB for the request around the file | Not switchable | Larger uploads hold memory while they are read | read from code |
 | Picture thumbnails: passthrough size and limits on the converter programs | A picture is sent as it is only up to 128 KiB (and no bigger than the thumbnail asked for); the converter (pdftoppm, or sips on macOS) gets 20 seconds and, on Linux only, is run with prlimit (or ulimit in sh) at 512 MiB of address space, 20 seconds of CPU and 16 MiB for a file it writes | Not switchable; `TABULARIUS_THUMBNAILS=builtin` turns the converter programs off | On macOS and Windows the converter has no address-space, CPU or file-size limit beyond the 20-second timeout, the 16 MiB input cap and two converters at a time | read from code |
 | Time one request may hold the server | A minute; then it is stopped (error 812) | `TABULARIUS_REQUEST_BUDGET_MS` (0 for none) | Without a limit one slow request can stall everyone else | read from code |
+| What one account, agent or session can pile up | 1,000 API tokens that work per account, 500 changes waiting for approval per approval-gated agent, 3 debugger runs or recordings at a time per session; past a limit the call is refused (error 812) and says what to do | Not switchable | Without a limit one account or agent could fill the file with tokens or proposals, or fill the disk with debugger copies | read from code |
 
 ## Data at rest
 

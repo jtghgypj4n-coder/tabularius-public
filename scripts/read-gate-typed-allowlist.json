@@ -1929,6 +1929,14 @@
  },
  {
   "file": "packages/store/src/store.ts",
+  "within": "Store.gateAgentWrite",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "no-record-data",
+  "why": "SELECT COUNT(*) of the agent's waiting rows in _fm_pending, to refuse a 501st proposal. It reads no column (no proposed values, no record data); only the number is used, and only to throw a refusal that names the limit."
+ },
+ {
+  "file": "packages/store/src/store.ts",
   "within": "Store.getCurrent",
   "api": "Store.row",
   "count": 1,

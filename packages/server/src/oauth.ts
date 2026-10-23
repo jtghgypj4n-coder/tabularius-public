@@ -24,7 +24,7 @@ import { chmodSync, existsSync, writeFileSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import type { Store } from '../../store/src/index.ts';
+import { StoreError, type Store } from '../../store/src/index.ts';
 import { publicPasswordLockout } from './password-login-policy.ts';
 import { aiBlocker, aiRefusal } from './ai-access.ts';
 import type { Host } from './host.ts';
@@ -793,16 +793,23 @@ p strong { color: var(--text); }
     // The mark the caller checked is checked again as the token is written, under the file's lock: a password or privilege change
     // made in between (by another worker) must not be outlived by a token of the old sign-in. The refresh row keeps that same mark.
     let mark = '';
-    const access = store.createApiToken(account, {
-      label: (label ?? `AI app: ${plain(client.name)}`).slice(0, 80), surfaces: ['fmmcp'], provenance: 'delegated', expires: new Date(expiryClock.now() + ACCESS_SECONDS * 1000), ...(identity ? { identity } : {}),
-      guard: () => {
-        // A refresh takes the access token it renews out in the same change that writes the next one, and refuses when it is already gone:
-        // revoked in Manage Security (by another worker, say) between the check and now, the sign-in is over.
-        if (replacing && !store.revokeApiToken(replacing)) throw new OAuthError('invalid_grant', 'This sign-in was revoked; sign in again');
-        if (!markCurrent(store, account, signedInMark, identity?.person)) throw new OAuthError('invalid_grant', 'This account\'s password or access changed since it signed in; sign in again');
-        mark = passwordMark(store, account, identity?.person);
-      },
-    });
+    let access: string;
+    try {
+      access = store.createApiToken(account, {
+        label: (label ?? `AI app: ${plain(client.name)}`).slice(0, 80), surfaces: ['fmmcp'], provenance: 'delegated', expires: new Date(expiryClock.now() + ACCESS_SECONDS * 1000), ...(identity ? { identity } : {}),
+        guard: () => {
+          // A refresh takes the access token it renews out in the same change that writes the next one, and refuses when it is already gone:
+          // revoked in Manage Security (by another worker, say) between the check and now, the sign-in is over.
+          if (replacing && !store.revokeApiToken(replacing)) throw new OAuthError('invalid_grant', 'This sign-in was revoked; sign in again');
+          if (!markCurrent(store, account, signedInMark, identity?.person)) throw new OAuthError('invalid_grant', 'This account\'s password or access changed since it signed in; sign in again');
+          mark = passwordMark(store, account, identity?.person);
+        },
+      });
+    } catch (e) {
+      // The account holds the most tokens it may (1,000): a plain refusal for the app, not a server error.
+      if (e instanceof StoreError && e.code === 812) throw new OAuthError('temporarily_unavailable', e.message, 503);
+      throw e;
+    }
     const accessId = /^ohbt_([0-9a-f]+)\./.exec(access)![1];
     const refresh = token('ohrt_');
     // Written only if the sign-in has not been ended meanwhile (the app signed out through another worker): then the token just made goes too.
