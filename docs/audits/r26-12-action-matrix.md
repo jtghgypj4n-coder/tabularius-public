@@ -204,7 +204,7 @@ Inventory: 452 method/path actions and 216 script steps. Counts concern code act
 | route GET /tabularius/tls/tabularius.mobileconfig | local-tls | public |
 | route GET /.well-known/acme-challenge/{token} | acme | public |
 | route POST /fmi/admin/api/v2/user/auth | admin-api | admin-gap |
-| route DELETE /fmi/admin/api/v2/user/auth/{token} | admin-api | admin-gap |
+| route DELETE /fmi/admin/api/v2/user/auth | admin-api | admin-gap |
 | route GET /fmi/admin/api/v2/server/metadata | admin-api | admin-gap |
 | route GET /fmi/admin/api/v2/server/status | admin-api | admin-gap |
 | route PATCH /fmi/admin/api/v2/server/status | admin-api | admin-gap |

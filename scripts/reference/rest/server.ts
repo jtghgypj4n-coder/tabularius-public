@@ -263,7 +263,6 @@ export const groups: RestGroup[] = [
       `pathname.startsWith('/fmi/admin/')`,
       `path === '/user/auth'`,
       // The method table that answers 405 with Allow before a route is looked up.
-      String.raw`/^\/user\/auth\/[^/]+$/.test(`,
       String.raw`/^\/server\/config\/(general|authenticatedstream|parallelbackup|persistentcache)$/.test(`,
       String.raw`/^\/databases\/\d+$/.test(`,
       String.raw`/^\/clients\/\d+\/message$/.test(`,
@@ -271,7 +270,6 @@ export const groups: RestGroup[] = [
       String.raw`/^\/schedules\/\d+$/.test(`,
       String.raw`/^\/schedules\/[a-z]+$/.test(`,
       String.raw`/^\/(?:databases|clients|schedules)\/(\d+)(?:\/|$)/.exec(`,
-      String.raw`/^\/user\/auth\/([^/]+)$/.exec(`,
       `path === '/server/metadata'`,
       `path === '/server/status'`,
       `path === '/databases'`,
@@ -309,15 +307,16 @@ export const groups: RestGroup[] = [
       },
       {
         method: 'DELETE',
-        path: '/fmi/admin/api/v2/user/auth/{token}',
-        summary: 'Signs out: the token named in the path stops working.',
+        path: '/fmi/admin/api/v2/user/auth',
+        summary: 'Signs out the session in the Bearer header without putting its token in the URL.',
         permissions: 'A live Admin API token (Bearer).',
-        params: [{ name: 'token', in: 'path', type: 'string', required: true, description: 'The token to end.' }],
+        params: [{ name: 'Authorization', in: 'header', type: 'string', required: true, description: 'Bearer token for the session to end.' }],
         example: {
-          request: 'DELETE /fmi/admin/api/v2/user/auth/p4Xo2c9yQm1bT8sV0nKe3jLwR6uZaHfD5gC7iEqY1xM\nAuthorization: Bearer p4Xo2c9yQm1bT8sV0nKe3jLwR6uZaHfD5gC7iEqY1xM',
+          request: 'DELETE /fmi/admin/api/v2/user/auth\nAuthorization: Bearer <token>',
           status: 200,
           response: fmi({}),
         },
+        notes: 'The token is never in the URL, where a reverse proxy may log it. This is a Tabularius extension; compatibility with FileMaker Server is unverified.',
       },
       {
         method: 'GET',

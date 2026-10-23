@@ -13,7 +13,7 @@ The routes are in the [REST reference](reference/rest.md#admin-api). A test (`ad
 | Claris call | Here | Route |
 | --- | --- | --- |
 | Request a token | Answered | `POST /fmi/admin/api/v2/user/auth` |
-| Invalidate a token | Answered | `DELETE /fmi/admin/api/v2/user/auth/{token}` |
+| Invalidate the Bearer session | Answered | `DELETE /fmi/admin/api/v2/user/auth` with `Authorization: Bearer` |
 | Server metadata | Answered | `GET /fmi/admin/api/v2/server/metadata` |
 | Get server status | Answered | `GET /fmi/admin/api/v2/server/status` |
 | Update server status (stop, start) | Answered | `PATCH /fmi/admin/api/v2/server/status` |

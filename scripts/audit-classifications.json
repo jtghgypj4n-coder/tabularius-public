@@ -186,7 +186,7 @@
   "route GET /tabularius/tls/tabularius.mobileconfig": "public",
   "route GET /.well-known/acme-challenge/{token}": "public",
   "route POST /fmi/admin/api/v2/user/auth": "admin-gap",
-  "route DELETE /fmi/admin/api/v2/user/auth/{token}": "admin-gap",
+  "route DELETE /fmi/admin/api/v2/user/auth": "admin-gap",
   "route GET /fmi/admin/api/v2/server/metadata": "admin-gap",
   "route GET /fmi/admin/api/v2/server/status": "admin-gap",
   "route PATCH /fmi/admin/api/v2/server/status": "admin-gap",

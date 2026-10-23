@@ -21997,7 +21997,7 @@ Source: `packages/server/src/adminapi.ts`, `packages/server/src/index.ts`
 | Method | Path | What it does |
 | --- | --- | --- |
 | POST | [`/fmi/admin/api/v2/user/auth`](#admin-api-post-fmi-admin-api-v2-user-auth) | Signs in with the admin password and returns a token for the other routes. |
-| DELETE | [`/fmi/admin/api/v2/user/auth/{token}`](#admin-api-delete-fmi-admin-api-v2-user-auth-token) | Signs out: the token named in the path stops working. |
+| DELETE | [`/fmi/admin/api/v2/user/auth`](#admin-api-delete-fmi-admin-api-v2-user-auth) | Signs out the session in the Bearer header without putting its token in the URL. |
 | GET | [`/fmi/admin/api/v2/server/metadata`](#admin-api-get-fmi-admin-api-v2-server-metadata) | The server's name, id, address, Admin API version and local time. |
 | GET | [`/fmi/admin/api/v2/server/status`](#admin-api-get-fmi-admin-api-v2-server-status) | Whether the server is running or was stopped through this API. |
 | PATCH | [`/fmi/admin/api/v2/server/status`](#admin-api-patch-fmi-admin-api-v2-server-status) | STOPPED closes every open file (ending their sessions); RUNNING opens again the files it closed. |
@@ -22062,11 +22062,11 @@ Response `200`:
 
 A wrong password is 401 code 212; too many failures 429 code 214 with Retry-After. At most 100 tokens are live at once (401 code 956 beyond that).
 
-<a id="admin-api-delete-fmi-admin-api-v2-user-auth-token"></a>
+<a id="admin-api-delete-fmi-admin-api-v2-user-auth"></a>
 
-### `DELETE /fmi/admin/api/v2/user/auth/{token}`
+### `DELETE /fmi/admin/api/v2/user/auth`
 
-Signs out: the token named in the path stops working.
+Signs out the session in the Bearer header without putting its token in the URL.
 
 **Permissions:** A live Admin API token (Bearer).
 
@@ -22074,13 +22074,13 @@ Signs out: the token named in the path stops working.
 
 | Name | In | Type | Required | Description |
 | --- | --- | --- | --- | --- |
-| `token` | path | string | yes | The token to end. |
+| `Authorization` | header | string | yes | Bearer token for the session to end. |
 
 **Example:**
 
 ```http
-DELETE /fmi/admin/api/v2/user/auth/p4Xo2c9yQm1bT8sV0nKe3jLwR6uZaHfD5gC7iEqY1xM
-Authorization: Bearer p4Xo2c9yQm1bT8sV0nKe3jLwR6uZaHfD5gC7iEqY1xM
+DELETE /fmi/admin/api/v2/user/auth
+Authorization: Bearer <token>
 ```
 
 Response `200`:
@@ -22096,6 +22096,8 @@ Response `200`:
   ]
 }
 ```
+
+The token is never in the URL, where a reverse proxy may log it. This is a Tabularius extension; compatibility with FileMaker Server is unverified.
 
 <a id="admin-api-get-fmi-admin-api-v2-server-metadata"></a>
 
