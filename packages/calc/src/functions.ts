@@ -1688,7 +1688,8 @@ eager('BE_Zip', 1, 2, (v, env) => {
 });
 // BE_Unzip ( archive | container {; folder } ): extracts every file, replacing any already there, into folder (by
 // default the archive's own folder) and gives their paths, one per line in name order. BE_Unzip_Deprecated, the
-// older function, gives 0 instead.
+// older function, gives 0 instead. An archive with a name that climbs out of the folder, or holds a colon or a
+// backslash, is refused whole.
 const beUnzip = (paths: boolean) => (v: Value[], env: Env): Value => {
   const files = env.ctx.files;
   const container = v[0].type === 'container' && v[0].data ? v[0].data : undefined;
@@ -1706,6 +1707,13 @@ const beUnzip = (paths: boolean) => (v: Value[], env: Env): Value => {
   }
   // No entry may climb out of the folder.
   if (entries.some((e) => e.name.startsWith('/') || e.name.split(/[/\\]/).some((x) => x === '..'))) return beResult(env, BE_ZIP_ERROR, text('?'));
+  // A colon is a drive letter or an alternate data stream on Windows, and a backslash a folder separator there: a name
+  // with either is refused, whatever the platform, so the same archive does the same thing everywhere.
+  const odd = entries.find((e) => /[:\\]/.test(e.name));
+  if (odd) {
+    beErrors.set(env.ctx, `the archive holds ${JSON.stringify(odd.name)}, and a file name with a colon or a backslash is not unpacked; nothing was written`);
+    return beResult(env, BE_ZIP_ERROR, text('?'));
+  }
   const base = folder.replace(/[/\\]+$/, '') + '/';
   const done: string[] = [];
   for (const e of entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))) {

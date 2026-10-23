@@ -29,8 +29,12 @@ const TOOL_TIMEOUT_MS = 20_000;
 const WORKER_TIMEOUT_MS = 20_000;
 export const THUMB_MIN = 16;
 export const THUMB_MAX = 1024;
-/** Pictures up to this size are sent as they are when they are no bigger than the thumbnail asked for. */
-const SMALL = 512 * 1024;
+/** Pictures up to this size are sent as they are when they are no bigger than the thumbnail asked for; a bigger file is decoded and sent as a smaller PNG. */
+export const THUMBNAIL_PASSTHROUGH_BYTES = 128 * 1024;
+/** What a native converter (pdftoppm, sips) may use where the system can limit it: address space, CPU seconds and the size of a file it writes. */
+const TOOL_ADDRESS_SPACE = 512 * 1024 * 1024;
+const TOOL_CPU_SECONDS = 20;
+const TOOL_FILE_BYTES = 16 * 1024 * 1024;
 // Admission covers queued and running inputs across both decoding paths.
 const THUMB_INPUT_BYTES = 64 * 1024 * 1024;
 const THUMB_RETAINED_BYTES = 128 * 1024 * 1024;
@@ -103,7 +107,7 @@ export class ContainerFiles {
   private stopped = false;
   private activeTools = 0;
   private readonly waitingTools: ((taken: boolean) => void)[] = [];
-  private tools?: { pdftoppm?: string; sips?: string };
+  private tools?: { pdftoppm?: string; sips?: string; prlimit?: string; sh?: string };
   /** Thumbnails being made, so a page of 50 asking at once makes each one once. */
   private readonly making = new Map<string, Making>();
   private retainedBytes = 0;
@@ -318,7 +322,7 @@ export class ContainerFiles {
       // A small picture is its own thumbnail when it is no bigger than asked for, or when it
       // is a JPEG, which is only read at an eighth of its size here and would come out smaller.
       const dims = imageSize(d);
-      if (dims && dims.width > 0 && dims.height > 0 && d.length <= SMALL) {
+      if (dims && dims.width > 0 && dims.height > 0 && d.length <= THUMBNAIL_PASSTHROUGH_BYTES) {
         const longest = Math.max(dims.width, dims.height);
         if (longest <= size || (d[0] === 0xff && longest / 8 < size)) return { mime: builtin, data: d };
       }
@@ -446,7 +450,12 @@ export class ContainerFiles {
   /** A thumbnail from pdftoppm or sips, when the machine has one of them. */
   private async withTool(data: Uint8Array, pdf: boolean, size: number, signal?: AbortSignal): Promise<Uint8Array | undefined> {
     if (this.stopped || signal?.aborted) return undefined;
-    this.tools ??= process.env.TABULARIUS_THUMBNAILS === 'builtin' ? {} : { pdftoppm: findExecutable('pdftoppm', this.platform), sips: this.platform === 'darwin' ? findExecutable('sips', this.platform) : undefined };
+    this.tools ??= process.env.TABULARIUS_THUMBNAILS === 'builtin' ? {} : {
+      pdftoppm: findExecutable('pdftoppm', this.platform),
+      sips: this.platform === 'darwin' ? findExecutable('sips', this.platform) : undefined,
+      prlimit: this.platform === 'linux' ? findExecutable('prlimit', this.platform) : undefined,
+      sh: this.platform === 'linux' ? findExecutable('sh', this.platform) : undefined,
+    };
     const run = pdf && this.tools.pdftoppm
       ? (dir: string) => [this.tools!.pdftoppm!, ['-png', '-singlefile', '-f', '1', '-l', '1', '-scale-to', String(size), join(dir, 'in'), join(dir, 'out')]] as const
       : this.tools.sips
@@ -461,7 +470,8 @@ export class ContainerFiles {
       dir = mkdtempSync(join(tmpdir(), 'tabularius-thumb-'));
       cleanup = cleanupPath(dir, { recursive: true, force: true });
       writeFileSync(join(dir, 'in'), data);
-      const [cmd, args] = run(dir);
+      const [tool, toolArgs] = run(dir);
+      const { cmd, args } = limitedCommand(tool, toolArgs, this.platform, this.tools);
       await new Promise<void>((resolve, reject) => {
         execFile(cmd, [...args], { timeout: TOOL_TIMEOUT_MS, maxBuffer: 1024 * 1024, signal }, (e) => (e ? reject(e) : resolve()));
       });
@@ -541,6 +551,31 @@ function strongMatches(header: string, etag: string): boolean {
 
 function matches(header: string | undefined, etag: string): boolean {
   return !!header && (header.trim() === '*' || header.split(',').some((t) => t.trim().replace(/^W\//, '') === etag));
+}
+
+/**
+ * The command that runs a native converter under resource limits, where the system has them: on Linux prlimit (or,
+ * without it, `ulimit` in sh) caps address space at 512 MiB, CPU time at 20 seconds and the size of any file written at
+ * 16 MiB. Neither the tool's name nor its arguments are ever part of shell text; sh gets them as separate arguments.
+ * On macOS and Windows the converter runs without these limits (macOS does not enforce an address-space limit, and
+ * Windows has no equivalent here); the 20-second wall-clock timeout, the 16 MiB input cap and the two converter slots
+ * apply everywhere.
+ */
+export function limitedCommand(
+  cmd: string,
+  args: readonly string[],
+  platform: NodeJS.Platform,
+  tools: { prlimit?: string; sh?: string },
+): { cmd: string; args: string[]; limits: 'prlimit' | 'ulimit' | 'none' } {
+  if (platform === 'linux' && tools.prlimit) {
+    return { cmd: tools.prlimit, args: [`--as=${TOOL_ADDRESS_SPACE}`, `--cpu=${TOOL_CPU_SECONDS}`, `--fsize=${TOOL_FILE_BYTES}`, '--', cmd, ...args], limits: 'prlimit' };
+  }
+  if (platform === 'linux' && tools.sh) {
+    // ulimit -v is in KiB; -f is in 512-byte blocks in POSIX mode, which is what sh runs in.
+    const script = `ulimit -v ${TOOL_ADDRESS_SPACE / 1024}; ulimit -t ${TOOL_CPU_SECONDS}; ulimit -f ${TOOL_FILE_BYTES / 512}; exec "$@"`;
+    return { cmd: tools.sh, args: ['-c', script, 'sh', cmd, ...args], limits: 'ulimit' };
+  }
+  return { cmd, args: [...args], limits: 'none' };
 }
 
 /** Native tools only: batch files would require a shell, which thumbnail inputs never enter. */
