@@ -10,6 +10,7 @@ import { STARTER_LOOKS } from './starter-looks.ts';
 import { errorText, type Studio } from './main.ts';
 import type { FileRestyle, ThemeTokens } from './client.ts';
 import { proposalPicture } from './layout-editor.ts';
+import { cssText, parseCss } from './css-text.ts';
 
 /** Elements people style most, by their theme element type. */
 export const ELEMENTS: [number, string][] = [
@@ -34,16 +35,6 @@ export function toHex(v: string | undefined): string | undefined {
   const m = /^rgba?\(\s*(\d+)[\s,]+(\d+)[\s,]+(\d+)/i.exec(v);
   return m ? '#' + m.slice(1, 4).map((x) => Math.min(255, Number(x)).toString(16).padStart(2, '0')).join('') : undefined;
 }
-
-const parseCss = (text: string): Record<string, string> => {
-  const css: Record<string, string> = {};
-  for (const line of text.split(/[;\n]/)) {
-    const i = line.indexOf(':');
-    if (i > 0 && line.slice(i + 1).trim()) css[line.slice(0, i).trim().toLowerCase()] = line.slice(i + 1).trim();
-  }
-  return css;
-};
-const cssText = (css: Record<string, string>) => Object.entries(css).map(([k, v]) => `${k}: ${v}`).join('\n');
 
 /**
  * Edits style rules in place: pick the part and state, then fill, text, font,

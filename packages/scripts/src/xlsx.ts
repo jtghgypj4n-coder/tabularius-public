@@ -55,6 +55,11 @@ const xml = (s: string) => s
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
   .replace(/\r/g, '&#13;');
 
+/** Decode ST_Xstring escapes in cell text in one pass, without decoding a literal escaped underscore twice. */
+export const ooxmlString = (s: string): string => s.replace(/_x([0-9a-f]{4})_/gi, (_, hex: string) => String.fromCharCode(parseInt(hex, 16)));
+
+const escapeOoxmlString = (s: string): string => s.replace(/_x[0-9a-f]{4}_/gi, (match) => `_x005F_${match.slice(1)}`);
+
 /** A, B, ... Z, AA, AB, ... */
 export function columnName(n: number): string {
   let s = '';
@@ -75,7 +80,7 @@ function sheet(rows: XlsxOutCell[][], header: boolean): string {
     if (typed(v)) return Number.isFinite(v.serial) ? `<c r="${ref}" s="${STYLE[v.kind]}"><v>${v.serial}</v></c>` : '';
     if (typeof v === 'number' && Number.isFinite(v)) return `<c r="${ref}"><v>${Object.is(v, -0) ? '-0' : v}</v></c>`;
     if (v === '') return '';
-    return `<c r="${ref}"${header && r === 0 ? ` s="${STYLE.header}"` : ''} t="inlineStr"><is><t xml:space="preserve">${xml(String(v))}</t></is></c>`;
+    return `<c r="${ref}"${header && r === 0 ? ` s="${STYLE.header}"` : ''} t="inlineStr"><is><t xml:space="preserve">${xml(escapeOoxmlString(String(v)))}</t></is></c>`;
   }).join('')}</row>`).join('');
   const filter = header && rows.length && columns ? `<autoFilter ref="A1:${columnName(columns - 1)}${rows.length}"/>` : '';
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">${view}${cols}<sheetData>${body}</sheetData>${filter}</worksheet>`;
@@ -432,7 +437,7 @@ export function readXlsx(data: Uint8Array, sheetName?: string): XlsxCell[][] {
   const parts = archive.read([wanted.path, 'xl/sharedStrings.xml', ...(from1904 ? ['xl/styles.xml'] : [])]);
   const text = (name: string) => decode(parts.get(name));
   const phonetic = (si: string) => removeUpTo(si, /<rPh\b[\s\S]*?<\/rPh>/g, '</rPh>');
-  const runs = (si: string) => [...xmlElements(phonetic(si), 't')].map(([, t]) => unxml(t ?? '')).join('');
+  const runs = (si: string) => ooxmlString([...xmlElements(phonetic(si), 't')].map(([, t]) => unxml(t ?? '')).join(''));
   const shared = [...xmlElements(text('xl/sharedStrings.xml') ?? '', 'si')].map(([, si]) => runs(si ?? ''));
   const sheet = text(wanted.path);
   if (sheet === undefined) throw new Error('the workbook has no sheet');
@@ -463,7 +468,7 @@ export function readXlsx(data: Uint8Array, sheetName?: string): XlsxCell[][] {
       let value: XlsxCell = '';
       if (type === 's') value = shared[Number(v)] ?? '';
       else if (type === 'inlineStr') value = runs(body);
-      else if (type === 'str' || type === 'e' || type === 'd') value = unxml(v ?? ''); // 'd' is an ISO 8601 date, 'e' an error such as #DIV/0!
+      else if (type === 'str' || type === 'e' || type === 'd') value = ooxmlString(unxml(v ?? '')); // 'd' is an ISO 8601 date, 'e' an error such as #DIV/0!
       else if (type === 'b') value = v === '1' ? 1 : 0;
       else if (v !== undefined) {
         value = Number.isFinite(Number(v)) ? Number(v) : unxml(v);
