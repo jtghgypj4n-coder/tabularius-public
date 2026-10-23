@@ -671,14 +671,15 @@ test('a transaction older than the maximum age is rolled back however busy the c
   let offset = 0;
   monotonicClock.now = () => realNow() + offset;
   process.env.TABULARIUS_PGWIRE_TX_IDLE_MS = '0';
-  process.env.TABULARIUS_PGWIRE_TX_MAX_MS = '40';
+  // A limit far above the time the test itself takes, so a slow runner cannot reach it by waiting: only the clock offsets below do.
+  process.env.TABULARIUS_PGWIRE_TX_MAX_MS = '60000';
   try {
     const c = await s.client();
     await c.simple('BEGIN');
     await c.simple("INSERT INTO Items (Name) VALUES ('held')");
     // Keeping the connection busy does not keep the file.
-    for (let i = 0; i < 3; i++) { offset += 10; await c.simple('SELECT 1'); }
-    offset += 10_000;
+    for (let i = 0; i < 3; i++) { offset += 1000; await c.simple('SELECT 1'); }
+    offset += 100_000;
     const e = errorOf([await c.read()]);
     assert.equal(e?.code, '25P03');
     assert.equal(e?.severity, 'FATAL');
