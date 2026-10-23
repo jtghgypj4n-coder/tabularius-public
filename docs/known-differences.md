@@ -7,7 +7,7 @@ missing from it. `npm run docs:known-differences` rewrites it, and a test fails 
 marker (`<!-- known-difference: area ;; what ;; how it shows ;; what would settle it -->`). Internal working notes are not
 part of it.
 
-**123 entries in 20 areas.** Waiting on: 22 on a sample file, 65 on a FileMaker run or Design Report, 10 on a Claris answer, 16 on a decision by the owner (an entry can wait on more than one).
+**129 entries in 20 areas.** Waiting on: 22 on a sample file, 71 on a FileMaker run or Design Report, 10 on a Claris answer, 16 on a decision by the owner (an entry can wait on more than one).
 
 ## Data API
 
@@ -25,6 +25,12 @@ part of it.
 
 | What differs or is unknown | How it shows | What would settle it | Where it is written |
 | --- | --- | --- | --- |
+| Whether FileMaker's arithmetic and timestamp construction across a skipped or repeated hour match Tabularius's local calendar-second counting is not verified | Adding 24 hours across a daylight-saving change keeps the same clock reading, and no elapsed-UTC conversion is made | A FileMaker run of timestamp arithmetic across a spring and a fall change | [docs/audits/audit-time.md › Results and fixes](audits/audit-time.md) — “…( CurrentTimestamp ) follows the host zone. \| Unverified for the compatible product's skipped/repeated-hour…” |
+| Whether FileMaker Server runs a daily local-time schedule at the normalised spring time or the first fall occurrence is not verified | A schedule in a spring gap runs at the later time, and a repeated fall hour runs once | A FileMaker Server run of a daily schedule across both changes | [docs/audits/audit-time.md › Results and fixes](audits/audit-time.md) — “…and measure duration with performance.now(). \| Unverified whether the compatible product fires at the…” |
+| Whether FileMaker's SQL date intervals land in a skipped hour, and how it treats years 0000-0099, matches Tabularius is not verified | An interval can land in a skipped hour, and early years keep their literal value | A FileMaker run of SQL date arithmetic across a daylight-saving gap and in year 0004 | [docs/audits/audit-time.md › Results and fixes](audits/audit-time.md) — “…leap-day regression reproduced before the fix. \| Unverified for the compatible product's DST-gap interval…” |
+| Whether FileMaker formats date and time fields on a daylight-saving day the way the web client does is not verified | A skipped or repeated reading shows as written in every browser zone | A FileMaker run showing a field value on a daylight-saving day | [docs/audits/audit-time.md › Results and fixes](audits/audit-time.md) — “…of a fall hour can be distinguished. \| Unverified whether the compatible product uses the same field…” |
+| No FileMaker runtime or documentation was available, so every edge comparison in this audit is unverified | The audit shows Node behaviour for the named zones only | A FileMaker run of each edge case listed above | [docs/audits/audit-time.md › Verification limits](audits/audit-time.md) — “…offline, so each edge comparison above remains unverified. The local environment refused localhost binds in…” |
+| Whether FileMaker resolves ambiguous imported or exported calendar readings the way Tabularius does (skipped reading moved forward, first of a repeated reading) is not verified | A calendar entry in a skipped or repeated hour may land at a different instant | A FileMaker calendar run with readings in a skipped and a repeated hour | [docs/audits/audit-time.md › Results and fixes](audits/audit-time.md) — “…UTC DTSTAMP already have synthetic tests. \| Unverified whether the compatible product resolves ambiguous…” |
 | YearName is not implemented because its exact output (Japanese era names) could not be read from the Claris page, and negative or fractional times, ambiguous locale-dependent text parsing and mixed text coercions follow Tabularius choices that the Claris pages do not define | A calculation using YearName returns an error, and one that builds a time outside a clock day or parses ambiguous date text may give a different answer from FileMaker | A readable Claris YearName reference or a FileMaker run of YearName, out-of-range times and ambiguous date text | [docs/audits/r25-22-date-time-functions.md](audits/r25-22-date-time-functions.md) — “(the whole page)” |
 
 ## File system races
