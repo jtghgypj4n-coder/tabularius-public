@@ -426,6 +426,14 @@ export const ROWS: Row[] = [
     observe: async (c) => (grep(c.source('packages/server/src/import-tables-route.ts'), /const MAX_BODY = (50 \* 1024 \* 1024) \+ 256 \* 1024;/) ? '50 MiB' : 'changed'),
   },
   {
+    id: 'thumbnail-converters', section: 'Limits', setting: 'Picture thumbnails: passthrough size and limits on the converter programs',
+    default: 'A picture is sent as it is only up to 128 KiB (and no bigger than the thumbnail asked for); the converter (pdftoppm, or sips on macOS) gets 20 seconds and, on Linux only, is run with prlimit (or ulimit in sh) at 512 MiB of address space, 20 seconds of CPU and 16 MiB for a file it writes',
+    changedBy: 'Not switchable; `TABULARIUS_THUMBNAILS=builtin` turns the converter programs off',
+    risk: 'On macOS and Windows the converter has no address-space, CPU or file-size limit beyond the 20-second timeout, the 16 MiB input cap and two converters at a time',
+    how: 'read from code', expect: '128 KiB; prlimit 512 MiB, 20 s, 16 MiB',
+    observe: async (c) => (grep(c.source('packages/server/src/containers.ts'), /(THUMBNAIL_PASSTHROUGH_BYTES = 128 \* 1024;)/) && /--as=\$\{TOOL_ADDRESS_SPACE\}/.test(c.source('packages/server/src/containers.ts')) && grep(c.source('packages/server/src/containers.ts'), /(TOOL_ADDRESS_SPACE = 512 \* 1024 \* 1024;)/) ? '128 KiB; prlimit 512 MiB, 20 s, 16 MiB' : 'changed'),
+  },
+  {
     id: 'request-time', section: 'Limits', setting: 'Time one request may hold the server',
     default: 'A minute; then it is stopped (error 812)',
     changedBy: '`TABULARIUS_REQUEST_BUDGET_MS` (0 for none)',

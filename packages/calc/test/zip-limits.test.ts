@@ -130,3 +130,21 @@ test('unzip gives a domain error for a damaged deflate stream and checksum', () 
   view.setUint32(14, 0, true);
   assert.throws(() => unzip(checksum), /a has a damaged zip entry checksum/);
 });
+
+test('BE_Unzip refuses an entry name with a colon or a backslash, before writing anything', () => {
+  for (const bad of ['notes 10:30.txt', 'C:/Windows/x.txt', 'a\\b.txt', 'dir/file.txt:stream', 'x:']) {
+    const archive = zip([{ name: 'fine.txt', data: Buffer.from('ok') }, { name: bad, data: Buffer.from('no') }]);
+    let writes = 0;
+    const ctx = { files: { read: () => archive, size: () => archive.length, write: () => { writes++; return true; }, makeFolder: () => 0 } };
+    for (const name of ['BE_Unzip', 'BE_Unzip_Deprecated']) {
+      assert.equal(evaluateText(`${name} ( "in.zip" ; "out" )`, ctx), '?', bad);
+      assert.match(evaluateText('BE_JSON_Error_Description', ctx), /colon or a backslash/, bad);
+    }
+    assert.equal(writes, 0, `nothing is written for ${bad}`);
+  }
+  const fine = zip([{ name: 'dir/', data: Buffer.alloc(0) }, { name: 'dir/a b.txt', data: Buffer.from('ok') }]);
+  const written: string[] = [];
+  const ctx = { files: { read: () => fine, size: () => fine.length, write: (path: string) => { written.push(path); return true; }, makeFolder: () => 0 } };
+  assert.equal(evaluateText('BE_Unzip ( "in.zip" ; "out" )', ctx), 'out/dir/a b.txt');
+  assert.deepEqual(written, ['out/dir/a b.txt']);
+});
