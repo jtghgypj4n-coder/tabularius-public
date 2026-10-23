@@ -262,7 +262,7 @@ A step marked **error 3** is unavailable; **does nothing** means it succeeds wit
 | [Install OnTimer Script](148-install-ontimer-script.md) | partly |
 | [Loop](71-loop.md) | partly |
 | [Open Script Workspace](88-open-script-workspace.md) | works |
-| [Pause/Resume Script](62-pause-resume-script.md) | works |
+| [Pause/Resume Script](62-pause-resume-script.md) | partly |
 | [Perform AppleScript](67-perform-applescript.md) | error 3 |
 | [Perform Script](1-perform-script.md) | works |
 | [Perform Script on Server](164-perform-script-on-server.md) | works |

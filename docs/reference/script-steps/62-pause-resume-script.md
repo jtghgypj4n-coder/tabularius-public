@@ -3,7 +3,7 @@ id: script-step-62
 title: "Pause/Resume Script"
 area: script-steps
 since: unknown
-status: works
+status: partly
 verified: f200448e0
 ---
 
@@ -11,12 +11,16 @@ verified: f200448e0
 
 Pause/Resume Script is a script flow script step. This page describes how the offline Tabularius engine handles it.
 
-- **Support:** works
+- **Support:** partly
 - **Registry ID:** 62
 
 ## What the engine does
 
-The engine has a handler for this step. Its effect depends on the named target and current script context.
+The engine handles this step with the limits described in the support notes.
+In this engine, an interactive indefinite pause commits or reverts each open record before waiting for the person. A pause without a responder and a duration-based pause leave edits pending. Whether FileMaker commits at an interactive pause is unverified; matching behavior is not claimed.
+
+FileMaker comparisons in this note are inferred unless a Claris help page is linked. See the [full support notes](../../script-steps-support.md) for surrounding conditions.
+
 ## Options
 
 Use the Script Workspace or script text to supply the target and any positional options the step requires.
@@ -27,7 +31,7 @@ Permission to run the script; access to any named record, field, layout or file 
 
 ## Error codes
 
-Known codes from the engine and the [script error-code reference](../../error-codes.md): `0`. Other failures can arise from calculations or targets used by the step.
+Known codes from the engine and the [script error-code reference](../../error-codes.md): `0`, `3`. Other failures can arise from calculations or targets used by the step.
 
 ## Offline script example
 
