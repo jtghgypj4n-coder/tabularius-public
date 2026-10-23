@@ -80,10 +80,12 @@ export class ScriptTabs {
 }
 
 /** The scripts with unsaved steps that these changes give new steps (or delete). */
-export function draftsReplaced(changes: unknown[], drafts: Map<number, Draft>): number[] {
+export function draftsReplaced(changes: unknown[], drafts: Map<number, Draft>, scripts: { id: number; name: string }[]): number[] {
   return [...new Set(changes.flatMap((c) => {
-    const x = c as { op: string; script?: number; text?: unknown; steps?: unknown };
-    return (x.op === 'updateScript' && (x.text !== undefined || x.steps !== undefined)) || x.op === 'deleteScript' ? [x.script!] : [];
+    const x = c as { op: string; script?: number | string; text?: unknown; steps?: unknown };
+    if (!((x.op === 'updateScript' && (x.text !== undefined || x.steps !== undefined)) || x.op === 'deleteScript')) return [];
+    const id = typeof x.script === 'number' ? x.script : scripts.find((s) => s.name.toLowerCase() === String(x.script ?? '').toLowerCase())?.id;
+    return id === undefined ? [] : [id];
   }))].filter((id) => drafts.has(id));
 }
 

@@ -49,10 +49,17 @@ export function stepStarts(text: string): boolean[] {
   let depth = 0;
   let quote: string | undefined;
   return text.split('\n').map((line) => {
+    if (line.trimStart().startsWith('#') || line.trimStart().startsWith('// #')) {
+      quote = undefined;
+      depth = 0;
+      return true;
+    }
     const starts = depth === 0 && !quote;
-    for (const ch of line) {
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
       if (quote) {
-        if (ch === quote) quote = undefined;
+        if (ch === '\\') i++;
+        else if (ch === quote) quote = undefined;
       } else if (ch === '"') quote = '"';
       else if (ch === '“') quote = '”';
       else if (ch === '[') depth++;
