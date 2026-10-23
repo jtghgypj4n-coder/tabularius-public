@@ -7,7 +7,7 @@ missing from it. `npm run docs:known-differences` rewrites it, and a test fails 
 marker (`<!-- known-difference: area ;; what ;; how it shows ;; what would settle it -->`). Internal working notes are not
 part of it.
 
-**123 entries in 20 areas.** Waiting on: 22 on a sample file, 65 on a FileMaker run or Design Report, 10 on a Claris answer, 16 on a decision by the owner (an entry can wait on more than one).
+**125 entries in 21 areas.** Waiting on: 22 on a sample file, 66 on a FileMaker run or Design Report, 10 on a Claris answer, 17 on a decision by the owner (an entry can wait on more than one).
 
 ## Data API
 
@@ -88,6 +88,13 @@ part of it.
 | Rich-text formatting runs, externally stored containers, how global fields are stored and the user's custom layout display order are not decoded yet | A converted file does not carry them | Sample files that use them (for the display order, one where layouts were reordered) | [docs/research/fmp12-format.md](research/fmp12-format.md) — “(the whole page)” |
 | Containers in FileMaker's secure (encrypted) external storage are not supported | Such containers do not come across from a converted file | An owner decision on supporting them, and a sample file that has them | [README.md › Tabularius](../README.md) — “Not yet: containers in FileMaker's secure (encrypted) external storage. See” |
 | Some account option flags (print, export, menu level) are not decoded from a converted file | Those flags are not carried into the converted account | Sample files that set them, and a Design Report of the same file | [SECURITY.md › Known limitations](../SECURITY.md) — “…option flags (print, export, menu level) are not yet” |
+
+## Schedules
+
+| What differs or is unknown | How it shows | What would settle it | Where it is written |
+| --- | --- | --- | --- |
+| Whether FileMaker Server runs a schedule that was due while the server was off is unverified; Tabularius does not run it | A schedule due while the server was off is not run when the server comes back | A FileMaker Server run with a schedule due during a stop | [ADMIN.md › Script schedules](../ADMIN.md) — “A run that was due while the server was off is not made up. When the server starts it works out the next time…” |
+| Schedules cannot be limited to some weekdays, months or a time window | The Admin API refuses a weekly schedule that skips a day with error 21 | An owner decision on adding them | [ADMIN.md › Script schedules](../ADMIN.md) — “Schedules repeat every day, every N days, or every N minutes or hours. There is no choice of weekdays, months…” |
 
 ## Scripts and script steps
 

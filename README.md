@@ -1005,6 +1005,7 @@ of day (every 1440 minutes from 02:00 is nightly at 2 a.m.). A schedule runs as
 an account of the file, within its privileges, and shows its next and last run,
 its last error, and (under "Runs") its last 50 runs with how each went, kept
 across restarts in `<folder>/.openhbam-schedule-runs.json`.
+A schedule that was due while the server was off does not run when it comes back; the next run is the next time from then on. A schedule repeats every day, every N days or every N minutes; it cannot be limited to some weekdays, months or a time window. See [ADMIN.md](ADMIN.md#script-schedules).
 Scheduled scripts reach the network only when the file's Script network switch
 is on (admin console, Hosted files) and the schedule allows it too; they never
 send mail. Scripts an AI runs (the `run_script` MCP tool) are always offline. Schedules are kept in `<folder>/.openhbam-schedules.json`. Import
