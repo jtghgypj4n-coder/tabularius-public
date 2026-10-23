@@ -75,6 +75,19 @@ function run(args: string[], home: string, extraEnv: NodeJS.ProcessEnv = {}, rea
   });
 }
 
+/**
+ * Runs `serve` on a port that was free a moment ago. Another test's server can take it before this one starts; the command
+ * line then stops saying the port is in use, and the server starts again on another.
+ */
+async function serveOnFreePort(args: string[], home: string, extraEnv: NodeJS.ProcessEnv = {}): Promise<{ port: number; server: Run }> {
+  for (let attempt = 1; ; attempt++) {
+    const port = await freePort();
+    try { return { port, server: await run(args, home, { ...extraEnv, PORT: String(port) }) }; } catch (e) {
+      if (attempt >= 5 || !/port \d+ is in use/.test(String(e))) throw e;
+    }
+  }
+}
+
 /** An HTTP request to the server on this computer (fetch is left for the browser tests; this one can name a Host). */
 const get = (port: number, path: string, init: { method?: string; headers?: Record<string, string>; body?: string } = {}) => new Promise<{ status: number; text: string }>((resolve, reject) => {
   const req = httpRequest({ host: '127.0.0.1', port, path, method: init.method ?? 'GET', headers: init.headers }, (res) => {
@@ -178,8 +191,7 @@ async function waitFor(what: string, ready: () => Promise<boolean>, ms = 30_000)
 test('a server started with no flags makes no outbound connection: start, a conversion, normal use and idle', async (t) => {
   const { home, dir, done } = scratch();
   const { password, converting } = hostedFolder(dir);
-  const port = await freePort();
-  const server = await run(['serve', dir], home, { PORT: String(port) });
+  const { port, server } = await serveOnFreePort(['serve', dir], home);
   t.after(() => server.stop());
   t.after(done);
   const hosted = converting ? 2 : 1;
@@ -241,8 +253,7 @@ test('tabularius demo makes no outbound connection', { skip: existsSync(join(roo
 test('what is asked for is what is attempted: the AI assistant reaches its provider only with --ai and a key', async (t) => {
   const { home, dir, done } = scratch();
   const { password } = hostedFolder(dir);
-  const port = await freePort();
-  const server = await run(['serve', dir, '--ai'], home, { PORT: String(port), ANTHROPIC_API_KEY: 'sk' + '-ant-not-a-real-key' });
+  const { port, server } = await serveOnFreePort(['serve', dir, '--ai'], home, { ANTHROPIC_API_KEY: 'sk' + '-ant-not-a-real-key' });
   t.after(() => server.stop());
   t.after(done);
   // The banner line follows the address line that `run` waits for.
