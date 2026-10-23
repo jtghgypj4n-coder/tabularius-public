@@ -118,8 +118,16 @@ export class LogShipper {
     };
   }
 
+  /**
+   * Hands over every file's changes before a checkpoint folds them into the file (a file closed or paused): the hold on
+   * a file being copied must not keep these back, or the checkpoint would drop WAL frames no follower has received.
+   */
+  shipBeforeCheckpoint(): void {
+    this.ship({ ignoreHold: true });
+  }
+
   /** Hands every file's changes to the followers now. */
-  ship(): void {
+  ship(opts: { ignoreHold?: boolean } = {}): void {
     const active = new Set(this.host.names().map((name) => this.host.get(name)!));
     for (const store of this.followed.keys()) if (!active.has(store)) this.followed.delete(store);
     for (const name of this.host.names()) {
@@ -127,7 +135,7 @@ export class LogShipper {
       this.follow(store);
       // follow() disabled automatic checkpoints. Leave every page in the WAL for all followers,
       // including point-in-time backups; the copy hold's deadline bounds time, not WAL bytes.
-      if (this.held.has(store)) continue;
+      if (!opts.ignoreHold && this.held.has(store)) continue;
       store.shipWal((data) => {
         const at = Date.now();
         let ok = true;
