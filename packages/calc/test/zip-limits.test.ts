@@ -148,3 +148,14 @@ test('BE_Unzip refuses an entry name with a colon or a backslash, before writing
   assert.equal(evaluateText('BE_Unzip ( "in.zip" ; "out" )', ctx), 'out/dir/a b.txt');
   assert.deepEqual(written, ['out/dir/a b.txt']);
 });
+
+test('unzip can refuse an archive by its entry count and an entry by its compression ratio', () => {
+  const many = zip(Array.from({ length: 5 }, (_, i) => ({ name: `f${i}`, data: Buffer.from('x') })));
+  assert.equal(unzip(many, { maxEntries: 5 }).length, 5);
+  assert.throws(() => unzip(many, { maxEntries: 4 }), /holds 5 entries; more than 4 are not read/);
+  const zeros = zip([{ name: 'zeros.bin', data: Buffer.alloc(1024 * 1024) }]);
+  assert.equal(unzip(zeros).length, 1, 'no ratio limit unless asked for');
+  assert.throws(() => unzip(zeros, { maxRatio: 1000 }), /zeros\.bin unpacks to 1048576 bytes from \d+, more than 1000 times its size/);
+  const text = zip([{ name: 'a.txt', data: Buffer.from('hello hello hello hello '.repeat(100)) }]);
+  assert.equal(unzip(text, { maxRatio: 1000 })[0].data.length, 2400);
+});

@@ -456,6 +456,14 @@ export const ROWS: Row[] = [
     observe: async (c) => (grep(c.source('packages/server/src/containers.ts'), /(THUMBNAIL_PASSTHROUGH_BYTES = 128 \* 1024;)/) && /--as=\$\{TOOL_ADDRESS_SPACE\}/.test(c.source('packages/server/src/containers.ts')) && grep(c.source('packages/server/src/containers.ts'), /(TOOL_ADDRESS_SPACE = 512 \* 1024 \* 1024;)/) ? '128 KiB; prlimit 512 MiB, 20 s, 16 MiB' : 'changed'),
   },
   {
+    id: 'archive-limits', section: 'Limits', setting: 'Excel workbooks and plug-in packages (zip archives) read from an uploaded file',
+    default: 'At most 4096 entries; no entry may unpack to more than 1000 times its compressed size; an Excel XML part may nest at most 64 levels; at most 256 MiB unpacked from a workbook and 20 MiB from a plug-in package',
+    changedBy: 'Not switchable',
+    risk: 'A small file can be built to unpack to gigabytes or to thousands of parts; the file is refused whole, before anything is imported or installed',
+    how: 'read from code', expect: '4096 entries, 1000:1, depth 64',
+    observe: async (c) => (grep(c.source('packages/calc/src/zip.ts'), /(ARCHIVE_MAX_ENTRIES = 4096;)/) && grep(c.source('packages/calc/src/zip.ts'), /(ARCHIVE_MAX_RATIO = 1000;)/) && grep(c.source('packages/scripts/src/xlsx.ts'), /(MAX_XML_DEPTH = 64;)/) ? '4096 entries, 1000:1, depth 64' : 'changed'),
+  },
+  {
     id: 'request-time', section: 'Limits', setting: 'Time one request may hold the server',
     default: 'A minute; then it is stopped (error 812)',
     changedBy: '`TABULARIUS_REQUEST_BUDGET_MS` (0 for none)',

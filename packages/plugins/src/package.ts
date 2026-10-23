@@ -10,7 +10,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync } from 'node:fs';
 import { cleanupPath, readFileSync, writeFileSync } from '../../store/src/fs-boundary.ts';
 import { readJsonStateSync, updateJsonStateSync } from '../../store/src/durable.ts';
 import { basename, join } from 'node:path';
-import { unzip, zip, type ZipEntry } from '../../calc/src/zip.ts';
+import { ARCHIVE_MAX_ENTRIES, ARCHIVE_MAX_RATIO, unzip, zip, type ZipEntry } from '../../calc/src/zip.ts';
 import { JSON_SEGMENT, parseManifest, type PluginManifest } from './manifest.ts';
 
 /** The most a package may hold, unpacked. */
@@ -81,7 +81,7 @@ export interface PackageInfo {
 export function readPackage(bytes: Uint8Array): PackageInfo {
   let entries: ZipEntry[];
   try {
-    entries = unzip(bytes, { maxTotalBytes: MAX_PACKAGE_BYTES });
+    entries = unzip(bytes, { maxTotalBytes: MAX_PACKAGE_BYTES, maxEntries: ARCHIVE_MAX_ENTRIES, maxRatio: ARCHIVE_MAX_RATIO });
   } catch (e) {
     throw new Error(`not a plug-in package: ${(e as Error).message}`);
   }

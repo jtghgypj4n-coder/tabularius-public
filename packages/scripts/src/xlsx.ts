@@ -3,6 +3,7 @@
 // serial numbers with a display format, everything else is text. node:zlib only.
 
 import { crc32, deflateRawSync, inflateRawSync } from 'node:zlib';
+import { ARCHIVE_MAX_ENTRIES, ARCHIVE_MAX_RATIO, overRatio, tooManyEntries } from '../../calc/src/zip.ts';
 
 /** Total bytes inflated from the workbook parts actually read; separate from the compressed upload limit. */
 export const MAX_XLSX_BYTES = 256 * 1024 * 1024;
@@ -190,6 +191,47 @@ export const xmlText = (s: string) => {
   return parts.map((part, i) => (i % 2 ? part : unxml(part))).join('');
 };
 
+/** What a workbook's archive may hold: the entries, and what an entry may unpack to as a multiple of what it takes up. */
+const XLSX_ARCHIVE_LIMITS = { maxEntries: ARCHIVE_MAX_ENTRIES, maxRatio: ARCHIVE_MAX_RATIO };
+
+/** The deepest an XML part of a workbook may nest. Real ones reach about ten; the check is what stops "<a>" repeated a million times. */
+export const MAX_XML_DEPTH = 64;
+
+/**
+ * Throws when XML text nests deeper than MAX_XML_DEPTH. One pass over the bytes, no tree: comments, CDATA, processing
+ * instructions and quoted attribute values (which may hold a ">") are skipped, and a tag that never ends ends the scan.
+ */
+function checkXmlDepth(bytes: Uint8Array, name: string): void {
+  const xml = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const LT = 0x3c, GT = 0x3e, SLASH = 0x2f, DQ = 0x22, SQ = 0x27;
+  const has = (at: number, text: string) => xml.toString('latin1', at, at + text.length) === text;
+  // Just past the next `end` at or after `from`, or the end of the text.
+  const after = (from: number, end: string) => {
+    const at = xml.indexOf(end, from);
+    return at < 0 ? xml.length : at + end.length;
+  };
+  let depth = 0;
+  for (let at = xml.indexOf(LT); at >= 0 && at < xml.length; at = xml.indexOf(LT, at)) {
+    if (has(at, '<!--')) at = after(at + 4, '-->');
+    else if (has(at, '<![CDATA[')) at = after(at + 9, ']]>');
+    else if (has(at, '<?')) at = after(at + 2, '?>');
+    else if (has(at, '<!')) at = after(at + 2, '>');
+    else {
+      // A tag: to its ">" outside quotes.
+      let quote = 0, i = at + 1;
+      for (; i < xml.length; i++) {
+        const b = xml[i];
+        if (quote) { if (b === quote) quote = 0; } else if (b === DQ || b === SQ) quote = b; else if (b === GT) break;
+      }
+      if (xml[at + 1] === SLASH) depth--;
+      else if (xml[i - 1] !== SLASH && ++depth > MAX_XML_DEPTH) {
+        throw new Error(`${name} is nested more than ${MAX_XML_DEPTH} levels deep; a real workbook is not, so the file is refused`);
+      }
+      at = i + 1;
+    }
+  }
+}
+
 /** A cheap directory-only guard; unread parts may be larger than the inflation budget. */
 const MAX_DECLARED_XLSX_BYTES = 4 * MAX_XLSX_BYTES;
 
@@ -197,9 +239,10 @@ const MAX_DECLARED_XLSX_BYTES = 4 * MAX_XLSX_BYTES;
  * A reader of the files in a zip archive (stored or deflated): each call inflates only the files it names, so parts
  * nobody reads (pivot caches, pictures, other sheets) are never inflated, and all calls share one budget. Of entries
  * with the same name the last counts; the others are never inflated. A damaged archive throws an Error saying so.
- * `inflateBudget` is the most bytes all the calls inflate together.
+ * `inflateBudget` is the most bytes all the calls inflate together. `limits` refuse an archive of more entries, or an
+ * entry that unpacks to more times its compressed size, than they say; a workbook's are XLSX_ARCHIVE_LIMITS.
  */
-export function zipReader(zip: Uint8Array, inflateBudget = MAX_XLSX_BYTES): { names: () => Iterable<string>; read: (names: Iterable<string>) => Map<string, Uint8Array> } {
+export function zipReader(zip: Uint8Array, inflateBudget = MAX_XLSX_BYTES, limits: { maxEntries?: number; maxRatio?: number } = {}): { names: () => Iterable<string>; read: (names: Iterable<string>) => Map<string, Uint8Array> } {
   const view = new DataView(zip.buffer, zip.byteOffset, zip.byteLength);
   const bad = (): never => { throw new Error('bad zip directory'); };
   const u16 = (at: number) => (at >= 0 && at + 2 <= zip.length ? view.getUint16(at, true) : bad());
@@ -223,6 +266,7 @@ export function zipReader(zip: Uint8Array, inflateBudget = MAX_XLSX_BYTES): { na
   }
   if (end < 0) throw new Error('not a zip file');
   const count = u16(end + 10);
+  if (limits.maxEntries !== undefined && count > limits.maxEntries) throw new Error(tooManyEntries(count, limits.maxEntries));
   const directorySize = u32(end + 12);
   const directoryStart = u32(end + 16);
   if (u16(end + 4) || u16(end + 6) || u16(end + 8) !== count) throw new Error('bad zip directory (multi-disk archive)');
@@ -262,6 +306,12 @@ export function zipReader(zip: Uint8Array, inflateBudget = MAX_XLSX_BYTES): { na
     at = next;
   }
   if (at !== end) bad();
+  // An entry that unpacks to over 1000 times its size is a bomb, whether or not anything reads it.
+  if (limits.maxRatio !== undefined) {
+    for (const { name, method, packed, size } of directory) {
+      if (method === 8 && size > limits.maxRatio * packed) throw new Error(overRatio(name, size, packed, limits.maxRatio));
+    }
+  }
   // Header and payload bounds are cheap to check for unread parts too. Bit 3 allows sizes in a data descriptor.
   for (const entry of directory) {
     const { name, flags, method, packed, size, local } = entry;
@@ -297,6 +347,7 @@ export function zipReader(zip: Uint8Array, inflateBudget = MAX_XLSX_BYTES): { na
       }
       if (file.length > budget) overBudget();
       if (file.length !== entry.size) throw new Error(`bad zip entry ${name} (incorrect uncompressed size)`);
+      if (/\.(?:xml|rels)$/i.test(name)) checkXmlDepth(file, name);
       budget -= file.length;
       cache.set(name, file);
       out.set(name, file);
@@ -308,7 +359,7 @@ export function zipReader(zip: Uint8Array, inflateBudget = MAX_XLSX_BYTES): { na
 
 /** The files in a zip archive (stored or deflated), by name. A damaged archive throws an Error saying so. */
 export function unzip(zip: Uint8Array): Map<string, Uint8Array> {
-  const archive = zipReader(zip);
+  const archive = zipReader(zip, MAX_XLSX_BYTES, XLSX_ARCHIVE_LIMITS);
   return archive.read(archive.names());
 }
 
@@ -394,7 +445,7 @@ function workbookSheets(files: Map<string, Uint8Array>): { name: string; path: s
 
 /** The names of the sheets in a workbook, in order. */
 export function xlsxSheetNames(data: Uint8Array): string[] {
-  return workbookSheets(zipReader(data).read(WORKBOOK_PARTS)).map((s) => s.name);
+  return workbookSheets(zipReader(data, MAX_XLSX_BYTES, XLSX_ARCHIVE_LIMITS).read(WORKBOOK_PARTS)).map((s) => s.name);
 }
 
 /** The workbook has no sheet of the name asked for. */
@@ -453,7 +504,7 @@ export interface XlsxWorkbook {
  * once, and all the sheets together stay within the budgets one sheet has: inflated bytes (MAX_XLSX_BYTES) and cells.
  */
 export function openXlsx(data: Uint8Array): XlsxWorkbook {
-  const archive = zipReader(data);
+  const archive = zipReader(data, MAX_XLSX_BYTES, XLSX_ARCHIVE_LIMITS);
   const book = archive.read(WORKBOOK_PARTS);
   const sheets = workbookSheets(book);
   // A workbook that counts days from 1904 (Excel for Mac's old default) is read as the 1900 system, so every date means what it did.
