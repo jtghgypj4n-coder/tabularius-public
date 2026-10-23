@@ -25,7 +25,7 @@ test('monitoring guide documents every metric emitted in a HELP line', async () 
       offsite: { last: { at: now, ok: true } },
       schedules: () => [{ id: '1', name: 'Nightly', enabled: true, next: new Date(now + 60_000).toISOString(), last: { at: new Date(now).toISOString(), error: 0 }, runs: 1, failures: 0 }],
       certificateExpires: () => now + 86_400_000,
-      standbys: () => [{ from: 'standby.example.com', file: 'Orders', behind: 0, at: now }],
+      standbys: () => [{ from: 'standby.example.com', file: 'Orders', behind: 0, lagSeconds: 0, at: now }],
       diskFree: () => [{ area: 'data', path: dir }],
       statfs: () => ({ bavail: 1000, bsize: 4096 }),
     } satisfies Required<MetricSources>;

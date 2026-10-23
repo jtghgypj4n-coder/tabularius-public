@@ -1,17 +1,113 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { STANDBY_STATE, STORE_EXT, Standby, serve } from '../src/index.ts';
 import { decodeRecords, encodeRecord, logReader, logRecords, startLog, writeLog } from '../src/logs.ts';
-import { Store } from '../../store/src/index.ts';
+import { createStore, Store } from '../../store/src/index.ts';
+import { standbyState } from '../src/standby.ts';
 
 // A standby server keeps copies of another server's files and takes over when it fails.
 const fixture = join(import.meta.dirname, '..', '..', '..', 'fixtures', 'fmp12', 'Charts.fmp12');
 const skip = existsSync(fixture) ? false : 'fixtures missing: run npm run fixtures';
 const TOKEN = 'a-replication-token-for-tests';
+
+test('a standby persists the primary time of the last applied change and logs it at takeover', { timeout: 15_000 }, async (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'tabularius-standby-taken-'));
+  const spare = join(root, 'spare');
+  mkdirSync(spare);
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const source = join(root, 'source.sqlite');
+  createStore(source);
+  const store = new Store(source, 'Tasks');
+  const records: Buffer[] = [];
+  const times = [Date.UTC(2026, 0, 1), Date.UTC(2026, 0, 1, 0, 0, 4)];
+  let copy: Buffer;
+  try {
+    store.applyDesign([{ op: 'createTable', name: 'Items', fields: [{ name: 'Name' }] }]);
+    store.sql.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+    copy = readFileSync(source);
+    for (const [i, at] of times.entries()) {
+      store.create('Items', { Name: `synthetic ${i}` });
+      store.shipWal((data) => { records.push(encodeRecord({ seq: i + 1, at, data })); return true; });
+    }
+  } finally { store.close(); }
+  assert.equal(records.length, 2);
+  let acknowledged!: () => void;
+  const applied = new Promise<void>((resolve) => { acknowledged = resolve; });
+  const server = createServer((req, res) => {
+    const url = new URL(req.url!, 'http://localhost');
+    if (url.pathname.endsWith('/files')) {
+      res.end(JSON.stringify({ files: [{ name: 'Tasks', run: 'test-run', seq: 2 }] }));
+    } else if (url.pathname.endsWith('/copy')) {
+      res.writeHead(200, { 'x-tabularius-run': 'test-run', 'x-tabularius-seq': '0', 'x-tabularius-whole-after': '0' });
+      res.end(copy);
+    } else if (url.searchParams.get('after') === '0') {
+      res.end(Buffer.concat(records));
+    } else {
+      acknowledged(); // The next request acknowledges both applied records; stop aborts this long poll.
+    }
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  t.after(async () => {
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  });
+  const address = server.address();
+  assert.ok(address && typeof address !== 'string');
+  const primary = `http://127.0.0.1:${address.port}`;
+  let copiedTaken: number | undefined = -1;
+  const standby = new Standby({ folder: spare, primary, token: TOKEN, log: (line) => {
+    if (line === 'copied Tasks') copiedTaken = standby.state.files.Tasks.taken;
+  } });
+  standby.start();
+  try { await applied; } finally { await standby.stop(); }
+  assert.equal(copiedTaken, undefined, 'a whole-file copy has no primary change time');
+  const saved = standbyState(spare)!;
+  assert.equal(saved.files.Tasks.taken, times[1]);
+  assert.equal(saved.files.Tasks.seq, 2);
+  assert.notEqual(saved.files.Tasks.at, saved.files.Tasks.taken, 'apply time is separate from primary time');
+  assert.deepEqual(new Standby({ folder: spare, primary, token: TOKEN }).state, saved);
+
+  const lines: string[] = [];
+  const promoted = await serve({ dir: spare, port: 0, watch: false, log: (line) => void lines.push(line) });
+  try {
+    const takeover = lines.findIndex((line) => line.startsWith('taking over from '));
+    assert.ok(takeover >= 0);
+    assert.equal(lines[takeover + 1], `Tasks: last change applied was taken at ${new Date(times[1]).toISOString()} (run test-run, change 2)`);
+    assert.equal(promoted.host.get('Tasks')!.find('Items').records.length, 2);
+    assert.equal(existsSync(join(spare, STANDBY_STATE)), false);
+  } finally {
+    await new Promise<void>((resolve) => promoted.server.close(() => resolve()));
+  }
+});
+
+test('old standby state loads without taken and takeover logs each file with its available time', async (t) => {
+  const folder = mkdtempSync(join(tmpdir(), 'tabularius-standby-old-state-'));
+  t.after(() => rmSync(folder, { recursive: true, force: true }));
+  for (const name of ['Old', 'Known']) createStore(join(folder, name + STORE_EXT));
+  const at = Date.UTC(2026, 0, 1);
+  const file = { run: 'old-run', seq: 7, wholeAfter: 7, size: 0, mtimeMs: 0, at };
+  const state = { primary: 'http://primary.invalid:8080', files: { Old: file, Known: { ...file, taken: 0 } } };
+  writeFileSync(join(folder, STANDBY_STATE), JSON.stringify(state));
+  assert.deepEqual(standbyState(folder), state);
+  assert.deepEqual(new Standby({ folder, primary: state.primary, token: TOKEN }).state, state);
+  const lines: string[] = [];
+  const promoted = await serve({ dir: folder, port: 0, watch: false, log: (line) => void lines.push(line) });
+  try {
+    const takeover = lines.findIndex((line) => line.startsWith('taking over from '));
+    assert.ok(takeover >= 0);
+    assert.deepEqual(lines.slice(takeover + 1, takeover + 3), [
+      `Old: copied whole at ${new Date(at).toISOString()} (no later change applied)`,
+      'Known: last change applied was taken at 1970-01-01T00:00:00.000Z (run old-run, change 7)',
+    ]);
+  } finally {
+    await new Promise<void>((resolve) => promoted.server.close(() => resolve()));
+  }
+});
 
 async function until(what: string, ok: () => boolean | Promise<boolean>, ms = 15_000): Promise<void> {
   const end = Date.now() + ms;
