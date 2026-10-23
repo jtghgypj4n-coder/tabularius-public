@@ -45,6 +45,10 @@ after(() => {
 });
 const tmp = (label: string): string => { const d = mkdtempSync(join(tmpdir(), `tabularius-runbook-${label}-`)); dirs.push(d); return d; };
 const quiet = () => {};
+// A new connection for every call. The server runs in this process, and a step that runs a command blocks this process
+// while it waits; a kept-alive connection looks idle to the server for that whole time, so on a busy machine the server
+// closes it just as the next call reuses it, and the call fails with ECONNRESET.
+const freshFetch = (input: string, init: RequestInit = {}): Promise<Response> => fetch(input, { ...init, headers: { ...(init.headers as Record<string, string> | undefined), connection: 'close' } });
 
 interface Result { status: number | null; stdout: string; stderr: string }
 type Fill = Record<string, string>;
@@ -135,7 +139,7 @@ async function runCurl(where: string, template: string, fill: Fill, base: string
   assert.ok(url.startsWith('http://localhost:8080/'), `the page's address is not http://localhost:8080/...: ${url}`);
   assert.ok(user?.startsWith(':'), 'the page gives the console password as -u ":password"');
   headers.authorization = 'Basic ' + Buffer.from(user!).toString('base64');
-  const r = await fetch(base + url.slice('http://localhost:8080'.length), { method, headers, body });
+  const r = await freshFetch(base + url.slice('http://localhost:8080'.length), { method, headers, body });
   return { status: r.status, body: await r.text() };
 }
 
@@ -182,22 +186,22 @@ const dataApi = (base: string, db = 'Contacts') => {
   const root = `${base}/fmi/data/vLatest/databases/${db}`;
   return {
     signIn: async (account: string, password: string) => {
-      const r = await fetch(`${root}/sessions`, { method: 'POST', headers: { authorization: 'Basic ' + btoa(`${account}:${password}`), 'content-type': 'application/json' }, body: '{}' });
+      const r = await freshFetch(`${root}/sessions`, { method: 'POST', headers: { authorization: 'Basic ' + btoa(`${account}:${password}`), 'content-type': 'application/json' }, body: '{}' });
       const j = await r.json() as { response: { token?: string }; messages: { code: string; message: string }[] };
       return { status: r.status, code: j.messages[0].code, message: j.messages[0].message, token: j.response.token ?? '', retryAfter: r.headers.get('retry-after') };
     },
     use: async (token: string) => {
-      const r = await fetch(`${root}/layouts`, { headers: { authorization: `Bearer ${token}` } });
+      const r = await freshFetch(`${root}/layouts`, { headers: { authorization: `Bearer ${token}` } });
       const j = await r.json() as { messages: { code: string; message: string }[] };
       return { status: r.status, code: j.messages[0].code, message: j.messages[0].message };
     },
   };
 };
 
-const consoleSignIn = (base: string, password: string) => fetch(`${base}/tabularius/admin/v1/sign-in`, {
+const consoleSignIn = (base: string, password: string) => freshFetch(`${base}/tabularius/admin/v1/sign-in`, {
   method: 'POST', headers: { 'x-tabularius-admin': '1', 'content-type': 'application/json' }, body: JSON.stringify({ password }),
 }).then(async (r) => ({ status: r.status, error: (await r.json() as { error?: string }).error ?? '', cookie: r.headers.get('set-cookie')?.split(';')[0] ?? '' }));
-const consoleStatus = (base: string, cookie: string) => fetch(`${base}/tabularius/admin/v1/status`, { headers: { cookie, 'x-tabularius-admin': '1' } }).then((r) => r.status);
+const consoleStatus = (base: string, cookie: string) => freshFetch(`${base}/tabularius/admin/v1/status`, { headers: { cookie, 'x-tabularius-admin': '1' } }).then((r) => r.status);
 
 async function stopServer(s: { server: { close(cb: () => void): unknown }; host: Host }): Promise<void> {
   await new Promise<void>((r) => s.server.close(() => r()));
@@ -335,7 +339,7 @@ test('forgot a file account password, and an account is locked out', async () =>
     // Setting a password in the console also lifts the lock.
     for (let i = 0; i < LOCKOUT.attempts; i++) await api.signIn('pat', `wrong ${i}`);
     assert.match((await api.signIn('pat', 'pats-newer-password')).message, /Too many failed sign-ins/);
-    const viaConsole = await fetch(`${s.url}/tabularius/admin/v1/accounts/set-password`, {
+    const viaConsole = await freshFetch(`${s.url}/tabularius/admin/v1/accounts/set-password`, {
       method: 'POST', headers: { authorization: 'Basic ' + btoa(':console-pass-1'), 'x-tabularius-admin': '1', 'content-type': 'application/json' },
       body: JSON.stringify({ database: 'Contacts', account: 'pat', password: 'set-in-the-console' }),
     });
@@ -344,7 +348,7 @@ test('forgot a file account password, and an account is locked out', async () =>
 
     // A blocked address: the same call with "address".
     const addr = '203.0.113.5';
-    const unlockAddress = await fetch(`${s.url}/tabularius/admin/v1/accounts/unlock`, {
+    const unlockAddress = await freshFetch(`${s.url}/tabularius/admin/v1/accounts/unlock`, {
       method: 'POST', headers: { authorization: 'Basic ' + btoa(':console-pass-1'), 'x-tabularius-admin': '1', 'content-type': 'application/json' },
       body: JSON.stringify({ database: 'Contacts', address: addr }),
     });
@@ -377,7 +381,7 @@ test('someone\'s access must end now', async () => {
     store.setPassword('pat', 'pats-password-1', '[Full Access]');
     store.setPassword('sam', 'sams-password-1', '[Full Access]');
     const standing = (account: string) => store.createApiToken(account, { label: 'ci' });
-    const usable = async (token: string) => (await fetch(`${s.url}/fmi/data/vLatest/databases/Contacts/layouts`, { headers: { authorization: `Bearer ${token}` } })).status === 200;
+    const usable = async (token: string) => (await freshFetch(`${s.url}/fmi/data/vLatest/databases/Contacts/layouts`, { headers: { authorization: `Bearer ${token}` } })).status === 200;
 
     // Sessions only: ending them does not stop the account signing in again, and does not touch a standing token.
     const pat = standing('pat');
@@ -393,7 +397,7 @@ test('someone\'s access must end now', async () => {
     assert.equal((await api.signIn('pat', 'pats-password-1')).status, 200, 'and the account can sign in again');
 
     // The token list shows it, and Revoke ends it.
-    const health = await fetch(`${s.url}/tabularius/admin/v1/health?database=Contacts`, { headers: { authorization: 'Basic ' + btoa(':console-pass-2'), 'x-tabularius-admin': '1' } }).then((r) => r.json()) as { databases: { broadTokens: { id: string; account: string }[] }[] };
+    const health = await freshFetch(`${s.url}/tabularius/admin/v1/health?database=Contacts`, { headers: { authorization: 'Basic ' + btoa(':console-pass-2'), 'x-tabularius-admin': '1' } }).then((r) => r.json()) as { databases: { broadTokens: { id: string; account: string }[] }[] };
     const id = health.databases[0].broadTokens.find((t) => t.account === 'pat')!.id;
     const revoked = await call('curl -sS -u ":<console-password>" -H "x-tabularius-admin: 1" -H "content-type: application/json" -X POST http://localhost:8080/tabularius/admin/v1/health/revoke-token -d \'{"database":"<database>","id":"<token-id>"}\'', { database: 'Contacts', 'token-id': id });
     assert.equal(revoked.body, '{"revoked":true}');
