@@ -113,7 +113,7 @@ test('text from a record cannot add properties or events to the feed', async (t)
   assert.equal(events.length, 1);
   assert.ok(!unfold(out.text).some((l) => /^(BEGIN:VALARM|ACTION:)/.test(l)), 'the text did not become properties');
   assert.equal(events[0].filter((p) => p.name === 'UID').length, 1);
-  assert.equal(prop(events[0], 'LOCATION')!.value, 'xyz');
+  assert.equal(prop(events[0], 'LOCATION')!.value, 'x\\\\u0007y\\\\u2028z', 'control characters show as \\uXXXX, not dropped');
 });
 
 test('long and non-ASCII text folds at 75 octets and reads back whole', async (t) => {

@@ -117,12 +117,12 @@ export interface FeedEvent {
   sequence?: number;
 }
 
-/** Text in an iCalendar TEXT value: control characters dropped, line breaks and the characters it reserves escaped. */
+/** Text in an iCalendar TEXT value: control characters written as visible \uXXXX, line breaks and the characters it reserves escaped. */
 export function escapeText(text: string): string {
   return text
     .replace(/\r\n?/g, '\n')
     // eslint-disable-next-line no-control-regex
-    .replace(/[\u0000-\u0008\u000b-\u001f\u007f\u2028\u2029]/g, '')
+    .replace(/[\u0000-\u0008\u000b-\u001f\u007f\u2028\u2029]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`)
     .replace(/\\/g, '\\\\')
     .replace(/;/g, '\\;')
     .replace(/,/g, '\\,')

@@ -33,7 +33,7 @@ The server log hides `token` values. A reverse proxy in front of the server may 
 - Each event has a stable `UID` made from the record and the file, so an app updates an event when the record changes rather than adding a second one. `SEQUENCE` counts the record's changes.
 - Records with no readable start are left out. `X-Tabularius-Events` and `X-Tabularius-Skipped` in the response say how many were written and skipped.
 - A found set over 5000 events (or your `limit`) is an error that names its size, and never a feed that quietly lacks events. Narrow it with `query`.
-- Text is escaped, lines are folded at 75 octets, and a line break inside a field cannot start a new property or event.
+- Text is escaped, lines are folded at 75 octets, and a line break inside a field cannot start a new property or event. A control character in a field (a bell, a delete, the Unicode line separator) is written as visible text such as `\u0007` (shown with its backslash in the calendar app), never dropped silently.
 - The feed asks apps to refresh hourly. Apps decide how often they really do.
 
 ### Dates and time zones

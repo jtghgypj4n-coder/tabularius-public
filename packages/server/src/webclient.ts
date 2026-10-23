@@ -35,7 +35,7 @@ import { ReadAudit } from './read-audit.ts';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { dirname, join, normalize, extname, sep } from 'node:path';
 import { stripTypeScriptTypes } from 'node:module';
-import { explainAccessDenial, fmpXmlResult, fmpXmlHeader, fmpXmlRow, fmpXmlFooter, formulaGuard, PendingApprovalError, PrivilegeError, StoreError, ExplainRelatedError, writer, canCreateRelated, explainField, explainRelated, occurrence, csvField, type EvaluateOptions, type FindRequest, type LayoutInfo, type Privileges, type SortSpec, type Store } from '../../store/src/index.ts';
+import { explainAccessDenial, fmpXmlResult, fmpXmlHeader, fmpXmlRow, fmpXmlFooter, formulaGuard, visibleControls, PendingApprovalError, PrivilegeError, StoreError, ExplainRelatedError, writer, canCreateRelated, explainField, explainRelated, occurrence, csvField, type EvaluateOptions, type FindRequest, type LayoutInfo, type Privileges, type SortSpec, type Store } from '../../store/src/index.ts';
 import { externalFieldNames, type DeviceType, type CustomMenu, type Script, type CustomMenuItem, type LayoutDesign, type LayoutObject, type StepParams, type Theme, type TriggerMode } from '../../fmp12/src/index.ts';
 import { asBoolean, asText, compile, num, text, type DeviceLocation, type Value } from '../../calc/src/index.ts';
 import { randomBytes } from 'node:crypto';
@@ -1347,8 +1347,8 @@ export class WebClient {
     const sort = sortOf(body.sort);
     const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/\r\n|[\r\n]/g, '<br>');
     const cell = (v: string | number, i: number) => {
-      const one = String(v).replace(/\r\n|[\r\n]/g, '\v');
-      return format === 'tab' ? formulaGuard(one.replace(/\t/g, ' '), kinds[i]) : csvField(one, { quoteAll: true, type: kinds[i] });
+      // Controls (a tab among them) are written as visible \uXXXX text; returns go out as vertical tabs.
+      return format === 'tab' ? visibleControls(formulaGuard(String(v), kinds[i])).replace(/\r\n|[\r\n]/g, '\v') : csvField(String(v), { quoteAll: true, type: kinds[i], lineBreak: '\v' });
     };
     const sepr = format === 'tab' ? '\t' : ',';
     const base = String(typeof body.name === 'string' && body.name.trim() ? body.name.trim() : layout).replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_');
@@ -1507,8 +1507,8 @@ export class WebClient {
     // A value a spreadsheet would take for a formula gets an apostrophe in front, unless its field holds numbers or dates.
     const kinds = fields.map((f) => def(f)?.type);
     const cell = (v: string | number, i: number) => {
-      const one = String(v).replace(/\r\n|[\r\n]/g, '\v'); // returns in a field export as vertical tabs, as in FileMaker
-      return format === 'tab' ? formulaGuard(one.replace(/\t/g, ' '), kinds[i]) : csvField(one, { quoteAll: true, type: kinds[i] });
+      // Controls (a tab among them) are written as visible \uXXXX text; returns go out as vertical tabs, as in FileMaker.
+      return format === 'tab' ? visibleControls(formulaGuard(String(v), kinds[i])).replace(/\r\n|[\r\n]/g, '\v') : csvField(String(v), { quoteAll: true, type: kinds[i], lineBreak: '\v' });
     };
     const sepr = format === 'tab' ? '\t' : ',';
     // A merge file always starts with the field names (Claris: "The first record is a header that lists the field names").

@@ -24,10 +24,11 @@ test('dates and clock readings are checked, not guessed', () => {
   assert.equal(addDays('2024-03-01', -1), '2024-02-29');
 });
 
-test('text is escaped, control characters dropped, and a line break cannot start a new property', () => {
+test('text is escaped, control characters shown as \\uXXXX, and a line break cannot start a new property', () => {
   assert.equal(escapeText('a,b;c\\d\ne'), 'a\\,b\\;c\\\\d\\ne');
   assert.equal(escapeText('x\r\ny\rz'), 'x\\ny\\nz');
-  assert.equal(escapeText('a\u0000b\u0007c\u007fd e'), 'abcde');
+  assert.equal(escapeText('a\u0000b\u0007c\u007fd\u2028e'), 'a\\\\u0000b\\\\u0007c\\\\u007fd\\\\u2028e');
+  assert.equal(unescapeText(escapeText('a\u0007b')), 'a\\u0007b', 'it reads back as the visible text');
   assert.equal(unescapeText(escapeText('Meet: A, B; C \\ D\nE')), 'Meet: A, B; C \\ D\nE');
   const hostile: FeedEvent = { uid: '1@x', start: { date: '2026-10-16' }, summary: 'Hi\r\nEND:VEVENT\r\nBEGIN:VEVENT\r\nUID:evil@x', description: 'line\nBEGIN:VALARM' };
   const events = referenceParse(buildCalendar([hostile], { name: 'T', stamp }));
