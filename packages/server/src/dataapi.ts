@@ -46,7 +46,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MultipartLimits, MultipartLimitError } from './multipart-limits.ts';
-import { type ContainerFile, plainMessage, explainAccessDenial, fieldDisplayTypes, fieldMetaData, type AccessDenial, PrivilegeError, StoreError, endTransaction, spendPasswordCheck, writer, type DateFormat, type FindOptions, type PortalPaging, type SortSpec, Privileges, type Store, type StoredRecord, type Transaction } from '../../store/src/index.ts';
+import { type ContainerFile, plainMessage, explainAccessDenial, fieldDisplayTypes, fieldMetaData, type AccessDenial, PrivilegeError, StoreError, endTransaction, spendPasswordCheck, spendRecoveryCodeCheck, writer, type DateFormat, type FindOptions, type PortalPaging, type SortSpec, Privileges, type Store, type StoredRecord, type Transaction } from '../../store/src/index.ts';
 import { ScriptError, ScriptSession, runScript, scriptDenial, type ClientWindow } from '../../scripts/src/index.ts';
 import { cleanRuns, type StyleRun } from '../../calc/src/index.ts';
 import type { Field, OrderedItem } from '../../fmp12/src/schema.ts';
@@ -1727,7 +1727,8 @@ export class DataApi {
       if (p[3] === 'recovery' && method === 'POST') {
         const body = await readJson(req, AUTH_BODY_LIMIT);
         if (!this.host.get(db) && !this.host.listFilesPublicly) {
-          // A hosted file checks a recovery code by its hash, with no password check: nothing to spend here either.
+          // A hosted file checks a code against a set of slow hashes: spend the same, so the time does not say which files exist.
+          if (typeof body.account === 'string' && body.account) await spendRecoveryCodeCheck(typeof body.code === 'string' ? body.code : '');
           throw new ApiError(212, 'That recovery code is not valid', 401);
         }
         const store = this.store(db);
@@ -1736,7 +1737,7 @@ export class DataApi {
         const from = clientAddress(req);
         const blocked = store.addressLockedOut(from);
         if (blocked) throw lockedOutError(blocked);
-        if (!account || !store.useRecoveryCode(account, code, from)) {
+        if (!account || !await store.useRecoveryCodeAsync(account, code, from)) {
           // Named failures are charged by the store before it admits a new failure key.
           if (!account) store.countAddressFailure(from);
           store.auditSignIn(account || '(no account)', from, false, 'recovery-code');

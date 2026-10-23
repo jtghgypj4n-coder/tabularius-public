@@ -810,6 +810,26 @@ export async function spendPasswordCheck(password: string): Promise<void> {
   await checkPasswordAsync(password, DUMMY_HASH);
 }
 
+/** How many recovery codes a set holds; a check is padded to this many hashes (see Store.unusedRecoveryHashes). */
+const RECOVERY_CODE_SET = 10;
+
+/** A recovery code as it is hashed: groups, spaces and case do not matter. */
+function recoveryCodeText(code: string): string {
+  return code.replace(/[\s-]/g, '').toLowerCase();
+}
+
+/** Whether a stored hash from an earlier version (a bare SHA-256 in hex, no salt) is this code's. */
+function legacyRecoveryMatch(text: string, stored: string | undefined): boolean {
+  if (stored === undefined || !/^[0-9a-f]{64}$/.test(stored)) return false;
+  return timingSafeEqual(Buffer.from(stored, 'hex'), createHash('sha256').update(text).digest());
+}
+
+/** The cost of checking one recovery code against a full set of them, spent when a request is refused before any file's accounts are looked at. */
+export async function spendRecoveryCodeCheck(code: string): Promise<void> {
+  const text = recoveryCodeText(code);
+  await Promise.all(Array.from({ length: RECOVERY_CODE_SET }, () => checkPasswordAsync(text, DUMMY_HASH)));
+}
+
 /** checkPassword off the main thread, so a burst of logins doesn't stall everyone else's requests. */
 export function checkPasswordAsync(password: string, stored: string): Promise<boolean> {
   if (stored.startsWith('fmp12$')) return Promise.resolve(checkFmp12Password(password, stored.slice(6)));
@@ -5232,16 +5252,50 @@ export class Store {
 
   // --- recovery codes -------------------------------------------------------
 
-  private hashRecoveryCode(code: string): string {
-    return createHash('sha256').update(code.replace(/[\s-]/g, '').toLowerCase()).digest('hex');
+  /**
+   * The hashes of an account's unused recovery codes, padded with empty slots up to a full set, so that checking a
+   * code costs the same for a name with no codes, an account that has used some up and an account with all of them.
+   */
+  private unusedRecoveryHashes(account: string): (string | undefined)[] {
+    const rows = this.sql.prepare('SELECT code_hash FROM _fm_recovery_codes WHERE account = ? COLLATE NOCASE AND used IS NULL').all(account) as { code_hash: string }[];
+    const hashes: (string | undefined)[] = rows.map((r) => r.code_hash);
+    while (hashes.length < RECOVERY_CODE_SET) hashes.push(undefined);
+    return hashes;
+  }
+
+  /**
+   * Which of the hashes a code matches, if any. Every slot costs one scrypt (a throwaway one for an empty slot or a
+   * code kept by an earlier version), so neither where a match sits nor how many codes an account has shows in the
+   * time taken. A code an earlier version kept as an unsalted SHA-256 is still accepted, once; nothing is rewritten.
+   */
+  private matchRecoveryCode(code: string, hashes: (string | undefined)[]): string | undefined {
+    const text = recoveryCodeText(code);
+    let matched: string | undefined;
+    for (const stored of hashes) {
+      const salted = stored !== undefined && stored.startsWith('scrypt$');
+      const slow = checkPassword(text, salted ? stored : DUMMY_HASH);
+      if ((salted && slow) || legacyRecoveryMatch(text, stored)) matched ??= stored;
+    }
+    return matched;
+  }
+
+  /** matchRecoveryCode off the main thread, so a burst of wrong codes doesn't stall everyone else's requests. */
+  private async matchRecoveryCodeAsync(code: string, hashes: (string | undefined)[]): Promise<string | undefined> {
+    const text = recoveryCodeText(code);
+    const found = await Promise.all(hashes.map(async (stored) => {
+      const salted = stored !== undefined && stored.startsWith('scrypt$');
+      const slow = await checkPasswordAsync(text, salted ? stored : DUMMY_HASH);
+      return (salted && slow) || legacyRecoveryMatch(text, stored) ? stored : undefined;
+    }));
+    return found.find((hash) => hash !== undefined);
   }
 
   /**
    * Makes a fresh set of one-time recovery codes for an account (replacing any
-   * it had), stores only their hashes, and returns the codes once to show the
+   * it had), stores only their salted scrypt hashes, and returns the codes once to show the
    * person. A fallback for when a passkey or authenticator is lost.
    */
-  generateRecoveryCodes(account: string, count = 10): string[] {
+  generateRecoveryCodes(account: string, count = RECOVERY_CODE_SET): string[] {
     return this.securityChange(() => {
       if (!this.accounts().some((a) => a.name.toLowerCase() === account.toLowerCase())) throw new StoreError(960, `No account "${account}"`);
       this.sql.prepare('DELETE FROM _fm_recovery_codes WHERE account = ? COLLATE NOCASE').run(account);
@@ -5253,7 +5307,7 @@ export class Store {
         const raw = randomBytes(6).toString('hex');
         const code = `${raw.slice(0, 4)}-${raw.slice(4, 8)}-${raw.slice(8, 12)}`;
         codes.push(code);
-        insert.run(account, this.hashRecoveryCode(code), now);
+        insert.run(account, hashPassword(recoveryCodeText(code)), now);
       }
       this.logSecurity('recovery-codes-generated', { target: account, detail: { count } });
       return codes;
@@ -5267,15 +5321,36 @@ export class Store {
 
   /** Consumes one of an account's recovery codes; returns whether it matched an unused one. */
   useRecoveryCode(account: string, code: string, from = ''): boolean {
+    const key = `${this.bucketKey(account, from)}\u0000recovery`;
+    if (this.recoveryRefused(account, key, from)) return this.recoveryFailed(account, key, from);
+    return this.consumeRecoveryCode(account, key, from, this.matchRecoveryCode(code, this.unusedRecoveryHashes(account)));
+  }
+
+  /** useRecoveryCode with the scrypt work off the main thread. */
+  async useRecoveryCodeAsync(account: string, code: string, from = ''): Promise<boolean> {
+    const key = `${this.bucketKey(account, from)}\u0000recovery`;
+    if (this.recoveryRefused(account, key, from)) return this.recoveryFailed(account, key, from);
+    return this.consumeRecoveryCode(account, key, from, await this.matchRecoveryCodeAsync(code, this.unusedRecoveryHashes(account)));
+  }
+
+  /** Whether a place is locked out or the account is inactive: answered at once, before any hashing, so a lockout stays cheap. */
+  private recoveryRefused(account: string, key: string, from: string): boolean {
+    return !!this.failures.lockedOut(key, from, this.knownSharedAccount(account, from)) || this.accountInactive(account);
+  }
+
+  private recoveryFailed(account: string, key: string, from: string): boolean {
+    return this.securityChange(() => this.failures.record(key, from, false, this.knownSharedAccount(account, from)));
+  }
+
+  /** Counts the attempt and, for a match that is still unused, spends it. The state is read again here: another request may have used the code or locked the place while the hashes were checked. */
+  private consumeRecoveryCode(account: string, key: string, from: string, matched: string | undefined): boolean {
     return this.securityChange(() => {
-      const key = `${this.bucketKey(account, from)}\u0000recovery`;
       const known = this.knownSharedAccount(account, from);
       if (this.failures.lockedOut(key, from, known) || this.accountInactive(account)) return this.failures.record(key, from, false, known);
-      const hash = this.hashRecoveryCode(code);
-      const match = this.sql.prepare('SELECT 1 FROM _fm_recovery_codes WHERE account = ? COLLATE NOCASE AND code_hash = ? AND used IS NULL').get(account, hash);
-      if (!this.failures.record(key, from, !!match, known)) return false;
-      this.sql.prepare('UPDATE _fm_recovery_codes SET used = ? WHERE account = ? COLLATE NOCASE AND code_hash = ? AND used IS NULL')
-        .run(new Date().toISOString(), account, hash);
+      if (!this.failures.record(key, from, matched !== undefined, known) || matched === undefined) return false;
+      const spent = this.sql.prepare('UPDATE _fm_recovery_codes SET used = ? WHERE account = ? COLLATE NOCASE AND code_hash = ? AND used IS NULL')
+        .run(new Date().toISOString(), account, matched);
+      if (!spent.changes) return false;
       this.logSecurity('recovery-code-used', { target: account });
       return true;
     });
