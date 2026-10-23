@@ -539,11 +539,11 @@ const FIELD_TYPES: Record<number, FieldType> = {
 // localises. U+E002 is the Guest account (inferred from every sample file).
 const BUILTIN_NAMES: Record<string, string> = { '[\ue002]': '[Guest]' };
 
-function items(n: Node | undefined): CatalogItem[] {
+export function items(n: Node | undefined): CatalogItem[] {
   if (!n) return [];
   return n.numbered().map(([id, c]) => {
     const name = c.name ?? '';
-    return { id, name: BUILTIN_NAMES[name] ?? name };
+    return { id, name: Object.hasOwn(BUILTIN_NAMES, name) ? BUILTIN_NAMES[name] : name };
   });
 }
 
@@ -691,7 +691,8 @@ export function privilegeSets(sets: Node | undefined, extended: Node | undefined
   const renamed = new Map<number, string>();
   const catalog = items(sets);
   for (const p of [...catalog.filter((c) => c.id <= 3), ...catalog.filter((c) => c.id > 3)]) {
-    const builtIn = BUILT_IN_SET_IDS[p.name.toLowerCase()];
+    const builtInName = p.name.toLowerCase();
+    const builtIn = Object.hasOwn(BUILT_IN_SET_IDS, builtInName) ? BUILT_IN_SET_IDS[builtInName] : undefined;
     if (p.name && (taken.has(fold(p.name)) || (builtIn !== undefined && builtIn !== p.id))) {
       let name = `${p.name} (imported set ${p.id})`;
       for (let i = 2; taken.has(fold(name)); i++) name = `${p.name} (imported set ${p.id}, ${i})`;
