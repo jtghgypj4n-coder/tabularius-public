@@ -38,9 +38,11 @@ before(async () => {
   // A local, password account with no second factor, never signed in.
   store.setPassword('clerk1', 'Clerk-pw-123456', 'Clerk');
 
-  // A broad token: unscoped, writable, no expiry. And a tight one: read-only,
-  // scoped to one surface, expiring — nothing to flag.
+  // A broad token: unscoped, writable, and one stored from before every token expired,
+  // so it has no expiry date. And a tight one: read-only, scoped to one surface,
+  // expiring — nothing to flag.
   broadToken = store.createApiToken('clerk1');
+  store.sql.prepare('UPDATE _fm_api_tokens SET expires = NULL WHERE account = ? AND read_only = 0').run('clerk1');
   store.createApiToken('clerk1', { readOnly: true, surfaces: ['fmrest'], expires: new Date(Date.now() + 86_400_000) });
 });
 after(async () => {
