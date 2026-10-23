@@ -28,6 +28,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { DESIGN_TABLE, DESIGN_SCRIPTS, DESIGN_TABLES, isDesignTable, StoreError, type Change, type Store } from '../../store/src/index.ts';
 import { ApiError, badPathError, readJson, sessionPrivileges, type DataApi, type Session } from './dataapi.ts';
 import type { Host } from './host.ts';
+import { sameSecret } from './secrets.ts';
 
 const HEARTBEAT_MS = 20_000;
 /** Event streams one session may hold open at once (a person's windows and tabs); opening one more closes its oldest. */
@@ -135,14 +136,14 @@ export class Live {
       }
       if (m[2] === 'locks' && method === 'GET') {
         const locks = [...this.files(store)].flatMap((s) => s.locks.all().filter((l) => s.canViewRecord(l.table, l.recordId, privileges)).map((l) => ({
-          file: s.name, table: l.table, recordId: l.recordId, account: l.account, self: l.owner === session.token,
+          file: s.name, table: l.table, recordId: l.recordId, account: l.account, self: sameSecret(l.owner, session.token),
         })));
         send(200, { locks });
         return true;
       }
       if (m[2] === 'viewers' && method === 'GET') {
         const viewers = [...this.files(store)].flatMap((s) => s.locks.viewers().filter((v) => isDesignTable(v.table) ? s === store && privileges.full : s.canViewRecord(v.table, v.recordId, privileges)).map((v) => ({
-          file: s.name, table: v.table, recordId: v.recordId, account: v.account, self: v.owner === session.token,
+          file: s.name, table: v.table, recordId: v.recordId, account: v.account, self: sameSecret(v.owner, session.token),
         })));
         send(200, { viewers });
         return true;
@@ -154,12 +155,12 @@ export class Live {
         const WHERE = { layout: DESIGN_TABLE, script: DESIGN_SCRIPTS, table: DESIGN_TABLES } as const;
         const kindOf = (table: string) => (Object.keys(WHERE) as (keyof typeof WHERE)[]).find((k) => WHERE[k] === table);
         const present = () => store.locks.viewers().filter((v) => isDesignTable(v.table));
-        const mine = () => present().filter((v) => v.owner === session.token);
+        const mine = () => present().filter((v) => sameSecret(v.owner, session.token));
         if (method === 'GET') {
           send(200, { designers: present().map((v) => {
             const kind = kindOf(v.table) ?? 'layout';
             // `layout` for each, as before scripts and tables had presence: null when not on a layout.
-            return { account: v.account, layout: kind === 'layout' ? v.recordId || null : null, ...(kind !== 'layout' && v.recordId ? { [kind]: v.recordId } : {}), self: v.owner === session.token };
+            return { account: v.account, layout: kind === 'layout' ? v.recordId || null : null, ...(kind !== 'layout' && v.recordId ? { [kind]: v.recordId } : {}), self: sameSecret(v.owner, session.token) };
           }) });
         } else if (method === 'POST') {
           const body = await readJson(req);
@@ -233,7 +234,7 @@ export class Live {
 
   private view(store: Store, table: string, id: number, session: Session): boolean {
     const held = store.locks.viewers(); // Also expires abandoned presence.
-    if (!held.some((v) => v.table === table && v.recordId === id && v.owner === session.token)) {
+    if (!held.some((v) => v.table === table && v.recordId === id && sameSecret(v.owner, session.token))) {
       for (const old of held.slice(0, Math.max(0, held.length - 4095))) {
         store.locks.leave(old.table, old.recordId, old.owner);
         store.notify('leave', old.table, old.recordId);
@@ -300,7 +301,7 @@ export class Live {
       if (!visible) return;
       const event = {
         kind: c.kind, file: c.file, table: c.table, recordId: c.recordId, modId: c.modId,
-        account: c.account, self: c.owner !== undefined && c.owner === token, ...(ids ? { ids } : {}),
+        account: c.account, self: sameSecret(c.owner, token), ...(ids ? { ids } : {}),
       };
       // Events from one moment go out in one write: with many people connected, a write per event per stream is most of the work.
       if (!pending) queueMicrotask(flush);

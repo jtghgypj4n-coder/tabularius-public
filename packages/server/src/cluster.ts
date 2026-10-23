@@ -76,6 +76,7 @@ import type { ServeOptions } from './index.ts';
 import { sendError } from './pages.ts';
 import { certificateManaged } from './cert-import.ts';
 import type { LogType } from './server-logs.ts';
+import { sameSecret } from './secrets.ts';
 
 /** Where this process sits in its cluster. */
 export interface ClusterRole {
@@ -242,7 +243,7 @@ export class ClusterLink {
     api.endElsewhere = (id) => this.send({ t: 'tell', note: { k: 'end', id } });
     live.elsewhere = {
       message: (text, token) => this.send({ t: 'tell', note: { k: 'message', text, token } }),
-      streams: (token) => [...this.sessions.values()].flat().filter((s) => !token || s.token === token).reduce((n, s) => n + s.streams, 0),
+      streams: (token) => [...this.sessions.values()].flat().filter((s) => !token || sameSecret(s.token, token)).reduce((n, s) => n + s.streams, 0),
     };
     // Everyone's sessions, kept a second fresh in every worker (the admin console, who else is in a file).
     const queue = host.serverScripts;
