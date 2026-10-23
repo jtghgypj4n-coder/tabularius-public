@@ -1,16 +1,38 @@
 // tabularius corpus-scan: counts what a collection of .fmp12 files uses, with
 // nothing from inside them beyond counts and masked formula shapes.
-import { test } from 'node:test';
+import { after, before, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { decodeCalc, observeCalcs } from '../../fmp12/src/index.ts';
-import { buildReport, callShapes, dedupe, errorClass, reportMarkdown, scanFile, scanInChild, selectOnly, type FileScan } from '../src/corpus-scan.ts';
+import { buildReport, callShapes, corpusScan, dedupe, errorClass, listedFiles, reportMarkdown, scanFile, scanInChild, selectOnly, type FileScan } from '../src/corpus-scan.ts';
 
 const main = join(import.meta.dirname, '..', 'src', 'main.ts');
 const fixtures = join(import.meta.dirname, '..', '..', '..', 'fixtures', 'fmp12');
+const commandGuard = mkdtempSync(join(tmpdir(), 'corpus-command-guard-'));
+const commandMarker = join(commandGuard, 'unexpected-command');
+const originalPath = process.env.PATH;
+const originalMarker = process.env.TABULARIUS_TEST_COMMAND_MARKER;
+before(() => {
+  for (const name of ['launchctl', 'systemctl', 'sc', 'git', 'npm', 'curl', 'sudo']) {
+    writeFileSync(join(commandGuard, name), '#!/bin/sh\n: > "$TABULARIUS_TEST_COMMAND_MARKER"\nexit 99\n', { mode: 0o755 });
+    writeFileSync(join(commandGuard, `${name}.cmd`), '@echo off\r\necho blocked>"%TABULARIUS_TEST_COMMAND_MARKER%"\r\nexit /b 99\r\n');
+  }
+  process.env.PATH = commandGuard;
+  process.env.TABULARIUS_TEST_COMMAND_MARKER = commandMarker;
+});
+after(() => {
+  try { assert.equal(existsSync(commandMarker), false, 'no external command may run'); }
+  finally {
+    if (originalPath === undefined) delete process.env.PATH;
+    else process.env.PATH = originalPath;
+    if (originalMarker === undefined) delete process.env.TABULARIUS_TEST_COMMAND_MARKER;
+    else process.env.TABULARIUS_TEST_COMMAND_MARKER = originalMarker;
+    rmSync(commandGuard, { recursive: true, force: true });
+  }
+});
 
 // A stored literal: 13, length, text XOR 0x5A, 00.
 const lit = (t: string) => [0x13, t.length, ...[...t].map((c) => c.charCodeAt(0) ^ 0x5a), 0];
@@ -91,6 +113,65 @@ test('a child killed before its first snapshot still reports zeroed anonymous ag
     assert.equal(scan.progress?.tablesConverted, 0);
     assert.equal(scan.progress?.recordsConverted, 0);
     assert.equal(scan.progress?.peakHeapBytes, 0);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('a child run removes converted copies after timeout, crash and success', async (t) => {
+  for (const [ending, finish, expected] of [
+    ['timeout', 'setInterval(() => {}, 1000);', 'timeout'],
+    ['crash', 'process.exit(3);', 'failed'],
+    ['success', 'process.stdout.write(JSON.stringify({status:"ok"}));', 'ok'],
+  ]) {
+    await t.test(ending, async () => {
+      const dir = mkdtempSync(join(tmpdir(), 'corpus-child-cleanup-'));
+      const scratch = join(dir, 'scratch');
+      mkdirSync(scratch);
+      const originalTmpdir = process.env.TMPDIR;
+      try {
+        process.env.TMPDIR = scratch;
+        const entry = join(dir, 'child.mjs');
+        const started = join(dir, 'started');
+        writeFileSync(entry, `import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path'; const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'tabularius-corpus-')); fs.writeFileSync(path.join(folder, 'converted.sqlite'), 'synthetic records'); fs.writeFileSync(${JSON.stringify(started)}, 'yes'); ${finish}`);
+        const scan = await scanInChild(entry, join(dir, 'nothing.fmp12'), true, 250);
+        assert.equal(scan.status, expected);
+        assert.equal(existsSync(started), true, 'stub child created a converted copy');
+        assert.deepEqual(readdirSync(scratch), []);
+      } finally {
+        if (originalTmpdir === undefined) delete process.env.TMPDIR;
+        else process.env.TMPDIR = originalTmpdir;
+        rmSync(dir, { recursive: true, force: true });
+      }
+    });
+  }
+});
+
+test('corpus-scan validates jobs and timeout before deduping', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'corpus-options-'));
+  try {
+    writeFileSync(join(dir, 'one.fmp12'), Buffer.alloc(100));
+    for (const jobs of [NaN, 0, -1, Infinity, 1.5]) {
+      const lines: string[] = [];
+      await assert.rejects(corpusScan(dir, { out: join(dir, 'out'), entry: main, jobs, log: (line) => lines.push(line) }), /corpus-scan --jobs needs a whole number of 1 or more/);
+      assert.equal(lines.some((line) => line.includes('comparing same-size files')), false);
+    }
+    for (const timeoutSeconds of [0, NaN, Infinity]) {
+      const lines: string[] = [];
+      await assert.rejects(corpusScan(dir, { out: join(dir, 'out'), entry: main, timeoutSeconds, log: (line) => lines.push(line) }), /corpus-scan --timeout needs a positive number of seconds/);
+      assert.equal(lines.some((line) => line.includes('comparing same-size files')), false);
+    }
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('--list accepts CRLF, LF and mixed endings with spaces and duplicates', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'corpus-list-endings-'));
+  try {
+    const first = join(dir, 'one.fmp12');
+    const second = join(dir, 'two.fmp12');
+    writeFileSync(first, Buffer.alloc(100));
+    writeFileSync(second, Buffer.alloc(100));
+    const list = join(dir, 'list.txt');
+    writeFileSync(list, `  ${first}  \r\n${second}\n${first}\r\nignored.txt\n  \r\n`);
+    assert.deepEqual(listedFiles(list), { paths: [realpathSync(first), realpathSync(second)], unreadable: 0 });
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 

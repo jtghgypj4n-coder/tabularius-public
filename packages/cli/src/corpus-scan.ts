@@ -415,7 +415,30 @@ export async function dedupe(paths: string[]): Promise<{ groups: Map<string, { p
 
 export function scanInChild(entry: string, path: string, convert: boolean, timeoutMs: number): Promise<FileScan> {
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, [...process.execArgv, entry, 'corpus-scan', '--one', path, ...(convert ? ['--convert'] : [])], { stdio: ['ignore', 'pipe', 'pipe'] });
+    const runDir = mkdtempSync(join(tmpdir(), 'tabularius-corpus-run-'));
+    let child;
+    try {
+      child = spawn(process.execPath, [...process.execArgv, entry, 'corpus-scan', '--one', path, ...(convert ? ['--convert'] : [])], {
+        stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, TMPDIR: runDir, TMP: runDir, TEMP: runDir },
+      });
+    } catch {
+      rmSync(runDir, { recursive: true, force: true });
+      resolve({ status: 'failed', error: 'process could not start' });
+      return;
+    }
+    let finished = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const finish = (scan: FileScan) => {
+      if (finished) return;
+      finished = true;
+      if (timer) clearTimeout(timer);
+      try {
+        rmSync(runDir, { recursive: true, force: true });
+        resolve(scan);
+      } catch {
+        resolve({ status: 'failed', error: 'process cleanup failed' });
+      }
+    };
     let out = '';
     let err = '';
     let progress: ScanProgress | undefined;
@@ -433,21 +456,22 @@ export function scanInChild(entry: string, path: string, convert: boolean, timeo
       }
     });
     let timedOut = false;
-    const timer = setTimeout(() => { timedOut = true; child.kill('SIGKILL'); }, timeoutMs);
-    child.on('close', (code, signal) => {
-      clearTimeout(timer);
+    timer = setTimeout(() => { timedOut = true; child.kill('SIGKILL'); }, timeoutMs);
+    child.on('error', () => finish({ status: 'failed', error: 'process could not start' }));
+    child.on('close', (code) => {
       if (timedOut) {
         progress ??= { stage: 'read blocks', bytesRead: 0, tablesConverted: 0, recordsConverted: 0, peakHeapBytes: 0, stageMs: {} };
         progress.stageMs[progress.stage] = (progress.stageMs[progress.stage] ?? 0) + Math.round(progressReceivedAt ? performance.now() - progressReceivedAt : timeoutMs);
-        return resolve({ status: 'timeout', progress });
+        finish({ status: 'timeout', progress });
+        return;
       }
       try {
         const scan = JSON.parse(out) as FileScan;
-        resolve(progress && !scan.progress ? { ...scan, progress } : scan);
+        finish(progress && !scan.progress ? { ...scan, progress } : scan);
       } catch {
         // Crashed (out of memory, say): keep only the kind of failure, not its text.
         const kind = /heap out of memory/i.test(err) ? 'out of memory' : `exited with code ${code}`;
-        resolve({ status: 'failed', error: `process ${kind}` });
+        finish({ status: 'failed', error: `process ${kind}` });
       }
     });
   });
@@ -600,7 +624,9 @@ export function reportMarkdown(r: CorpusReport): string {
 export function listedFiles(listFile: string): { paths: string[]; unreadable: number } {
   const paths = new Set<string>();
   let unreadable = 0;
-  for (const p of readFileSync(listFile, 'utf8').split('\n')) {
+  for (const line of readFileSync(listFile, 'utf8').split(/\r?\n/)) {
+    const p = line.trim();
+    if (!p) continue;
     if (!/\.fmp12$/i.test(p)) continue;
     try {
       // The real path: a link is read as its target, and one file listed twice is counted once.
@@ -614,6 +640,10 @@ export function listedFiles(listFile: string): { paths: string[]; unreadable: nu
 
 /** `dir` is walked for .fmp12 files, unless `opts.list` names a file listing them. */
 export async function corpusScan(dir: string, opts: { out: string; entry: string; all?: boolean; list?: string; only?: string; convert?: boolean; dedupeOnly?: boolean; jobs?: number; timeoutSeconds?: number; log?: (line: string) => void }): Promise<CorpusReport> {
+  const jobs = opts.jobs ?? Math.max(1, Math.floor(availableParallelism() / 2));
+  if (!Number.isInteger(jobs) || jobs < 1) throw new Error('corpus-scan --jobs needs a whole number of 1 or more');
+  const timeoutSeconds = opts.timeoutSeconds ?? 300;
+  if (!Number.isFinite(timeoutSeconds) || timeoutSeconds <= 0) throw new Error('corpus-scan --timeout needs a positive number of seconds');
   const log = opts.log ?? (() => {});
   const { paths, unreadable } = opts.list ? listedFiles(opts.list) : findFiles(dir, { all: opts.all });
   if (unreadable) log(`${unreadable} folders or files couldn't be read and were skipped`);
@@ -627,9 +657,6 @@ export async function corpusScan(dir: string, opts: { out: string; entry: string
   log(`${unique.length} unique, ${(uniqueBytes / 1e9).toFixed(1)} GB`);
   if (opts.dedupeOnly) return buildReport(found, uniqueBytes, []);
   log(`scanning${opts.convert ? ' and converting' : ''}`);
-  const jobs = Math.max(1, opts.jobs ?? Math.max(1, Math.floor(availableParallelism() / 2)));
-  const timeoutSeconds = opts.timeoutSeconds ?? 300;
-  if (!Number.isFinite(timeoutSeconds) || timeoutSeconds <= 0) throw new Error('corpus-scan --timeout needs a positive number of seconds');
   const results: { id: string; sizeMB: number; copies: number; scan: FileScan }[] = new Array(unique.length);
   let next = 0;
   let done = 0;
