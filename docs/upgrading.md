@@ -40,6 +40,11 @@ and puts the old version back if it does not start (ADMIN.md, "Upgrade"). Two th
 - **Browser-facing requests are checked against the server's own address.** A cookie or cached Basic credential is now accepted only on a same-origin request. Two things can change for existing setups: a script that calls the admin console API with a console cookie or Basic credentials must send the header `x-tabularius-admin: 1` (without it the request is refused with 403); and a server reached by a DNS name needs `--public-url https://that-name` (or `--https` for the name) before anything that carries a cookie or Basic credentials can use it by that name, browsers and scripts alike, because such a request for a name the server was not told is refused with 403 (the message names the setting, and the server logs each refused name once). Connecting by IP address or `localhost` needs no setting.
 - The health check says the server is up, not that every file is open. After an upgrade, open the admin console's file
   list or run `tabularius doctor <folder>`: a file that failed to open is listed with the reason.
+- **Outbound requests from a script no longer forward the headers that describe the connection.** `Host`,
+  `Content-Length`, `Transfer-Encoding`, `Connection` (and any header it names), `Keep-Alive`, `Proxy-Connection`,
+  `Proxy-Authorization`, `Proxy-Authenticate`, `TE`, `Trailer` and `Upgrade` set by the script are dropped; the server sets
+  its own. A script that overrode `Host` to reach a virtual host on an allowed address now reaches the URL's own host
+  instead, so put the name you mean in the URL. `Content-Length` is always computed from the real body.
 
 ### Files the server writes are private to its account
 

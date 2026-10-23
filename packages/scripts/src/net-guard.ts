@@ -469,7 +469,12 @@ function once(url: URL, method: string, headers: Headers, body: Buffer | undefin
     const why = hostRefusal(opts.policy, url.hostname);
     if (why) return reject(new OutboundRefused(why));
     const send: Record<string, string> = {};
-    headers.forEach((v, k) => (send[k] = v));
+    // This transport owns authority and message framing. Forward neither proxy credentials
+    // nor hop-specific fields, including names nominated by the caller's Connection header.
+    const hopHeaders = new Set(['host', 'content-length', 'transfer-encoding', 'connection',
+      'keep-alive', 'proxy-connection', 'proxy-authorization', 'proxy-authenticate', 'te', 'trailer', 'upgrade',
+      ...String(headers.get('connection') ?? '').toLowerCase().split(',').map(name => name.trim())]);
+    headers.forEach((v, k) => { if (!hopHeaders.has(k)) send[k] = v; });
     if (!('accept-encoding' in send)) send['accept-encoding'] = 'gzip, deflate, br';
     if (!('user-agent' in send)) send['user-agent'] = 'tabularius';
     if (!('accept' in send)) send.accept = '*/*';
