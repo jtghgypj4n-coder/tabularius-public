@@ -730,7 +730,20 @@ four are not yet available there, nor QuickList.AddSQL. The Hash functions <!-- 
 (MD5, SHA1, SHA256 and SHA512 digests and HMACs, `Hash.Digest`, `Hash.CRC16`,
 `Hash.CRC32`) work on text, hex, base64 or container data. A few path and
 container helpers work too, along with `Version`, `IsRegistered` and progress
-dialogs. Any other MBS function, including file paths and `Hash.PBKDF2.HMAC`,
+dialogs. The following results are inferred and unverified against the vendor:
+<!-- known-difference: MBS plug-in functions ;; IsLinux, IsWindows and IsMac report the server process platform; IsServer reports whether a script runs without a person, including schedules, Perform Script on Server, Data API, MCP and CLI runs, and returns 0 in the web client ;; A script can take a different platform or server branch than with the vendor plug-in ;; A vendor run on each host and client type -->
+`IsLinux`, `IsWindows` and `IsMac` answer 1 or 0 from the server's platform;
+`IsServer` answers 1 for a script with no person and 0 in the web client.
+<!-- known-difference: MBS plug-in functions ;; Trace silently answers OK and Path.AddPathComponent joins with one separator from the input path style; empty components and trailing separators follow the simplest join rule ;; Vendor logging or path output may differ, especially at path edges ;; A vendor run with logging and empty, trailing-separator and mixed-separator paths -->
+`Trace` answers `OK` without writing a log. `Path.AddPathComponent` joins
+with `/` when the path contains `/`, otherwise with `\`, adding one separator;
+empty components and trailing separators use this simple rule.
+<!-- known-difference: MBS plug-in functions ;; CURL.SetUpdateProgressDialog answers OK and ProgressDialog.GetCancel answers 0 because a server has no progress dialog ;; A script relying on dialog cancellation or vendor side effects may behave differently ;; A vendor run of these calls in server and client scripts -->
+`CURL.SetUpdateProgressDialog` answers `OK`, and
+`ProgressDialog.GetCancel` answers 0; there is no server dialog to cancel.
+`Folders.UserDesktop` remains unavailable because it names a person's
+computer folder. <!-- known-difference: MBS plug-in functions ;; Folders.UserDesktop is unavailable because it names a person's computer folder ;; The call gives an MBS error text and IsError then answers 1 ;; A safe client-folder capability and a vendor run showing its contract -->
+Any other MBS function, including other file-path operations and `Hash.PBKDF2.HMAC`,
 returns an error text saying it isn't available in Tabularius. As in MBS,
 `MBS ( "IsError" )` tells whether the last MBS call gave an error (1) or not (0).
 MBS says it keeps that state per script; here it is kept for one script run,
