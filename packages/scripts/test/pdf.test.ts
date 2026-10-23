@@ -574,3 +574,31 @@ test('PDF: the decoded size of a PNG is capped in bytes, not pixels, so a 16-bit
   const small = Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ihdr), chunk('IDAT', deflateSync(Buffer.alloc(2000 * (2000 * 8 + 1)))), chunk('IEND', Buffer.alloc(0))]);
   assert.ok(readImage(small));
 });
+
+function bigPng(width: number, height: number, depth: 1 | 8, type: 0 | 6): Buffer {
+  const chunk = (kind: string, data: Buffer) => {
+    const body = Buffer.concat([Buffer.from(kind), data]);
+    const len = Buffer.alloc(4), crc = Buffer.alloc(4);
+    len.writeUInt32BE(data.length);
+    crc.writeUInt32BE(crc32(body));
+    return Buffer.concat([len, body, crc]);
+  };
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width);
+  ihdr.writeUInt32BE(height, 4);
+  ihdr[8] = depth; ihdr[9] = type;
+  const channels = type === 6 ? 4 : 1;
+  const rows = Buffer.alloc(height * (Math.ceil(width * channels * depth / 8) + 1));
+  return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ihdr), chunk('IDAT', deflateSync(rows)), chunk('IEND', Buffer.alloc(0))]);
+}
+
+test('PDF: a full 5000 x 5000 8-bit RGBA PNG fits the byte cap, since the filter bytes are not counted', () => {
+  assert.ok(readImage(bigPng(5000, 5000, 8, 6)));
+});
+
+test('PDF: a PNG with few bytes but a huge pixel count is left out', () => {
+  // 28,000 x 28,000 at one bit is 98 MB of rows, under the byte cap, but 784 million pixels.
+  const file = bigPng(28000, 28000, 1, 0);
+  assert.ok(file.length < 1_000_000, `${file.length} bytes of PNG`);
+  assert.equal(readImage(file), undefined);
+});

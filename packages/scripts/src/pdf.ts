@@ -259,8 +259,10 @@ function unfilter(raw: Buffer, width: number, height: number, bpp: number): Buff
   return out;
 }
 
-/** The most a PNG may decode to, in bytes (what inflating it and un-filtering its rows holds), however few pixels or little file it has. */
+/** The most a PNG may decode to, in bytes of pixels (the filter bytes in front of each row are not counted), however little file it has. */
 const MAX_IMAGE_BYTES = 100_000_000;
+/** The most pixels a picture may have: a one-bit picture is few bytes per pixel, but each pixel is still work for the reader and the viewer. */
+const MAX_IMAGE_PIXELS = 25_000_000;
 
 /** A PNG: passed through with PDF's PNG predictor, or split into color and alpha when it has an alpha channel. */
 function png(b: Buffer): Image | undefined {
@@ -296,9 +298,9 @@ function png(b: Buffer): Image | undefined {
   if (type === 3 && (![1, 2, 4, 8].includes(depth) || !palette || !palette.length || palette.length % 3 || palette.length > 768)) return undefined;
   const channels = type === 2 ? 3 : type === 4 ? 2 : type === 6 ? 4 : 1;
   const bytesPerPixel = channels * (depth === 16 ? 2 : 1);
-  // A header can promise any size; a picture that would decode past this many bytes is left out rather than inflated
-  // (a small file can hold gigabytes, and the cost is in bytes: a 16-bit picture with alpha is eight per pixel).
-  if (height * (Math.ceil(width * channels * depth / 8) + 1) > MAX_IMAGE_BYTES) return undefined;
+  // A header can promise any size; a picture past either cap is left out rather than inflated (a small file can hold
+  // gigabytes; the cost is in bytes, a 16-bit picture with alpha being eight per pixel, and in pixels).
+  if (height * Math.ceil(width * channels * depth / 8) > MAX_IMAGE_BYTES || width * height > MAX_IMAGE_PIXELS) return undefined;
   const zipped = Buffer.concat(idat);
   let pixels: Buffer | undefined;
   if (interlace || type === 4 || type === 6) {
