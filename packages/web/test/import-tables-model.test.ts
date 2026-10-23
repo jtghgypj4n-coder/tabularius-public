@@ -28,10 +28,10 @@ test('the picks are every kind, then a link to each other sheet and never to its
 test('choices are kept by sheet and column, and a choice that no longer fits the plan is dropped', () => {
   let c = choose({}, 'Orders', 'Order', 'text');
   c = choose(c, 'Orders', 'Client', 'skip');
-  assert.deepEqual(c, { Orders: { Order: 'text', Client: 'skip' } });
+  assert.deepEqual(JSON.parse(JSON.stringify(c)), { Orders: { Order: 'text', Client: 'skip' } });
   assert.deepEqual(keepValid(c, PLAN), c);
-  assert.deepEqual(keepValid({ Gone: { A: 'text' }, Orders: { Nope: 'text', Order: 'link:Orders', Client: 'link:Clients' } }, PLAN), { Orders: { Client: 'link:Clients' } });
-  assert.deepEqual(keepValid(c, { notes: [], sheets: [PLAN.sheets[0]] }), {});
+  assert.deepEqual(JSON.parse(JSON.stringify(keepValid({ Gone: { A: 'text' }, Orders: { Nope: 'text', Order: 'link:Orders', Client: 'link:Clients' } }, PLAN))), { Orders: { Client: 'link:Clients' } });
+  assert.deepEqual(JSON.parse(JSON.stringify(keepValid(c, { notes: [], sheets: [PLAN.sheets[0]] }))), {});
 });
 
 test('files that cannot be sent are named before anything is sent', () => {
@@ -59,22 +59,27 @@ test('a sheet is one line: its table, rows, fields without the skipped ones, and
   assert.equal(sheetLine(PLAN.sheets[0]), 'Clients: table Clients, 3 rows, 2 fields');
 });
 
-test('a sheet or column named like an Object property is a name, and changes nothing outside the choices', () => {
+test('web-b-9: prototype names stay own keys in null-prototype choices', () => {
   const plan: ImportTablesPlan = {
     notes: [],
     sheets: [
       { sheet: '__proto__', table: 'Proto', idField: 'polluted', rows: 1, ragged: 0, notes: [], columns: [col('polluted', 'text'), col('constructor', 'text')] },
-      { sheet: 'constructor', table: 'Constructor', idField: 'name', rows: 1, ragged: 0, notes: [], columns: [col('name', 'text')] },
+      { sheet: 'constructor', table: 'Constructor', idField: 'name', rows: 1, ragged: 0, notes: [], columns: [col('name', 'text'), col('__proto__', 'text')] },
     ],
   };
-  const made = choose(choose(choose({}, '__proto__', 'polluted', 'skip'), '__proto__', 'constructor', 'number'), 'constructor', 'name', 'date');
+  const made = choose(choose(choose(choose({}, '__proto__', 'polluted', 'skip'), '__proto__', 'constructor', 'number'), 'constructor', 'name', 'date'), 'constructor', '__proto__', 'text');
   const kept = keepValid(made, plan);
   assert.equal(({} as Record<string, unknown>).polluted, undefined, 'Object.prototype is untouched');
   assert.equal(({} as Record<string, unknown>).constructor, Object);
   for (const c of [made, kept]) {
     assert.deepEqual(Object.keys(c), ['__proto__', 'constructor']);
-    assert.deepEqual(JSON.parse(JSON.stringify(c)), { ['__proto__']: { polluted: 'skip', constructor: 'number' }, constructor: { name: 'date' } });
+    assert.equal(Object.getPrototypeOf(c), null);
+    assert.equal(Object.getPrototypeOf(c.constructor), null);
+    assert.equal(Object.getPrototypeOf(c['__proto__']), null);
+    assert.equal(Object.hasOwn(c.constructor, '__proto__'), true);
+    assert.deepEqual(JSON.parse(JSON.stringify(c)), { ['__proto__']: { polluted: 'skip', constructor: 'number' }, constructor: { name: 'date', ['__proto__']: 'text' } });
   }
+  assert.deepEqual(JSON.parse(importTablesForm([], [], '', kept).get('overrides') as string), JSON.parse(JSON.stringify(kept)));
   assert.equal(chosen(made, '__proto__', 'polluted'), 'skip');
   // A sheet with no choice reads as none, whatever its name.
   assert.equal(chosen({}, 'constructor', 'name'), undefined);

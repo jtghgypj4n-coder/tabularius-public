@@ -4,6 +4,7 @@
 import type { DesignOccurrence, DesignRelationship, GraphReview } from './client.ts';
 import { h, button, select, field, check, toast } from './dom.ts';
 import type { Studio } from './main.ts';
+import { occurrenceFill } from './graph-color.ts';
 
 const SVG = 'http://www.w3.org/2000/svg';
 const OPERATORS = ['=', '≠', '<', '≤', '>', '≥', '×'];
@@ -14,10 +15,6 @@ function svg<K extends keyof SVGElementTagNameMap>(tag: K, attrs: Record<string,
   for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, String(v));
   return el;
 }
-
-/** A color safe to put in a style: #hex, rgb()/rgba() of numbers, or a name (a design made by hand or by an older version may hold anything). */
-const SAFE_COLOR = /^(#[0-9a-f]{3,8}|rgba?\([0-9.,/ %]+\)|[a-z]+)$/i;
-const safeColor = (color: string | undefined): string | undefined => (color && SAFE_COLOR.test(color.trim()) ? color.trim() : undefined);
 
 /** Whether a color (#rrggbb or rgb()) is dark enough to need light text on it. */
 function dark(color: string): boolean {
@@ -137,8 +134,10 @@ export function graphTab(studio: Studio): HTMLElement {
     const b = at.get(t.id)!;
     const g = svg('g', { class: `d-to${sel.occurrence === t.id ? ' selected' : ''}${flagged.includes(t.id) ? ' flagged' : ''}`, transform: `translate(${b.left},${b.top})`, tabindex: 0, 'data-to': t.id });
     g.append(svg('rect', { width: b.width, height: b.height, rx: 6, class: 'd-to-box' }));
-    const fill = safeColor(t.color);
-    g.append(svg('rect', { width: b.width, height: HEAD_H, rx: 6, class: 'd-to-head', ...(fill ? { style: `fill:${fill}` } : {}) }));
+    const fill = occurrenceFill(t.color);
+    const head = svg('rect', { width: b.width, height: HEAD_H, rx: 6, class: 'd-to-head' });
+    if (fill) head.style.fill = fill;
+    g.append(head);
     const tone = fill ? (dark(fill) ? ' on-dark' : ' on-light') : '';
     const name = svg('text', { x: 8, y: 14, class: `d-to-name${tone}` });
     name.textContent = fit(t.name, b.width - 44);

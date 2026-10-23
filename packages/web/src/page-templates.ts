@@ -81,7 +81,7 @@ export function flavourOf(table: DesignTable): Flavour | undefined {
 const PERIODS: [string, string][] = [['', 'All time'], ['this month', 'This month'], ['last month', 'Last month'], ['last 30 days', 'Last 30 days'], ['this quarter', 'This quarter'], ['year to date', 'Year to date'], ['last year', 'Last year']];
 
 /** A value inside a script tag: JSON with the characters that could end the tag or the script written as escapes. */
-const js = (v: unknown): string => JSON.stringify(v).replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
+export const js = (v: unknown): string => JSON.stringify(v).replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
 const text = (s: string): string => s.replace(/[<>&"]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;' })[c]!);
 
 /** The extra tiles a flavour adds, filled in by the page's script. */

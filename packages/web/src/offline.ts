@@ -177,7 +177,9 @@ export class OfflineCopy {
     const f = await shelf.get('files', fileId(db, account)) as FileEntry | undefined;
     if (!f) return undefined;
     if (await unseal(key, `${fileId(db, account)}\u0000check`, f.check) !== CHECK) return 'wrong';
-    return new OfflineCopy(shelf, f.db, f.account, f.salt, key);
+    const copy = new OfflineCopy(shelf, f.db, f.account, f.salt, key);
+    await copy.prune();
+    return copy;
   }
 
   /** Starts a copy (replacing any old one). */
@@ -187,7 +189,9 @@ export class OfflineCopy {
       await OfflineCopy.wipe(shelf, id);
       const entry: FileEntry = { db, account, salt, check: await seal(key, `${id}\u0000check`, CHECK), at: Date.now() };
       await shelf.put('files', id, entry);
-      return new OfflineCopy(shelf, db, account, salt, key);
+      const copy = new OfflineCopy(shelf, db, account, salt, key);
+      await copy.prune();
+      return copy;
     });
   }
 
@@ -400,6 +404,18 @@ function applyFields(value: unknown, recordId: string, fieldData: Record<string,
 }
 
 /** The browser's shelf: an IndexedDB database of three stores. */
+export function settleRequest<T>(tx: IDBTransaction, req: IDBRequest<T>, mode: IDBTransactionMode): Promise<T> {
+  return new Promise((resolve, reject) => {
+    req.onsuccess = () => { if (mode === 'readonly') resolve(req.result); };
+    req.onerror = () => { if (mode === 'readonly') reject(req.error); };
+    if (mode === 'readwrite') {
+      tx.oncomplete = () => resolve(req.result);
+      tx.onabort = () => reject(tx.error);
+      tx.onerror = () => reject(tx.error);
+    }
+  });
+}
+
 export function indexedDbShelf(name = 'openhbam-offline'): Shelf {
   let opening: Promise<IDBDatabase> | undefined;
   const db = (): Promise<IDBDatabase> => opening ??= new Promise((resolve, reject) => {
@@ -412,11 +428,8 @@ export function indexedDbShelf(name = 'openhbam-offline'): Shelf {
   });
   const run = async <T>(store: ShelfStore, mode: IDBTransactionMode, op: (s: IDBObjectStore) => IDBRequest<T>): Promise<T> => {
     const d = await db();
-    return new Promise((resolve, reject) => {
-      const req = op(d.transaction(store, mode).objectStore(store));
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => reject(req.error);
-    });
+    const tx = d.transaction(store, mode);
+    return settleRequest(tx, op(tx.objectStore(store)), mode);
   };
   return {
     get: (store, key) => run(store, 'readonly', (s) => s.get(key)),
