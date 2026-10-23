@@ -8,6 +8,6 @@ How many requests each worker runs at once before further ones wait in a queue (
 | Accepted values | Whole number of 4 or more |
 | Restart needed | Yes for a running server. |
 | Explained in | [docs/performance.md](../../../performance.md) |
-| Code | [packages/server/src/index.ts:384](../../../../packages/server/src/index.ts#L384) |
+| Code | [packages/server/src/index.ts:385](../../../../packages/server/src/index.ts#L385) |
 
 [All environment variables](../../../environment-variables.md)

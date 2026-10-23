@@ -1198,6 +1198,12 @@ export class DataApi {
     this.sessions.set(session.token, session);
   }
 
+  /** Open local sessions for one hosted file, including web and Data API sessions. */
+  sessionCountForFile(name: string): number {
+    const key = name.toLowerCase();
+    return [...this.sessions.values()].filter((session) => session.db.toLowerCase() === key).length;
+  }
+
   /**
    * Ends sessions that have timed out, at most once a minute, as new ones
    * open. Clients that sign in and never sign out would otherwise leave
