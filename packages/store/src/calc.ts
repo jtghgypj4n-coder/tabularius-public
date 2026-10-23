@@ -155,14 +155,14 @@ interface Hop {
 // through keys they hold themselves.
 function ownKeyed<T>(tables: Record<string, Record<string, T>> | undefined): Record<string, Record<string, T>> {
   const out: Record<string, Record<string, T>> = Object.create(null);
-  for (const [table, fields] of Object.entries(tables ?? {})) out[table] = Object.assign(Object.create(null), fields);
+  for (const [table, fields] of Object.entries(tables ?? {})) out[table] = Object.assign(Object.create(null), fields && typeof fields === 'object' ? fields : {});
   return out;
 }
 
 function ownAt<T>(tables: Record<string, Record<string, T>> | undefined, table: string, field: string): T | undefined {
-  if (!tables || !Object.hasOwn(tables, table)) return undefined;
+  if (!tables || typeof tables !== 'object' || !Object.hasOwn(tables, table)) return undefined;
   const fields = tables[table];
-  return Object.hasOwn(fields, field) ? fields[field] : undefined;
+  return fields && typeof fields === 'object' && Object.hasOwn(fields, field) ? fields[field] : undefined;
 }
 
 /** Sets a value in a map made by ownKeyed. */
