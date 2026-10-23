@@ -564,6 +564,126 @@ test('unhosted PostgreSQL account tracking is bounded and expired entries free c
   assert.equal(failures.size, 1, 'expired windows and locks are removed before retaining new names');
 });
 
+test('bound parameter bytes are capped across a connection’s portals', { timeout: 30_000 }, async (t) => {
+  const original = process.env.TABULARIUS_PGWIRE_MAX_PARAM_BYTES;
+  const dir = mkdtempSync(join(tmpdir(), 'tabularius-pg-params-'));
+  createStore(join(dir, 'Params.openhbam.sqlite'));
+  const host = new Host(dir);
+  const store = host.get('Params')!;
+  const full = store.privilegeSets().find((p) => p.id === 1)!;
+  store.savePrivilegeSet({ ...full, extendedPrivileges: [...full.extendedPrivileges, 'fmxdbc'] });
+  store.setPassword('Ann', 'pw', full.name);
+  const pg = new PgServer(host, { port: 0 });
+  t.after(async () => {
+    if (original === undefined) delete process.env.TABULARIUS_PGWIRE_MAX_PARAM_BYTES;
+    else process.env.TABULARIUS_PGWIRE_MAX_PARAM_BYTES = original;
+    pg.close();
+    try { await host.close(); } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+  const port = await pg.listen();
+  let c: Client;
+  const parse = async (sql = 'SELECT $1', oid = 25) => {
+    c.send('P', Buffer.concat([cstr('stmt'), cstr(sql), i16(1), i32(oid)]));
+    assert.equal((await c.read()).type, '1');
+  };
+  const bind = async (portal: string, values: (string | Buffer | null)[], format = 0) => {
+    const params = values.flatMap((value) => {
+      if (value === null) return [i32(-1)];
+      const raw = typeof value === 'string' ? Buffer.from(value) : value;
+      return [i32(raw.length), raw];
+    });
+    c.send('B', Buffer.concat([cstr(portal), cstr('stmt'), i16(1), i16(format), i16(values.length), ...params, i16(0)]));
+    return c.read();
+  };
+  const limited = (reply: { type: string; body: Buffer }) => {
+    assert.equal(reply.type, 'E');
+    assert.match(c.errorText(reply.body), /^54000 .*1000 bytes.*close portals.*smaller parameters/i);
+  };
+  const sync = async (status = 'I') => {
+    c.send('S');
+    const reply = await c.read();
+    assert.equal(reply.type, 'Z');
+    assert.equal(reply.body.toString(), status);
+  };
+  const close = async (portal: string) => {
+    c.send('C', Buffer.concat([Buffer.from('P'), cstr(portal)]));
+    assert.equal((await c.read()).type, '3');
+  };
+  t.beforeEach(async () => {
+    process.env.TABULARIUS_PGWIRE_MAX_PARAM_BYTES = '1000';
+    c = await Client.open({ user: 'Ann', password: 'pw', database: 'Params', port });
+    await parse();
+  });
+  t.afterEach(() => c.close());
+
+  await t.test('two 600-byte portals exceed the total; Sync frees bytes and the connection works', async () => {
+    assert.equal((await bind('first', ['a'.repeat(600)])).type, '2');
+    limited(await bind('second', ['b'.repeat(600)]));
+    await sync();
+    assert.equal((await bind('second', ['b'.repeat(600)])).type, '2');
+    await sync();
+    assert.deepEqual((await c.query('SELECT 1')).rows, [['1']]);
+  });
+  await t.test('Close Portal frees bytes while Sync inside a transaction retains them', async () => {
+    assert.equal((await c.query('BEGIN')).error, undefined);
+    assert.equal((await bind('first', ['a'.repeat(600)])).type, '2');
+    await sync('T');
+    await close('first');
+    assert.equal((await bind('second', ['b'.repeat(600)])).type, '2');
+    await sync('T');
+    limited(await bind('third', ['c'.repeat(600)]));
+    await sync('E');
+    assert.equal((await c.query('ROLLBACK')).error, undefined);
+  });
+  await t.test('replacing named and unnamed portals counts only the replacement', async () => {
+    for (const name of ['kept', '']) {
+      assert.equal((await bind(name, ['a'.repeat(600)])).type, '2');
+      assert.equal((await bind(name, ['b'.repeat(1000)])).type, '2');
+      assert.equal((await bind(name, ['c'.repeat(400)])).type, '2');
+      assert.equal((await bind('other', ['d'.repeat(600)])).type, '2');
+      await close('other');
+      await close(name);
+    }
+  });
+  await t.test('an oversized Bind is refused, including the sum of several parameters', async () => {
+    limited(await bind('large', ['x'.repeat(1001)]));
+    await sync();
+    await parse('SELECT $1, $2');
+    limited(await bind('many', ['x'.repeat(600), 'y'.repeat(600)]));
+    await sync();
+    assert.equal((await bind('fits', ['x'.repeat(500), 'y'.repeat(500)])).type, '2');
+  });
+  await t.test('UTF-8 bytes, binary bytes, nulls and empty values share the same budget', async () => {
+    assert.equal((await bind('text', ['é'.repeat(300)])).type, '2');
+    limited(await bind('unicode', ['é'.repeat(201)]));
+    await sync();
+    await parse('SELECT $1', 17); // bytea: count the binary input's bytes too
+    assert.equal((await bind('binary', [Buffer.alloc(600, 1)], 1)).type, '2');
+    limited(await bind('more', [Buffer.alloc(401, 1)], 1));
+    await sync();
+    await parse('SELECT $1, $2, $3');
+    assert.equal((await bind('exact', ['é'.repeat(500), null, ''])).type, '2');
+    limited(await bind('extra', ['x', null, '']));
+  });
+  await t.test('a refused replacement recovers after Sync', async () => {
+    assert.equal((await bind('kept', ['a'.repeat(600)])).type, '2');
+    limited(await bind('kept', ['b'.repeat(1001)]));
+    await sync();
+    assert.equal((await bind('kept', ['c'.repeat(1000)])).type, '2');
+  });
+  await t.test('the length prefix rejects oversized text before UTF-8 decoding', async () => {
+    limited(await bind('invalid', [Buffer.alloc(1001, 0xff)]));
+  });
+  await t.test('unset, zero and invalid overrides keep the default', async () => {
+    for (const value of [undefined, '0', '-1', 'invalid', '1.5', 'Infinity']) {
+      if (value === undefined) delete process.env.TABULARIUS_PGWIRE_MAX_PARAM_BYTES;
+      else process.env.TABULARIUS_PGWIRE_MAX_PARAM_BYTES = value;
+      assert.equal((await bind('default', ['x'.repeat(1001)])).type, '2', String(value));
+      await sync();
+    }
+  });
+});
+
 test('transaction status and extended error recovery without imported files', { timeout: 30_000 }, async (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'tabularius-pg-state-'));
   createStore(join(dir, 'State.openhbam.sqlite'));

@@ -48,6 +48,8 @@ export const PGWIRE_LIMIT = { signedPerAccount: 32, signedGlobal: 256 };
 const MAX_PREPARED = 1000;
 /** Total materialised portal rows one connection may retain, even if a query's own cap is raised or disabled. */
 const MAX_BUFFERED_ROWS_PER_CONNECTION = 100_000;
+/** Total bound parameter bytes one connection may retain across its portals. */
+const MAX_PARAM_BYTES_PER_CONNECTION = 64 * 1024 * 1024;
 /** The longest account name a startup message may carry. */
 const MAX_USER = 255;
 const SSL_REQUEST = 80877103;
@@ -203,6 +205,8 @@ interface Prepared {
 interface Portal {
   sql: string;
   params: SqlValue[];
+  /** UTF-8 text bytes and binary input bytes from Bind; nulls count as zero. */
+  paramBytes: number;
   /** Result format codes from Bind. */
   formats: number[];
   result?: { cols: Column[]; rows: SqlValue[][] };
@@ -793,6 +797,18 @@ class Connection {
         if (st.sql) this.session(st.sql);
         const formats = Array.from({ length: int16() }, () => int16());
         const n = int16();
+        const given = Number(process.env.TABULARIUS_PGWIRE_MAX_PARAM_BYTES);
+        const cap = Number.isInteger(given) && given > 0 ? given : MAX_PARAM_BYTES_PER_CONNECTION;
+        let alreadyBound = 0;
+        for (const [name, held] of this.portals) {
+          if (name !== portal) alreadyBound += held.paramBytes;
+        }
+        let paramBytes = 0;
+        const checkParamBytes = () => {
+          if (alreadyBound + paramBytes > cap) {
+            throw new PgError('54000', `bound SQL parameters on this connection are limited to ${cap} bytes; close portals or send smaller parameters`);
+          }
+        };
         const params: SqlValue[] = [];
         for (let i = 0; i < n; i++) {
           const len = int32();
@@ -800,6 +816,8 @@ class Connection {
             params.push(null);
             continue;
           }
+          paramBytes += len;
+          checkParamBytes(); // Refuse the length before decoding or copying the parameter.
           const oid = st.types[i] ?? 0;
           const raw = body.subarray(pos, pos + len);
           pos += len;
@@ -817,7 +835,8 @@ class Connection {
         const results = Array.from({ length: int16() }, () => int16());
         if (results.some((f) => f !== 0 && f !== 1)) throw new PgError('08P01', 'result formats must be 0 (text) or 1 (binary)');
         if (!this.portals.has(portal) && this.portals.size >= MAX_PREPARED) throw new PgError('54000', 'too many portals on this connection; close some');
-        this.portals.set(portal, { sql: st.sql, params, formats: results, sent: 0 });
+        checkParamBytes();
+        this.portals.set(portal, { sql: st.sql, params, paramBytes, formats: results, sent: 0 });
         this.send(message('2'));
         return;
       }

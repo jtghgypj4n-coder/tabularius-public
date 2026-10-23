@@ -28,6 +28,7 @@ nothing reads, so this list and the code cannot drift apart.
 | `TABULARIUS_ACME_DIRECTORY` | `--acme-directory` | A different certificate authority's directory address, for testing. |
 | `TABULARIUS_PROXY_HEADER` | `--proxy-header` | The header a trusted proxy puts the client address in. |
 | `TABULARIUS_SQL_PORT` | `--sql-port` | The port for the PostgreSQL-compatible SQL connection. |
+| `TABULARIUS_PGWIRE_MAX_PARAM_BYTES` | | The total bound parameter bytes a SQL connection's portals may hold (64 MiB by default). A positive integer, read at each Bind; 0 or an invalid value keeps the default. Text counts as UTF-8 bytes, binary parameters as input bytes. See [PostgreSQL result limits](pgwire-results.md). |
 | `TABULARIUS_WORKERS` | `--workers` | The number of worker processes, or `auto` for one per CPU core. |
 | `TABULARIUS_PROGRESSIVE` | `--progressive` | How often changes are saved as a point you can restore to with `tabularius restore --at`; `off` for never. |
 | `TABULARIUS_HOME` | | The folder holding per-user settings (`~/.openhbam` by default): the AI key file, and the service definition's files. |
