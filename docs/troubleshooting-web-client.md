@@ -52,6 +52,10 @@ This guide covers the Tabularius browser client at `/app/` and related screens. 
 
 **Fix:** Choose a supported file under the limit, reduce or split a larger file, and retry. If the preview still fails, ask the server operator to check the server log and include the exact error text. **Not verified automatically:** file corruption and proxy request-size limits vary by deployment.
 
+### Fewer records came in than the file has rows
+
+The result lists skipped row numbers and reasons. Rows can be left out because the repeat checkbox was ticked, a mapped value could not be fixed, an Update row matched no record, a Replace import had more rows than records, or the account could not write a row. Blank rows add nothing, and the header row supplies column names. The preview row limit only limits what is shown before import.
+
 ## A container file will not upload
 
 **Symptom:** An image or document in a container field shows “Couldn't upload …”, or the upload progress stops.
