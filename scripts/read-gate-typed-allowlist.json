@@ -1513,7 +1513,7 @@
  },
  {
   "file": "packages/store/src/stale-calcs.ts",
-  "within": "refreshStaleCalcs",
+  "within": "refreshStaleCalcsBatch",
   "api": "sql.prepare",
   "count": 1,
   "gate": "full-access",
@@ -2177,6 +2177,14 @@
  },
  {
   "file": "packages/store/src/store.ts",
+  "within": "Store.recoverPendingExternalFiles",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "trusted-process",
+  "why": "Crash recovery of external container files written by a transaction that did not finish: asks only whether a committed container row names the file."
+ },
+ {
+  "file": "packages/store/src/store.ts",
   "within": "Store.rejectPending",
   "api": "sql.prepare",
   "count": 1,
@@ -2331,7 +2339,7 @@
   "file": "packages/store/src/store.ts",
   "within": "Store.update",
   "api": "Store.row",
-  "count": 3,
+  "count": 1,
   "gate": "checked-before",
   "why": "Reading the parent of a related field or portal: checkParentViewable refuses a record the account may not view before the related record is touched."
  },
@@ -2417,7 +2425,7 @@
  },
  {
   "file": "packages/store/src/store.ts",
-  "within": "run",
+  "within": "Store.restoreRecord",
   "api": "Store.recordAsOf",
   "count": 1,
   "gate": "full-access",
@@ -2427,9 +2435,17 @@
   "file": "packages/store/src/store.ts",
   "within": "run",
   "api": "sql.prepare",
-  "count": 3,
+  "count": 2,
   "gate": "store-internal",
-  "why": "Three closures run under the table's write lock after the privilege checks: restoreRecord (admin console only; before-image of the record put back), delete (before-image for cascade, audit and notify after the view and delete rules passed) and truncate (requires full access; reads rows only to purge the PII vault)."
+  "why": "Two closures run under the table's write lock after the privilege checks: delete (before-image for cascade, audit and notify after the view and delete rules passed) and truncate (requires full access; reads rows only to purge the PII vault)."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.restoreRecord",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "store-internal",
+  "why": "Under the table's write lock after the privilege checks (admin console only): the before-image of the record put back."
  },
  {
   "file": "packages/store/src/sync-apply.ts",
