@@ -46,7 +46,7 @@ export function problems(text: string): string[] {
  */
 export const KEPT: readonly { text: string; file: string; why: string }[] = [
   { text: 'fetch failed', file: 'packages/scripts/src/net-guard.ts', why: 'the platform fetch\'s own error, matched by callers; people read networkProblem()' },
-  { text: 'no such table: {name}', file: 'packages/server/src/pgwire.ts', why: 'a table of another file the account may not read must answer word for word as a table that is not there' },
+  { text: 'no such table: {shown}', file: 'packages/store/src/calc.ts', why: 'a table of another file the caller may not read must answer word for word as a table that is not there' },
 ];
 
 function* walk(dir: string): Generator<string> {
