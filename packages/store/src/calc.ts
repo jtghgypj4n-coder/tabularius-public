@@ -150,6 +150,27 @@ interface Hop {
   to: number;
 }
 
+// The serials and globals kept in the file's metadata are keyed by table name, then field name. Those names are
+// data, so a table may be called __proto__ or constructor: such maps are made without a prototype and read only
+// through keys they hold themselves.
+function ownKeyed<T>(tables: Record<string, Record<string, T>> | undefined): Record<string, Record<string, T>> {
+  const out: Record<string, Record<string, T>> = Object.create(null);
+  for (const [table, fields] of Object.entries(tables ?? {})) out[table] = Object.assign(Object.create(null), fields);
+  return out;
+}
+
+function ownAt<T>(tables: Record<string, Record<string, T>> | undefined, table: string, field: string): T | undefined {
+  if (!tables || !Object.hasOwn(tables, table)) return undefined;
+  const fields = tables[table];
+  return Object.hasOwn(fields, field) ? fields[field] : undefined;
+}
+
+/** Sets a value in a map made by ownKeyed. */
+function ownPut<T>(tables: Record<string, Record<string, T>>, table: string, field: string, value: T): void {
+  const fields = Object.hasOwn(tables, table) ? tables[table] : (tables[table] = Object.create(null) as Record<string, T>);
+  fields[field] = value;
+}
+
 export class Calculations {
   private readonly store: Store;
   private readonly tosById = new Map<number, TableOccurrence>();
@@ -305,7 +326,7 @@ export class Calculations {
     if (!kept || kept.version !== version) {
       this.globalValues.value = kept = { version, values: this.meta('globals') ?? {} };
     }
-    return kept.values[table.name]?.[field.name] ?? null;
+    return ownAt(kept.values, table.name, field.name) ?? null;
   }
 
   /** Sets a global for the current session; with no session (MCP, tools), the file's stored value. */
@@ -315,8 +336,8 @@ export class Calculations {
       session.writeGlobal(this.store, table, field, typeof value === 'bigint' ? Number(value) : (value as string | number | null));
       return;
     }
-    const values = this.meta<Record<string, Record<string, SqlValue>>>('globals') ?? {};
-    (values[table.name] ??= {})[field.name] = value;
+    const values = ownKeyed(this.meta<Record<string, Record<string, SqlValue>>>('globals'));
+    ownPut(values, table.name, field.name, value);
     this.saveMeta('globals', values);
     this.globalValues.value = undefined;
   }
@@ -327,9 +348,10 @@ export class Calculations {
     const own = !this.store.sql.isTransaction;
     if (own) this.store.sql.exec('BEGIN IMMEDIATE');
     try {
-      this.serials.value = this.meta('serials') ?? {};
-      (this.serials.value[table.name] ??= {})[field.name] = value;
-      this.saveMeta('serials', this.serials.value);
+      const serials = ownKeyed(this.meta<Record<string, Record<string, string>>>('serials'));
+      ownPut(serials, table.name, field.name, value);
+      this.serials.value = serials;
+      this.saveMeta('serials', serials);
       if (own) this.store.sql.exec('COMMIT');
     } catch (e) {
       if (own && this.store.sql.isTransaction) this.store.sql.exec('ROLLBACK');
@@ -342,17 +364,19 @@ export class Calculations {
   peekSerial(table: Table, field: Field): string | undefined {
     const serial = field.options?.autoEnter?.serial;
     if (!serial) return undefined;
-    this.serials.value = this.meta('serials') ?? {};
-    return this.serials.value[table.name]?.[field.name] ?? serial.next;
+    const serials = ownKeyed(this.meta<Record<string, Record<string, string>>>('serials'));
+    this.serials.value = serials;
+    return ownAt(serials, table.name, field.name) ?? serial.next;
   }
 
   private nextSerial(table: Table, field: Field): string | undefined {
     const serial = field.options?.autoEnter?.serial;
     if (!serial) return undefined;
-    this.serials.value = this.meta('serials') ?? {};
-    const current = this.serials.value[table.name]?.[field.name] ?? serial.next;
-    (this.serials.value[table.name] ??= {})[field.name] = serialNext(current, serial.increment || 1);
-    this.saveMeta('serials', this.serials.value);
+    const serials = ownKeyed(this.meta<Record<string, Record<string, string>>>('serials'));
+    const current = ownAt(serials, table.name, field.name) ?? serial.next;
+    ownPut(serials, table.name, field.name, serialNext(current, serial.increment || 1));
+    this.serials.value = serials;
+    this.saveMeta('serials', serials);
     return current;
   }
 
