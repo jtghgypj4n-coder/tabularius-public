@@ -159,16 +159,27 @@ test('MBS JS account cool-down registry evicts only its oldest entry at the boun
   assert.match(session(key(MBS_JS_COOL_DOWN_LIMIT + 1)).mbs('JS.New'), /^\[MBS\] ERROR:.*recently/);
 });
 
-test('MBS JS global cap reports server capacity and a refused allocation leaves no handle behind', () => {
+test('MBS JS a full server pool drops the least recently used handle instead of refusing a new one', () => {
   const { owners, refs } = fillPool();
   const next = session();
+  // The first handle is used last of all but the newest, so the second one is now the least recently used.
   assert.equal(owners[0].mbs('JS.Evaluate', refs[0][0], 'var saved = 42; saved'), '42');
-  assert.equal(next.mbs('JS.New', 'retry'), '[MBS] ERROR: JavaScript context limit reached for this server (32)');
-  assert.equal(next.mbs('IsError'), '1');
-  assert.equal(owners[0].mbs('JS.Evaluate', refs[0][0], 'saved'), '42');
-  assert.equal(owners[1].mbs('JS.Release', refs[1][0]), 'OK');
   assert.equal(next.make('retry'), 'retry');
+  assert.equal(next.mbs('IsError'), '0');
+  assert.equal(owners[0].mbs('JS.Evaluate', refs[0][0], 'saved'), '42', 'a handle in use keeps its state');
+  assert.match(owners[0].mbs('JS.Evaluate', refs[0][1], '1'), /^\[MBS\] ERROR:/, 'the least recently used one was dropped');
+  assert.equal(owners[1].mbs('JS.Evaluate', refs[1][0], '2'), '2', 'the others are untouched');
+  // The dropped handle no longer counts against its session, and a further new one drops the next least recently used.
+  assert.equal(owners[0].make('again'), 'again');
   assert.equal(next.mbs('JS.Release', 'retry'), 'OK');
+});
+
+test('MBS JS a session at its own handle limit is still refused, so it cannot drop other sessions\' handles', () => {
+  const { owners } = fillPool();
+  assert.match(owners[0].mbs('JS.New', 'ninth'), /^\[MBS\] ERROR:.*session/);
+  // Another session with room gets its handle by dropping the least recently used one, not by being refused.
+  const other = session();
+  assert.equal(other.mbs('JS.Evaluate', other.make('first'), '1'), '1');
 });
 
 test('MBS JS idle handles expire across retained sessions without another request', t => {
