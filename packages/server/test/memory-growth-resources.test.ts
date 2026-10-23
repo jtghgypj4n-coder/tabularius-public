@@ -264,18 +264,19 @@ test('unknown bearer tokens cannot grow the Data API write gate without a bound'
   assert.equal(inside(api).inFlightWrites.size, 0);
 });
 
-test('paused web scripts evict and cancel the oldest continuation', (t) => {
+test('paused web scripts are bounded across sessions and cancel what does not fit', (t) => {
   const host = hostFor(t);
   const store = host.create('Growth');
   const api = new DataApi(host);
-  const token = api.open(store, 'Admin', 'web');
+  // One session holds at most 8 paused runs, so reaching the shared cap of 256 takes 32 sessions; the 33rd finds the table full.
+  const tokens = Array.from({ length: 33 }, () => api.open(store, 'Admin', 'web'));
   const web = new WebClient(host, api);
   t.after(() => web.stop());
   let canceled = 0;
-  for (let i = 0; i < 260; i++) inside(web).outcome({ token, db: store.name, sent: 0, answer: () => { canceled++; } }, { pause: { actions: [], state: {} } });
+  for (let i = 0; i < 260; i++) inside(web).outcome({ token: tokens[Math.floor(i / 8)], db: store.name, sent: 0, answer: () => { canceled++; } }, { pause: { actions: [], state: {} } });
   assert.equal(inside(web).paused.size, 256);
   assert.equal(canceled, 4);
-  api.end(token);
+  for (const token of tokens) api.end(token);
   assert.equal(inside(web).paused.size, 0);
   assert.equal(canceled, 260);
 });
