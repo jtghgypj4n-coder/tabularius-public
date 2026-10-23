@@ -1,6 +1,6 @@
-// Failed sign-ins (and the lockouts they cause) may fill only part of the security audit (TABULARIUS_SIGN_IN_FAILURE_AUDIT_SHARE,
-// 80% unless set), after the first 1,000 of them. Past that they are not written, so a flood of wrong passwords cannot bury
-// real sign-ins and security changes; a lockout still locks, and nothing that is not a failure is held back.
+// Failed sign-in rows may fill only part of the security audit (TABULARIUS_SIGN_IN_FAILURE_AUDIT_SHARE, 80% unless set), after
+// the first 1,000 of them. Past that they are not written, so a flood of wrong passwords cannot bury real sign-ins and security
+// changes. Lockout rows are never held back, and neither is anything else that is not a failed sign-in.
 import { test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -28,13 +28,15 @@ function setup(t: TestContext, share?: string) {
 }
 
 const rows = (store: Store, kinds: string[]) => (store.sql.prepare(`SELECT COUNT(*) AS n FROM _fm_audit WHERE security = 1 AND kind IN (${kinds.map(() => '?').join(',')})`).get(...kinds) as { n: number }).n;
-const failureRows = (store: Store) => rows(store, ['sign-in-failed', 'locked-out']);
+const failureRows = (store: Store) => rows(store, ['sign-in-failed']);
 const other = (store: Store, n: number) => { for (let i = 0; i < n; i++) appendSecurityEvent(store.sql, new Date().toISOString(), null, 'password-changed', null, 0); };
 
 test('the share is 0.8 unless a number from 0 to 1 is set; anything else keeps the cap', (t) => {
   setup(t);
   assert.equal(signInFailureAuditShare(), 0.8);
-  for (const [text, want] of [['0.5', 0.5], ['1', 1], ['0', 0], [' 0.25 ', 0.25], ['', 0.8], ['abc', 0.8], ['-0.1', 0.8], ['1.5', 0.8], ['NaN', 0.8], ['Infinity', 0.8]] as const) {
+  const cases = [['0.5', 0.5], ['1', 1], ['0', 0], [' 0.25 ', 0.25], ['1.0', 1], ['.5', 0.5], ['', 0.8], ['abc', 0.8], ['-0.1', 0.8], ['1.5', 0.8], ['NaN', 0.8], ['Infinity', 0.8],
+    ['0x1', 0.8], ['0b1', 0.8], ['0o1', 0.8], ['1e-1', 0.8], ['5e-1', 0.8], ['+0.5', 0.8], ['0.5.1', 0.8], ['1_0', 0.8], ['1.0000001', 0.8]] as const;
+  for (const [text, want] of cases) {
     process.env[NAME] = text;
     assert.equal(signInFailureAuditShare(), want, JSON.stringify(text));
   }
@@ -78,15 +80,17 @@ test('a share of 1 writes every failure', (t) => {
   assert.equal(rows(store, ['sign-in-failed']), 1100);
 });
 
-test('a lockout still locks when its row is not written, and the cap counts lockout rows too', (t) => {
+test('a lockout is always written and still locks, whatever the failures have used', (t) => {
   const store = setup(t, '0');
   store.setPassword('Alice', 'correct', '[Full Access]');
-  // The floor first: with a share of 0 only the first 1,000 failure rows are written, whatever kind they are.
-  for (let i = 0; i < SIGN_IN_FAILURE_AUDIT_FLOOR - 1; i++) store.auditSignIn(`name-${i}`, 'place', false);
+  // With a share of 0 only the first 1,000 failed sign-in rows are written.
+  for (let i = 0; i < SIGN_IN_FAILURE_AUDIT_FLOOR + 5; i++) store.auditSignIn(`name-${i}`, 'place', false);
+  assert.equal(failureRows(store), SIGN_IN_FAILURE_AUDIT_FLOOR);
   const from = '198.51.100.8';
   for (let i = 0; i < LOCKOUT.attempts; i++) assert.equal(store.verify('Alice', 'wrong', from), false);
   assert.ok(store.lockedOut('Alice', from), 'the account is locked');
   assert.equal(store.verify('Alice', 'correct', from), false, 'and stays locked');
-  assert.equal(failureRows(store), SIGN_IN_FAILURE_AUDIT_FLOOR, 'lockout rows count toward the cap');
-  assert.equal(rows(store, ['locked-out']), 1, 'the one lockout row that fitted was written');
+  assert.equal(rows(store, ['locked-out']), 1, 'the lockout row was written although failures are past their share');
+  assert.equal(failureRows(store), SIGN_IN_FAILURE_AUDIT_FLOOR, 'and it did not use the failures\' room');
+  assert.equal(store.verifySecurityAudit().status, 'consistent');
 });

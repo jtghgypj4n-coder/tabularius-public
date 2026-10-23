@@ -2651,13 +2651,13 @@ export class Store {
     return result;
   }
 
-  /** How many security rows and how many of them are failed sign-ins and lockouts, as of `at` (then counted on from the rows this process writes). */
+  /** How many security rows and how many of them are failed sign-ins, as of `at` (then counted on from the rows this process writes). */
   private failureAudit = { at: -Infinity, failures: 0, total: 0 };
-  /** How long a count of the audit is trusted before it is made again (rows written by other processes show up then). A test sets 0. */
+  /** How long a count of the audit is trusted before it is made again (rows written by other processes show up then, so several processes can overshoot the share by what they write in that time). A test sets 0. */
   failureAuditRecountMs = 60_000;
 
   /**
-   * Whether one more failed sign-in or lockout row may be written: the first SIGN_IN_FAILURE_AUDIT_FLOOR always may, then they
+   * Whether one more failed sign-in row may be written: the first SIGN_IN_FAILURE_AUDIT_FLOOR always may, then they
    * may be at most signInFailureAuditShare() of the security rows, so a flood of wrong passwords cannot fill the audit or hide
    * the rows that matter, and cannot make a sign-in or a security change refuse for want of room. Nothing is removed.
    */
@@ -2668,7 +2668,7 @@ export class Store {
     const now = performance.now();
     if (now - counts.at >= this.failureAuditRecountMs) {
       try {
-        const r = this.sql.prepare(`SELECT COUNT(*) AS total, COALESCE(SUM(kind IN ('sign-in-failed', 'locked-out')), 0) AS failures FROM _fm_audit WHERE security = 1`).get() as { total: number; failures: number };
+        const r = this.sql.prepare(`SELECT COUNT(*) AS total, COALESCE(SUM(kind = 'sign-in-failed'), 0) AS failures FROM _fm_audit WHERE security = 1`).get() as { total: number; failures: number };
         this.failureAudit = { at: now, failures: Number(r.failures), total: Number(r.total) };
       } catch {
         // The count could not be made now (a busy file): keep the last one, which still limits what this process writes.
@@ -2688,8 +2688,8 @@ export class Store {
    * schema — not only record edits. `target` names the object acted on.
    */
   private logSecurity(kind: SecurityEventKind, opts: { account?: string | null; target?: string; from?: string; detail?: Record<string, unknown> } = {}): void {
-    // A failed sign-in or a lockout that would take the audit past its share for failures is not written (the lockout still locks).
-    if ((kind === 'sign-in-failed' || kind === 'locked-out') && !this.failureAuditRoom()) return;
+    // A failed sign-in that would take the audit past its share for them is not written. A lockout always is: there is one per lock, not per attempt.
+    if (kind === 'sign-in-failed' && !this.failureAuditRoom()) return;
     const payload: Record<string, unknown> = { ...(opts.detail ?? {}) };
     if (opts.target !== undefined) payload.target = opts.target;
     if (opts.from) payload.from = opts.from;
