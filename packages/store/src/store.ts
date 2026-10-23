@@ -3579,6 +3579,22 @@ export class Store {
     });
   }
 
+  /**
+   * Whether a query that reaches this file's tables through another hosted file (a user-interface file over this data
+   * file) needs the account to have the SQL extended privilege (fmxdbc) in this file too. Off unless turned on: an
+   * account that reads every record here may be queried through the other file whatever its set here says.
+   */
+  get sqlRequiresFmxdbc(): boolean { return this.meta('sqlRequiresFmxdbc') === true; }
+
+  setSqlRequiresFmxdbc(on: boolean, opts: { account?: string } = {}): void {
+    if (typeof on !== 'boolean') throw new StoreError(960, 'The SQL privilege switch must be true or false');
+    this.securityChange(() => {
+      if (on === this.sqlRequiresFmxdbc) return;
+      this.sql.prepare(`INSERT INTO _fm_meta VALUES ('sqlRequiresFmxdbc', ?) ON CONFLICT(key) DO UPDATE SET json = excluded.json`).run(JSON.stringify(on));
+      this.logSecurity(on ? 'sql-privilege-required' : 'sql-privilege-not-required', { account: opts.account ?? null });
+    });
+  }
+
   /** Per-file AI-visible policy. Missing metadata is deliberately OFF for existing/imported files. */
   get aiPolicy(): boolean { return this.meta('aiPolicy') === true; }
 

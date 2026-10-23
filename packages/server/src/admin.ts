@@ -83,6 +83,7 @@ import { auditCsvField } from '../../store/src/audit-output.ts';
 //   (reconvert and reconvert-preview take {passphrase} too, for such a file)
 //   GET|POST /tabularius/admin/v1/ai-access/{name}      whether AI may read the file; {"on": false} keeps it from AI
 //   GET|POST /tabularius/admin/v1/web-viewer-hosts/{name} the https web hosts the file's web viewers may load (none until listed); {"hosts": [...]} replaces the list
+//   GET|POST /tabularius/admin/v1/sql-privilege/{name}   whether SQL reaching the file through another file needs the fmxdbc privilege here too; {"on": true} requires it (off by default)
 //   GET|POST /tabularius/admin/v1/script-network/{name}  whether the file's scripts may reach the network; {"on": true} lets them (off for a new or converted file)
 //   POST /tabularius/admin/v1/solutions/plan          {name, description}: the assistant plans a new file (solution-builder.ts; creates nothing)
 //   POST /tabularius/admin/v1/solutions               {name, changes, password?}: create it from the plan, all or nothing
@@ -274,7 +275,7 @@ function consoleMethods(path: string): string | undefined {
   if (/^connections\/[0-9a-f]+$/.test(name)) return 'GET, PATCH, DELETE';
   if (/^connections\/[0-9a-f]+\/(approve|test)$/.test(name)) return 'POST';
   if (/^connections\/[0-9a-f]+\/secrets\/[A-Za-z][A-Za-z0-9]*$/.test(name)) return 'PUT, DELETE';
-  if (/^script-network\/[^/]+$/.test(name) || /^web-viewer-hosts\/[^/]+$/.test(name) || /^ai-access\/[^/]+$/.test(name) || /^pii\/[^/]+$/.test(name) || /^conversion-guide\/[^/]+$/.test(name)) return 'GET, POST';
+  if (/^script-network\/[^/]+$/.test(name) || /^sql-privilege\/[^/]+$/.test(name) || /^web-viewer-hosts\/[^/]+$/.test(name) || /^ai-access\/[^/]+$/.test(name) || /^pii\/[^/]+$/.test(name) || /^conversion-guide\/[^/]+$/.test(name)) return 'GET, POST';
   if (/^pii\/[^/]+\/field$/.test(name) || /^digests\/[^/]+\/[0-9a-f]{12}\/run$/.test(name)) return 'POST';
   if (name === 'digests') return 'GET';
   if (/^optimization\/[^/]+$/.test(name)) return 'GET';
@@ -1205,6 +1206,22 @@ export class Admin {
           const body = await readJson(req) as { on?: unknown };
           if (typeof body.on !== 'boolean') send(400, { error: 'Send {"on": true} or {"on": false}' });
           else { store.setAiPolicy(body.on); send(200, { on: store.aiPolicy }); }
+        } else send(405, { error: 'method not allowed' });
+      } else if (path.startsWith('/tabularius/admin/v1/sql-privilege/')) {
+        // GET: whether a query that reaches this file through another file needs the fmxdbc privilege here too; POST {"on": true}: require it (kept in the file; off for every file).
+        const store = this.host.get(decodeURIComponent(path.slice('/tabularius/admin/v1/sql-privilege/'.length)));
+        if (!store) send(404, { error: 'No such hosted file' });
+        else if (req.method === 'GET') send(200, { on: store.sqlRequiresFmxdbc });
+        else if (req.method === 'POST') {
+          const body = await readJson(req) as { on?: unknown };
+          if (typeof body.on !== 'boolean') send(400, { error: 'Send {"on": true} or {"on": false}' });
+          else {
+            if (body.on !== store.sqlRequiresFmxdbc) {
+              store.setSqlRequiresFmxdbc(body.on, { account: 'admin console' });
+              this.log(`SQL through another file ${body.on ? 'now needs' : 'no longer needs'} the fmxdbc privilege in ${store.name} (admin console)`);
+            }
+            send(200, { on: store.sqlRequiresFmxdbc });
+          }
         } else send(405, { error: 'method not allowed' });
       } else if (path.startsWith('/tabularius/admin/v1/script-network/')) {
         // GET: whether this file's scripts may reach the network; POST {"on": true}: let them (kept in the file; off for every new or converted file).
@@ -2636,6 +2653,7 @@ export class Admin {
         // Whether AI apps and the assistant may read the file, and why not.
         ai: aiStatus(store),
         aiPolicy: store.aiPolicy,
+        sqlRequiresFmxdbc: store.sqlRequiresFmxdbc,
         // Whether this file's scripts may reach the network: its own switch, or the server-wide flag.
         scriptNetwork: { on: this.host.scriptNetworkOn(name), own: store.scriptNetwork },
         // The web hosts its web viewers may load (none until an administrator lists some).

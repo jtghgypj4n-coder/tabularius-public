@@ -32,6 +32,7 @@ export const SECURITY_EVENT_KINDS = [
   'audit-settings-changed', 'audit-pruned',
   'plugin-installed', 'plugin-install-refused',
   'script-network-on', 'script-network-off',
+  'sql-privilege-required', 'sql-privilege-not-required',
   'web-viewer-hosts-changed',
   'standby-takeover',
 ] as const;
@@ -67,6 +68,7 @@ export const SECURITY_EVENT_CATEGORIES: Record<string, readonly SecurityEventKin
   'Blank passwords': ['blank-password-lan-allowed', 'blank-password-lan-disallowed'],
   'Plug-ins': ['plugin-installed', 'plugin-install-refused'],
   'Script network access': ['script-network-on', 'script-network-off'],
+  'SQL access': ['sql-privilege-required', 'sql-privilege-not-required'],
   'Web viewer hosts': ['web-viewer-hosts-changed'],
   'Standby takeover': ['standby-takeover'],
   'AI access': ['ai-turned-off', 'ai-turned-on', 'ai-access-refused', 'ai-policy-on', 'ai-policy-off', 'pii-isolation-on', 'pii-isolation-off', 'pii-field-marked', 'ai-data-masked'],
@@ -184,6 +186,8 @@ export function describeSecurityEvent(e: AuditEntry): string {
       const [added, removed] = [list(d.added), list(d.removed)];
       return `Web viewer hosts changed${added ? `: allowed ${added}` : ''}${removed ? `${added ? '; ' : ': '}no longer allowed ${removed}` : ''}`;
     }
+    case 'sql-privilege-required': return 'SQL access to this file through another file now needs the fmxdbc extended privilege here';
+    case 'sql-privilege-not-required': return 'SQL access to this file through another file no longer needs the fmxdbc extended privilege here';
     case 'ai-policy-on': return 'AI-visible policy turned on';
     case 'ai-policy-off': return 'AI-visible policy turned off';
     case 'ai-turned-off': return 'AI turned off for this file';
