@@ -1,4 +1,5 @@
 import type { LayoutObject, LayoutPart } from './types.ts';
+import { js } from './page-templates.ts';
 
 // Modern layouts: a layout that is one web viewer filling the window, its page (HTML, CSS and JavaScript) kept in
 // the web viewer's address formula. Nothing about it is Tabularius's own, so FileMaker Pro and FileMaker Go open the
@@ -82,7 +83,7 @@ export function starterPage(title: string, layout: string): string {
 <section class="tiles"><div class="tile"><span class="muted">Records</span><b id="count">–</b></div></section>
 <ul id="list"></ul>
 <script>
-  const LAYOUT = ${JSON.stringify(layout)};
+  const LAYOUT = ${js(layout)};
   const list = document.getElementById('list');
   async function show() {
     if (!window.tabularius) {

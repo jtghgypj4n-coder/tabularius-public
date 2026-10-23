@@ -46,16 +46,16 @@ const put = <T>(o: Record<string, T>, key: string, value: T): void => {
 export const chosen = (choices: Choices, sheet: string, header: string): string | undefined => own(own(choices, sheet), header);
 
 export function choose(choices: Choices, sheet: string, header: string, value: string): Choices {
-  const columns: Record<string, string> = { ...own(choices, sheet) };
+  const columns: Record<string, string> = Object.assign(Object.create(null), own(choices, sheet));
   put(columns, header, value);
-  const out: Choices = { ...choices };
+  const out: Choices = Object.assign(Object.create(null), choices);
   put(out, sheet, columns);
   return out;
 }
 
 /** A choice that no longer fits the plan (its sheet or column went, or it links to a sheet no longer there) is dropped. */
 export function keepValid(choices: Choices, plan: ImportTablesPlan): Choices {
-  const out: Choices = {};
+  const out: Choices = Object.create(null);
   for (const [sheet, columns] of Object.entries(choices)) {
     const planned = plan.sheets.find((s) => s.sheet === sheet);
     if (!planned) continue;
@@ -64,7 +64,10 @@ export function keepValid(choices: Choices, plan: ImportTablesPlan): Choices {
       if (!planned.columns.some((c) => c.header === header)) continue;
       if (link && !plan.sheets.some((s) => s.sheet === link[1] && s.sheet !== sheet)) continue;
       let kept = own(out, sheet);
-      if (!kept) put(out, sheet, (kept = {}));
+      if (!kept) {
+        kept = Object.create(null) as Record<string, string>;
+        put(out, sheet, kept);
+      }
       put(kept, header, value);
     }
   }
