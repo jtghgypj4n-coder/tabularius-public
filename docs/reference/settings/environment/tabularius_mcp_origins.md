@@ -8,6 +8,6 @@ Additional browser origins permitted to call the MCP endpoint.
 | Accepted values | Comma-separated HTTPS origins without paths |
 | Restart needed | Yes for a running server. |
 | Explained in | [docs/security-defaults.md](../../../security-defaults.md) |
-| Code | [packages/cli/src/main.ts:557](../../../../packages/cli/src/main.ts#L557) |
+| Code | [packages/cli/src/main.ts:566](../../../../packages/cli/src/main.ts#L566) |
 
 [All environment variables](../../../environment-variables.md)
