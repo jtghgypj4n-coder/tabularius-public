@@ -115,6 +115,14 @@ function unreachable(e: unknown): boolean {
 
 const EDIT = /^\/fmi\/data\/vLatest\/databases\/[^/]+\/layouts\/([^/]+)\/records\/([^/?]+)$/;
 
+/**
+ * Whether the server answered that it keeps no public list of its files (the default: it answers 404 with FileMaker
+ * error 3 and says so). That is a real answer from Tabularius, unlike no answer at all, so the person types the file's name.
+ */
+export function fileListOff(e: unknown): boolean {
+  return e instanceof ApiError && e.code === 3 && e.status === 404;
+}
+
 export async function listDatabases(): Promise<string[]> {
   const r = await fetch('/fmi/data/vLatest/databases');
   const body = await r.json();

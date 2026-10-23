@@ -476,7 +476,7 @@ echo 'new-password' | npm run tabularius -- passwd ~/FileMakerFiles Contacts Adm
 curl -X POST -u Admin:new-password http://127.0.0.1:8080/fmi/data/vLatest/databases/Contacts/sessions
 ```
 
-Then open http://127.0.0.1:8080/ in a browser, type the file's name (or pick it, on a server started with `--list-files-publicly`) and log in with
+Then open http://127.0.0.1:8080/ in a browser, type the file's name in the **File name** box (the page offers a list to pick from only on a server started with `--list-files-publicly`) and log in with
 that account to use the web client.
 
 To call the Data API from your own code, follow
