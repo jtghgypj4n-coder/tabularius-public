@@ -710,13 +710,24 @@ export function appendPdf(existing: Buffer, pages: PdfPage[]): Buffer {
     const head = /^(\d+)\s+(\d+)\s+obj\b/.exec(text.slice(at, at + 40)) ?? fail('a cross-reference section is damaged');
     const dict = dictAt(text, text.indexOf('<<', at + head![0].length)) ?? fail('a cross-reference stream is damaged');
     if (!/\/Type\s*\/XRef\b/.test(dict)) fail('a cross-reference section is damaged');
-    const data = decoded(dict, streamBytes(text.indexOf('<<', at + head![0].length) + dict.length, dict, true));
     const w = /\/W\s*\[\s*(\d+)\s+(\d+)\s+(\d+)\s*\]/.exec(dict)?.slice(1).map(Number) ?? fail('a cross-reference stream has no field widths');
     const width = w[0] + w[1] + w[2];
     if (!width || w.some((n) => n > 8)) fail('a cross-reference stream is damaged');
-    const index = (/\/Index\s*\[([\d\s]*)\]/.exec(dict)?.[1].trim().split(/\s+/).map(Number))
-      ?? [0, Number(/\/Size\s+(\d+)/.exec(dict)?.[1] ?? NaN)];
-    if (index.length % 2 || index.some((n) => !Number.isFinite(n))) fail('a cross-reference stream is damaged');
+    const size = /\/Size\s+([^\s<>\[\]()\/]+)/.exec(dict);
+    const declaredSize = size ? Number(size[1]) : undefined;
+    if (/\/Size\b/.test(dict) && (declaredSize === undefined || !Number.isSafeInteger(declaredSize) || declaredSize < 0)) fail('a cross-reference stream is damaged');
+    const ranges = /\/Index\s*\[([^\]]*)\]/.exec(dict);
+    if (/\/Index\b/.test(dict) && !ranges) fail('a cross-reference stream is damaged');
+    const index = ranges ? ranges[1].trim().split(/\s+/).map(Number) : [0, declaredSize ?? NaN];
+    if (index.length % 2 || index.some((n) => !Number.isSafeInteger(n) || n < 0)) fail('a cross-reference stream is damaged');
+    let rows = 0;
+    for (let i = 1; i < index.length; i += 2) rows += index[i];
+    // Bound inflation and Map entries before processing any row. This is a Tabularius
+    // resource limit; the corresponding FileMaker limit is unverified.
+    if (!Number.isSafeInteger(rows) || rows > 1_000_000 || (declaredSize !== undefined && rows > declaredSize)) fail('a cross-reference stream is damaged');
+    const bytes = rows * width;
+    const data = decoded(dict, streamBytes(text.indexOf('<<', at + head![0].length) + dict.length, dict, true), bytes);
+    if (bytes > data.length) fail('a cross-reference stream is damaged');
     const field = (from: number, size: number) => {
       let v = 0;
       for (let k = 0; k < size; k++) v = v * 256 + data[from + k];
@@ -726,7 +737,6 @@ export function appendPdf(existing: Buffer, pages: PdfPage[]): Buffer {
     for (let i = 0; i < index.length; i += 2) {
       for (let k = 0; k < index[i + 1]; k++, row++) {
         const from = row * width;
-        if (from + width > data.length) fail('a cross-reference stream is damaged');
         const n = index[i] + k;
         if (offsets.has(n)) continue;
         const type = w[0] ? field(from, w[0]) : 1;
@@ -788,21 +798,25 @@ export function appendPdf(existing: Buffer, pages: PdfPage[]): Buffer {
     return existing.subarray(from, from + n);
   }
   /** A stream's data, inflated and un-predicted (the PNG predictors cross-reference streams use). */
-  function decoded(dict: string, raw: Buffer): Buffer {
+  function decoded(dict: string, raw: Buffer, xrefBytes?: number): Buffer {
     const list = /\/Filter\s*\[([^\]]*)\]/.exec(dict);
     const filters = list ? list[1].match(/\/\w+/g) ?? [] : (/\/Filter\s*(\/\w+)/.exec(dict)?.slice(1) ?? []);
     if (!filters.length) return raw;
     if (filters.length > 1 || filters[0] !== '/FlateDecode') fail('it uses a compression it cannot read');
+    const predictor = Number(/\/Predictor\s+(\d+)/.exec(dict)?.[1] ?? 1);
+    const columns = Number(/\/Columns\s+(\d+)/.exec(dict)?.[1] ?? 1);
+    if (predictor >= 10 && (!Number.isSafeInteger(columns) || columns < 1)) fail('a compressed stream is damaged');
+    // PNG predictors add one filter byte per predictor row; Columns need not equal /W's sum.
+    const maxOutputLength = xrefBytes === undefined ? 256 * 1024 * 1024
+      : Math.max(1, xrefBytes + (predictor >= 10 ? Math.ceil(xrefBytes / columns) : 0));
     let data: Buffer;
     try {
-      data = inflateSync(raw, { maxOutputLength: 256 * 1024 * 1024 });
+      data = inflateSync(raw, { maxOutputLength });
     } catch {
       return fail('a compressed stream is damaged');
     }
-    const predictor = Number(/\/Predictor\s+(\d+)/.exec(dict)?.[1] ?? 1);
     if (predictor === 1) return data;
     if (predictor < 10) fail('it uses a compression it cannot read');
-    const columns = Number(/\/Columns\s+(\d+)/.exec(dict)?.[1] ?? 1);
     if (/\/Colors\s+(?!1\b)\d+/.test(dict) || /\/BitsPerComponent\s+(?!8\b)\d+/.test(dict)) fail('it uses a compression it cannot read');
     const rows = Math.floor(data.length / (columns + 1));
     const out = Buffer.alloc(rows * columns);

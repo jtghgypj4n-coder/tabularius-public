@@ -197,3 +197,23 @@ script to another step of the same script without running the steps between.
 Its watch list is the Data Viewer's, and while a script is paused the Data
 Viewer window follows it: watches evaluate in the script's context and the
 Current tab shows its record, local and global variables.
+
+## Recording and PDF append limits
+
+`recordRun` retains at most 5,000 steps and stops with `stopped: true` when
+changed variable snapshots exceed 64 MiB of characters (UTF-16 code units,
+counting keys and values in both scopes). The budget is per call. It is
+checked between steps, so one step can add a large value and exceed the
+budget by one full snapshot. Values remain intact until secrets learned
+from later audit entries have been redacted; only then are values clipped.
+This bounds retained variable snapshots, not the whole process's memory.
+There is no recorder-specific default for the engine's `memoryLimit` option.
+
+PDF append rejects a cross-reference stream whose total `/Index` row count
+exceeds its `/Size`, when present, or 1,000,000 rows. It checks these counts
+before inflating or retaining row entries, and checks decoded data length
+before processing rows. Xref inflation is limited to the declared row bytes
+plus PNG predictor filter bytes when needed; other streams retain the
+256 MiB inflate cap. Rejection throws `PdfAppendError` before any append
+bytes are returned. These are Tabularius resource limits; equivalent
+FileMaker behavior is unverified.

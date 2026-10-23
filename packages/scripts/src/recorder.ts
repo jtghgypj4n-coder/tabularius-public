@@ -7,7 +7,7 @@
 
 import type { Script } from '../../fmp12/src/index.ts';
 import type { AuditEntry, Store } from '../../store/src/index.ts';
-import { ScriptEngine, type DebugPoint, type RunOptions, type RunResult } from './engine.ts';
+import { ScriptEngine, type DebugAnswer, type DebugPoint, type RunOptions, type RunResult } from './engine.ts';
 import { recordChanges, type RecordChange } from './script-tests.ts';
 
 /** The most steps recorded: a run that goes on longer stops there. */
@@ -17,6 +17,8 @@ const FOUND_IDS = 100;
 /** Variables kept for each scope at each step, and characters of each value. */
 const VARIABLES = 200;
 const VALUE_CHARS = 500;
+/** Full snapshot keys and values, in UTF-16 code units, before deferred redaction. */
+const SNAPSHOT_CHARS = 64 * 1024 * 1024;
 
 export interface RecordedStep {
   script: string;
@@ -48,7 +50,7 @@ export interface Recording {
   steps: RecordedStep[];
   /** How it ended: as the run ended, without its client actions or trace. */
   done: Omit<RunResult, 'actions' | 'trace' | 'foundSet'> & { foundSet: number[] };
-  /** It went past RECORD_STEPS steps and was stopped there. */
+  /** It was stopped by the step or retained variable snapshot limit. */
   stopped?: boolean;
   /** Record changes that couldn't all be listed (the audit had more than were read). */
   incomplete?: boolean;
@@ -80,10 +82,15 @@ export async function recordRun(store: Store, script: string | Script, opts: Run
   const pendings: ReturnType<DebugPoint['pending']>[] = [];
   const start = lastSeq(store);
   let previous: RecordedStep['variables'];
-  const record = (p: DebugPoint) => {
+  let snapshotChars = 0;
+  let snapshotLimit = false;
+  const record = (p: DebugPoint): DebugAnswer => {
     const vars = p.variables();
     const variables = { locals: capture(vars.locals), globals: capture(vars.globals) };
     const changed = !previous || !same(previous.locals, variables.locals) || !same(previous.globals, variables.globals);
+    if (changed) for (const scope of [variables.locals, variables.globals]) {
+      for (const [name, value] of Object.entries(scope)) snapshotChars += name.length + value.length;
+    }
     previous = variables;
     seqs.push(lastSeq(store));
     pendings.push(p.pending());
@@ -93,6 +100,13 @@ export async function recordRun(store: Store, script: string | Script, opts: Run
       ...(p.recordId !== undefined ? { recordId: p.recordId } : {}),
       ...(changed ? { variables } : {}),
     });
+    // Checked between steps: one step can add a large value, so the budget may
+    // be exceeded by one full snapshot. Keep it intact for the late-secret pass.
+    // This is a Tabularius resource limit; FileMaker parity is unverified.
+    if (snapshotChars > SNAPSHOT_CHARS) {
+      snapshotLimit = true;
+      return 'halt';
+    }
   };
   const engine = new ScriptEngine({ ...opts, maxSteps: Math.min(opts.maxSteps ?? RECORD_STEPS, RECORD_STEPS), debug: record, profile: undefined, trace: false });
   const done = await engine.run(store, script);
@@ -159,7 +173,7 @@ export async function recordRun(store: Store, script: string | Script, opts: Run
     script: typeof script === 'string' ? script : script.name,
     steps,
     done: { ...ended, foundSet: (foundSet ?? []).slice(0, FOUND_IDS) },
-    ...(done.halted && done.steps >= RECORD_STEPS ? { stopped: true } : {}),
+    ...(snapshotLimit || (done.halted && done.steps >= RECORD_STEPS) ? { stopped: true } : {}),
     ...(incomplete ? { incomplete: true } : {}),
   };
 }
