@@ -38,6 +38,8 @@ export interface StandbyFile {
   mtimeMs: number;
   /** When the last change was applied (epoch ms). */
   at: number;
+  /** When the primary took the last applied change (epoch ms); absent after a whole-file copy or in older state. */
+  taken?: number;
 }
 
 export interface StandbyState {
@@ -325,7 +327,7 @@ export class Standby {
         applyLog(this.path(name), r.data);
         seq = r.seq;
       }
-      if (records.length) this.mark(name, { ...f, seq, at: Date.now() });
+      if (records.length) this.mark(name, { ...f, seq, at: Date.now(), taken: records.at(-1)!.at });
       if (this.problem?.startsWith(`following ${name}:`)) this.problem = undefined;
     }
   }
