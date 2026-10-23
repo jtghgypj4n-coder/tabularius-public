@@ -331,6 +331,7 @@
         "docs/reference/cli/script-tests.md",
         "docs/reference/cli/serve.md",
         "docs/reference/cli/service.md",
+        "docs/reference/cli/sql-privilege.md",
         "docs/reference/cli/stale-calcs.md",
         "docs/reference/cli/standby.md",
         "docs/reference/cli/style-census.md",
