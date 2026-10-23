@@ -809,7 +809,7 @@ test('transaction status and extended error recovery without imported files', { 
       assert.deepEqual((await query(c, 'SHOW application_name', 'I')).rows, [['committed']]);
       await query(c, 'BEGIN', 'T');
       await query(c, "SET application_name = 'aborted'", 'T');
-      assert.match((await query(c, 'SELECT * FROM missing_table', 'E')).error!, /^42000 /);
+      assert.match((await query(c, 'SELECT * FROM missing_table', 'E')).error!, /^42P01 /);
       assert.deepEqual((await query(c, 'COMMIT', 'I')).tags, ['ROLLBACK']);
       assert.deepEqual((await query(c, 'SHOW application_name', 'I')).rows, [['committed']]);
     } finally {
@@ -882,7 +882,7 @@ test('transaction status and extended error recovery without imported files', { 
       for (const end of ['ROLLBACK', 'COMMIT']) {
         assert.deepEqual((await query(c, 'BEGIN', 'T')).tags, ['BEGIN']);
         assert.deepEqual((await query(c, 'SELECT 1', 'T')).rows, [['1']]);
-        assert.match((await query(c, 'SELECT * FROM missing_table', 'E')).error!, /^42000 /);
+        assert.match((await query(c, 'SELECT * FROM missing_table', 'E')).error!, /^42P01 /);
         for (const sql of ['SELECT 2', 'BEGIN', 'SET application_name = failed']) {
           const r = await query(c, sql, 'E');
           assert.match(r.error!, /^25P02 /);
@@ -1054,7 +1054,7 @@ test('transaction status and extended error recovery without imported files', { 
           c.send('H');
           const failed = await c.until('E');
           assert.deepEqual(failed.map((m) => m.type), stage === 'Execute' ? ['1', '2', 'E'] : ['E']);
-          assert.match(c.errorText(failed.at(-1)!.body), stage === 'Bind' ? /^26000 / : /^42000 /);
+          assert.match(c.errorText(failed.at(-1)!.body), stage === 'Bind' ? /^26000 / : stage === 'Parse' ? /^42P01 / : /^42000 /);
           // A simple query, including a transaction exit, cannot recover an extended error.
           c.send('Q', cstr('SELECT 42'));
           c.send('Q', cstr('ROLLBACK'));
@@ -1166,7 +1166,7 @@ test('simple queries: FileMaker SQL by table occurrence, types, several statemen
     // Read-only, and errors don't end the connection.
     assert.match((await c.query('DELETE FROM Congress')).error!, /^25006 /);
     assert.match((await c.query('UPDATE Congress SET Name = 1')).error!, /^25006 /);
-    assert.match((await c.query('SELECT * FROM missing_table')).error!, /^42000 /);
+    assert.match((await c.query('SELECT * FROM missing_table')).error!, /^42P01 /);
     assert.equal((await c.query('SELECT 1 AS ok')).rows[0][0], '1');
     // FileMaker's system tables work too.
     assert.ok((await c.query(`SELECT TableName FROM FileMaker_Tables`)).rows.some((row) => row[0] === 'Congress'));
