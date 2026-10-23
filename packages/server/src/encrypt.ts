@@ -8,7 +8,7 @@
 
 import { createCipheriv, createDecipheriv, randomBytes, scrypt, scryptSync } from 'node:crypto';
 import { cleanupPath, open, openSync, writeSync, writeFileHandle } from '../../store/src/fs-boundary.ts';
-import { closeSync, fstatSync, fsyncSync, readSync } from 'node:fs';
+import { closeSync, fstatSync, fsyncSync, lstatSync, readSync, rmSync } from 'node:fs';
 import type { FileHandle } from 'node:fs/promises';
 
 const MAGIC = Buffer.from('OPENHBAM-ENC1\n');
@@ -49,64 +49,107 @@ function writeAllSync(output: number, data: Buffer, path: string): void {
   }
 }
 
+type FileOperations<T, Result> = {
+  close?: (file: T) => Result;
+  cleanupPath?: typeof cleanupPath;
+};
+type SyncFileOperations = FileOperations<number, void>;
+type AsyncFileOperations = FileOperations<FileHandle, Promise<void>>;
+
+function removeOpenedOutput(dest: string, opened: { dev: number; ino: number }): void {
+  const current = lstatSync(dest, { throwIfNoEntry: false });
+  if (current && current.dev === opened.dev && current.ino === opened.ino) rmSync(dest, { force: true });
+}
+
+function throwFileErrors(errors: unknown[]): void {
+  for (const error of errors.slice(1)) console.warn('File cleanup also failed:', error);
+  if (errors.length) throw errors[0];
+}
+
 // Both descriptors are closed on every path, and an output that did not finish is removed. Removal goes through the
 // boundary's cleanup, captured on the entry just opened: an entry swapped in at that path afterwards is left alone.
-function withFilesSync(src: string, dest: string, work: (input: number, output: number) => void, mode?: number): void {
+function withFilesSync(src: string, dest: string, work: (input: number, output: number) => void, mode?: number,
+  { close = closeSync, cleanupPath: captureCleanup = cleanupPath }: SyncFileOperations = {},
+): void {
   let input: number | undefined;
   let output: number | undefined;
   let cleanup: (() => void) | undefined;
   let complete = false;
+  const errors: unknown[] = [];
   try {
     input = openSync(src, 'r');
     output = openSync(dest, 'w', mode);
-    cleanup = cleanupPath(dest);
+    const opened = fstatSync(output);
+    try { cleanup = captureCleanup(dest); }
+    catch (error) {
+      // Cleanup authority needs an existing entry, so capture can fail after creation.
+      // Fall back to removal only when the path still names the descriptor's inode.
+      cleanup = () => removeOpenedOutput(dest, opened);
+      throw error;
+    }
     work(input, output);
     fsyncSync(output);
-    closeSync(output); output = undefined;
-    closeSync(input); input = undefined;
+    const finishedOutput = output; output = undefined; close(finishedOutput);
+    const finishedInput = input; input = undefined; close(finishedInput);
     complete = true;
+  } catch (error) {
+    errors.push(error);
   } finally {
     try {
-      if (output !== undefined) closeSync(output);
-    } finally {
-      try {
-        if (input !== undefined) closeSync(input);
-      } finally {
-        if (!complete) cleanup?.();
-      }
-    }
+      if (output !== undefined) { const file = output; output = undefined; close(file); }
+    } catch (error) { errors.push(error); }
+    try {
+      if (input !== undefined) { const file = input; input = undefined; close(file); }
+    } catch (error) { errors.push(error); }
+    try {
+      if (!complete) cleanup?.();
+    } catch (error) { errors.push(error); }
+    throwFileErrors(errors);
   }
 }
 
-async function withFiles(src: string, dest: string, work: (input: FileHandle, output: FileHandle) => Promise<void>, mode?: number): Promise<void> {
+async function withFiles(src: string, dest: string, work: (input: FileHandle, output: FileHandle) => Promise<void>, mode?: number,
+  { close = (file) => file.close(), cleanupPath: captureCleanup = cleanupPath }: AsyncFileOperations = {},
+): Promise<void> {
   let input: FileHandle | undefined;
   let output: FileHandle | undefined;
   let cleanup: (() => void) | undefined;
   let complete = false;
+  const errors: unknown[] = [];
   try {
     input = await open(src, 'r');
     output = await open(dest, 'w', mode);
-    cleanup = cleanupPath(dest);
+    const opened = await output.stat();
+    try { cleanup = captureCleanup(dest); }
+    catch (error) {
+      // Cleanup authority needs an existing entry, so capture can fail after creation.
+      // Fall back to removal only when the path still names the descriptor's inode.
+      cleanup = () => removeOpenedOutput(dest, opened);
+      throw error;
+    }
     await work(input, output);
     await output.sync();
-    await output.close(); output = undefined;
-    await input.close(); input = undefined;
+    const finishedOutput = output; output = undefined; await close(finishedOutput);
+    const finishedInput = input; input = undefined; await close(finishedInput);
     complete = true;
+  } catch (error) {
+    errors.push(error);
   } finally {
     try {
-      if (output) await output.close();
-    } finally {
-      try {
-        if (input) await input.close();
-      } finally {
-        if (!complete) cleanup?.();
-      }
-    }
+      if (output !== undefined) { const file = output; output = undefined; await close(file); }
+    } catch (error) { errors.push(error); }
+    try {
+      if (input !== undefined) { const file = input; input = undefined; await close(file); }
+    } catch (error) { errors.push(error); }
+    try {
+      if (!complete) cleanup?.();
+    } catch (error) { errors.push(error); }
+    throwFileErrors(errors);
   }
 }
 
 /** Writes `src` encrypted to `dest`, without giving way to other work: for small files. */
-export function encryptFileSync(src: string, dest: string, passphrase: string, read: typeof readSync = readSync): void {
+export function encryptFileSync(src: string, dest: string, passphrase: string, read: typeof readSync = readSync, operations?: SyncFileOperations): void {
   const salt = randomBytes(16);
   const prefix = randomBytes(8);
   const key = scryptSync(passphrase, salt, 32, SCRYPT);
@@ -122,13 +165,14 @@ export function encryptFileSync(src: string, dest: string, passphrase: string, r
       writeAllSync(output, sealChunk(key, prefix, n, buf.subarray(0, got), pos >= size), dest);
       if (pos >= size) break;
     }
-  });
+  }, undefined, operations);
 }
 
 /** Writes `src` encrypted to `dest`. */
 export async function encryptFile(src: string, dest: string, passphrase: string,
   read: (input: FileHandle, buffer: Buffer, length: number, position: number) => Promise<number> =
     async (input, buffer, length, position) => (await input.read(buffer, 0, length, position)).bytesRead,
+  operations?: AsyncFileOperations,
 ): Promise<void> {
   const salt = randomBytes(16);
   const prefix = randomBytes(8);
@@ -146,11 +190,11 @@ export async function encryptFile(src: string, dest: string, passphrase: string,
       await writeFileHandle(output, sealChunk(key, prefix, n, buf.subarray(0, bytesRead), last));
       if (last) break;
     }
-  });
+  }, undefined, operations);
 }
 
 /** Writes the decrypted `src` to `dest`, without giving way to other work: for small files. */
-export function decryptFileSync(src: string, dest: string, passphrase: string): void {
+export function decryptFileSync(src: string, dest: string, passphrase: string, operations?: SyncFileOperations): void {
   withFilesSync(src, dest, (input, output) => {
     const head = Buffer.alloc(MAGIC.length + 24);
     const got = readSync(input, head, 0, head.length, 0);
@@ -180,7 +224,7 @@ export function decryptFileSync(src: string, dest: string, passphrase: string): 
       writeAllSync(output, plain, dest);
       if (last) break;
     }
-  }, 0o600); // plaintext: private to this account, whatever the umask
+  }, 0o600, operations); // plaintext: private to this account, whatever the umask
 }
 
 /**
@@ -208,7 +252,7 @@ export async function opensWithPassphrase(src: string, passphrase: string): Prom
 }
 
 /** Writes the decrypted `src` to `dest`; throws on a wrong passphrase or a damaged file. */
-export async function decryptFile(src: string, dest: string, passphrase: string): Promise<void> {
+export async function decryptFile(src: string, dest: string, passphrase: string, operations?: AsyncFileOperations): Promise<void> {
   await withFiles(src, dest, async (input, output) => {
     const head = Buffer.alloc(MAGIC.length + 24);
     const got = (await input.read(head, 0, head.length, 0)).bytesRead;
@@ -238,7 +282,7 @@ export async function decryptFile(src: string, dest: string, passphrase: string)
       await writeFileHandle(output, plain);
       if (last) break;
     }
-  }, 0o600); // plaintext: private to this account, whatever the umask
+  }, 0o600, operations); // plaintext: private to this account, whatever the umask
 }
 
 // Single records (the logs of point-in-time backups, appended one at a time):
