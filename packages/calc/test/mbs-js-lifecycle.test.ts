@@ -174,6 +174,28 @@ test('MBS JS a full server pool drops the least recently used handle instead of 
   assert.equal(next.mbs('JS.Release', 'retry'), 'OK');
 });
 
+test('MBS JS a full pool drops the requesting account\'s own least recently used handle before another account\'s', () => {
+  const holders = ['b', 'c', 'd', 'e'].map(name => ({ name, s: session(name), refs: [] as string[] }));
+  // b, c and d hold eight each and e six, made first, so their handles are the oldest in the pool.
+  for (const h of holders) for (let i = 0; i < (h.name === 'e' ? 6 : 8); i++) h.refs.push(h.s.make());
+  const a = session('a');
+  const mine = [a.make(), a.make()];
+  assert.equal(JS_CONTEXT_LIMIT, 32);
+  // An account that keeps releasing and making handles only ever replaces its own.
+  for (let round = 0; round < 5; round++) {
+    const fresh = a.make();
+    assert.match(a.mbs('JS.Evaluate', mine[0], '1'), /^\[MBS\] ERROR:/, 'its own least recently used handle was dropped');
+    mine.shift();
+    mine.push(fresh);
+  }
+  for (const h of holders) for (const ref of h.refs) assert.equal(h.s.mbs('JS.Evaluate', ref, '1'), '1', `${h.name}'s handles are untouched`);
+  // An account holding none has to drop someone else's: the least recently used of all (account a's, not used since).
+  const newcomer = session('f');
+  assert.match(newcomer.make(), /^\d+$/);
+  assert.match(a.mbs('JS.Evaluate', mine[0], '1'), /^\[MBS\] ERROR:/);
+  assert.equal(holders[0].s.mbs('JS.Evaluate', holders[0].refs[0], '1'), '1');
+});
+
 test('MBS JS a session at its own handle limit is still refused, so it cannot drop other sessions\' handles', () => {
   const { owners } = fillPool();
   assert.match(owners[0].mbs('JS.New', 'ninth'), /^\[MBS\] ERROR:.*session/);
