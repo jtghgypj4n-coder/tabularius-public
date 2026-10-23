@@ -1,13 +1,13 @@
 // Synthetic stores only. No child processes, external HTTP, or fixture imports.
 import { test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { Host, serve } from '../src/index.ts';
 import { expiryClock } from '../../store/src/clock.ts';
-import { McpTokens } from '../src/mcp-tokens.ts';
+import { MCP_TOKENS_FILE, McpTokens } from '../src/mcp-tokens.ts';
 import { ScimDirectory } from '../src/scim.ts';
 import { createFeed, revokeFeed } from '../src/calendar.ts';
 import { redactPath } from '../src/server-logs.ts';
@@ -88,7 +88,7 @@ test('the account fingerprint is reused until security changes, and not after', 
 
 test('legacy MCP tokens the server will refuse are marked for reissue, and do not count as a connected AI app', (t) => {
   const { store, dir } = setup(t);
-  const resolver = (_db: string, account: string) => store.identityAllowed(account) ? store.accountIdentityId(account) : undefined;
+  const resolver = (_db: string, account: string) => store.identityAllowed(account) ? store.credentialIdentity(account) : undefined;
   const bound = new McpTokens(dir, undefined, resolver);
   const old = new McpTokens(dir).create({ database: store.name, account: 'Alice' });
   const good = bound.create({ database: store.name, account: 'Alice' });
@@ -96,6 +96,50 @@ test('legacy MCP tokens the server will refuse are marked for reissue, and do no
   assert.equal(rows.find((r) => r.id === old.id)?.needsReissue, true);
   assert.equal(rows.find((r) => r.id === good.id)?.needsReissue, undefined);
   assert.equal(new McpTokens(dir).list().some((r) => r.needsReissue), false, 'without the server\'s resolver nothing is marked');
+});
+
+test('a link signed for a deadline beyond the longest lifetime is refused, even with a valid signature', (t) => {
+  const { host, store } = setup(t);
+  const who = store.linkPrincipal('Alice');
+  const far = Math.floor((expiryClock.now() + 30 * 86400_000) / 1000);
+  const params = new URLSearchParams({ sig: host.sign(store.name, 1, '', far, who), exp: String(far), as: 'Alice' });
+  assert.equal(host.checkUrl(store.name, 1, params), false, 'a signed deadline thirty days away');
+  assert.equal(host.checkSignature(store.name, 1, host.sign(store.name, 1, '', far), '', far), false);
+  const edge = Math.floor((expiryClock.now() + 3600_000) / 1000);
+  assert.ok(host.checkSignature(store.name, 1, host.sign(store.name, 1, '', edge), '', edge), 'an hour is the most a link is made for');
+});
+
+test('a new password ends the links and AI-app tokens made before it', (t) => {
+  const { host, store, dir } = setup(t);
+  const tokens = new McpTokens(dir, undefined, (_db, account) => store.identityAllowed(account) ? store.credentialIdentity(account) : undefined);
+  const link = new URLSearchParams(host.signed(store.name, 1, '', store.linkPrincipal('Alice')));
+  const token = tokens.create({ database: store.name, account: 'Alice' });
+  assert.ok(host.checkUrl(store.name, 1, link));
+  assert.ok(tokens.check(token.token));
+  store.setPassword('Alice', 'a-new-password', '[Full Access]');
+  assert.equal(host.checkUrl(store.name, 1, link), false);
+  assert.equal(tokens.check(token.token), undefined);
+  assert.equal(tokens.list().find((row) => row.id === token.id)?.needsReissue, true);
+  assert.ok(host.checkUrl(store.name, 1, new URLSearchParams(host.signed(store.name, 1, '', store.linkPrincipal('Alice')))), 'a link made after the change works');
+  assert.ok(tokens.check(tokens.create({ database: store.name, account: 'Alice' }).token));
+});
+
+test('an AI-app token always expires: no lifetime asked takes the default, and none or a longer one is refused', (t) => {
+  const { store, dir, advance } = setup(t);
+  const tokens = new McpTokens(dir, undefined, (_db, account) => store.credentialIdentity(account));
+  const made = tokens.create({ database: store.name, account: 'Alice' });
+  assert.ok(made.expires, 'the default lifetime is applied');
+  assert.ok(tokens.check(made.token));
+  advance(91 * 86400_000);
+  assert.equal(tokens.check(made.token), undefined);
+  for (const days of [0, -1, 3651, NaN]) assert.throws(() => tokens.create({ database: store.name, account: 'Alice', days }), /expires|Days/, String(days));
+  // A token kept from before every one had an expiry is refused and shown as needing to be made again.
+  const fresh = tokens.create({ database: store.name, account: 'Alice' });
+  const kept = JSON.parse(readFileSync(join(dir, MCP_TOKENS_FILE), 'utf8')) as Record<string, unknown>[];
+  for (const row of kept) if (row.id === fresh.id) delete row.expires;
+  writeFileSync(join(dir, MCP_TOKENS_FILE), JSON.stringify(kept));
+  assert.equal(tokens.check(fresh.token), undefined);
+  assert.equal(tokens.list().find((row) => row.id === fresh.id)?.needsReissue, true);
 });
 
 for (const kind of ['', 'image']) {
@@ -126,7 +170,7 @@ for (const kind of ['', 'image']) {
 
 test('legacy MCP tokens refuse expiry, revocation, disabled/replaced accounts and unbound legacy records', (t) => {
   const { store, dir, advance } = setup(t);
-  const tokens = new McpTokens(dir, undefined, (_db, account) => store.identityAllowed(account) ? store.accountIdentityId(account) : undefined);
+  const tokens = new McpTokens(dir, undefined, (_db, account) => store.identityAllowed(account) ? store.credentialIdentity(account) : undefined);
   const make = () => tokens.create({ database: store.name, account: 'Alice', days: 1 / 86400 });
   const expired = make();
   assert.ok(tokens.check(expired.token));
@@ -143,7 +187,7 @@ test('legacy MCP tokens refuse expiry, revocation, disabled/replaced accounts an
   store.setPassword('Alice', 'pw', '[Full Access]');
   assert.equal(tokens.check(old.token), undefined);
   const unbound = new McpTokens(dir).create({ database: store.name, account: 'Alice' });
-  assert.equal(new McpTokens(dir, undefined, (_db, name) => store.accountIdentityId(name)).check(unbound.token), undefined);
+  assert.equal(new McpTokens(dir, undefined, (_db, name) => store.credentialIdentity(name)).check(unbound.token), undefined);
 });
 
 for (const failure of ['expiry', 'disabled', 'deleted', 'unbound', 'replay']) {

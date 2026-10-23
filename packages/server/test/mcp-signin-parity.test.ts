@@ -63,7 +63,7 @@ test('MCP Bearer expiry cannot be revived by rolling back the wall clock', async
   t.mock.method(performance, 'now', () => mono);
   const clock = new ExpiryClock();
   t.mock.method(expiryClock, 'now', () => clock.now());
-  const tokens = new McpTokens(dir, undefined, (database, account) => { const s = host.get(database); return s?.identityAllowed(account) ? s.accountIdentityId(account) : undefined; });
+  const tokens = new McpTokens(dir, undefined, (database, account) => { const s = host.get(database); return s?.identityAllowed(account) ? s.credentialIdentity(account) : undefined; });
   const issued = tokens.create({ database: a.name, account: 'alice', days: 1 / 1440 });
   const call = () => tool(url, `Bearer ${issued.token}`, 'get_record', { database: 'A', layout: 'Items', recordId: 1 });
   assert.equal((await call()).status, 200);
@@ -171,7 +171,7 @@ test('revoked and expired ohm tokens keep their next request signed out', async 
   const b = host.create('B');
   b.applyDesign([{ op: 'createTable', name: 'Vault', fields: [{ name: 'Secret' }] }]);
   b.create('Vault', { Secret: 'OTHER_FILE_ADMIN_SECRET' });
-  const tokens = new McpTokens(dir, undefined, (database, account) => { const s = host.get(database); return s?.identityAllowed(account) ? s.accountIdentityId(account) : undefined; });
+  const tokens = new McpTokens(dir, undefined, (database, account) => { const s = host.get(database); return s?.identityAllowed(account) ? s.credentialIdentity(account) : undefined; });
   const issued = tokens.create({ database: a.name, account: 'alice' });
   const auth = `Bearer ${issued.token}`;
   const denied = await tool(url, auth, 'get_record', { database: 'B', layout: 'Vault', recordId: 1 });

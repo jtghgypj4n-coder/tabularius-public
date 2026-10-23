@@ -500,7 +500,7 @@ export async function serve(opts: ServeOptions): Promise<{ server: Server; host:
     host.onAdd.push(timeFinds);
     const mcpTokens = new McpTokens(opts.dir, undefined, (database, account) => {
       const store = host.get(database);
-      return store?.identityAllowed(account) ? store.accountIdentityId(account) : undefined;
+      return store?.identityAllowed(account) ? store.credentialIdentity(account) : undefined;
     });
     // The administrator's way into /mcp: the given token, else the folder's own (made on first start).
     const mcpAdminToken = opts.mcpToken || localMcpToken(opts.dir);

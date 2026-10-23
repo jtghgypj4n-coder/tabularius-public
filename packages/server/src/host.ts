@@ -60,6 +60,10 @@ export const WEB_VIEWER_HOSTS_ALL_MAX = 200;
 /** And the most the names take in the header, with their `https://` and space. */
 export const WEB_VIEWER_HOSTS_ALL_BYTES = 8000;
 
+/** The longest a signed container or image link is made to live, and the clock difference between servers one allows for. */
+const LINK_MAX_MS = 3600_000;
+const LINK_SKEW_MS = 60_000;
+
 export class Host {
   readonly dir: string;
   private readonly stores = new Map<string, Store>();
@@ -1269,8 +1273,9 @@ export class Host {
   }
 
   checkSignature(db: string, id: number, sig: string, kind = '', exp = 0, who?: LinkAccount): boolean {
-    // An expiry in the past fails before any signature comparison.
-    if (!Number.isSafeInteger(exp) || exp <= 0 || exp * 1000 <= expiryClock.now()) return false;
+    // An expiry in the past, or further ahead than a link is ever made for (a link signed before the lifetime was capped, or
+    // with a leaked key), fails before any signature comparison.
+    if (!Number.isSafeInteger(exp) || exp <= 0 || exp * 1000 <= expiryClock.now() || exp * 1000 > expiryClock.now() + LINK_MAX_MS + LINK_SKEW_MS) return false;
     const want = Buffer.from(this.sign(db, id, kind, exp, who));
     const got = Buffer.from(sig);
     return want.length === got.length && timingSafeEqual(want, got);
@@ -1284,7 +1289,7 @@ export class Host {
   checkUrl(db: string, id: number, params: URLSearchParams, kind = ''): boolean {
     // The expiry and signature shape are cheap and need no account: refuse on those before looking the account up.
     const exp = Number(params.get('exp') ?? 0);
-    if (!Number.isSafeInteger(exp) || exp <= 0 || exp * 1000 <= expiryClock.now() || !params.get('sig')) return false;
+    if (!Number.isSafeInteger(exp) || exp <= 0 || exp * 1000 <= expiryClock.now() || exp * 1000 > expiryClock.now() + LINK_MAX_MS + LINK_SKEW_MS || !params.get('sig')) return false;
     const name = params.get('as') ?? '';
     let who: LinkAccount | undefined;
     let blocked = false;

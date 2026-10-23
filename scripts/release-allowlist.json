@@ -105,6 +105,11 @@
         "why": "the server's larger source files"
       },
       {
+        "glob": "packages/store/src/store.ts",
+        "maxBytes": 700000,
+        "why": "the store, one class in one file, which reached the general limit; splitting it is a separate change"
+      },
+      {
         "glob": "THIRD-PARTY-NOTICES.md",
         "maxBytes": 400000,
         "why": "every dependency's licence text"

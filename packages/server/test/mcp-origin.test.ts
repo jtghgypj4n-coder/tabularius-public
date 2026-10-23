@@ -132,7 +132,7 @@ test('/mcp rejects foreign origins for valid Basic, scoped and OAuth credentials
     store.savePrivilegeSet({ name: 'Bot', records: { view: true, edit: false, create: false, delete: false }, layouts: 'viewOnly', valueLists: 'viewOnly', scripts: 'none', extendedPrivileges: ['fmmcp'] });
     store.setPassword('Ann', 'secret', 'Bot');
     credentials.push(`Bearer ${store.createApiToken('Ann', { surfaces: ['fmmcp'], readOnly: true })}`);
-    credentials.push(`Bearer ${new McpTokens(host.dir, undefined, (_db, account) => store.identityAllowed(account) ? store.accountIdentityId(account) : undefined).create({ database: 'Local', account: 'Ann' }).token}`);
+    credentials.push(`Bearer ${new McpTokens(host.dir, undefined, (_db, account) => store.identityAllowed(account) ? store.credentialIdentity(account) : undefined).create({ database: 'Local', account: 'Ann' }).token}`);
   });
   const redirect = 'https://app.example/callback';
   const registration = await fetch(`${base}/oauth/register`, {
