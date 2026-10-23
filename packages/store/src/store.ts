@@ -1244,6 +1244,12 @@ export class Store {
     return this.meta('accountStatus')?.guestWasOn === true;
   }
 
+  /** A per-table meta list (repeating, globals, serials), keyed without a prototype so a table or field can be named like an inherited key. */
+  private keyedMeta(key: string): Record<string, unknown> | undefined {
+    const value = this.meta(key) as Record<string, unknown> | undefined;
+    return value ? ownKeyed(value) : undefined;
+  }
+
   private meta(key: string) {
     const row = this.sql.prepare('SELECT json FROM _fm_meta WHERE key = ?').get(key) as { json: string } | undefined;
     return row ? JSON.parse(row.json) : undefined;
@@ -2557,20 +2563,24 @@ export class Store {
 
   private designEffect(e: Effect): void {
     const renameKey = (key: 'repeating' | 'globals' | 'serials', table: string, from: string | null, to: string | null) => {
-      const value = this.meta(key) as Record<string, unknown> | undefined;
+      const value = this.keyedMeta(key);
       if (!value) return;
       if (from === null) {
         // table-level rename or drop
-        if (!(table in value)) return;
+        if (!Object.hasOwn(value, table)) return;
         if (to !== null) value[to] = value[table];
         delete value[table];
       } else {
-        const t = value[table] as Record<string, unknown> | string[] | undefined;
+        const t = (Object.hasOwn(value, table) ? value[table] : undefined) as Record<string, unknown> | string[] | undefined;
         if (!t) return;
         if (Array.isArray(t)) value[table] = t.flatMap((n) => (n === from ? (to === null ? [] : [to]) : [n]));
-        else if (from in t) {
-          if (to !== null) t[to] = t[from];
-          delete t[from];
+        else {
+          const fields = ownKeyed(t);
+          if (Object.hasOwn(fields, from)) {
+            if (to !== null) fields[to] = fields[from];
+            delete fields[from];
+            value[table] = fields;
+          }
         }
       }
       this.sql.prepare('INSERT INTO _fm_meta VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET json = excluded.json').run(key, JSON.stringify(value));
@@ -2627,7 +2637,10 @@ export class Store {
       // Deletes keep the data aside in _fm_deleted_<id>, with what the store's metadata said about it.
       case 'trashTable': {
         this.ensureDeleted();
-        const meta = Object.fromEntries(keys.map((k) => [k, (this.meta(k) as Record<string, unknown> | undefined)?.[e.table.name]]).filter(([, v]) => v !== undefined));
+        const meta = Object.fromEntries(keys.map((k) => {
+          const kept = this.keyedMeta(k);
+          return [k, kept && Object.hasOwn(kept, e.table.name) ? kept[e.table.name] : undefined];
+        }).filter(([, v]) => v !== undefined));
         const records = Number((this.sql.prepare(`SELECT count(*) AS n FROM ${q(e.table.name)}`).get() as { n: number }).n);
         const id = Number(this.sql.prepare('INSERT INTO _fm_deleted (kind, tbl, name, at, account, records, patch, meta) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
           .run('table', e.table.name, e.table.name, new Date().toISOString(), this.designAccount, records, JSON.stringify(e.patch), JSON.stringify(meta)).lastInsertRowid);
@@ -2639,8 +2652,9 @@ export class Store {
         this.ensureDeleted();
         const meta: Record<string, unknown> = {};
         for (const k of keys) {
-          const t = (this.meta(k) as Record<string, unknown> | undefined)?.[e.table] as Record<string, unknown> | string[] | undefined;
-          if (Array.isArray(t) ? t.includes(e.field.name) : t && e.field.name in t) meta[k] = Array.isArray(t) ? true : t![e.field.name];
+          const kept = this.keyedMeta(k);
+          const t = (kept && Object.hasOwn(kept, e.table) ? kept[e.table] : undefined) as Record<string, unknown> | string[] | undefined;
+          if (Array.isArray(t) ? t.includes(e.field.name) : t && Object.hasOwn(t, e.field.name)) meta[k] = Array.isArray(t) ? true : t![e.field.name];
         }
         const col = q(e.field.name);
         const records = e.data ? Number((this.sql.prepare(`SELECT count(*) AS n FROM ${q(e.table)} WHERE ${col} IS NOT NULL AND ${col} <> ''`).get() as { n: number }).n) : 0;
@@ -2660,7 +2674,7 @@ export class Store {
         if (kept) this.sql.exec(`ALTER TABLE ${q(`_fm_deleted_${e.deleted}`)} RENAME TO ${q(e.table.name)}`);
         else this.designEffect({ k: 'createTable', table: e.table });
         for (const [k, v] of Object.entries(row ? JSON.parse(row.meta) as Record<string, unknown> : {})) {
-          const value = (this.meta(k) as Record<string, unknown> | undefined) ?? {};
+          const value = this.keyedMeta(k) ?? ownKeyed({});
           value[e.table.name] = v;
           this.sql.prepare('INSERT INTO _fm_meta VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET json = excluded.json').run(k, JSON.stringify(value));
         }
@@ -2679,9 +2693,10 @@ export class Store {
         }
         this.sql.exec(`DROP TABLE IF EXISTS ${q(kept)}`);
         for (const [k, v] of Object.entries(row ? JSON.parse(row.meta) as Record<string, unknown> : {})) {
-          const value = (this.meta(k) as Record<string, unknown> | undefined) ?? {};
-          if (v === true) value[e.table] = [...((value[e.table] as string[] | undefined) ?? []), e.field.name];
-          else value[e.table] = { ...((value[e.table] as Record<string, unknown> | undefined) ?? {}), [e.field.name]: v };
+          const value = this.keyedMeta(k) ?? ownKeyed({});
+          const had = (Object.hasOwn(value, e.table) ? value[e.table] : undefined) as Record<string, unknown> | string[] | undefined;
+          if (v === true) value[e.table] = [...((had as string[] | undefined) ?? []), e.field.name];
+          else { const fields = ownKeyed((had ?? {}) as Record<string, unknown>); fields[e.field.name] = v; value[e.table] = fields; }
           this.sql.prepare('INSERT INTO _fm_meta VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET json = excluded.json').run(k, JSON.stringify(value));
         }
         this.sql.prepare('DELETE FROM _fm_deleted WHERE id = ?').run(e.deleted);
@@ -6904,9 +6919,10 @@ export class Store {
       }
     }
     // Persisted global fields are values, not table columns.
-    const globals = (this.meta('globals') ?? {}) as Record<string, Record<string, unknown>>;
+    const globals = (this.keyedMeta('globals') ?? ownKeyed({})) as Record<string, Record<string, unknown>>;
     for (const table of this.schema?.tables ?? []) for (const field of table.fields.filter((f) => f.type === 'container' && f.options?.global)) {
-      add(globals[table.name]?.[field.name]);
+      const own = Object.hasOwn(globals, table.name) ? globals[table.name] : undefined;
+      add(own && Object.hasOwn(own, field.name) ? own[field.name] : undefined);
     }
     // Design trash keeps deleted fields and tables so restoreField/restoreTable can
     // bring their values back. Their schemas are no longer active, so inspect the
