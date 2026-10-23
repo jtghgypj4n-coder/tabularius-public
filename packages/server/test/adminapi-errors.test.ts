@@ -56,7 +56,7 @@ test('Admin API method dispatch distinguishes known paths from unknown paths', a
     const token = (await login.json()).response.token;
     const headers = { authorization: `Bearer ${token}` };
     for (const [path, method, allow] of [
-      ['/user/auth', 'GET', 'POST'],
+      ['/user/auth', 'GET', 'POST, DELETE'],
       ['/server/metadata', 'PATCH', 'GET'],
       ['/server/status', 'DELETE', 'GET, PATCH'],
       ['/databases', 'POST', 'GET, PATCH'],

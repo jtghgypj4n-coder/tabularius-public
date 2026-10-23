@@ -104,11 +104,20 @@ for (const name of ['OData', 'MCP', 'admin', 'Admin API']) {
       const busy = await post(surface.same ? { ...surface.headers, ...surface.same } : surface.headers);
       assert.equal(busy.status, 503, await busy.text());
       assert.equal(busy.headers.get('retry-after'), '1');
+      if (name === 'Admin API') {
+        const logout = await fetch(`${s.url}/fmi/admin/api/v2/user/auth`, { method: 'DELETE', headers: surface.headers });
+        assert.equal(logout.status, 503, await logout.text());
+      }
       if (surface.other) assert.equal((await post({ ...surface.headers, ...surface.other })).status, surface.ok);
       assert.equal((await fetch(s.url + '/admin/')).status, 200);
       for (const req of held) req.end(surface.body.slice(1));
       await Promise.all(answers);
       assert.equal((await post()).status, surface.ok, 'completed requests release slots');
+      if (name === 'Admin API') {
+        const logout = await fetch(`${s.url}/fmi/admin/api/v2/user/auth`, { method: 'DELETE', headers: surface.headers });
+        assert.equal(logout.status, 200);
+        assert.equal((await post()).status, 401, 'the session ended after the limiter admitted logout');
+      }
     } finally {
       for (const req of held) req.destroy();
     }

@@ -4,7 +4,7 @@
 // clients and send them messages; and manage script schedules.
 //
 //   POST   /fmi/admin/api/v2/user/auth              Basic (the admin password, any user name) -> {token}
-//   DELETE /fmi/admin/api/v2/user/auth/{token}      log out
+//   DELETE /fmi/admin/api/v2/user/auth              log out the Bearer session (upstream compatibility unverified)
 //   GET    /fmi/admin/api/v2/server/metadata        name, version, host time
 //   GET    /fmi/admin/api/v2/server/status          {status: RUNNING | STOPPED}
 //   PATCH  /fmi/admin/api/v2/server/status          {status}: STOPPED closes every file, RUNNING opens them
@@ -53,8 +53,7 @@ const MAX_PATH = 2048;
 
 /** Methods for syntactically known paths, before looking up a resource or reading a body. */
 function allowedMethods(path: string): string | undefined {
-  if (path === '/user/auth') return 'POST';
-  if (/^\/user\/auth\/[^/]+$/.test(path)) return 'DELETE';
+  if (path === '/user/auth') return 'POST, DELETE';
   if (path === '/server/metadata' || path === '/clients' || path === '/plugins') return 'GET';
   if (path === '/server/status' || path === '/databases' || path === '/server/config/security' ||
       path === '/server/config/blocknewusers' || /^\/server\/config\/(general|authenticatedstream|parallelbackup|persistentcache)$/.test(path) ||
@@ -297,13 +296,9 @@ export class AdminApi {
       const method = req.method ?? 'GET';
       if (path.length > MAX_PATH) throw new AdminApiError(960, 'Parameter is invalid: request path is too long');
       const allow = allowedMethods(path);
-      // The sign-in route is open to everyone; for any other path, which methods it answers and how it reads an id are told only to a signed-in caller.
-      if (path === '/user/auth') {
-        if (method !== 'POST') throw new AdminApiError(3, 'Unavailable command', 405, allow);
-        return await this.login(req, send);
-      }
-      const logout = /^\/user\/auth\/([^/]+)$/.exec(path);
-      this.authorize(req);
+      // Only POST sign-in is open; methods for the other calls are told only to a signed-in caller.
+      if (path === '/user/auth' && method === 'POST') return await this.login(req, send);
+      const sessionToken = this.authorize(req);
       const numericId = /^\/(?:databases|clients|schedules)\/(\d+)(?:\/|$)/.exec(path)?.[1];
       if (numericId && numericId.length > 9) throw new AdminApiError(960, 'Parameter is invalid: id is too long');
       if (allow && !allow.split(', ').includes(method)) throw new AdminApiError(3, 'Unavailable command', 405, allow);
@@ -312,8 +307,8 @@ export class AdminApi {
         busyHeaders(res);
         return send(503, {}, 956, 'Too many requests in flight for this identity'), true;
       }
-      if (logout && method === 'DELETE') {
-        this.tokens.delete(decodeURIComponent(logout[1]));
+      if (path === '/user/auth' && method === 'DELETE') {
+        this.tokens.delete(sessionToken);
         return send(200, {}), true;
       }
       const body = method === 'PATCH' || method === 'POST' ? await this.body(req) : {};
@@ -366,15 +361,16 @@ export class AdminApi {
 
   // Only a Bearer token opens the other endpoints: a browser never adds one on
   // its own, so a page elsewhere can't use a saved admin login against them.
-  private authorize(req: IncomingMessage): void {
+  private authorize(req: IncomingMessage): string {
     const token = /^Bearer\s+(\S+)$/i.exec(req.headers.authorization ?? '')?.[1];
     const session = token ? this.tokens.get(token) : undefined;
     const now = performance.now();
-    if (!session || !this.tokenCurrent(session, now, this.admin.passwordFingerprint())) {
+    if (!token || !session || !this.tokenCurrent(session, now, this.admin.passwordFingerprint())) {
       if (token) this.tokens.delete(token);
       throw new AdminApiError(9, 'Access denied', 401);
     }
     session.lastUsed = now;
+    return token;
   }
 
   private tokenCurrent(session: AdminToken, now: number, passwordFingerprint: string): boolean {
