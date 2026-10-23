@@ -212,7 +212,7 @@ export function installPackage(dataDir: string, bytes: Uint8Array, opts: Install
   const staging = mkdtempSync(join(pluginsDir(dataDir), `.installing-${manifest.id}-`));
   const aside = staging + '.previous';
   const cleanupStaging = cleanupPath(staging, { recursive: true, force: true });
-  let cleanupAside = () => {};
+  let cleanupAside: ReturnType<typeof cleanupPath> = () => {};
   try {
     mkdirSync(staging, { recursive: true });
     for (const [name, data] of info.files) writeFileSync(join(staging, name), data);
@@ -234,7 +234,7 @@ export function installPackage(dataDir: string, bytes: Uint8Array, opts: Install
     if (hadOld && !existsSync(dest) && existsSync(aside)) renameSync(aside, dest);
     throw err;
   }
-  cleanupAside();
+  cleanupAside({ throwOnError: true });
   if (newlyTrusted) {
     mkdirSync(pluginsDir(dataDir), { recursive: true });
     updateJsonStateSync<Record<string, string>>(trustedPath(dataDir), {}, (latest) => ({ ...latest, ...newlyTrusted }), { mode: 0o600 });

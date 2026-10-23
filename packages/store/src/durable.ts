@@ -40,11 +40,15 @@ export function atomicWrite(path: string, data: string): void {
   const tmp = `${path}.${randomUUID()}.tmp`;
   const fd = openSync(tmp, 'wx', 0o600);
   const cleanup = cleanupPath(tmp);
+  let failed = false;
   try {
     try { writeFileSync(fd, data); } finally { closeSync(fd); }
     writeDurable(tmp, path);
+  } catch (error) {
+    failed = true;
+    throw error;
   } finally {
-    cleanup();
+    cleanup({ throwOnError: !failed });
   }
 }
 
