@@ -35,6 +35,27 @@ test('a refused table of another file answers like a table that is not there', a
   }
 });
 
+test('a refused table is told apart from a missing one by nothing: not by a syntax error, not by the order of the checks', async () => {
+  for (const get of [false, true]) {
+    for (const rest of [' WHERE (', ' WHERE 1 = ', ' ORDER BY', ' GROUP BY 1 HAVING', ' LIMIT x', " WHERE 'unterminated"]) {
+      const missing = await ask(`SELECT * FROM NoSuchTable${rest}`, get);
+      const refused = await ask(`SELECT * FROM ExternalItems${rest}`, get);
+      assert.equal(refused.status, missing.status, rest);
+      assert.deepEqual(refused.data, JSON.parse(missing.text.replace('NoSuchTable', 'ExternalItems')), `a query that ends ${JSON.stringify(rest)}`);
+    }
+  }
+  // An account whose set in its own file cannot read every record is refused the same for either name.
+  const a = m.stores[0];
+  a.savePrivilegeSet({ name: 'Narrow', records: { view: true, edit: false, create: false, delete: false, fieldsDefault: 'none' }, layouts: 'viewOnly', scripts: 'viewOnly', valueLists: 'viewOnly', extendedPrivileges: ['fmxdbc'] });
+  a.setPassword('Narrow', 'password-narrow', 'Narrow');
+  const as = (sql: string) => m.request(path(), basic('Narrow', 'password-narrow'), 'POST', { sql });
+  const missing = await as('SELECT * FROM NoSuchTable');
+  const refused = await as('SELECT * FROM ExternalItems');
+  assert.equal(missing.status, 401, missing.text);
+  assert.equal(refused.status, 401);
+  assert.deepEqual(refused.data, JSON.parse(missing.text));
+});
+
 test('the answer names the table the query used, not another name that is in the query', async () => {
   for (const sql of ['SELECT 1 AS ExternalItems FROM ExternalOther', "SELECT 'ExternalItems' FROM ExternalOther o"]) {
     const refused = await ask(sql);
