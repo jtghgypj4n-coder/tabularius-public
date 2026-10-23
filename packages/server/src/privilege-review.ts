@@ -5,7 +5,7 @@
 // on that nothing uses, record limits that limit nothing, and calculations that total records the set can't view.
 // Read-only: it changes nothing, and it never shows a password, a token or a record's values.
 
-import { fieldRefs, parse, type Node } from '../../calc/src/index.ts';
+import { asBoolean, evaluate, fieldRefs, parse, type Node } from '../../calc/src/index.ts';
 import { isFullAccess, Privileges, type PrivilegeDefinition, type Store } from '../../store/src/index.ts';
 
 export type Severity = 'high' | 'medium' | 'low';
@@ -272,7 +272,8 @@ export function reviewPrivileges(store: Store, opts: { unusedDays?: number } = {
       let all = false;
       try {
         const p = store.previewRecordRule(r.table, r.rule, { limit: 1 });
-        all = p.valid && p.allowed === p.total;
+        // An empty preview has no allowed rows to compare; evaluate this field-free constant itself.
+        all = p.valid && (p.total === 0 ? asBoolean(evaluate(r.rule)) : p.allowed === p.total);
       } catch {
         continue;
       }
