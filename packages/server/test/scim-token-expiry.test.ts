@@ -67,8 +67,8 @@ test('a token is made for the days asked, from 1 to 3650; anything else is refus
   const week = scim.issueToken({ days: 7 });
   assert.equal(Date.parse(scim.settings().expires!), start + 7 * DAY);
   assert.equal(scim.tokenValid(first), false);
-  for (const days of [0, -1, 3651, 'soon', NaN, Infinity, {}]) {
-    assert.throws(() => scim.issueToken({ days }), (e: Error) => /Days should be above 0 and at most 3650/.test(e.message) && !/never/.test(e.message), `days ${String(days)}`);
+  for (const days of [0, -1, 0.5, 1.5, 3651, 'soon', NaN, Infinity, {}]) {
+    assert.throws(() => scim.issueToken({ days }), (e: Error) => /Days should be a whole number from 1 to 3650/.test(e.message) && !/never/.test(e.message), `days ${String(days)}`);
     assert.equal(scim.tokenValid(week), true, 'a refused request does not replace the working token');
   }
   assert.equal(Date.parse(scim.settings().expires!), start + 7 * DAY);
