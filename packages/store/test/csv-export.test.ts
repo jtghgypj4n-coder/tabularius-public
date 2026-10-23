@@ -85,3 +85,15 @@ test('control characters are written as visible \\uXXXX escapes, never dropped; 
   // An export that writes a return as a vertical tab asks for it; the vertical tab it writes is not escaped.
   assert.equal(csvField('a\r\nb\u000bc', { quoteAll: true, lineBreak: '\v' }), '"a\vb\\u000bc"');
 });
+
+test('the apostrophe is still taken off a number, date or time that began with a control character, though the export wrote it as \\uXXXX', () => {
+  for (const [text, type] of [['\t-5', 'number'], ['\u0001-12:30', 'time'], ['\u0007-0044-01-01', 'date'], ['\v=1', 'integer']] as const) {
+    const exported = csvField(text, { type });
+    assert.equal(exported.startsWith("'\\u"), true, exported);
+    assert.equal(stripFormulaGuard(parseDelimited(exported, ',')[0][0], type), text);
+  }
+  // A text field keeps what the export wrote: the escape is display-only there.
+  assert.equal(stripFormulaGuard("'\\u0009-5", 'text'), "'\\u0009-5");
+  // Only the control-character escapes are read, and only to find out whether the guard was needed.
+  assert.equal(stripFormulaGuard("'\\u0041-5", 'number'), "'\\u0041-5");
+});
