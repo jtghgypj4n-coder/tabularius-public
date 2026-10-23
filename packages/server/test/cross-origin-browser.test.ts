@@ -29,6 +29,8 @@ test('real Chromium cross-origin invariant matrix', { skip: !executablePath && '
       cookie: !!req.headers.cookie?.includes('tabularius_admin='), site: req.headers['sec-fetch-site'] as string | undefined,
       origin: req.headers.origin, referer: req.headers.referer }));
   });
+  // What the attacker page sent: the victim page keeps loading its own files (an icon, say) and their answers are logged whenever they finish.
+  const fromEvil = (since: number) => observed.slice(since).filter((r) => r.origin === `http://localhost:${attackerPort}`);
   const browser = await chromium.launch({ executablePath, timeout: 90_000, env: { ...process.env } as Record<string, string>, args: [
     '--no-proxy-server', '--host-resolver-rules=MAP *.audit.localhost 127.0.0.1, MAP *.audit.test 127.0.0.1',
   ] });
@@ -119,9 +121,9 @@ test('real Chromium cross-origin invariant matrix', { skip: !executablePath && '
         return denied;
       }, { base, cases });
       assert.equal(denied, cases.length, 'no cross-origin response is readable');
-      const requests = observed.slice(before);
+      const requests = fromEvil(before);
       assert.ok(requests.length >= cases.length);
-      assert.ok(requests.every((r) => r.status === 403), 'actual requests and preflights are rejected before dispatch');
+      assert.ok(requests.every((r) => r.status === 403), 'actual requests and preflights are rejected before dispatch: ' + JSON.stringify(requests.filter((r) => r.status !== 403)));
       await stillSignedIn(base);
     });
 
@@ -141,9 +143,9 @@ test('real Chromium cross-origin invariant matrix', { skip: !executablePath && '
         }
         return denied;
       }, { base, cases }), cases.length);
-      const requests = observed.slice(before);
+      const requests = fromEvil(before);
       assert.ok(requests.length >= cases.length);
-      assert.ok(requests.every((r) => r.status >= 400), JSON.stringify(requests.filter((r) => r.status < 400)));
+      assert.ok(requests.every((r) => r.status >= 400),JSON.stringify(requests.filter((r) => r.status < 400)));
       assert.equal(store.find('Records').foundCount, 0);
     });
 
