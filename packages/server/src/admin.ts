@@ -1182,7 +1182,7 @@ export class Admin {
           try {
             send(200, await plan.call(this.assistant, solutionName(this.host, body.name), body.description));
           } catch (e) {
-            if (!(e instanceof SolutionError)) console.error(e);
+            if (!(e instanceof SolutionError)) logFaultFor(this.host)(e);
             send(e instanceof SolutionError ? 400 : 502, { error: e instanceof SolutionError ? e.message : 'Internal server error' });
           }
         }
@@ -1192,7 +1192,7 @@ export class Admin {
           this.log(`New solution ${made.database} created from a plan (${made.changes} changes)`);
           send(201, made);
         } catch (e) {
-          if (!(e instanceof SolutionError)) console.error(e);
+          if (!(e instanceof SolutionError)) logFaultFor(this.host)(e);
           send(e instanceof SolutionError ? 400 : 500, { error: e instanceof SolutionError ? e.message : 'Internal server error' });
         }
       } else if (path === '/tabularius/admin/v1/ai-usage' && req.method === 'GET') {
@@ -1840,7 +1840,7 @@ export class Admin {
       }
     } catch (e) {
       const status = e instanceof SyncConsoleError || e instanceof ApiError ? e.status : e instanceof URIError || e instanceof ScheduleError || e instanceof WebhookError || e instanceof HookError || e instanceof StaleCalcError ? 400 : e instanceof StoreError ? (e.code === 301 ? 409 : 400) : e instanceof UploadError || e instanceof RestoreError ? e.status : 500;
-      if (status === 500) console.error(e);
+      if (status === 500) logFaultFor(this.host)(e);
       send(status, { error: status === 500 ? 'Internal server error' : adminErrorText(e, this.host) });
     } finally { done(); }
     return true;
@@ -1940,7 +1940,7 @@ export class Admin {
       if (req.method === 'DELETE') return send(c.remove(id) ? 200 : 404, {});
       return send(405, { error: 'method not allowed' });
     } catch (e) {
-      if (!(e instanceof ConnectionError)) console.error(e);
+      if (!(e instanceof ConnectionError)) logFaultFor(this.host)(e);
       return send(e instanceof ConnectionError ? (/no connection/i.test(e.message) ? 404 : 400) : 500, { error: e instanceof ConnectionError ? e.message : 'Internal server error' });
     }
   }

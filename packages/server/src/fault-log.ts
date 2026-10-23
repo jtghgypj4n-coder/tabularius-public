@@ -3,6 +3,7 @@
 // and over can't fill the disk. The first ones of each minute keep their cause; the rest are counted, and the count is
 // logged when the next minute begins.
 
+import { homedir } from 'node:os';
 import { redactDiagnosticText } from '../../scripts/src/redaction.ts';
 import { monotonicClock } from '../../store/src/monotonic.ts';
 
@@ -11,6 +12,36 @@ export const FAULT_LOGS_PER_MINUTE = 20;
 // The sink looks console.error up at each call, so a test that replaces it sees the lines.
 export interface FaultLog {
   (e: unknown): void;
+}
+
+// An absolute path in a fault's text names the machine's layout (the data folder, the account it runs as). The log keeps
+// the file's own name and hides the folders above it: a path under the home folder becomes [home]/<name>, any other with
+// two or more folders becomes [path]/<name>. This covers the frames of a stack too, so a frame keeps its function, file
+// name and line:column. Forms: /a/b, //a/b, file:///a/b, C:\a\b and C:/a/b, and \\host\share\a; a folder name may hold
+// spaces when each later word starts with a capital or digit (Program Files, My Data) or the path is quoted. A URL is
+// not a path.
+const SEG = String.raw`[\w.@+~%-]+(?: [A-Z0-9][\w.@+~%-]*)*`;
+const POSIX_PATH = new RegExp(String.raw`(?<![\w:/.\\-])(?:file:\/\/)?\/{1,2}${SEG}(?:\/${SEG})+`, 'g');
+const WINDOWS_PATH = new RegExp(String.raw`(?<![\w\\])[A-Za-z]:[\\/]${SEG}(?:[\\/]${SEG})*`, 'g');
+const UNC_PATH = new RegExp(String.raw`(?<![\w\\])\\\\${SEG}(?:\\${SEG})+`, 'g');
+// A quoted path may hold any spaces; the quote marks stay.
+const QUOTED_PATH = /(["'`])((?:[A-Za-z]:[\\/]|\\\\|\/)[^"'`\n]*?[\\/][^"'`\n\\/]+)\1/g;
+
+const lastName = (path: string) => path.slice(Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\')) + 1);
+
+export function redactPaths(text: string): string {
+  const home = homedir();
+  let out = text;
+  if (home.length > 1) {
+    const escaped = home.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    // A boundary after the folder name, so /home/ab is not taken for /home/abc.
+    const under = new RegExp(String.raw`(?:file:\/\/)?${escaped}(?![\w.@+~%-])((?:[\\/]${SEG})*)`, 'g');
+    out = out.replace(under, (_all, rest: string) => rest ? `[home]/${lastName(rest)}` : '[home]');
+  }
+  out = out.replace(QUOTED_PATH, (_all, quote: string, path: string) => `${quote}[path]${path.includes('\\') ? '\\' : '/'}${lastName(path)}${quote}`);
+  out = out.replace(UNC_PATH, (path) => `[path]\\${lastName(path)}`);
+  out = out.replace(WINDOWS_PATH, (path) => `[path]\\${lastName(path)}`);
+  return out.replace(POSIX_PATH, (path) => `[path]/${lastName(path)}`);
 }
 
 function diagnosticChain(error: unknown): string {
@@ -25,7 +56,7 @@ function diagnosticChain(error: unknown): string {
     current = current.cause;
   }
   // Redact together so a labelled value in one error is also hidden when echoed by a cause.
-  return redactDiagnosticText(parts.join('\nCaused by: '));
+  return redactPaths(redactDiagnosticText(parts.join('\nCaused by: ')));
 }
 
 export function faultLog(sink: (...args: unknown[]) => void = (...args) => console.error(...args), now: () => number = () => monotonicClock.now(), perMinute = FAULT_LOGS_PER_MINUTE,
