@@ -1,0 +1,177 @@
+[
+  {
+    "file": "packages/server/src/admin.ts",
+    "fn": "Admin/handle",
+    "kind": "uncaught-error-log",
+    "hash": "760a6749035a0473e16c",
+    "reason": "tracked in issue 344"
+  },
+  {
+    "file": "packages/server/src/admin.ts",
+    "fn": "Admin/handle",
+    "kind": "uncaught-error-log",
+    "hash": "760a6749035a0473e16c",
+    "reason": "tracked in issue 344"
+  },
+  {
+    "file": "packages/server/src/admin.ts",
+    "fn": "Admin/handle",
+    "kind": "uncaught-error-log",
+    "hash": "760a6749035a0473e16c",
+    "reason": "tracked in issue 344"
+  },
+  {
+    "file": "packages/server/src/admin.ts",
+    "fn": "Admin/handleConnections",
+    "kind": "uncaught-error-log",
+    "hash": "760a6749035a0473e16c",
+    "reason": "tracked in issue 344"
+  },
+  {
+    "file": "packages/server/src/adminapi.ts",
+    "fn": "AdminApi/handle",
+    "kind": "uncaught-error-log",
+    "hash": "760a6749035a0473e16c",
+    "reason": "tracked in issue 344"
+  },
+  {
+    "file": "packages/server/src/agent.ts",
+    "fn": "runStep",
+    "kind": "uncaught-error-log",
+    "hash": "760a6749035a0473e16c",
+    "reason": "tracked in issue 344"
+  },
+  {
+    "file": "packages/server/src/agent.ts",
+    "fn": "AgentApi/handle",
+    "kind": "uncaught-error-log",
+    "hash": "760a6749035a0473e16c",
+    "reason": "tracked in issue 344"
+  },
+  {
+    "file": "packages/server/src/automations.ts",
+    "fn": "AutomationApi/handle",
+    "kind": "uncaught-error-log",
+    "hash": "760a6749035a0473e16c",
+    "reason": "tracked in issue 344"
+  },
+  {
+    "file": "packages/server/src/cleanup.ts",
+    "fn": "CleanupApi/handle",
+    "kind": "uncaught-error-log",
+    "hash": "760a6749035a0473e16c",
+    "reason": "tracked in issue 344"
+  },
+  {
+    "file": "packages/server/src/cluster.ts",
+    "fn": "ClusterLink/hear",
+    "kind": "uncaught-error-log",
+    "hash": "760a6749035a0473e16c",
+    "reason": "tracked in issue 344"
+  },
+  {
+    "file": "packages/server/src/dashboards.ts",
+    "fn": "DashboardApi/handle",
+    "kind": "uncaught-error-log",
+    "hash": "760a6749035a0473e16c",
+    "reason": "tracked in issue 344"
+  },
+  {
+    "file": "packages/server/src/debug.ts",
+    "fn": "DebugApi/handle",
+    "kind": "uncaught-error-log",
+    "hash": "760a6749035a0473e16c",
+    "reason": "tracked in issue 344"
+  },
+  {
+    "file": "packages/server/src/design.ts",
+    "fn": "DesignApi/handle",
+    "kind": "uncaught-error-log",
+    "hash": "760a6749035a0473e16c",
+    "reason": "tracked in issue 344"
+  },
+  {
+    "file": "packages/server/src/digests.ts",
+    "fn": "DigestApi/handle",
+    "kind": "uncaught-error-log",
+    "hash": "760a6749035a0473e16c",
+    "reason": "tracked in issue 344"
+  },
+  {
+    "file": "packages/server/src/live.ts",
+    "fn": "Live/handle",
+    "kind": "uncaught-error-log",
+    "hash": "760a6749035a0473e16c",
+    "reason": "tracked in issue 344"
+  },
+  {
+    "file": "packages/server/src/oidc.ts",
+    "fn": "Oidc/handle",
+    "kind": "uncaught-error-log",
+    "hash": "760a6749035a0473e16c",
+    "reason": "tracked in issue 344"
+  },
+  {
+    "file": "packages/server/src/oidc.ts",
+    "fn": "Oidc/handle",
+    "kind": "uncaught-error-log",
+    "hash": "760a6749035a0473e16c",
+    "reason": "tracked in issue 344"
+  },
+  {
+    "file": "packages/server/src/oidc.ts",
+    "fn": "Oidc/begin",
+    "kind": "uncaught-error-log",
+    "hash": "760a6749035a0473e16c",
+    "reason": "tracked in issue 344"
+  },
+  {
+    "file": "packages/server/src/oidc.ts",
+    "fn": "Oidc/callback",
+    "kind": "uncaught-error-log",
+    "hash": "760a6749035a0473e16c",
+    "reason": "tracked in issue 344"
+  },
+  {
+    "file": "packages/server/src/oidc.ts",
+    "fn": "Oidc/callback",
+    "kind": "uncaught-error-log",
+    "hash": "760a6749035a0473e16c",
+    "reason": "tracked in issue 344"
+  },
+  {
+    "file": "packages/server/src/security.ts",
+    "fn": "SecurityApi/handle",
+    "kind": "uncaught-error-log",
+    "hash": "760a6749035a0473e16c",
+    "reason": "tracked in issue 344"
+  },
+  {
+    "file": "packages/server/src/webclient.ts",
+    "fn": "WebClient/handleOperation",
+    "kind": "uncaught-error-log",
+    "hash": "760a6749035a0473e16c",
+    "reason": "tracked in issue 344"
+  },
+  {
+    "file": "packages/server/src/webclient.ts",
+    "fn": "WebClient/prefs",
+    "kind": "uncaught-error-log",
+    "hash": "760a6749035a0473e16c",
+    "reason": "tracked in issue 344"
+  },
+  {
+    "file": "packages/server/src/webclient.ts",
+    "fn": "WebClient/stopRuns",
+    "kind": "uncaught-error-log",
+    "hash": "760a6749035a0473e16c",
+    "reason": "tracked in issue 344"
+  },
+  {
+    "file": "packages/server/src/webclient.ts",
+    "fn": "WebClient/answerFile",
+    "kind": "uncaught-error-log",
+    "hash": "760a6749035a0473e16c",
+    "reason": "tracked in issue 344"
+  }
+]

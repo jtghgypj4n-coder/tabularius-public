@@ -22,6 +22,8 @@ Every package has its tests in its own `test/` folder, named `*.test.ts`.
 
 ## Build and test
 
+The gates include a TypeScript AST lint for dynamic code execution, shell-enabled child-process calls, and bare logging of caught errors. To allow a reviewed finding, add its file, function, kind, hash, and a non-empty one-line reason to `scripts/dangerous-apis-allowlist.json`; `node scripts/dangerous-apis.ts --write` adds new findings with blank reasons for review.
+
 Node 22.20 or newer (`.nvmrc`). There is no build step: Node runs the TypeScript directly. Runtime dependencies are not allowed except the few in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md); prefer the standard library, and a new dependency needs a reason in the PR.
 
 ```sh
