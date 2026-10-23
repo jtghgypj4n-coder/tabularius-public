@@ -118,3 +118,12 @@ test('fmp12-25: privilege sets named like inherited keys keep their names and id
   const [full] = privilegeSets(catalog(['[Full Access]']), undefined);
   assert.equal(full.name, '[Full Access]');
 });
+
+test('fmp12-26: number text with a long digit run is read in linear time', () => {
+  for (const text of ['1'.repeat(40_000) + 'x', '1'.repeat(40_000) + '.' + '1'.repeat(40_000) + 'x', '1'.repeat(40_000) + 'e+']) {
+    const started = Date.now();
+    assert.equal(typedValue(text, 'number'), text);
+    assert.ok(Date.now() - started < 250, `${text.length} characters took ${Date.now() - started} ms`);
+  }
+  for (const [text, value] of [['12', 12], ['-3.5', -3.5], ['1.', 1], ['.5', 0.5], ['1.5e3', 1500], ['+2E-2', 0.02]] as const) assert.equal(typedValue(text, 'number'), value, text);
+});
