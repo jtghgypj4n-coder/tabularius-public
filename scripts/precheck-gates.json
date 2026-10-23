@@ -24,6 +24,10 @@
     "reason": "Checks generated API reference pages"
   },
   {
+    "file": "packages/server/test/dangerous-apis.test.ts",
+    "reason": "Checks the server dangerous API lint and allow-list"
+  },
+  {
     "file": "packages/server/test/docs-links.test.ts",
     "reason": "Checks server documentation links"
   },
