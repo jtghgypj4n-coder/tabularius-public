@@ -17,7 +17,7 @@ Revert Transaction is a records and finds script step. This page describes how t
 ## What the engine does
 
 The engine handles this step with the limits described in the support notes.
-Unconditional binary steps without option evidence work. Imported condition/error options with unresolved semantics return error 3 without reverting. Explicit text/structured conditions and custom error options remain supported.
+Unconditional binary steps without option evidence work. Imported condition/error options with unresolved semantics return error 3 without reverting. Explicit text/structured conditions and custom error options remain supported. In this engine, reverting clears pending record edits and unlocks records, ends the store transaction, and removes transaction-created records from found sets. It does not undo script variables or client actions already queued. Whether FileMaker has the same effects is unverified; matching behavior is not claimed.
 
 FileMaker comparisons in this note are inferred unless a Claris help page is linked. See the [full support notes](../../script-steps-support.md) for surrounding conditions.
 
