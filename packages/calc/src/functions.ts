@@ -24,7 +24,7 @@ import { JqError, runJq } from './jq.ts';
 import { compareKeys, isSortLanguageName, sortKey, sortLanguage } from './collation.ts';
 import { DAYS_J, hiragana, kanaHankaku, kanaZenkaku, kanjiNumeral, katakana, romanHankaku, romanZenkaku } from './japanese.ts';
 import { imageInfo, isImageHeader, type ImageInfo } from './image-info.ts';
-import { unzip, zip, type ZipEntry } from './zip.ts';
+import { ARCHIVE_MAX_ENTRIES, ARCHIVE_MAX_RATIO, unzip, zip, type ZipEntry } from './zip.ts';
 import { MBS_TEXT, MbsError } from './mbs-text.ts';
 import { MBS_REGEX } from './mbs-regex.ts';
 import { assertPatternNesting, guardedExec, guardedMatches, guardedReplace, guardedSplit, RegexTimeout, withRegexBudget } from './regex-guard.ts';
@@ -1700,7 +1700,7 @@ const beUnzip = (paths: boolean) => (v: Value[], env: Env): Value => {
   if (!bytes || !folder) return beResult(env, BE_NO_FILE, text('?'));
   let entries: ZipEntry[];
   try {
-    entries = unzip(bytes, { maxTotalBytes: 20 * 1024 * 1024 });
+    entries = unzip(bytes, { maxTotalBytes: 20 * 1024 * 1024, maxEntries: ARCHIVE_MAX_ENTRIES, maxRatio: ARCHIVE_MAX_RATIO });
   } catch (e) {
     beErrors.set(env.ctx, (e as Error).message);
     return beResult(env, BE_ZIP_ERROR, text('?'));

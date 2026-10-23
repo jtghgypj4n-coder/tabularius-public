@@ -223,8 +223,10 @@ function checkXmlDepth(bytes: Uint8Array, name: string): void {
         const b = xml[i];
         if (quote) { if (b === quote) quote = 0; } else if (b === DQ || b === SQ) quote = b; else if (b === GT) break;
       }
-      if (xml[at + 1] === SLASH) depth--;
-      else if (xml[i - 1] !== SLASH && ++depth > MAX_XML_DEPTH) {
+      if (xml[at + 1] === SLASH) {
+        // Nothing is open: a run of these would otherwise be credit toward deeper nesting later.
+        if (--depth < 0) throw new Error(`${name} has a closing tag with nothing open; the file is refused`);
+      } else if (xml[i - 1] !== SLASH && ++depth > MAX_XML_DEPTH) {
         throw new Error(`${name} is nested more than ${MAX_XML_DEPTH} levels deep; a real workbook is not, so the file is refused`);
       }
       at = i + 1;
@@ -339,9 +341,10 @@ export function zipReader(zip: Uint8Array, inflateBudget = MAX_XLSX_BYTES, limit
       if (entry.method === 0) file = raw;
       else {
         try {
-          file = inflateRawSync(raw, { maxOutputLength: Math.max(1, budget) });
+          // Not the whole budget: a part that inflates past the size it declares is damaged (or lying), and stops there.
+          file = inflateRawSync(raw, { maxOutputLength: Math.max(1, entry.size) });
         } catch (e) {
-          if ((e as { code?: string }).code === 'ERR_BUFFER_TOO_LARGE') overBudget();
+          if ((e as { code?: string }).code === 'ERR_BUFFER_TOO_LARGE') throw new Error(`bad zip entry ${name} (incorrect uncompressed size)`);
           throw new Error(`bad zip entry ${name} (${(e as Error).message})`);
         }
       }
