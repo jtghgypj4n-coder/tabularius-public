@@ -9,6 +9,17 @@ export interface ZipEntry {
   data: Uint8Array;
 }
 
+/** The most entries an uploaded archive (a workbook, a plug-in package) may hold, and the most an entry may unpack to, as a multiple of its compressed size. */
+export const ARCHIVE_MAX_ENTRIES = 4096;
+export const ARCHIVE_MAX_RATIO = 1000;
+
+/** The message for an archive with too many entries; the Excel reader says the same. */
+export const tooManyEntries = (count: number, limit: number) => `the archive holds ${count} entries; more than ${limit} are not read`;
+
+/** The message for an entry that is nearly all repetition, which is how a decompression bomb is built. */
+export const overRatio = (name: string, size: number, packed: number, limit: number) =>
+  `${name} unpacks to ${size} bytes from ${packed}, more than ${limit} times its size; real files do not compress that far`;
+
 /** Hard caps for one entry and for the sum of entries. */
 const MAX_ENTRY = 256 * 1024 * 1024;
 const MAX_TOTAL = 256 * 1024 * 1024;
@@ -76,6 +87,10 @@ export function zip(entries: ZipEntry[], when = new Date()): Uint8Array {
 export interface UnzipOptions {
   /** Maximum sum of uncompressed entry sizes, checked before inflation; may further lower the 256 MiB hard cap. */
   maxTotalBytes?: number;
+  /** Most entries in the directory; more is refused before any entry is read. No limit when left out (only the format's 65,534). */
+  maxEntries?: number;
+  /** Most an entry may unpack to, as a multiple of its compressed size; checked on the directory, before inflation. No limit when left out. */
+  maxRatio?: number;
 }
 
 /** The entries of an archive, in directory order. Throws for damaged or oversized archives. */
@@ -92,6 +107,7 @@ export function unzip(bytes: Uint8Array, options: UnzipOptions = {}): ZipEntry[]
   }
   if (end < 0) throw new Error('not a zip archive');
   const count = view.getUint16(end + 10, true);
+  if (options.maxEntries !== undefined && count > options.maxEntries) throw new Error(tooManyEntries(count, options.maxEntries));
   const directorySize = view.getUint32(end + 12, true);
   let at = view.getUint32(end + 16, true);
   const directoryStart = at;
@@ -153,6 +169,12 @@ export function unzip(bytes: Uint8Array, options: UnzipOptions = {}): ZipEntry[]
     at = next;
   }
   if (at !== directoryEnd) throw new Error('damaged zip directory');
+  // After the size total, so an archive over budget is refused for that first; before any entry is inflated.
+  if (options.maxRatio !== undefined) {
+    for (const { name, method, size, raw } of entries) {
+      if (method === 8 && size > options.maxRatio * raw.length) throw new Error(overRatio(name, size, raw.length, options.maxRatio));
+    }
+  }
   return entries.map(({ name, method, size, crc, raw }) => {
     // Do not trust the declared size: cap actual inflation too, including empty entries.
     let data: Uint8Array;
