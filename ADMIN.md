@@ -680,6 +680,15 @@ doesn't start, or if the service can't be restarted. A macOS LaunchDaemon
 (`--system`) is restarted by stopping its server, which launchd starts again,
 so an upgrade needs no sudo password and can run from a script or over SSH.
 
+## Script schedules
+
+A schedule runs one script of a hosted file as one of the file's accounts, every so many minutes (1 to 527,040, which is 366 days), optionally lined up with a time of day, or each time the file opens. Set them under **Script schedules** in the admin console or with the Admin API. What they do not do, so that nothing about them is a surprise:
+
+- **A run that was due while the server was off is not made up.** When the server starts it works out the next time from now on. A nightly 02:00 schedule on a server that was stopped from 01:00 to 09:00 does not run at 09:00; it runs at 02:00 the next night. Nothing is queued, replayed or reported as missed. For a schedule with no time of day, the interval starts again at each start (a schedule every 60 minutes on a server started at 14:20 next runs at 15:20). If a missed run matters, run the schedule by hand after the server is back: **Run now** in the console, or `POST /tabularius/admin/v1/schedules/{id}/run`. <!-- known-difference: Schedules ;; Whether FileMaker Server runs a schedule that was due while the server was off is unverified; Tabularius does not run it ;; A schedule due while the server was off is not run when the server comes back ;; A FileMaker Server run with a schedule due during a stop -->
+- **A run that finds the previous one still going is skipped**, not queued; the Event log says so.
+- **Schedules repeat every day, every N days, or every N minutes or hours. There is no choice of weekdays, months or a time window.** FileMaker Server's weekly schedule that runs on some days only, a run at one time only (`onceType`) and a repeat that stops at an end time are not available. The Admin API answers a weekly schedule that leaves out a day with error 21 (not supported) instead of turning it into a daily one, and it answers `onceType` the same way; a schedule that is every 60 minutes runs around the clock. A schedule migrated from FileMaker Server that skipped days is brought over turned off (see **Moving from FileMaker Server**). To run on weekdays only, make the script check `Get ( CurrentDate )` and stop early, or use cron or Task Scheduler. <!-- known-difference: Schedules ;; Schedules cannot be limited to some weekdays, months or a time window ;; The Admin API refuses a weekly schedule that skips a day with error 21 ;; An owner decision on adding them -->
+- Daily schedules follow the clock in the server's time zone, including the short and long days when the clock changes; a daily schedule runs once for each calendar day.
+
 ## The audit trail
 
 Every record created, changed, deleted or duplicated is logged automatically in
