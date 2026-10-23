@@ -580,6 +580,9 @@ export class Admin {
     }
     if (this.failures.size > 5000) {
       this.failures.delete(ip);
+      if (this.failureOverflowUntil <= now && rec.until > now) {
+        this.host.logs?.write('Event', 'Warning', '', `Admin password — too many locked addresses; new sign-ins are locked for ${this.LOCK_MS / 60_000} minutes`);
+      }
       this.failureOverflowUntil = Math.max(this.failureOverflowUntil, rec.until);
     }
   }
@@ -597,7 +600,13 @@ export class Admin {
       // Count the miss; a burst of them within the window triggers the cooldown.
       const rec = locked && now - locked.first < this.LOCK_MS ? locked : { count: 0, first: now, until: 0 };
       rec.count++;
-      if (rec.count >= this.MAX_FAILS) rec.until = now + this.LOCK_MS;
+      // Avoid a "password:" label: diagnostic redaction would hide the count as a credential value.
+      if (rec.count >= this.MAX_FAILS) {
+        rec.until = now + this.LOCK_MS;
+        this.host.logs?.write('Event', 'Warning', ip, `Admin password — too many wrong attempts; sign-in from ${ip} is locked for ${this.LOCK_MS / 60_000} minutes`);
+      } else if (rec.count === 3) {
+        this.host.logs?.write('Event', 'Warning', ip, `Admin password — 3 wrong attempts from ${ip}`);
+      }
       this.noteMiss(ip, rec);
       if (rec.until > now) {
         const secs = Math.ceil((rec.until - now) / 1000);
