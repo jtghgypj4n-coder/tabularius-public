@@ -44,7 +44,7 @@ for (const [name, secret] of SECRET_SEEDS) {
     const dir = scratch(t);
     const store = database(t, dir);
     store.applyDesign([{ op: 'createTable', name: 'Public', fields: [{ name: 'Note', type: 'text' }] }]);
-    const host = { dir, get: () => store, openStores: () => [store], onAdd: [] } as unknown as Host;
+    const host = { dir, get: () => store, openStores: () => [store], onAdd: [], onClose: [] } as unknown as Host;
     const feed = new ChangeFeed(host, {} as DataApi);
     const logs = new ServerLogs(dir);
     t.after(() => logs.close());
