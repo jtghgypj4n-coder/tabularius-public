@@ -20,7 +20,10 @@ function xrefStream(dict: string, data: Buffer): Buffer {
 const refuses = (file: Buffer, why: RegExp) => {
   const started = Date.now();
   assert.throws(() => appendPdf(file, [page]), (e: unknown) => e instanceof PdfAppendError && why.test(e.message), String(why));
-  assert.ok(Date.now() - started < 1000, 'refused in a moment');
+  // Refusing the small cases takes milliseconds and the chained ones under a second (they read up to the shared limit of
+  // a million objects); reading every section out would take far longer. The bound only has to tell those apart, so it
+  // leaves room for a loaded runner (one took 1.25 s).
+  assert.ok(Date.now() - started < 10_000, 'refused in a moment');
 };
 
 test('a cross-reference stream that lists more objects than its size is refused', () => {
