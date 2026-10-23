@@ -2036,7 +2036,7 @@ export class Calculations {
    * FileMaker SQL as SQLite SQL, and the file it runs in: table occurrences
    * become their base tables (under the occurrence's name), FETCH FIRST
    * becomes LIMIT, and FileMaker_Tables / FileMaker_Fields are provided. `mayRead` says whether the caller may read every
-   * record of another file; a query naming a table of one it may not read is refused as a table that isn't there.
+   * record of another file; a table of one it may not read is treated as a name that is not a table at all.
    */
   translateSQL(query: string, privileges?: Privileges, account?: string, mayRead?: (file: Store) => boolean): { sql: string; target: Store; stable: boolean; computed: { store: Store; table: Table; field: Field }[] } {
     query = cleanSql(query);
@@ -2090,12 +2090,13 @@ export class Calculations {
     const cteNames = topLevelCteNames(sql);
     // The file the query runs in: the one holding the tables it names (one file per query).
     let target: Store | undefined;
+    const unreadable = (file: Store) => file !== this.store && !!mayRead && !mayRead(file);
     // A star in a select list is the tables' fields, not their internal columns.
     sql = expandStars(sql, (name) => {
       const to = byName.get(name.replace(/^"|"$/g, '').replace(/""/g, '"').toLowerCase());
       if (cteNames.has(name.replace(/^"|"$/g, '').replace(/""/g, '"').toLowerCase())) return undefined;
       const t = to && this.occurrenceTable(to.id);
-      return t?.store.calc.columnNames(t.table);
+      return t && !unreadable(t.store) ? t.store.calc.columnNames(t.table) : undefined;
     });
     // FROM / JOIN <occurrence> [[AS] alias] becomes its base table, named as the query names it.
     const tableRef = /(\b(?:FROM|JOIN)\s+)("(?:[^"]|"")+"|[\w.~]+)(?:\s+(?:AS\s+)?(?!(?:WHERE|JOIN|INNER|LEFT|RIGHT|FULL|OUTER|CROSS|ON|ORDER|GROUP|HAVING|UNION|LIMIT|OFFSET|FETCH)\b)("(?:[^"]|"")+"|\w+))?/gi;
@@ -2106,13 +2107,9 @@ export class Calculations {
       if (cteNames.has(name.replace(/^"|"$/g, '').replace(/""/g, '"').toLowerCase())) return m;
       const to = byName.get(name.replace(/^"|"$/g, '').replace(/""/g, '"').toLowerCase());
       const t = to && this.occurrenceTable(to.id);
-      if (!to || !t) return m;
-      // A table of a file the caller may not read answers word for word as a table that isn't there (so not even a query of
-      // two files says the table exists), under the name the query gave it.
-      if (t.store !== this.store && mayRead && !mayRead(t.store)) {
-        const shown = name.replace(/^"|"$/g, '').replace(/""/g, '"');
-        throw new CalcError(ERR.calculation, `no such table: ${shown}`);
-      }
+      // A table of a file the caller may not read is left as the query wrote it, like any name that is not a table occurrence, so SQLite
+      // answers it exactly as it answers a table that is not there (the same parse errors, the same order of checks, the same words).
+      if (!to || !t || unreadable(t.store)) return m;
       if (target && target !== t.store) throw new CalcError(ERR.calculation, 'ExecuteSQL across tables in different files is not supported yet');
       target = t.store;
       // Without full access, the table as the account sees it (its records, NULL for hidden fields).

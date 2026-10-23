@@ -18,7 +18,8 @@ before(async () => {
 });
 after(async () => { await m?.close(); });
 
-const open = (database: string, password: string) => PgClient.open({ port: m.sqlPort, database, user: 'Shared', password });
+const open2 = (database: string, user: string, password: string) => PgClient.open({ port: m.sqlPort, database, user, password });
+const open = (database: string, password: string) => open2(database, 'Shared', password);
 
 test('a refused table of another file answers like a table that is not there', async () => {
   const c = await open(m.stores[0].name, 'password-0');
@@ -55,6 +56,32 @@ test('the answer names the table the query used, not another name that is in the
       }
     }
   } finally { c.close(); }
+});
+
+test('a refused table is told apart from a missing one by nothing: not by a syntax error, not by the order of the checks', async () => {
+  const c = await open(m.stores[0].name, 'password-0');
+  try {
+    for (const extended of [false, true]) {
+      const query = (sql: string) => extended ? c.extended(sql) : c.simple(sql);
+      for (const rest of [' WHERE (', ' WHERE 1 = ', ' ORDER BY', ' GROUP BY 1 HAVING', ' LIMIT x', " WHERE 'unterminated"]) {
+        const missing = (await query(`SELECT * FROM NoSuchTable${rest}`)).error;
+        const refused = (await query(`SELECT * FROM ExternalItems${rest}`)).error;
+        assert.ok(missing && refused, rest);
+        assert.deepEqual({ ...refused, message: refused.message.replace('ExternalItems', 'NoSuchTable') }, missing, `a query that ends ${JSON.stringify(rest)}`);
+      }
+    }
+  } finally { c.close(); }
+  // An account whose set in its own file stops reading every record is refused the same for either name.
+  m.stores[0].setPassword('Mid', 'password-mid', '[Full Access]');
+  const mid = await open2(m.stores[0].name, 'Mid', 'password-mid');
+  try {
+    m.stores[0].savePrivilegeSet({ name: 'Narrow', records: { view: true, edit: false, create: false, delete: false, fieldsDefault: 'none' }, layouts: 'viewOnly', scripts: 'viewOnly', valueLists: 'viewOnly', extendedPrivileges: ['fmxdbc'] });
+    m.stores[0].setPassword('Mid', 'password-mid', 'Narrow');
+    const missing = (await mid.simple('SELECT * FROM NoSuchTable')).error;
+    const refused = (await mid.simple('SELECT * FROM ExternalItems')).error;
+    assert.equal(missing?.code, '42501');
+    assert.deepEqual({ ...refused, message: refused?.message.replace('ExternalItems', 'NoSuchTable') }, missing);
+  } finally { mid.close(); }
 });
 
 test('the catalog does not list a table of another file the account may not read', async () => {
