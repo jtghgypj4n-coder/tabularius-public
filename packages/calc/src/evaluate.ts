@@ -38,6 +38,8 @@ export interface CustomFunctionDef {
 export interface CalcContext {
   /** Host platform override for deterministic evaluation and platform tests. */
   platform?: NodeJS.Platform;
+  /** Whether this calculation runs without a person at a client (inferred for MBS IsServer). */
+  headless?: boolean;
   /** Repetition being evaluated in a repeating calculation field; defaults to 1. */
   calculationRepetition?: number;
   /** Field and occurrence names, so names with spaces parse. Build once with `new NameTable(...)` and reuse. */
