@@ -13,7 +13,7 @@ import type { FieldType } from '../../fmp12/src/index.ts';
 import type { DatabaseSync } from 'node:sqlite';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { q } from './import.ts';
-import { foldText, sortKey, sortLanguage } from '../../calc/src/collation.ts';
+import { compareKeys, foldText, sortKey, sortLanguage } from '../../calc/src/collation.ts';
 import { wordQuery } from './words.ts';
 import { nativeValue } from './native-types.ts';
 
@@ -177,8 +177,8 @@ export function registerFindFunctions(db: DatabaseSync): void {
     for (const w of String(v).split(/[\s\p{P}]+/u)) {
       if (!w) continue;
       const k = sortKey(w, id);
-      if (low !== undefined && (loIncl ? k < low : k <= low)) continue;
-      if (high !== undefined && (hiIncl ? k > high : k >= high)) continue;
+      if (low !== undefined && (loIncl ? compareKeys(k, low) < 0 : compareKeys(k, low) <= 0)) continue;
+      if (high !== undefined && (hiIncl ? compareKeys(k, high) > 0 : compareKeys(k, high) >= 0)) continue;
       return 1;
     }
     return 0;

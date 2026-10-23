@@ -159,6 +159,19 @@ export function sortKey(text: string, language: SortLanguage = 'en'): string {
   return out;
 }
 
+/** Compare sort keys by Unicode code point, matching their UTF-8 byte order. */
+export function compareKeys(a: string, b: string): number {
+  const left = a[Symbol.iterator]();
+  const right = b[Symbol.iterator]();
+  while (true) {
+    const x = left.next();
+    const y = right.next();
+    if (x.done || y.done) return x.done === y.done ? 0 : x.done ? -1 : 1;
+    const diff = x.value.codePointAt(0)! - y.value.codePointAt(0)!;
+    if (diff) return diff;
+  }
+}
+
 /** A record sort ignores punctuation before its first word in a language-based sort. */
 export function recordSortKey(text: string, lang: SortLanguage = 'en'): string {
   return sortKey(text.replace(/^[^\p{L}\p{N}]*/u, ''), lang);
@@ -180,7 +193,14 @@ function foldChar(ch: string): string {
   if (out === undefined && WIDTH_FORMS.test(ch)) out = [...ch.normalize('NFKC')].map(foldChar).join('');
   if (out === undefined) {
     const base = ch.normalize('NFD').replace(/\p{M}+/gu, '').toLowerCase();
-    out = base;
+    const lower = base.replace(/ς/g, 'σ');
+    const expansion = EXPANSIONS[lower] ?? (lower === 'ﬃ' ? 'ffi' : lower === 'ﬄ' ? 'ffl' : lower === 'ﬅ' || lower === 'ﬆ' ? 'st' : undefined);
+    if (expansion !== undefined) {
+      out = expansion;
+      folded.set(ch, out);
+      return out;
+    }
+    out = lower;
     // ł, ø, đ and the like have no decomposition; the collator knows which letter they are a form of.
     if (base.length === 1 && base > '\u007f') {
       letterCollator ??= new Intl.Collator('en', { sensitivity: 'base' });
@@ -193,7 +213,7 @@ function foldChar(ch: string): string {
 }
 
 /** Counts changes to foldText: an index of folded text built under another number is built again (store/src/words.ts). */
-export const FOLD_VERSION = 2;
+export const FOLD_VERSION = 3;
 
 /**
  * Text as FileMaker's English index compares it for a find: case and accents don't matter (see sortKey), so "ZÜRICH",

@@ -47,6 +47,12 @@ test('a key named __proto__ is copied as a key, as before', () => {
   assert.match(del(out, 'b'), /"__proto__":\{"x":1\}/);
 });
 
+test('JSONDeleteElement removes digits-only array keys while preserving missing indexes and object keys', () => {
+  assert.equal(del('{"a":[1,2]}', 'a.0'), '{"a":[2]}');
+  assert.equal(del('{"a":[1,2]}', 'a.5'), '{"a":[1,2]}');
+  assert.equal(del('{"0":"value","a":[1]}', '0'), '{"a":[1]}');
+});
+
 test('"__proto__" and "toString" are keys like any other', () => {
   assert.equal(evaluateText('JSONSetElement ( "{}" ; [ "__proto__" ; "{\\"a\\":1}" ; JSONObject ] ; [ "b" ; 2 ; JSONNumber ] )'), '{"__proto__":{"a":1},"b":2}');
   assert.equal(evaluateText('JSONSetElement ( "{}" ; "__proto__.a" ; 1 ; JSONNumber )'), '{"__proto__":{"a":1}}');

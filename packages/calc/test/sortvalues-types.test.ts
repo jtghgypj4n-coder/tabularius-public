@@ -48,4 +48,5 @@ test('SortValues sorts text in the order of the locale it is given', () => {
   assert.equal(ev('SortValues ( "zebra¶åre¶apple¶ärlig" ; 1 ; "English" )'), 'apple¶åre¶ärlig¶zebra¶');
   assert.equal(ev('SortValues ( "中¶一¶大" ; 1 ; "Chinese_Stroke" )'), '一¶大¶中¶');
   assert.equal(ev('SortValues ( "b¶a" ; 1 ; "swedish" )'), 'a¶b¶', 'a name is read without regard to case');
+  assert.equal(ev('SortValues ( "Ａ¶한" ; 1 ; "Korean" )'), '한¶Ａ¶', 'astral sort keys follow code point order');
 });

@@ -139,6 +139,14 @@ test('MBS JSON: comparing, finding, merging and deleting', () => {
   same(j('JSON.Sort', '[9,4,3.2 ,3.1 ,123]'), '[3.1,3.2,4,9,123]');
 });
 
+test('MBS JSON array appends handle large arrays without spreading call arguments', () => {
+  const j = direct({});
+  const input = JSON.stringify(Array.from({ length: 130_000 }, (_, i) => i));
+  const result = parseJson(String(j('JSON.AddArrayToArray', '[]', input)));
+  assert.equal(result.t, 'arr');
+  if (result.t === 'arr') assert.equal(result.items.length, 130_000);
+});
+
 test('MBS JSON: Format, Compact and SetFormatOptions', () => {
   const j = direct({});
   const doc = '{"test":1234, "values":[2,3,4]}';

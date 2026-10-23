@@ -606,7 +606,7 @@ export const MBS_JSON: Record<string, MbsJson> = {
     for (const x of a.slice(1)) {
       if (x.text === '') continue;
       const other = item(scope, x.text);
-      if (other.t === 'arr') arr.items.push(...other.items);
+      if (other.t === 'arr') for (const y of other.items) arr.items.push(y);
       else arr.items.push(other);
     }
     return output(scope, inp, arr);

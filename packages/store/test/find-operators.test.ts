@@ -204,3 +204,10 @@ test('find < <= > >= and a...b on text: some word is in range in index order, ig
   // Accents are ignored: É sorts as e.
   assert.deepEqual(ids([{ Text: 'e...f' }]), [eclair]);
 });
+
+test('word-range finds compare astral and BMP sort keys by code point', (t) => {
+  const { store, ids } = fixture(t);
+  const hangul = store.create('Items', { Text: '한' }).recordId;
+  const fullwidth = store.create('Items', { Text: 'Ａ' }).recordId;
+  assert.deepEqual(ids([{ Text: '한...Ａ' }]), [hangul, fullwidth]);
+});
