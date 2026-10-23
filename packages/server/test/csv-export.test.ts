@@ -10,6 +10,8 @@ test('access-review CSV neutralizes legacy privilege-set names and headings', ()
     stale: false, has2fa: false,
   };
   const csv = accessReviewCsv({ database: 'test', unusedDays: 90, rows: [row], summary: [] });
-  assert.match(csv, /reader,'\t=1\+1,/);
+  // The cell still begins with the neutralising apostrophe; the tab after it is shown as an escape, not sent raw.
+  assert.match(csv, /reader,'\\u0009=1\+1,/);
+  assert.doesNotMatch(csv, /\t/);
   assert.ok(csv.startsWith('account,privilegeSet,'));
 });
