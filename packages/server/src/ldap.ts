@@ -68,7 +68,7 @@ export async function ldapAuthenticate(provider: LdapProvider, user: string, pas
     const emailAttr = provider.emailAttribute ?? 'mail';
     const groupAttr = provider.groupAttribute ?? 'memberOf';
     if (provider.bindDnTemplate) {
-      const dn = provider.bindDnTemplate.replace(/\{user\}/g, escapeDn(user));
+      const dn = provider.bindDnTemplate.replace(/\{user\}/g, () => escapeDn(user));
       if (!(await conn.bind(dn, password))) return undefined;
       const entry = await conn.searchOne(dn, 'base', '(objectClass=*)', [emailAttr, groupAttr]);
       return identity(entry, emailAttr, groupAttr);
@@ -104,7 +104,7 @@ function identity(entry: Entry | undefined, emailAttr: string, groupAttr: string
   // both, the name first.
   const groups: string[] = [];
   for (const g of raw) {
-    const cn = /^\s*cn=([^,]+)/i.exec(g)?.[1];
+    const cn = /^\s*cn=((?:\\.|[^,\\])+)/i.exec(g)?.[1];
     if (cn && !groups.includes(cn)) groups.push(unescapeDnValue(cn));
     if (!groups.includes(g)) groups.push(g);
   }
@@ -146,7 +146,7 @@ class LdapConnection {
     }
     const tls = url.protocol === 'ldaps:';
     if (!tls && url.protocol !== 'ldap:') throw new LdapError(`ldap: "${provider.url}" must start with ldap:// or ldaps://`);
-    const host = url.hostname;
+    const host = url.hostname.replace(/^\[(.*)\]$/, '$1');
     const port = Number(url.port) || (tls ? 636 : 389);
     const timeout = (provider.timeout ?? 10) * 1000;
     // The directory is one an administrator chose, on the network or not; the metadata range is never reached, and a name is checked on the lookup the connection uses.
