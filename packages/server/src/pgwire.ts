@@ -19,7 +19,7 @@
 // the binary format, per value, as Bind asks (pgbinary.ts).
 
 import { isUtf8 } from 'node:buffer';
-import { cleanSql, maskSql, sqlTokens } from '../../store/src/sql-tokens.ts';
+import { cleanSql, maskSql, sqlName, sqlTokens } from '../../store/src/sql-tokens.ts';
 import { noteSurfaceSignIn } from './surface-access.ts';
 import { FAULT_MESSAGE, isFault, logFault } from './fault-log.ts';
 import { createServer, type Server, type Socket } from 'node:net';
@@ -264,6 +264,11 @@ function writeState(code: number): string {
   if (code === 301) return '55P03';
   if (code === 812) return '54000';
   return '42000';
+}
+
+/** What a table that isn't there answers (SQLite's words, which is what the query gets when the name is really missing). */
+function missingTable(name: string): PgError {
+  return new PgError('42000', `no such table: ${name}`);
 }
 
 class Connection {
@@ -787,10 +792,20 @@ class Connection {
         if (code.slice(offset, offset + text.length) !== text) return text;
         return call ? values[call.toLowerCase()] : `'${this.user.replace(/'/g, "''")}'`;
       });
-    const translated = this.store!.calc.translateSQL(pgFunctions);
+    let translated: ReturnType<Store['calc']['translateSQL']>;
+    try {
+      translated = this.store!.calc.translateSQL(pgFunctions);
+    } catch (e) {
+      // A table of another file beside one of this file's is refused for being in two files; that must not tell an account which may not read the other one that the table is there.
+      const hidden = e instanceof Error && /different files/.test(e.message) ? this.refusedTable(pgFunctions) : undefined;
+      throw hidden === undefined ? e : missingTable(hidden);
+    }
     let { sql: text } = translated;
     const { target } = translated;
     if (!this.privileges!.in(target).readsEverything) {
+      // A table of another file that the account may not read answers as a table that isn't there, so the answer
+      // does not tell it that the table, or the file, exists. Its own file's refusal (at sign-in and above) still says why.
+      if (target !== this.store) throw missingTable(this.refusedTable(pgFunctions) ?? '');
       throw new PgError('42501', `SQL reads every record, and this account can't view every record and field in ${target.name}`);
     }
     // Only a query of the catalog's own tables is left out of the read log; a function of the catalog's name beside a table of the file is still a read of it.
@@ -801,6 +816,21 @@ class Connection {
     if (catalog || readsCatalog(text) || /\btabularius_array_item\b/.test(text)) catalogFunctions(target, data);
     if (catalog) text = withCatalog(text, data);
     return { text, target, catalog, casts };
+  }
+
+  /**
+   * The name the query gave a table of another file that this account may not read, as SQLite would give it for a table
+   * that isn't there (nothing when the query names none).
+   */
+  private refusedTable(sql: string): string | undefined {
+    const store = this.store!;
+    const refused = new Set(store.schema.tableOccurrences.filter((to) => {
+      const home = store.calc.occurrenceTable(to.id)?.store;
+      return home && home !== store && !this.privileges!.in(home).readsEverything;
+    }).map((to) => to.name.toLowerCase()));
+    if (!refused.size) return undefined;
+    const token = sqlTokens(sql).find((t) => (t.kind === 'word' || t.kind === 'identifier') && refused.has(sqlName(t).toLowerCase()));
+    return token ? sqlName(token) : undefined;
   }
 
   /** The names SQLite gives the casted columns of a select list when they are bare, which a cast of them takes as its name. */
