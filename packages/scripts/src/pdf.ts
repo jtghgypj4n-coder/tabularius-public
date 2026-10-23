@@ -259,7 +259,8 @@ function unfilter(raw: Buffer, width: number, height: number, bpp: number): Buff
   return out;
 }
 
-const MAX_IMAGE_PIXELS = 25_000_000;
+/** The most a PNG may decode to, in bytes (what inflating it and un-filtering its rows holds), however few pixels or little file it has. */
+const MAX_IMAGE_BYTES = 100_000_000;
 
 /** A PNG: passed through with PDF's PNG predictor, or split into color and alpha when it has an alpha channel. */
 function png(b: Buffer): Image | undefined {
@@ -287,16 +288,18 @@ function png(b: Buffer): Image | undefined {
     else if (kind === 'IEND') break;
     at += 12 + length;
   }
-  // A header can promise any size; a picture past this is left out rather than inflated (a small file can hold gigabytes).
-  if (!width || !height || transparent || interlace > 1 || !idat.length || width * height > MAX_IMAGE_PIXELS) return undefined;
+  if (!width || !height || transparent || interlace > 1 || !idat.length) return undefined;
   if (![0, 2, 3, 4, 6].includes(type) || (interlace && depth !== 8 && !([4, 6].includes(type) && depth === 16))) return undefined;
   if ([4, 6].includes(type) && depth !== 8 && depth !== 16) return undefined;
   if (type === 0 && ![1, 2, 4, 8, 16].includes(depth)) return undefined;
   if (type === 2 && depth !== 8 && depth !== 16) return undefined;
   if (type === 3 && (![1, 2, 4, 8].includes(depth) || !palette || !palette.length || palette.length % 3 || palette.length > 768)) return undefined;
-  const zipped = Buffer.concat(idat);
   const channels = type === 2 ? 3 : type === 4 ? 2 : type === 6 ? 4 : 1;
   const bytesPerPixel = channels * (depth === 16 ? 2 : 1);
+  // A header can promise any size; a picture that would decode past this many bytes is left out rather than inflated
+  // (a small file can hold gigabytes, and the cost is in bytes: a 16-bit picture with alpha is eight per pixel).
+  if (height * (Math.ceil(width * channels * depth / 8) + 1) > MAX_IMAGE_BYTES) return undefined;
+  const zipped = Buffer.concat(idat);
   let pixels: Buffer | undefined;
   if (interlace || type === 4 || type === 6) {
     const passes = interlace ? [[0, 0, 8, 8], [4, 0, 8, 8], [0, 4, 4, 8], [2, 0, 4, 4], [0, 2, 2, 4], [1, 0, 2, 2], [0, 1, 1, 2]] : [[0, 0, 1, 1]];
@@ -309,9 +312,14 @@ function png(b: Buffer): Image | undefined {
       return undefined;
     }
     if (inflated.length !== expected) return undefined;
-    pixels = Buffer.alloc(width * height * bytesPerPixel);
+    if (!interlace) {
+      // One pass over the whole picture: the un-filtered rows are the pixels.
+      for (let y = 0; y < height; y++) if (inflated[y * (width * bytesPerPixel + 1)] > 4) return undefined;
+      pixels = unfilter(inflated, width, height, bytesPerPixel);
+    }
+    else pixels = Buffer.alloc(width * height * bytesPerPixel);
     let offset = 0;
-    for (const [w, h, x0, y0, dx, dy] of sizes) {
+    for (const [w, h, x0, y0, dx, dy] of interlace ? sizes : []) {
       const length = h * (w * bytesPerPixel + 1);
       for (let y = 0; y < h; y++) if (inflated[offset + y * (w * bytesPerPixel + 1)] > 4) return undefined;
       const pass = unfilter(inflated.subarray(offset, offset + length), w, h, bytesPerPixel);

@@ -550,3 +550,27 @@ test('printing: Layout Setup\'s columns put records side by side, across or down
   const down = printLayout(parts, objects, rows, order, undefined, { printColumns: { count: 2, order: 'down' } });
   assert.deepEqual(at(down), [['total@46,38', 'a@46,58', 'b@46,258', 'c@46,458', 'd@316,58', 'e@316,258']]);
 });
+
+test('PDF: the decoded size of a PNG is capped in bytes, not pixels, so a 16-bit RGBA picture cannot hold half a gigabyte', () => {
+  const chunk = (kind: string, data: Buffer) => {
+    const body = Buffer.concat([Buffer.from(kind), data]);
+    const len = Buffer.alloc(4), crc = Buffer.alloc(4);
+    len.writeUInt32BE(data.length);
+    crc.writeUInt32BE(crc32(body));
+    return Buffer.concat([len, body, crc]);
+  };
+  // 4,000 x 4,000 is 16 million pixels (under the old pixel cap) but 128 MB of decoded 16-bit RGBA.
+  const [width, height] = [4000, 4000];
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width);
+  ihdr.writeUInt32BE(height, 4);
+  ihdr[8] = 16; ihdr[9] = 6;
+  const rows = Buffer.alloc(height * (width * 8 + 1));
+  const file = Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ihdr), chunk('IDAT', deflateSync(rows)), chunk('IEND', Buffer.alloc(0))]);
+  assert.ok(file.length < 1_000_000, `${file.length} bytes of PNG`);
+  assert.equal(readImage(file), undefined);
+  // A picture within the cap is still read: 2,000 x 2,000 16-bit RGBA is 32 MB.
+  ihdr.writeUInt32BE(2000); ihdr.writeUInt32BE(2000, 4);
+  const small = Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ihdr), chunk('IDAT', deflateSync(Buffer.alloc(2000 * (2000 * 8 + 1)))), chunk('IEND', Buffer.alloc(0))]);
+  assert.ok(readImage(small));
+});
