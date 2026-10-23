@@ -9,6 +9,8 @@
 // An all-day event's end date is inclusive: a record that ends on the 17th is shown through the 17th. (iCalendar's
 // own DTEND is exclusive, so the feed writes the day after, and the reader takes it back.) Also Tabularius's choice.
 
+import { StoreError } from './errors.ts';
+
 const DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
 const STAMP = /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?$/;
 const DAY = 86_400_000;
@@ -220,7 +222,9 @@ export interface ReadResult {
 export const READ_LIMITS = { events: 5000, occurrencesPerEvent: 366, bytes: 8 * 1024 * 1024 } as const;
 
 /** A calendar file that cannot be read as a whole (too many events, too much repeat work, cut off). The message is for the person importing it. */
-export class CalendarReadError extends Error {}
+export class CalendarReadError extends StoreError {
+  constructor(message: string) { super(960, message); }
+}
 
 /** Content lines with folds undone: a line starting with a space or a tab continues the one before it. */
 export function unfold(text: string): string[] {

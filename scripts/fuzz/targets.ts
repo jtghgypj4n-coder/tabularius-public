@@ -8,7 +8,7 @@ import { layoutObjectsFromSnippet } from '../../packages/store/src/layout-snippe
 import { uuidsFromSaveAsXml } from '../../packages/store/src/save-as-xml.ts';
 import { parseScriptText } from '../../packages/store/src/script-text.ts';
 import { DesignError } from '../../packages/store/src/design.ts';
-import { readCalendar } from '../../packages/store/src/calendar.ts';
+import { CalendarReadError, readCalendar } from '../../packages/store/src/calendar.ts';
 import { parseDelimited, parseDelimitedRows } from '../../packages/store/src/delimited.ts';
 import { fileMakerSqlSyntax, oneStatement } from '../../packages/store/src/sql-dates.ts';
 import { anyAllToIn, fetchToLimit, blanked } from '../../packages/store/src/sql-grammar.ts';
@@ -39,7 +39,7 @@ function request(data: Buffer): IncomingMessage {
 export function expected(target: Target, e: unknown): boolean {
   if (!(e instanceof Error)) return false;
   if (e instanceof TypeError || e instanceof RangeError) return false;
-  if (e instanceof DesignError || e instanceof CalcError || e instanceof FmpError || e instanceof XPathError || e instanceof ScriptError || e instanceof ApiError || e instanceof MultipartLimitError || e instanceof BatchError || e instanceof MissingSheetError || e instanceof SheetLimitError) return true;
+  if (e instanceof DesignError || e instanceof CalcError || e instanceof FmpError || e instanceof XPathError || e instanceof ScriptError || e instanceof ApiError || e instanceof MultipartLimitError || e instanceof BatchError || e instanceof MissingSheetError || e instanceof SheetLimitError || e instanceof CalendarReadError) return true;
   if (target === 'pgwire-binary') return e instanceof BinaryFormatError;
   if (['json', 'data-api'].includes(target) && e instanceof SyntaxError) return true;
   if (target === 'odata-filter' && e.constructor.name === 'ODataError') return true;
