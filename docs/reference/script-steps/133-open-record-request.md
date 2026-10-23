@@ -17,7 +17,7 @@ Open Record/Request is a records and finds script step. This page describes how 
 ## What the engine does
 
 The engine handles this step with the limits described in the support notes.
-Checks the record can be edited (error 200) and locks it until the script commits or reverts, as Set Field and the other field edits do; a record someone else is editing is error 301. Runs with no session or schedule behind them (the command line) check for others' locks but take none.
+Checks the record can be edited (error 200) and locks it until the script commits or reverts, as Set Field and the other field edits do; a record someone else is editing is error 301. Runs with no session or schedule behind them (the command line) check for others' locks but take none. In this engine, opening a record without editing it leaves Get ( RecordOpenState ) at 0. A Set Field to a related record is written immediately, so Revert Record does not undo it and it does not raise RecordOpenState. Whether FileMaker behaves the same way is unverified; matching behavior is not claimed.
 
 FileMaker comparisons in this note are inferred unless a Claris help page is linked. See the [full support notes](../../script-steps-support.md) for surrounding conditions.
 
