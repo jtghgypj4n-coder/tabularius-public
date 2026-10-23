@@ -443,8 +443,8 @@ export const ROWS: Row[] = [
   },
   {
     id: 'sign-in-failure-audit', section: 'Limits', setting: 'Failed sign-ins in the security audit',
-    default: 'After the first 1,000, failed sign-ins and lockouts may be at most 80% of a file\'s security events; past that they are not written (a lockout still locks, nothing is removed)',
-    changedBy: '`TABULARIUS_SIGN_IN_FAILURE_AUDIT_SHARE` (0 to 1; 1 for no limit)',
+    default: 'After the first 1,000, failed sign-in rows may be at most 80% of a file\'s security events; past that they are not written (lockout rows are always written, nothing is removed). Each server process counts once a minute, so several can overshoot a little',
+    changedBy: '`TABULARIUS_SIGN_IN_FAILURE_AUDIT_SHARE` (a plain decimal from 0 to 1; 1 for no limit)',
     risk: 'Past the share the audit has no row for a failure, so the usage report and the failed-burst alert see fewer of them (the access log has them all); without a limit a flood of wrong passwords fills the audit',
     how: 'read from code', expect: '0.8 / 1000',
     observe: async (c) => {
