@@ -8,6 +8,6 @@ A cap on tokens per day.
 | Accepted values | Positive number of tokens |
 | Restart needed | Yes for a running server. |
 | Explained in | [docs/environment-variables.md](../../../environment-variables.md) |
-| Code | [packages/cli/src/main.ts:1397](../../../../packages/cli/src/main.ts#L1397) |
+| Code | [packages/cli/src/main.ts:1406](../../../../packages/cli/src/main.ts#L1406) |
 
 [All environment variables](../../../environment-variables.md)

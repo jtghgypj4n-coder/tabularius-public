@@ -8,6 +8,6 @@ Passphrase used to unlock encrypted hosted files.
 | Accepted values | Passphrase for encrypted hosted files |
 | Restart needed | Yes for a running server. |
 | Explained in | [README.md](../../../../README.md) |
-| Code | [packages/cli/src/main.ts:1421](../../../../packages/cli/src/main.ts#L1421) |
+| Code | [packages/cli/src/main.ts:1430](../../../../packages/cli/src/main.ts#L1430) |
 
 [All environment variables](../../../environment-variables.md)

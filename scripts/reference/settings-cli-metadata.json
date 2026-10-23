@@ -1410,6 +1410,10 @@
     "write-back": {
       "exitCodes": "0 on success; 1 on error.",
       "example": "tabularius write-back --help"
+    },
+    "exit-bundle": {
+      "exitCodes": "0 on success; 1 on error.",
+      "example": "tabularius exit-bundle ./data Invoices --out ~/Invoices-copy --account Admin"
     }
   }
 }

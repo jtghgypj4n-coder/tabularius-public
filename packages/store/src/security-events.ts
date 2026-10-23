@@ -34,6 +34,7 @@ export const SECURITY_EVENT_KINDS = [
   'script-network-on', 'script-network-off',
   'web-viewer-hosts-changed',
   'standby-takeover',
+  'data-exported', 'data-export-refused',
 ] as const;
 
 /** The security and authentication events the audit log records, besides record changes. */
@@ -69,6 +70,7 @@ export const SECURITY_EVENT_CATEGORIES: Record<string, readonly SecurityEventKin
   'Script network access': ['script-network-on', 'script-network-off'],
   'Web viewer hosts': ['web-viewer-hosts-changed'],
   'Standby takeover': ['standby-takeover'],
+  'Data export': ['data-exported', 'data-export-refused'],
   'AI access': ['ai-turned-off', 'ai-turned-on', 'ai-access-refused', 'ai-policy-on', 'ai-policy-off', 'pii-isolation-on', 'pii-isolation-off', 'pii-field-marked', 'ai-data-masked'],
 };
 
@@ -92,7 +94,7 @@ export function categoryKinds(category: string): readonly SecurityEventKind[] {
  */
 export type SecurityEventSeverity = 'alert' | 'notice' | 'info';
 
-const ALERT = new Set<string>(['sign-in-failed', 'locked-out', 'accounts-import-rejected', 'plugin-install-refused']);
+const ALERT = new Set<string>(['sign-in-failed', 'locked-out', 'accounts-import-rejected', 'plugin-install-refused', 'data-export-refused']);
 const NOTICE = new Set<string>([
   'account-removed', 'account-disabled', 'account-local-only-cleared',
   'lockout-cleared',
@@ -101,7 +103,7 @@ const NOTICE = new Set<string>([
   'two-factor-disabled', 'passkey-removed', 'recovery-code-used',
   'api-token-issued', 'scim-token-issued', 'privilege-set-unassigned', 'agent-added', 'agent-change-rejected',
   'ai-turned-on', 'ai-access-refused', 'blank-password-lan-allowed', 'pii-isolation-off', 'pii-field-marked',
-  'audit-settings-changed', 'audit-pruned', 'plugin-installed', 'web-viewer-hosts-changed', 'standby-takeover',
+  'audit-settings-changed', 'audit-pruned', 'plugin-installed', 'web-viewer-hosts-changed', 'standby-takeover', 'data-exported',
 ]);
 
 export function securityEventSeverity(kind: string): SecurityEventSeverity {
@@ -198,6 +200,10 @@ export function describeSecurityEvent(e: AuditEntry): string {
     case 'blank-password-lan-allowed': return 'An empty-password account allowed to sign in from this LAN';
     case 'plugin-installed': return `Plug-in ${str(d.id) ?? '?'} ${str(d.version) ?? ''} installed by a script${str(d.script) ? ` (${str(d.script)})` : ''}, signed by ${str(d.signer) ?? 'nobody'}`.replace('  ', ' ');
     case 'plugin-install-refused': return `A script's plug-in install was refused${str(d.script) ? ` (${str(d.script)})` : ''}: ${str(d.why) ?? 'no reason given'}`;
+    case 'data-exported': return d.discarded === true
+      ? `${e.account ?? 'An account'} discarded an unfinished full-file export${str(d.folder) ? ` at ${str(d.folder)}` : ''}`
+      : `${e.account ?? 'An account'} exported a full copy of the file to ${str(d.folder) ?? '?'}`;
+    case 'data-export-refused': return `A full-file export as ${e.account ?? 'an unknown account'} was refused: ${str(d.reason) ?? 'no reason given'}`;
     case 'blank-password-lan-disallowed': return 'Empty-password accounts limited to this computer again';
     default: return titleCase(e.kind);
   }

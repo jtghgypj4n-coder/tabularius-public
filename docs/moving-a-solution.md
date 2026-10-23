@@ -955,3 +955,76 @@ Not carried: scripts, layouts, themes, privilege sets and accounts, custom
 functions, and the relationship graph beyond the keys above. With `--account`,
 the account needs the export privilege, and it gets the records and fields it
 can view, nothing else.
+
+### A portable copy of the whole file
+
+`export-sql` carries records and keys. To leave with *everything* in a form any
+tool can read, `tabularius exit-bundle` writes the whole file to a folder: every
+table, every container file, globals, serial counters, the design and the
+account names, with a manifest that proves the copy is complete.
+
+```sh
+tabularius exit-bundle <folder> Invoices --out ~/Invoices-copy --account Admin
+tabularius exit-bundle <folder> Invoices --out ~/Invoices-copy --account Admin --discard   # remove an unfinished copy
+```
+
+The password is asked for (or read from `TABULARIUS_PASSWORD`), never taken from
+a flag. The command prints counts and the path, and the **same copy is one
+button in the admin console**, "Take a portable copy", which writes to
+`Exports/<name>` beside the hosted files. The `Exports` folder is never hosted.
+
+What the folder holds:
+
+| File | What it is |
+|---|---|
+| `data.sqlite` | One table per table of the file with the stored columns and `_fm_record_id` as the key, plus `_exit_containers` (`id`, `path`, `size`, `sha256`, `mime`) listing every container file |
+| `csv/NNN-<table>.csv` | The same rows, one CSV per table: a header row, an empty cell for NULL, binary values as base64, standard quoting |
+| `containers/<id>-<file name>` | Every container file, including those stored outside the database, checked against its size |
+| `schema.json`, `schema.sql` | The schema (without password verifiers) and the `CREATE TABLE` statements of `data.sqlite` |
+| `globals.json`, `serials.json` | The current value of every global field and the next value of every serial number |
+| `design/` | Layouts, scripts, value lists, relationships and privilege sets as text; accounts by name and privilege set only |
+| `checks.sql` | Row counts per table, a check that every container id resolves, `PRAGMA integrity_check` and `PRAGMA foreign_key_check` |
+| `NOTES.txt` | Plain statements of what is and is not represented |
+| `manifest.json` | `format: 1`, the row counts, and the SHA-256 of every other file |
+
+Check a copy with standard tools: `sqlite3 data.sqlite < checks.sql` (every
+`missing` should be 0, `integrity_check` should say `ok`), and compare each file
+with the hash in `manifest.json`.
+
+**Who may ask.** Only an active account with the Full Access privilege set,
+signing in again for the export. It follows the ordinary sign-in rules: wrong
+passwords count toward the lockout of that address, a blank password does not
+work from the network, an account that must change its password cannot export
+until it has, and an account limited to this computer cannot export from
+elsewhere. An account that signs in with a **second factor** cannot export
+through the console, because an export cannot ask for one: use an account
+without a second factor for the export. The command line on the computer that
+holds the file is exempt from that rule only, since anyone who holds the file on
+disk could read it anyway. Every attempt is a security event, refused ones
+included (`data-export-refused`, never holding a password or a value), and a
+finished copy is `data-exported`.
+
+**It is plaintext.** The folder, and an unfinished copy next to it, hold every
+record and container file in the clear, even when the server encrypts files at
+rest. Keep them where only the right people can open them, and delete them when
+you are done. Field values that a file treats as sensitive are included, because
+a Full Access account can read them. Account credentials (passwords, verifiers,
+second-factor secrets, recovery codes) and API tokens are not.
+
+**If it stops.** The copy is built in `<folder>.partial` from a snapshot of the
+file taken when it starts, so the live file keeps working and a copy that is
+stopped part way finishes from the same snapshot when you run the same command
+again; a record created meanwhile is not in it. Nothing appears under the final
+name until the copy is complete and its hashes check out. To abandon an
+unfinished copy, use `--discard` or the console's "Discard an unfinished copy",
+which remove the snapshot.
+
+**Load and secrets in scripts.** The copy is made inside the server process, so a very large file slows every user until it finishes: run it at a quiet time. Layout and script text in `design/` is written as stored, so a script that holds a pasted password or key leaves with it.
+
+**Not carried.** Summary fields and unstored calculations have no stored value.
+Layout themes, live sessions, schedules, plug-in binaries and credentials are not
+included. Files that a container field stores outside the database are copied
+and checked for size, but anything outside the stored schema is unverified <!-- known-difference: Server operation ;; The portable copy checks a file stored outside the database for size only, and anything outside the stored schema is not checked ;; Such a file is copied and its size is compared; its contents and anything outside the schema are not verified ;; A comparison of a copy and its source for a solution that stores containers outside the database -->.
+Repeating container fields keep their ids in `data.sqlite`, and `checks.sql`
+checks only the scalar ones. This is Tabularius' own format; nothing here is
+claimed to match another product's export.

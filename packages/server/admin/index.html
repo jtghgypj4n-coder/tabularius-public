@@ -447,6 +447,19 @@
       <p id="restore-result" role="status"></p>
     </details>
   </section>
+  <section id="exit-section">
+    <h2>Take a portable copy</h2>
+    <p class="meta">Write the whole file to a folder anyone can read with standard tools: every table (SQLite and CSV), every container file, globals, serial numbers, the design and the account names, with a manifest of SHA-256 hashes. Only a Full Access account that signs in again here may ask, and every attempt is written to the security events. <strong>The copy is plaintext</strong>, even when the server encrypts files at rest, and is written to the <code>Exports</code> folder beside the hosted files. An unfinished copy (a name ending in <code>.partial</code>) is just as sensitive: finish it by running this again, or discard it.</p>
+    <div class="controls">
+      <label>File <select id="exit-db"></select></label>
+      <label>Folder name <input id="exit-name" placeholder="shop-2026-10-22" maxlength="80" autocomplete="off"></label>
+      <label>Full Access account <input id="exit-account" autocomplete="off"></label>
+      <label>Its password <input id="exit-password" type="password" autocomplete="off"></label>
+      <button id="exit-go" class="primary">Write the copy</button>
+      <button id="exit-discard">Discard an unfinished copy</button>
+    </div>
+    <p class="meta" id="exit-status" role="status"></p>
+  </section>
   <section id="sync-section" hidden>
     <h2>Sync with FileMaker Server <span class="count" id="sync-count"></span></h2>
     <p class="meta">Keeps a hosted file in step with its copy on a FileMaker Server, through the server&rsquo;s Data API. A check only reads: it lists what would be sent, what would be brought in, and the records changed on both sides. Nothing is sent or changed until you ask for it below, and only if the setup allows it. Files marked capture-only never sync.</p>
@@ -2049,6 +2062,13 @@ async function refresh() {
     eventsSelect.dataset.names = names.join('\n');
     if (first && names.length) loadEvents();
   }
+  const exitSelect = $('exit-db');
+  if (exitSelect.dataset.names !== names.join('\n')) {
+    const was = exitSelect.value;
+    exitSelect.innerHTML = names.map((n) => `<option>${esc(n)}</option>`).join('');
+    if (names.includes(was)) exitSelect.value = was;
+    exitSelect.dataset.names = names.join('\n');
+  }
   const viewasSelect = $('viewas-db');
   if (viewasSelect.dataset.names !== names.join('\n')) {
     const was = viewasSelect.value;
@@ -2874,6 +2894,24 @@ async function loadAiUse() {
 }
 loadAiUse();
 poll(loadAiUse, 30000);
+// A portable copy of a whole file, written to Exports/<name> beside the hosted files. The password is cleared after every attempt.
+async function exitCopy(discard) {
+  const body = { database: $('exit-db').value, name: $('exit-name').value.trim(), account: $('exit-account').value.trim(), password: $('exit-password').value };
+  if (!body.database || !body.name || !body.account || !body.password) { $('exit-status').textContent = 'Choose a file, give the copy a folder name, and give the name and password of a Full Access account.'; return; }
+  $('exit-go').disabled = $('exit-discard').disabled = true;
+  $('exit-status').textContent = discard ? 'Discarding…' : 'Writing the copy (a large file takes a while)…';
+  try {
+    const r = await call('POST', discard ? '/tabularius/admin/v1/exit-bundle/discard' : '/tabularius/admin/v1/exit-bundle', body);
+    $('exit-status').textContent = discard ? `Discarded the unfinished copy ${r.discarded}.`
+      : `Wrote ${r.folder}: ${r.tables} table${r.tables === 1 ? '' : 's'}, ${r.rows} row${r.rows === 1 ? '' : 's'}, ${r.containers} container file${r.containers === 1 ? '' : 's'}. It is plaintext: keep it private and delete it when you are done.`;
+  } catch (err) {
+    $('exit-status').textContent = `${err.message} If a copy was stopped part way, run it again with the same folder name to continue it, or discard it.`;
+  }
+  $('exit-password').value = '';
+  $('exit-go').disabled = $('exit-discard').disabled = false;
+}
+$('exit-go').addEventListener('click', () => exitCopy(false));
+$('exit-discard').addEventListener('click', () => exitCopy(true));
 // A new file planned by the assistant from a description, reviewed here, created only on Create.
 let solutionPlan;
 $('solution-plan').addEventListener('click', async () => {

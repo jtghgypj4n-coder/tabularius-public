@@ -53,6 +53,10 @@ import { auditCsvField } from '../../store/src/audit-output.ts';
 //   POST /tabularius/admin/v1/accounts/set-password     { database, account, password, mustChange? }: a password for any account, no Terminal needed
 //   POST /tabularius/admin/v1/accounts/unlock            { database, account } or { database, address }: lifts a sign-in lockout
 //                                                     on an account, or on an address blocked for too many failures
+//   POST /tabularius/admin/v1/exit-bundle              { database, name, account, password }: a portable copy of the whole file (tables as SQLite
+//                                                    and CSV, container files, globals, serials, design, accounts without secrets) written to
+//                                                    <hosted folder>/Exports/<name>; only a Full Access account that signs in again may ask
+//   POST /tabularius/admin/v1/exit-bundle/discard      { database, name, account, password }: removes an unfinished copy (<name>.partial)
 //   POST /tabularius/admin/v1/accounts/migrate-all       { database }: a one-time temporary password (forced change) for
 //                                                     every account still stuck on its FileMaker password — blank or not
 //   GET|POST /tabularius/admin/v1/accounts/blank-password-lan   ?database= / { database, on }: per-file opt-in to let an
@@ -130,9 +134,9 @@ import { isIP } from 'node:net';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { BoundedMap } from './bounded-map.ts';
 import { createHash, randomBytes } from 'node:crypto';
-import { copyFileSync, existsSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, extname, join, resolve, sep } from 'node:path';
-import { webViewerEntryCovers, hashPassword, defaultMinPasswordLength, checkPassword, addressBucket, StoreError, findStaleCalcs, refreshStaleCalcs, undoStaleRefresh, staleRefreshHistory, StaleCalcError, SECURITY_EVENT_CATEGORIES, isFullAccess, type AuditEntry, type FieldLevel, type SecurityEvent, type Store } from '../../store/src/index.ts';
+import { discardExitBundle, exitBundle, ExitBundleError, webViewerEntryCovers, hashPassword, defaultMinPasswordLength, checkPassword, addressBucket, StoreError, findStaleCalcs, refreshStaleCalcs, undoStaleRefresh, staleRefreshHistory, StaleCalcError, SECURITY_EVENT_CATEGORIES, isFullAccess, type AuditEntry, type FieldLevel, type SecurityEvent, type Store } from '../../store/src/index.ts';
 import { loadAsset, sendAsset } from './static-cache.ts';
 import { inlineScriptSources } from './csp.ts';
 import type { DataApi } from './dataapi.ts';
@@ -243,7 +247,7 @@ function consoleMethods(path: string): string | undefined {
     'backup-folder', 'backup', 'backup/stop', 'relax-unverified', 'reconvert-all',
     'solutions/plan', 'solutions', 'indexes', 'script-tests/run', 'records/restore',
     'health/revoke-token', 'health/fix-account', 'accounts/set-password', 'accounts/unlock',
-    'accounts/migrate-all', 'sessions/end', 'message',
+    'accounts/migrate-all', 'sessions/end', 'message', 'exit-bundle', 'exit-bundle/discard',
   ]);
   if (get.has(name)) return 'GET';
   if (post.has(name)) return 'POST';
@@ -1642,6 +1646,47 @@ export class Admin {
           if (cleared) store.auditLockoutCleared(account, 'account', clientAddress(req));
           this.log(`${store.name}: lockout ${cleared ? 'cleared' : 'not found'} for ${account} from the admin console`);
           send(200, { ok: true, cleared });
+        }
+      } else if ((path === '/tabularius/admin/v1/exit-bundle' || path === '/tabularius/admin/v1/exit-bundle/discard') && req.method === 'POST') {
+        // The portable copy of a whole file: plaintext, so a Full Access account signs in again here and every refusal is audited
+        // (store/exit-bundle.ts). It is written under <hosted folder>/Exports/<name>, which the scan for hosted files never reads.
+        const body = await readJson(req) as { database?: unknown; name?: unknown; account?: unknown; password?: unknown };
+        const wanted = said(body.database);
+        const host = this.host.names().find((n) => n.toLowerCase() === wanted.toLowerCase());
+        const store = host ? this.host.get(host) : undefined;
+        const folderName = said(body.name);
+        if (!store) send(404, { error: `"${wanted}" is not hosted` });
+        else if (typeof body.account !== 'string' || !body.account || typeof body.password !== 'string' || !body.password) send(400, { error: 'Give the name and password of a Full Access account' });
+        else if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/.test(folderName) || folderName.endsWith('.partial')) send(400, { error: 'The folder name starts with a letter or digit and uses only letters, digits, dots, dashes and underscores (80 at most)' });
+        else {
+          const exports = join(this.host.dir, 'Exports');
+          let problem: string | undefined;
+          try {
+            const there = lstatSync(exports, { throwIfNoEntry: false });
+            if (!there) mkdirSync(exports, { mode: 0o700 });
+            else if (there.isSymbolicLink() || !there.isDirectory()) problem = `${exports} is not a plain folder, so nothing was written; remove or rename it`;
+          } catch (e) {
+            problem = `${exports} could not be made: ${(e as Error).message}`;
+          }
+          if (problem) send(409, { error: problem });
+          else {
+            const credentials = { account: body.account, password: body.password, from: clientAddress(req) || UNKNOWN_CLIENT };
+            const folder = join(exports, folderName);
+            try {
+              if (path.endsWith('/discard')) {
+                await discardExitBundle(store, folder, credentials);
+                this.log(`${store.name}: an unfinished full-file copy was discarded from the admin console`);
+                send(200, { ok: true, discarded: `Exports/${folderName}.partial` });
+              } else {
+                const report = await exitBundle(store, folder, credentials);
+                this.log(`${store.name}: a full copy of the file was written to Exports/${folderName} from the admin console`);
+                send(200, { ok: true, folder: `Exports/${folderName}`, tables: report.tables, rows: report.rows, containers: report.containers });
+              }
+            } catch (e) {
+              if (!(e instanceof ExitBundleError)) throw e;
+              send(e.status, { error: e.message });
+            }
+          }
         }
       } else if (path === '/tabularius/admin/v1/accounts/migrate-all' && req.method === 'POST') {
         // A temporary password, forced to change at next sign-in, for every account still stuck on its FileMaker

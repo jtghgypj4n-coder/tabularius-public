@@ -735,6 +735,8 @@ export const groups: RestGroup[] = [
     anchors: [
       `path === '/tabularius/admin/v1/backup'`,
       `path === '/tabularius/admin/v1/backup/stop'`,
+      `path === '/tabularius/admin/v1/exit-bundle'`,
+      `path === '/tabularius/admin/v1/exit-bundle/discard'`,
       `path === '/tabularius/admin/v1/backup-folder'`,
       `path === '/tabularius/admin/v1/backups'`,
       String.raw`/^\/tabularius\/admin\/v1\/backups\/[^/]+\/verify$/.test(`,
@@ -765,6 +767,44 @@ export const groups: RestGroup[] = [
           response: j({ dir: '/srv/fm/Backups/2026-10-13_084500', files: ['Invoices.openhbam.sqlite', 'Contacts.openhbam.sqlite'], removed: ['2026-10-06_020000'] }),
         },
         notes: 'Also starts an off-site copy when one is set up. The check\'s outcome shows in status.backups.sets[].check. A body naming a "database" is 400: a backup covers every hosted file, and restores depend on that. 409 {"error": "The backup was stopped"} when POST /backup/stop ended it.',
+      },
+      {
+        method: 'POST',
+        path: '/tabularius/admin/v1/exit-bundle',
+        summary: 'Writes a portable copy of a whole hosted file to <hosted folder>/Exports/<name>: every table (data.sqlite and CSV), every container file, globals, serial counters, schema, design and account names, with a manifest of SHA-256 hashes. The copy is plaintext, even when files are encrypted at rest.',
+        permissions: WRITE + ' It also needs a second sign-in in the body: an active account with [Full Access] (and its password), checked like any sign-in (lockouts, blank passwords from the network, "must change password", local-only accounts).',
+        params: [
+          { name: 'database', in: 'body', type: 'string', required: true, description: 'The hosted file (404 "is not hosted").' },
+          { name: 'name', in: 'body', type: 'string', required: true, description: 'The folder name under Exports: a letter or digit first, then letters, digits, dots, dashes and underscores, 80 at most, not ending in .partial (400 otherwise).' },
+          { name: 'account', in: 'body', type: 'string', required: true, description: 'A Full Access account of that file.' },
+          { name: 'password', in: 'body', type: 'string', required: true, description: 'Its password. Never written to any log.' },
+        ],
+        example: {
+          request: `POST /tabularius/admin/v1/exit-bundle\n${COOKIE}\n${W}\n${CT}\n\n${j({ database: 'Invoices', name: 'invoices-2026-10-22', account: 'Admin', password: '(the account\'s password)' })}`,
+          status: 200,
+          response: j({ ok: true, folder: 'Exports/invoices-2026-10-22', tables: 12, rows: 250000, containers: 40 }),
+          skipReason: 'Writes a full plaintext copy of the file to disk and needs a Full Access account\'s password.',
+        },
+        notes: '403: the account is not an active Full Access account or the password is wrong (one answer for both), the address may not sign in to that account, the password must be changed first, or the account signs in with a second factor (an export cannot ask for one; use an account without one). Every refusal is a data-export-refused security event, a finished copy a data-exported event. 404: the file is not hosted. 400: missing account or password, or a bad name. 409: the folder already exists, an export to it is already running, Exports is not a plain folder, or a stopped copy cannot be resumed. A copy that was stopped part way stays in Exports/<name>.partial (plaintext too) and the same request continues it; discard it with POST /exit-bundle/discard.',
+      },
+      {
+        method: 'POST',
+        path: '/tabularius/admin/v1/exit-bundle/discard',
+        summary: 'Removes an unfinished portable copy (Exports/<name>.partial), which holds a plaintext snapshot of the whole file.',
+        permissions: WRITE + ' The same second sign-in as POST /exit-bundle.',
+        params: [
+          { name: 'database', in: 'body', type: 'string', required: true, description: 'The hosted file.' },
+          { name: 'name', in: 'body', type: 'string', required: true, description: 'The folder name the copy was started with.' },
+          { name: 'account', in: 'body', type: 'string', required: true, description: 'A Full Access account of that file.' },
+          { name: 'password', in: 'body', type: 'string', required: true, description: 'Its password.' },
+        ],
+        example: {
+          request: `POST /tabularius/admin/v1/exit-bundle/discard\n${COOKIE}\n${W}\n${CT}\n\n${j({ database: 'Invoices', name: 'invoices-2026-10-22', account: 'Admin', password: '(the account\'s password)' })}`,
+          status: 200,
+          response: j({ ok: true, discarded: 'Exports/invoices-2026-10-22.partial' }),
+          skipReason: 'Needs an unfinished copy on disk and a Full Access account\'s password.',
+        },
+        notes: '404 when there is no unfinished copy. 409 when it is not a plain folder owned by the server\'s user, other users can open it, or an export to that name is running. Audited as data-exported with detail discarded.',
       },
       {
         method: 'POST',
