@@ -891,6 +891,23 @@ test('the server is lost', async () => {
   assert.equal(records.stdout.trim().split('\n').length, 5);
 });
 
+test('two servers both took writes: the standby refuses a folder with its own file, and --overwrite starts it', { concurrency: false }, async () => {
+  const where = 'Two servers both took writes (a standby pair)';
+  const folder = tmp('standby-pair');
+  createStore(join(folder, 'Contacts.openhbam.sqlite'));
+  // No main server is needed: the refusal comes before the standby asks for anything. The address is one nothing listens on.
+  const primary = 'http://127.0.0.1:1';
+  const refused = spawnSync(process.execPath, ['--no-warnings', main, 'standby', folder, '--primary', primary, '--token', 'a-replication-token'], { encoding: 'utf8', env: { ...CLEAN_ENV, HOME: tmpdir() }, timeout: 60_000 });
+  assert.notEqual(refused.status, 0);
+  assert.ok(`${refused.stdout}${refused.stderr}`.includes(`already has files this standby didn't copy (Contacts.openhbam.sqlite): use an empty folder, or --overwrite to replace them`), refused.stderr);
+  assert.ok(section(where).includes(`already has files this standby didn't copy (...): use an empty folder, or --overwrite to replace them`));
+  // The command the page gives starts following (and keeps trying the unreachable main server) instead of refusing.
+  const standby = startStep(where, 'tabularius standby <folder> --primary URL --token <token> --overwrite', { folder, token: 'a-replication-token' }, { swap: { URL: primary } });
+  await until('the standby to start', () => standby.out().includes(`standby of ${primary} in ${folder}`));
+  await stopChild(standby.child);
+  assert.equal(await standby.exited, 0);
+});
+
 // --- the page and the tests agree ------------------------------------------------------------------------------
 
 test('every command and call on the page was run by a scenario, and every scenario is on the page', { concurrency: false }, () => {
@@ -902,7 +919,7 @@ test('every command and call on the page was run by a scenario, and every scenar
   for (const [line, why] of notRun) assert.ok(lines.includes(line) && why, `${line} is excused but not on the page`);
   // Every section of the page (but the ones that only introduce) has a scenario here.
   const names = [...sections.keys()].filter((n) => !['Find your problem', 'Before it goes wrong'].includes(n));
-  assert.equal(names.length, 16);
+  assert.equal(names.length, 17);
   const source = readFileSync(import.meta.filename, 'utf8');
   for (const n of names) assert.ok(source.includes(`'${n.replace(/'/g, "\\'")}'`) || source.includes(`"${n}"`), `no scenario performs "${n}"`);
   // The index at the top links every section.
@@ -910,4 +927,11 @@ test('every command and call on the page was run by a scenario, and every scenar
     const slug = n.toLowerCase().replace(/[^a-z0-9 -]/g, '').replace(/ /g, '-');
     assert.ok(page.includes(`](#${slug})`), `the table at the top does not link "${n}"`);
   }
+});
+
+test('two servers both took writes gives the standby refusal and overwrite steps', () => {
+  const where = 'Two servers both took writes (a standby pair)';
+  const text = section(where);
+  assert.ok(text.includes('already has files this standby didn\'t copy (...): use an empty folder, or --overwrite to replace them'));
+  assert.ok(text.includes('tabularius standby <folder> --primary URL --token <token> --overwrite'));
 });

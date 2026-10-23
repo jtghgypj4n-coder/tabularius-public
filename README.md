@@ -1299,7 +1299,9 @@ and run `tabularius serve ~/Standby`. The admin console shows which standbys
 are following and how far behind they are. [What a standby promises, what a takeover
 gives you and what it does not copy](docs/standby-guarantees.md). Over the internet, give the main
 server a certificate (`--tls-cert`/`--tls-key`); for a self-signed one, start
-the standby with `NODE_EXTRA_CA_CERTS=cert.pem`.
+the standby with `NODE_EXTRA_CA_CERTS=cert.pem`. The model is single-writer: one primary takes writes and asynchronously
+replicates its files to a standby, which requires manual promotion with no automatic failover or fencing, so it may lack the
+last seconds of acknowledged writes ([what clients see after a takeover](docs/standby-guarantees.md#what-a-client-sees-after-a-takeover)).
 
 **SQL for reports and BI tools** (FileMaker's ODBC/JDBC). Grant the
 `fmxdbc` extended privilege (`tabularius privileges <folder> <db> grant
