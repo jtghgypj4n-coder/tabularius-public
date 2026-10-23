@@ -7,7 +7,7 @@ missing from it. `npm run docs:known-differences` rewrites it, and a test fails 
 marker (`<!-- known-difference: area ;; what ;; how it shows ;; what would settle it -->`). Internal working notes are not
 part of it.
 
-**123 entries in 20 areas.** Waiting on: 22 on a sample file, 65 on a FileMaker run or Design Report, 10 on a Claris answer, 16 on a decision by the owner (an entry can wait on more than one).
+**125 entries in 21 areas.** Waiting on: 22 on a sample file, 65 on a FileMaker run or Design Report, 10 on a Claris answer, 16 on a decision by the owner (an entry can wait on more than one).
 
 ## Data API
 
@@ -53,6 +53,13 @@ part of it.
 | What differs or is unknown | How it shows | What would settle it | Where it is written |
 | --- | --- | --- | --- |
 | Behaviour the MCP specification leaves open (malformed stdio input, requests before initialize, sessionless DELETE, progress and cancellation effects, SSE resume, GET stream lifetime, request limits) is a Tabularius choice or not offered, not a claim of matching another server | An MCP client that relies on one of these behaviours may see a different answer or a refusal | A later MCP specification revision or tested behaviour of reference servers that pins these cases | [docs/audits/mcp-conformance.md › Not specified or not offered](audits/mcp-conformance.md) — “…features. No Claris or vendor behavior is inferred by these tests.” |
+
+## Performance
+
+| What differs or is unknown | How it shows | What would settle it | Where it is written |
+| --- | --- | --- | --- |
+| The start-up and layout render times of one very large solution in another product are not compared with ours | Nothing shows; the benchmark here only measures a generated file | A run of the same solution on both products | [docs/performance.md › Wide-solution cold start and first use](performance.md) — “multi-second layout renders are unverified here. Matching that product's” |
+| Behaviour at that scale in another product is not matched or measured | Nothing shows; we do not claim equal speed | A side by side run on the same large file | [docs/performance.md › Wide-solution cold start and first use](performance.md) — “multi-second layout renders are unverified here. Matching that product's” |
 
 ## PostgreSQL connection
 
