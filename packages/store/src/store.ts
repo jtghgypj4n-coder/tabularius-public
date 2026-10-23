@@ -7277,6 +7277,7 @@ export class Store {
       try { closeSync(fd); } catch (error) { complete = false; throw error; } finally { if (!complete) cleanup(); }
     }
     if (this.heldBy) this.heldFiles.push(cleanup);
+    this.keyFiles?.push(cleanup);
     return { rel, full, cleanup };
   }
 
@@ -9049,8 +9050,30 @@ export class Store {
     }
   }
 
-  /** A write that follows foreign keys, all or nothing: in its own savepoint (or write transaction) with its change events held. */
+  /** External container files written inside the foreign-key step now running, removed again if the step is refused. */
+  private keyFiles?: (() => void)[];
+
+  /** A write that follows foreign keys, all or nothing: in its own savepoint (or write transaction) with its change events held, and the container files it wrote on disk removed when it is refused. */
   private keyStep<T>(run: () => T): T {
+    const outer = this.keyFiles;
+    const files: (() => void)[] = [];
+    const held = this.heldFiles.length;
+    this.keyFiles = files;
+    try {
+      const out = this.keyStepWork(run);
+      outer?.push(...files);
+      return out;
+    } catch (e) {
+      for (const remove of files.reverse()) remove();
+      // They are gone, so the transaction need not remove them again if it rolls back later.
+      this.heldFiles.length = Math.min(this.heldFiles.length, held);
+      throw e;
+    } finally {
+      this.keyFiles = outer;
+    }
+  }
+
+  private keyStepWork<T>(run: () => T): T {
     if (!this.sql.isTransaction) return this.withWriteTransaction(run);
     const name = `fk_${++this.trials}`;
     const audit = this.heldAudit.length;
