@@ -13,7 +13,7 @@ export function dryRunSummary(r: ScriptDryRun): string {
     .filter(([n]) => n).map(([n, verb], i) => (i === 0 ? `${verb} ${plural(n as number, 'record')}` : `${verb} ${n}`));
   const said = parts.length ? `It would ${parts.slice(0, -1).join(', ')}${parts.length > 1 ? ' and ' : ''}${parts.at(-1)}` : 'It would change no records';
   const more = c.more ? `, and ${plural(c.more, 'more record')} not listed` : '';
-  const emptied = c.truncated.length ? `. It would empty ${c.truncated.map((t) => `${t.table} (${plural(t.records, 'record')})`).join(', ')}` : '';
+  const emptied = c.truncated.length ? `. It would empty ${c.truncated.map((t) => `${t.file ? `${t.file} / ` : ''}${t.table} (${plural(t.records, 'record')})`).join(', ')}` : '';
   const ended = r.ended.error ? `. It stops with error ${r.ended.error}${r.message ? ` (${r.message})` : ''}` : r.ended.result ? `. It ends with the result “${r.ended.result}”` : '';
   const partial = c.incomplete ? '. It changes so much that only its first changes were read, so there is more than this' : '';
   return `${said}${more}${emptied}${ended}${partial}.`;

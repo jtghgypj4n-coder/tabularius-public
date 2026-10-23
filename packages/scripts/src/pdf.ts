@@ -263,52 +263,97 @@ const MAX_IMAGE_PIXELS = 25_000_000;
 
 /** A PNG: passed through with PDF's PNG predictor, or split into color and alpha when it has an alpha channel. */
 function png(b: Buffer): Image | undefined {
+  if (b.length < 8 || !b.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) return undefined;
   let at = 8;
   let width = 0, height = 0, depth = 0, type = 0, interlace = 0;
+  let transparent = false;
   let palette: Buffer | undefined;
   const idat: Buffer[] = [];
   while (at + 8 <= b.length) {
     const length = b.readUInt32BE(at);
+    if (length > b.length - at - 12) return undefined;
     const kind = b.toString('latin1', at + 4, at + 8);
     const data = b.subarray(at + 8, at + 8 + length);
     if (kind === 'IHDR') {
+      if (length < 13) return undefined;
       width = data.readUInt32BE(0);
       height = data.readUInt32BE(4);
       depth = data[8];
       type = data[9];
       interlace = data[12];
     } else if (kind === 'PLTE') palette = data;
+    else if (kind === 'tRNS') transparent = true;
     else if (kind === 'IDAT') idat.push(data);
     else if (kind === 'IEND') break;
     at += 12 + length;
   }
   // A header can promise any size; a picture past this is left out rather than inflated (a small file can hold gigabytes).
-  if (!width || !height || interlace || !idat.length || width * height > MAX_IMAGE_PIXELS) return undefined;
+  if (!width || !height || transparent || interlace > 1 || !idat.length || width * height > MAX_IMAGE_PIXELS) return undefined;
+  if (![0, 2, 3, 4, 6].includes(type) || (interlace && depth !== 8 && !([4, 6].includes(type) && depth === 16))) return undefined;
+  if ([4, 6].includes(type) && depth !== 8 && depth !== 16) return undefined;
+  if (type === 0 && ![1, 2, 4, 8, 16].includes(depth)) return undefined;
+  if (type === 2 && depth !== 8 && depth !== 16) return undefined;
+  if (type === 3 && (![1, 2, 4, 8].includes(depth) || !palette || !palette.length || palette.length % 3 || palette.length > 768)) return undefined;
   const zipped = Buffer.concat(idat);
+  const channels = type === 2 ? 3 : type === 4 ? 2 : type === 6 ? 4 : 1;
+  const bytesPerPixel = channels * (depth === 16 ? 2 : 1);
+  let pixels: Buffer | undefined;
+  if (interlace || type === 4 || type === 6) {
+    const passes = interlace ? [[0, 0, 8, 8], [4, 0, 8, 8], [0, 4, 4, 8], [2, 0, 4, 4], [0, 2, 2, 4], [1, 0, 2, 2], [0, 1, 1, 2]] : [[0, 0, 1, 1]];
+    const sizes = passes.filter(([x, y]) => x < width && y < height).map(([x, y, dx, dy]) => [Math.ceil((width - x) / dx), Math.ceil((height - y) / dy), x, y, dx, dy]);
+    const expected = sizes.reduce((sum, [w, h]) => sum + h * (w * bytesPerPixel + 1), 0);
+    let inflated: Buffer;
+    try {
+      inflated = inflateSync(zipped, { maxOutputLength: expected });
+    } catch {
+      return undefined;
+    }
+    if (inflated.length !== expected) return undefined;
+    pixels = Buffer.alloc(width * height * bytesPerPixel);
+    let offset = 0;
+    for (const [w, h, x0, y0, dx, dy] of sizes) {
+      const length = h * (w * bytesPerPixel + 1);
+      for (let y = 0; y < h; y++) if (inflated[offset + y * (w * bytesPerPixel + 1)] > 4) return undefined;
+      const pass = unfilter(inflated.subarray(offset, offset + length), w, h, bytesPerPixel);
+      offset += length;
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+        pass.copy(pixels, ((y0 + y * dy) * width + x0 + x * dx) * bytesPerPixel, (y * w + x) * bytesPerPixel, (y * w + x + 1) * bytesPerPixel);
+      }
+    }
+  }
   if (type === 0 || type === 2 || type === 3) {
+    if (!pixels) {
+      const rowBytes = Math.ceil(width * channels * depth / 8);
+      const expected = height * (rowBytes + 1);
+      let raw: Buffer;
+      try {
+        raw = inflateSync(zipped, { maxOutputLength: expected });
+      } catch {
+        return undefined;
+      }
+      if (raw.length !== expected) return undefined;
+      for (let y = 0; y < height; y++) if (raw[y * (rowBytes + 1)] > 4) return undefined;
+    }
     const colors = type === 2 ? 3 : 1;
     const space = type === 3 && palette
       ? `[/Indexed /DeviceRGB ${palette.length / 3 - 1} <${palette.toString('hex')}>]`
       : type === 2 ? '/DeviceRGB' : '/DeviceGray';
+    const data = pixels ? (() => {
+      const rows = Buffer.alloc(height * (width * bytesPerPixel + 1));
+      for (let y = 0; y < height; y++) pixels!.copy(rows, y * (width * bytesPerPixel + 1) + 1, y * width * bytesPerPixel, (y + 1) * width * bytesPerPixel);
+      return deflateSync(rows);
+    })() : zipped;
     return {
-      width, height, data: zipped,
+      width, height, data,
       dict: `/ColorSpace ${space} /BitsPerComponent ${depth} /Filter /FlateDecode /DecodeParms << /Predictor 15 /Colors ${colors} /BitsPerComponent ${depth} /Columns ${width} >>`,
     };
   }
-  if ((type !== 4 && type !== 6) || depth !== 8) return undefined;
-  const channels = type === 6 ? 4 : 2;
-  let inflated: Buffer;
-  try {
-    inflated = inflateSync(zipped, { maxOutputLength: height * (width * channels + 1) });
-  } catch {
-    return undefined;
-  }
-  const pixels = unfilter(inflated, width, height, channels);
+  if (!pixels) return undefined;
   const color = Buffer.alloc(width * height * (channels - 1));
   const alpha = Buffer.alloc(width * height);
   for (let i = 0; i < width * height; i++) {
-    for (let k = 0; k < channels - 1; k++) color[i * (channels - 1) + k] = pixels[i * channels + k];
-    alpha[i] = pixels[i * channels + channels - 1];
+    for (let k = 0; k < channels - 1; k++) color[i * (channels - 1) + k] = pixels[i * bytesPerPixel + k * (depth === 16 ? 2 : 1)];
+    alpha[i] = pixels[i * bytesPerPixel + (channels - 1) * (depth === 16 ? 2 : 1)];
   }
   return {
     width, height, data: deflateSync(color),

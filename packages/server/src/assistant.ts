@@ -2423,7 +2423,7 @@ function describeDryRun(d: DryRun): string {
   const counts = c ? (['create', 'update', 'delete'] as const).map((k) => [k, c.records.filter((r) => r.kind === k).length] as const).filter(([, n]) => n)
     .map(([k, n]) => `${k === 'create' ? 'created' : k === 'update' ? 'changed' : 'deleted'} ${n} record${n === 1 ? '' : 's'}`) : [];
   if (c?.more || c?.incomplete) counts.push(c.more ? `and ${c.more} more` : 'and more');
-  if (c?.truncated.length) counts.push(`emptied ${c.truncated.map((t) => t.table).join(', ')}`);
+  if (c?.truncated.length) counts.push(`emptied ${c.truncated.map((t) => `${t.file ? `${t.file} / ` : ''}${t.table}`).join(', ')}`);
   if (counts.length) return describeDryRunOutcome(d, where) + `; it ${counts.join(', ')}`;
   return describeDryRunOutcome(d, where);
 }

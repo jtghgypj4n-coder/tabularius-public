@@ -2,12 +2,12 @@
 // with what they expect; a run can be recorded as a case; AI steps get the case's answers, not a model.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { createStore, Store } from '@tabularius/store';
-import { recordScriptTest, runScriptTests } from '../src/index.ts';
+import { compareScriptDraft, dryRunScript, recordScriptTest, runScriptTests } from '../src/index.ts';
 
 let dir: string;
 let store: Store;
@@ -122,9 +122,86 @@ test('draft comparison compares complete long field values', async () => {
   assert.equal(comparison.cases[0].differences.some((d) => d.what === 'records changed'), true);
 });
 
+test('dry run keeps identical table and record ids separate by file', async () => {
+  const path = join(dir, 'Other.sqlite');
+  createStore(path);
+  const other = new Store(path, 'Other');
+  try {
+    other.applyDesign([
+      { op: 'createTable', name: 'Settings', fields: [{ name: 'Value', type: 'text' }] },
+      { op: 'createScript', name: 'Erase', text: 'Delete Record/Request [ With dialog: Off ]' },
+    ]);
+    other.create('Settings', { Value: 'old' });
+    store.applyDesign([
+      { op: 'createTable', name: 'Settings', fields: [{ name: 'Value', type: 'text' }] },
+      { op: 'createDataSource', name: 'Other', paths: ['file:Other'] },
+      { op: 'createScript', name: 'Across files', text: 'New Record/Request\nSet Field [ Settings::Value ; "new" ]\nPerform Script [ Specified: By name ; "Other::Erase" ]' },
+      { op: 'createScript', name: 'Only here', text: 'New Record/Request\nSet Field [ Settings::Value ; "new" ]' },
+    ]);
+    store.resolveFile = (name) => name === 'Other' ? other : undefined;
+    const script = store.schema.scripts.find((s) => s.name === 'Across files')!;
+    const result = await dryRunScript(store, script.id, { layout: 'Settings' }, { others: [other] });
+    assert.deepEqual(result.changes.records.map(({ file, table, recordId, kind }) => ({ file, table, recordId, kind })), [
+      { file: store.name, table: 'Settings', recordId: 1, kind: 'create' },
+      { file: other.name, table: 'Settings', recordId: 1, kind: 'delete' },
+    ]);
+    const only = store.schema.scripts.find((s) => s.name === 'Only here')!;
+    const single = await dryRunScript(store, only.id, { layout: 'Settings' });
+    assert.equal('file' in single.changes.records[0], false);
+  } finally {
+    store.resolveFile = () => undefined;
+    other.close();
+  }
+});
+
+test('draft comparison distinguishes identical changes in different files', async () => {
+  const open = (name: string) => {
+    const path = join(dir, `${name}.sqlite`);
+    createStore(path);
+    return new Store(path, name);
+  };
+  const left = open('Left');
+  const right = open('Right');
+  try {
+    for (const file of [left, right]) {
+      file.applyDesign([
+        { op: 'createTable', name: 'Settings', fields: [{ name: 'Value', type: 'text' }] },
+        { op: 'createScript', name: 'Touch', text: 'Set Field [ Settings::Value ; "new" ]' },
+      ]);
+      file.create('Settings', { Value: 'old' });
+    }
+    store.applyDesign([
+      { op: 'createTable', name: 'MainCase', fields: [{ name: 'Value', type: 'text' }] },
+      { op: 'createDataSource', name: 'Left', paths: ['file:Left'] },
+      { op: 'createDataSource', name: 'Right', paths: ['file:Right'] },
+      { op: 'createScript', name: 'Which file', text: 'Perform Script [ Specified: By name ; "Left::Touch" ]' },
+    ]);
+    store.resolveFile = (name) => name === 'Left' ? left : name === 'Right' ? right : undefined;
+    const script = store.schema.scripts.find((s) => s.name === 'Which file')!;
+    const compared = await compareScriptDraft(store, script.id, 'Perform Script [ Specified: By name ; "Right::Touch" ]',
+      [{ name: 'same change, another file', given: { layout: 'MainCase' } }], [], { others: [left, right] });
+    assert.equal(compared.cases[0].same, false);
+    assert.equal(compared.cases[0].differences.some((d) => d.what === 'records changed'), true, JSON.stringify(compared.cases[0]));
+  } finally {
+    store.resolveFile = () => undefined;
+    left.close();
+    right.close();
+  }
+});
+
 test('a resource-limited script test fails with an explanation while intentional Halt Script can pass', async () => {
   const childPath = join(import.meta.dirname, 'script-tests-termination-child.mjs');
-  const child = spawnSync(process.execPath, [childPath], { encoding: 'utf8', timeout: 5_000 });
+  const marker = join(dir, 'unexpected-command');
+  const bin = join(dir, 'stub-bin');
+  mkdirSync(bin, { recursive: true });
+  for (const command of ['launchctl', 'systemctl', 'sc', 'git', 'npm', 'curl', 'sudo']) {
+    writeFileSync(join(bin, command), '#!/bin/sh\nprintf "%s\\n" "$0" >> "$TABULARIUS_TEST_CHILD_MARKER"\nexit 99\n', { mode: 0o755 });
+  }
+  const child = spawnSync(process.execPath, [childPath], {
+    encoding: 'utf8', timeout: 5_000,
+    env: { ...process.env, PATH: bin, TABULARIUS_TEST_CHILD_MARKER: marker },
+  });
+  assert.equal(existsSync(marker), false, 'the child ran an external command');
   assert.equal(child.error, undefined, child.error?.message);
   assert.equal(child.status, 0, child.stderr);
   const { limited, canceled } = JSON.parse(child.stdout);
