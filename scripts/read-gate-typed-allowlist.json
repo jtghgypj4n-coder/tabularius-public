@@ -2592,3 +2592,2549 @@
   "why": "FTS index maintenance; returns nothing."
  }
 ]
+[
+ {
+  "file": "packages/cli/src/main.ts",
+  "within": "hostedRead",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "full-access",
+  "why": "CLI `records` command run by the host operator on the SQLite file opened from the hosted folder (OS file access already equals full read); no network or account caller reaches it."
+ },
+ {
+  "file": "packages/cli/src/main.ts",
+  "within": "main",
+  "api": "Store.auditLog",
+  "count": 1,
+  "gate": "full-access",
+  "why": "CLI `audit` command run by the host operator on the hosted file's folder; no account/session caller."
+ },
+ {
+  "file": "packages/scripts/src/data-api-step.ts",
+  "within": "respond",
+  "api": "Store.find",
+  "count": 1,
+  "gate": "checked-before",
+  "why": "The FindOptions object `find` includes `privileges` from opts (engine passes this.reading at 3042 / this.write at 4393), so Store.find gates layout, fields and records; the scanner missed it because the options are in a variable."
+ },
+ {
+  "file": "packages/scripts/src/engine.ts",
+  "within": "ScriptEngine.containerFile",
+  "api": "Store.container",
+  "count": 1,
+  "gate": "checked-before",
+  "why": "pv.field()==='none' check and gated via(info).get(..., this.privileges) on the record before the container bytes are printed."
+ },
+ {
+  "file": "packages/scripts/src/engine.ts",
+  "within": "ScriptEngine.exportField",
+  "api": "Store.container",
+  "count": 1,
+  "gate": "checked-before",
+  "why": "Requires canExport in both files, returns nothing when pv.field()==='none' (covers masked), and calls via(info).get(..., this.privileges, {fields:[field]}) on the record before reading the container bytes."
+ },
+ {
+  "file": "packages/scripts/src/engine.ts",
+  "within": "ScriptEngine.findRelated",
+  "api": "Store.findIds",
+  "count": 3,
+  "gate": "checked-before",
+  "why": "this.reading carries the session Privileges (elevated only for a full-access script's own file); Store.findIds applies checkLayout, checkFieldsVisible and the record viewFilter - the scanner could not see the type of the spread getter; related hits go through relatedIds (viewableIds filter) and are intersected with the gated `all`."
+ },
+ {
+  "file": "packages/scripts/src/engine.ts",
+  "within": "ScriptEngine.foundSet",
+  "api": "Store.findIds",
+  "count": 1,
+  "gate": "checked-before",
+  "why": "this.reading carries the session Privileges (elevated only for a full-access script's own file); Store.findIds applies checkLayout, checkFieldsVisible and the record viewFilter - the scanner could not see the type of the spread getter."
+ },
+ {
+  "file": "packages/scripts/src/engine.ts",
+  "within": "ScriptEngine.get",
+  "api": "Store.findIds",
+  "count": 1,
+  "gate": "checked-before",
+  "why": "this.reading carries the session Privileges (elevated only for a full-access script's own file); Store.findIds applies checkLayout, checkFieldsVisible and the record viewFilter - the scanner could not see the type of the spread getter (Get(TotalRecordCount) counts only viewable records)."
+ },
+ {
+  "file": "packages/scripts/src/engine.ts",
+  "within": "ScriptEngine.goToList",
+  "api": "Store.findIds",
+  "count": 1,
+  "gate": "checked-before",
+  "why": "this.reading carries the session Privileges (elevated only for a full-access script's own file); Store.findIds applies checkLayout, checkFieldsVisible and the record viewFilter - the scanner could not see the type of the spread getter; caller-supplied ids are intersected with that gated set."
+ },
+ {
+  "file": "packages/scripts/src/engine.ts",
+  "within": "ScriptEngine.importRecords",
+  "api": "Store.findIds",
+  "count": 1,
+  "gate": "checked-before",
+  "why": "this.reading carries the session Privileges (elevated only for a full-access script's own file); Store.findIds applies checkLayout, checkFieldsVisible and the record viewFilter - the scanner could not see the type of the spread getter; also pv.checkImport and match-field pv.field() checks."
+ },
+ {
+  "file": "packages/scripts/src/engine.ts",
+  "within": "ScriptEngine.lookupNext",
+  "api": "Store.row",
+  "count": 1,
+  "gate": "checked-before",
+  "why": "Preceded by via(info).get(..., this.privileges, {fields:[]}) (record-view check); the raw row only feeds calc lookupNext, which checks hidden/masked source keys, hidden/masked target field and canViewRecord with pass.privileges (store/src/calc.ts:1615)."
+ },
+ {
+  "file": "packages/scripts/src/engine.ts",
+  "within": "ScriptEngine.newRecord",
+  "api": "Store.findIds",
+  "count": 1,
+  "gate": "checked-before",
+  "why": "findIds is given this.reading (the running script's privileges; the scan does not see through the getter), so the set holds only records the account may view; it is only compared with other windows' found sets to see which of them show every record, and no value is returned."
+ },
+ {
+  "file": "packages/scripts/src/engine.ts",
+  "within": "ScriptEngine.performFind",
+  "api": "Store.findIds",
+  "count": 1,
+  "gate": "checked-before",
+  "why": "this.reading carries the session Privileges (elevated only for a full-access script's own file); Store.findIds applies checkLayout, checkFieldsVisible and the record viewFilter - the scanner could not see the type of the spread getter (query fields hidden from the account raise 102)."
+ },
+ {
+  "file": "packages/scripts/src/engine.ts",
+  "within": "ScriptEngine.quickFind",
+  "api": "Store.findIds",
+  "count": 3,
+  "gate": "checked-before",
+  "why": "this.reading carries the session Privileges (elevated only for a full-access script's own file); Store.findIds applies checkLayout, checkFieldsVisible and the record viewFilter - the scanner could not see the type of the spread getter."
+ },
+ {
+  "file": "packages/scripts/src/engine.ts",
+  "within": "ScriptEngine.relatedIds",
+  "api": "Store.findIds",
+  "count": 1,
+  "gate": "checked-before",
+  "why": "this.reading carries the session Privileges (elevated only for a full-access script's own file); Store.findIds applies checkLayout, checkFieldsVisible and the record viewFilter - the scanner could not see the type of the spread getter; each hop is also filtered by toInfo.owner.viewableIds(table, this.privileges)."
+ },
+ {
+  "file": "packages/scripts/src/engine.ts",
+  "within": "ScriptEngine.relatedIds",
+  "api": "Store.matchIds",
+  "count": 1,
+  "gate": "checked-before",
+  "why": "Match keys come from this.record() (gated Store.get, hidden keys empty); the matched ids are filtered by toInfo.owner.viewableIds(table, this.privileges) before return."
+ },
+ {
+  "file": "packages/scripts/src/engine.ts",
+  "within": "ScriptEngine.relatedIds",
+  "api": "Store.select",
+  "count": 1,
+  "gate": "checked-before",
+  "why": "Condition built by related.condition() with this.privileges (canViewRecord on the source row, hidden/masked source key -> no match); ids returned are filtered by viewableIds after the hop, so only viewable related ids leave relatedIds."
+ },
+ {
+  "file": "packages/scripts/src/engine.ts",
+  "within": "ScriptEngine.revertTransaction",
+  "api": "Store.findIds",
+  "count": 1,
+  "gate": "checked-before",
+  "why": "this.reading carries the session Privileges (elevated only for a full-access script's own file); Store.findIds applies checkLayout, checkFieldsVisible and the record viewFilter - the scanner could not see the type of the spread getter; used only to drop ids from existing found sets."
+ },
+ {
+  "file": "packages/scripts/src/engine.ts",
+  "within": "ScriptEngine.semanticFind",
+  "api": "Store.findIds",
+  "count": 2,
+  "gate": "checked-before",
+  "why": "this.reading carries the session Privileges (elevated only for a full-access script's own file); Store.findIds applies checkLayout, checkFieldsVisible and the record viewFilter - the scanner could not see the type of the spread getter; related scores also limited to `visible` and values read through valueOf (field check + gated get)."
+ },
+ {
+  "file": "packages/scripts/src/engine.ts",
+  "within": "ScriptEngine.sourceValue",
+  "api": "Store.container",
+  "count": 1,
+  "gate": "checked-before",
+  "why": "pv.field()==='none' check (covers masked) and gated via(info).get(..., this.privileges, {fields:[field]}) on the record before the container is read."
+ },
+ {
+  "file": "packages/scripts/src/engine.ts",
+  "within": "ScriptEngine.step",
+  "api": "Store.findIds",
+  "count": 2,
+  "gate": "checked-before",
+  "why": "this.reading carries the session Privileges (elevated only for a full-access script's own file); Store.findIds applies checkLayout, checkFieldsVisible and the record viewFilter - the scanner could not see the type of the spread getter (Show All Records, Show Omitted Only)."
+ },
+ {
+  "file": "packages/scripts/src/engine.ts",
+  "within": "ScriptEngine.valueOf",
+  "api": "Store.findIds",
+  "count": 2,
+  "gate": "checked-before",
+  "why": "The first findIds is given this.reading (the running script's privileges; the scan does not see through the getter), so it picks only a record the account may view to read a global from. The second runs only when that finds none, and its id goes straight to this.record(), which refuses a record the account may not view (200): it only keeps the refusal the account always got. Either way the value is read through this.record() under the same privileges."
+ },
+ {
+  "file": "packages/scripts/src/engine.ts",
+  "within": "matching",
+  "api": "Store.matchIds",
+  "count": 1,
+  "gate": "checked-before",
+  "why": "Closure inside relatedIds: keys from gated this.record(), results filtered by viewableIds at the end of the hop."
+ },
+ {
+  "file": "packages/scripts/src/recorder.ts",
+  "within": "lastSeq",
+  "api": "Store.auditLog",
+  "count": 1,
+  "gate": "full-access",
+  "why": "Only caller is the debugger recordings route (server/src/debug.ts:348), which requires privileges.full (debug.ts:275); reads only the newest seq of a scratch copy."
+ },
+ {
+  "file": "packages/scripts/src/recorder.ts",
+  "within": "recordRun",
+  "api": "Store.auditLog",
+  "count": 1,
+  "gate": "full-access",
+  "why": "Only caller is debug.ts recordings route behind privileges.full (debug.ts:275); audit of a scratch copy, values credential-redacted before return."
+ },
+ {
+  "file": "packages/scripts/src/script-tests.ts",
+  "within": "runCase",
+  "api": "Store.auditLog",
+  "count": 3,
+  "gate": "full-access",
+  "why": "Dry-run diff read from the trial's audit log; callers are design routes behind privileges.full (design.ts:702), admin console and host CLI only."
+ },
+ {
+  "file": "packages/scripts/src/script-tests.ts",
+  "within": "runCase",
+  "api": "Store.evaluateEach",
+  "count": 1,
+  "gate": "full-access",
+  "why": "Expected field values of a test case, evaluated for full-access callers only (design.ts:702 check, admin console, host CLI)."
+ },
+ {
+  "file": "packages/scripts/src/script-tests.ts",
+  "within": "runCase",
+  "api": "Store.findIds",
+  "count": 1,
+  "gate": "full-access",
+  "why": "runCase is reached only from design routes behind privileges.full (server/src/design.ts:702), the admin console script-tests route, and the host CLI `script-tests`; it runs on a scratch copy with no resolveFile to other files."
+ },
+ {
+  "file": "packages/scripts/src/testrun.ts",
+  "within": "recordWith",
+  "api": "Store.evaluateEach",
+  "count": 1,
+  "gate": "full-access",
+  "why": "Only reachable from host CLI test-scripts; picks a starting record id, values are not returned."
+ },
+ {
+  "file": "packages/scripts/src/testrun.ts",
+  "within": "seedSelections",
+  "api": "Store.find",
+  "count": 1,
+  "gate": "full-access",
+  "why": "testScripts() is called only by the host CLI (cli/src/main.ts:1781); seeds a session global with a real key for an offline trial run."
+ },
+ {
+  "file": "packages/scripts/src/testrun.ts",
+  "within": "testRun",
+  "api": "Store.evaluateEach",
+  "count": 1,
+  "gate": "full-access",
+  "why": "Only reachable from host CLI test-scripts; computes the button's script parameter for a trial run."
+ },
+ {
+  "file": "packages/scripts/src/testrun.ts",
+  "within": "testScript",
+  "api": "Store.findIds",
+  "count": 1,
+  "gate": "full-access",
+  "why": "Only reachable from host CLI test-scripts (cli/src/main.ts:1781); builds the starting found set for a trial run."
+ },
+ {
+  "file": "packages/server/src/admin.ts",
+  "within": "Admin.audit",
+  "api": "Store.auditLog",
+  "count": 1,
+  "gate": "full-access",
+  "why": "Admin console route /tabularius/admin/v1/audit runs only after Admin.handle passes this.check(req) (admin password/passkey console session)."
+ },
+ {
+  "file": "packages/server/src/agent.ts",
+  "within": "runStep",
+  "api": "Store.auditLog",
+  "count": 1,
+  "gate": "checked-before",
+  "why": "The entries are the step's own writes (their sequence numbers), and what is shown of them is limited afterwards: fields the account may not view are dropped, and records it may not view are left out (canViewRecord on the changes)."
+ },
+ {
+  "file": "packages/server/src/ai-output.ts",
+  "within": "storedSecretValues",
+  "api": "Store.select",
+  "count": 1,
+  "gate": "trusted-process",
+  "why": "Builds the list of secret values to hide from AI-visible output; nothing read is returned. Anything equal to a stored secret is hidden, so a value matching one is never shown (a redaction oracle that is accepted, see audit-read-gate-inventory.md)."
+ },
+ {
+  "file": "packages/server/src/automations.ts",
+  "within": "AutomationRunner.changed",
+  "api": "Store.auditLog",
+  "count": 1,
+  "gate": "checked-before",
+  "why": "Deleted record values are later passed to the script only through deletedFields(values, table, privileges) after runDeleted requires privileges.table(table).view === true."
+ },
+ {
+  "file": "packages/server/src/automations.ts",
+  "within": "AutomationRunner.run",
+  "api": "Store.select",
+  "count": 1,
+  "gate": "no-record-data",
+  "why": "Existence probe (SELECT 1 by record id) whose only effect is a \"the record was deleted\" run-log line visible to full-access users."
+ },
+ {
+  "file": "packages/server/src/automations.ts",
+  "within": "AutomationRunner.runDeleted",
+  "api": "Store.auditLog",
+  "count": 1,
+  "gate": "no-record-data",
+  "why": "Only checks the delete entry is still there (seq match); values come from the earlier entry filtered by deletedFields(privileges)."
+ },
+ {
+  "file": "packages/server/src/automations.ts",
+  "within": "dryRunAutomation",
+  "api": "Store.auditLog",
+  "count": 3,
+  "gate": "full-access",
+  "why": "Delete entry values go through deletedFields(..., privileges) and table view===true; seq probes return no data; the post-run change list goes to a full-access caller (AutomationApi full check, MCP fullAccess, assistant canDesign)."
+ },
+ {
+  "file": "packages/server/src/automations.ts",
+  "within": "dryRunAutomation",
+  "api": "Store.findIds",
+  "count": 1,
+  "gate": "checked-before",
+  "why": "Result filtered by copy.canViewRecord(info.table, id, privileges) for the run-as account; caller is full access anyway."
+ },
+ {
+  "file": "packages/server/src/automations.ts",
+  "within": "dryRunAutomation",
+  "api": "Store.select",
+  "count": 1,
+  "gate": "full-access",
+  "why": "Before-values of the test fields on the chosen record (record is canViewRecord-filtered, fields are not) are returned in setOff only to a full-access caller (AutomationApi/try_automation/propose_automation)."
+ },
+ {
+  "file": "packages/server/src/backup-verify.ts",
+  "within": "testRestore",
+  "api": "Store.recordCount",
+  "count": 1,
+  "gate": "trusted-process",
+  "why": "Test restore of a backup set (scheduled backup / admin console): returns only per-file table, total record and account counts to the admin log/console."
+ },
+ {
+  "file": "packages/server/src/cleanup.ts",
+  "within": "apply",
+  "api": "sql.prepare",
+  "count": 2,
+  "gate": "checked-before",
+  "why": "Matching ids intersected with store.findIds(info, {privileges}); merge records must be in that set before their row is read for the undo journal (not returned)."
+ },
+ {
+  "file": "packages/server/src/cleanup.ts",
+  "within": "journalDeletes",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "trusted-process",
+  "why": "Existence check to journal deleted rows; returns only the batch with a count."
+ },
+ {
+  "file": "packages/server/src/cleanup.ts",
+  "within": "keyValue",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "checked-before",
+  "why": "Callers check field access first (applyCleanup fieldNamed / parentField pv.field check, updateMany field check); in the scan path the key is only compared inside relatedCount, whose leak is reported under relatedIds."
+ },
+ {
+  "file": "packages/server/src/cleanup.ts",
+  "within": "relatedIds",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "checked-before",
+  "why": "The scan filters the ids it counts by canViewRecord (and the table and key fields by the account's privileges); the apply path moves them with writes made under the account's privileges, after the parent key field is checked as readable."
+ },
+ {
+  "file": "packages/server/src/cleanup.ts",
+  "within": "scanData",
+  "api": "Store.select",
+  "count": 1,
+  "gate": "checked-before",
+  "why": "Rows limited to store.findIds(info, {privileges}) (which runs checkLayout) and columns to fields with pv.field(...) !== \"none\" (masked counts as none)."
+ },
+ {
+  "file": "packages/server/src/cleanup.ts",
+  "within": "snapshotField",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "trusted-process",
+  "why": "Undo-journal snapshot of ids from the caller's own (privileged) found set; values stay in _fm_cleanup and are never returned (history list omits undo), only a count in the summary."
+ },
+ {
+  "file": "packages/server/src/cleanup.ts",
+  "within": "snapshotRows",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "trusted-process",
+  "why": "Undo-journal snapshot of rows the caller is deleting (ids from its privileged found set); not returned to the caller."
+ },
+ {
+  "file": "packages/server/src/cleanup.ts",
+  "within": "undoCleanup",
+  "api": "sql.prepare",
+  "count": 2,
+  "gate": "checked-before",
+  "why": "Only the batch's own account or full access may undo; writes go through store.update/delete/restoreDeletedRow with privileges; returns only counts and \"changed since\" notes."
+ },
+ {
+  "file": "packages/server/src/compare.ts",
+  "within": "count",
+  "api": "Store.query",
+  "count": 1,
+  "gate": "checked-before",
+  "why": "Record counts reach only the MCP compare_solutions tool, which calls designAccess() on both files (full access, or modifiable scripts + readsEverything) before compareSolutions."
+ },
+ {
+  "file": "packages/server/src/containers.ts",
+  "within": "ContainerFiles.make",
+  "api": "Store.containerInfo",
+  "count": 1,
+  "gate": "checked-before",
+  "why": "Reads only the stored size, to refuse or admit a thumbnail job; reached only through send() after host.checkUrl, like the container read in makeAdmitted."
+ },
+ {
+  "file": "packages/server/src/containers.ts",
+  "within": "ContainerFiles.makeAdmitted",
+  "api": "Store.container",
+  "count": 1,
+  "gate": "checked-before",
+  "why": "Thumbnail of a container reached only through send() after host.checkUrl; the cache is keyed by file+id+size but every hit is re-gated by the signature check per request."
+ },
+ {
+  "file": "packages/server/src/containers.ts",
+  "within": "ContainerFiles.send",
+  "api": "Store.container",
+  "count": 1,
+  "gate": "checked-before",
+  "why": "Same signed-URL gate (host.checkUrl in index.ts) or OData property() after entity(set,id,p) and per-account props."
+ },
+ {
+  "file": "packages/server/src/containers.ts",
+  "within": "ContainerFiles.send",
+  "api": "Store.containerInfo",
+  "count": 1,
+  "gate": "checked-before",
+  "why": "Only called from the /tabularius/containers route after host.checkUrl() verifies the HMAC signature (and optional link account) minted when a privileged record read emitted the URL; OData calls it after entity() reads the record with privileges."
+ },
+ {
+  "file": "packages/server/src/containers.ts",
+  "within": "ContainerFiles.send",
+  "api": "Store.containerRange",
+  "count": 1,
+  "gate": "checked-before",
+  "why": "Same signed-URL gate (host.checkUrl) / OData entity() check as the whole-file read."
+ },
+ {
+  "file": "packages/server/src/cwp-xml.ts",
+  "within": "CwpXmlEndpoint.records",
+  "api": "Store.find",
+  "count": 3,
+  "gate": "checked-before",
+  "why": "opts carries privileges: p (scanner missed the spread); the findany count call passes privileges explicitly; layout checked with p.layout() first."
+ },
+ {
+  "file": "packages/server/src/dataapi.ts",
+  "within": "DataApi.route",
+  "api": "Store.find",
+  "count": 1,
+  "gate": "checked-before",
+  "why": "The FindOptions object passed holds privileges (from sessionPrivileges) and layoutOnly; scanner missed the variable."
+ },
+ {
+  "file": "packages/server/src/debug.ts",
+  "within": "DebugApi.handle",
+  "api": "Store.evaluate",
+  "count": 1,
+  "gate": "checked-before",
+  "why": "The options carry the account's privileges (`{ ...screen(), privileges }`), which Store.evaluate applies: a record it may not view is refused and related files are read with Privileges.in(file). The scan does not see through the spread."
+ },
+ {
+  "file": "packages/server/src/debug.ts",
+  "within": "DebugApi.handle",
+  "api": "Store.row",
+  "count": 2,
+  "gate": "full-access",
+  "why": "Debug API requires sessionPrivileges(store,session).full; row() only checks the record exists."
+ },
+ {
+  "file": "packages/server/src/debug.ts",
+  "within": "learnStoredCredentials",
+  "api": "Store.iterateCommitted",
+  "count": 1,
+  "gate": "trusted-process",
+  "why": "Reads credential-named columns only to seed the CredentialRedactor (values are removed from output, never returned); the cache is per store and used only for redaction."
+ },
+ {
+  "file": "packages/server/src/debug.ts",
+  "within": "learnStoredCredentials",
+  "api": "sql.prepare",
+  "count": 2,
+  "gate": "trusted-process",
+  "why": "Reads only credential-named columns to build a list of values to hide from debugger output; nothing read is returned."
+ },
+ {
+  "file": "packages/server/src/design.ts",
+  "within": "DesignApi.handle",
+  "api": "Store.auditLog",
+  "count": 1,
+  "gate": "full-access",
+  "why": "GET .../audit is served after `if (!privileges.full) throw 403` in DesignApi.handle."
+ },
+ {
+  "file": "packages/server/src/design.ts",
+  "within": "containerData",
+  "api": "Store.query",
+  "count": 1,
+  "gate": "full-access",
+  "why": "Only via designOf, reached from DesignApi.handle after `if (!privileges.full)` and from MCP design tools whose guard requires p.full."
+ },
+ {
+  "file": "packages/server/src/design.ts",
+  "within": "recordCount",
+  "api": "Store.query",
+  "count": 1,
+  "gate": "full-access",
+  "why": "designOf / DDR export, both behind DesignApi's privileges.full check or the mcp-design full-access guard."
+ },
+ {
+  "file": "packages/server/src/docs.ts",
+  "within": "count",
+  "api": "Store.query",
+  "count": 1,
+  "gate": "full-access",
+  "why": "documentSolution is reached from DesignApi (privileges.full) and MCP document_solution (designAccess: full or readsEverything + modifiable scripts)."
+ },
+ {
+  "file": "packages/server/src/dry-run.ts",
+  "within": "runOnce",
+  "api": "Store.auditLog",
+  "count": 2,
+  "gate": "full-access",
+  "why": "Dry runs of drafted scripts are reached only from design routes (DesignApi full), mcp-design (full guard) and assistant design drafts (canDesign = privileges.full)."
+ },
+ {
+  "file": "packages/server/src/find-advice.ts",
+  "within": "findAdvice",
+  "api": "Store.recordCount",
+  "count": 1,
+  "gate": "full-access",
+  "why": "Admin console slow-finds route and mcp-design suggest_indexes (full guard)."
+ },
+ {
+  "file": "packages/server/src/import-mapping.ts",
+  "within": "existingKeys",
+  "api": "Store.query",
+  "count": 1,
+  "gate": "checked-before",
+  "why": "Restricted to within (webclient foundIds(...,privileges)) or owner.viewableIds(table, privileges.in(owner)); key fields come from importFields(privileges); only matching record ids are returned."
+ },
+ {
+  "file": "packages/server/src/import-mapping.ts",
+  "within": "targetKeys",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "checked-before",
+  "why": "target ids are the found set from foundIds(store,layout,body,privileges) and match fields are limited to importFields (fields the account may write); output is only used to choose records to update with privileges."
+ },
+ {
+  "file": "packages/server/src/import-mapping.ts",
+  "within": "undoImportRun",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "no-record-data",
+  "why": "Reads only _fm_mod_id of records the import made, to decide which to delete with the caller's privileges; only ids/counts of the account's own import (checked: same account or full) are returned."
+ },
+ {
+  "file": "packages/server/src/insight.ts",
+  "within": "columnProfile",
+  "api": "Store.query",
+  "count": 4,
+  "gate": "checked-before",
+  "why": "Rows limited to s.viewableIds(table, pv) (mapped to the field's file) and fields with pv.in(src.store).fieldAccess none/masked are skipped before profiling."
+ },
+ {
+  "file": "packages/server/src/insight.ts",
+  "within": "counts",
+  "api": "Store.query",
+  "count": 1,
+  "gate": "full-access",
+  "why": "solutionOverview counts reach MCP explain_solution / overview resource (designAccess), docs and design routes (full)."
+ },
+ {
+  "file": "packages/server/src/insight.ts",
+  "within": "layoutProfile",
+  "api": "Store.query",
+  "count": 1,
+  "gate": "checked-before",
+  "why": "Unfiltered count used only when viewableIds(owner, table, pv) is undefined (no record rule or no privileges); describe_layout checks checkLayout and records access first."
+ },
+ {
+  "file": "packages/server/src/insight.ts",
+  "within": "webViewerScripts",
+  "api": "Store.query",
+  "count": 1,
+  "gate": "full-access",
+  "why": "Reached through solutionIndex: its consumers are design-gated, or (check_formula) use only the catalog, not this result. Returns only names of existing scripts, cached per store and schema across accounts."
+ },
+ {
+  "file": "packages/server/src/mcp-design.ts",
+  "within": "registerDesignTools",
+  "api": "Store.auditLog",
+  "count": 1,
+  "gate": "full-access",
+  "why": "withStore runs the guard passed from mcp.ts, which throws unless privilegesIn(s,who) is undefined (admin) or .full."
+ },
+ {
+  "file": "packages/server/src/mcp.ts",
+  "within": "createMcpServer",
+  "api": "Store.container",
+  "count": 1,
+  "gate": "checked-before",
+  "why": "get_container requires p.readsEverything or a valid signed record URL (host.checkUrl + matching as= principal); admin identity has no privileges."
+ },
+ {
+  "file": "packages/server/src/mcp.ts",
+  "within": "createMcpServer",
+  "api": "Store.queryWithOrigins",
+  "count": 1,
+  "gate": "checked-before",
+  "why": "sql_query calls readsEverything(p) (also rejects scoped tokens); readOnly connection is this file only and internal tables are refused."
+ },
+ {
+  "file": "packages/server/src/mcp.ts",
+  "within": "createMcpServer",
+  "api": "Store.row",
+  "count": 3,
+  "gate": "checked-before",
+  "why": "evaluate_calculation, explain_value and check_record call designAccess/readsEverything(p) and s.get(layout, id, ..., p) before owner.row; explain_value hands privileges.in(owner) to explainField, which applies them to its pass (read-gate-gaps.test.ts)."
+ },
+ {
+  "file": "packages/server/src/mcp.ts",
+  "within": "registerResources",
+  "api": "Store.auditLog",
+  "count": 1,
+  "gate": "full-access",
+  "why": "audit resource throws unless p is undefined (admin) or p.full; listing filters the same way."
+ },
+ {
+  "file": "packages/server/src/odata.ts",
+  "within": "ODataEndpoint.lambdaFor",
+  "api": "Store.row",
+  "count": 1,
+  "gate": "checked-before",
+  "why": "Rows read only for ids returned by selectIds(..., privileges: p); used to follow the relationship back, and navigations exist only when all match fields are readable at both ends."
+ },
+ {
+  "file": "packages/server/src/odata.ts",
+  "within": "ODataEndpoint.property",
+  "api": "Store.container",
+  "count": 1,
+  "gate": "checked-before",
+  "why": "entity(set,id,p) checks the record, prop comes from per-account props (hidden/masked fields excluded), then container is sent."
+ },
+ {
+  "file": "packages/server/src/odata.ts",
+  "within": "ODataEndpoint.relatedIds",
+  "api": "Store.row",
+  "count": 1,
+  "gate": "checked-before",
+  "why": "Every caller first calls this.entity(set,id,p) (getMany with privileges) on the parent; related ids are filtered by viewableIds/selectIds with p and records read by getMany with p."
+ },
+ {
+  "file": "packages/server/src/optimization-containers.ts",
+  "within": "undoContainerMove",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "full-access",
+  "why": "Admin optimization undo; checks by container id whether a moved file is still unresolved and returns counts only."
+ },
+ {
+  "file": "packages/server/src/optimization-data.ts",
+  "within": "dataFindings",
+  "api": "Store.recordCount",
+  "count": 1,
+  "gate": "full-access",
+  "why": "optimizationReport only (admin console, designAccess MCP tool, admin upload pipeline)."
+ },
+ {
+  "file": "packages/server/src/optimization-data.ts",
+  "within": "held",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "full-access",
+  "why": "Part of optimizationReport: admin console, MCP optimization_report (designAccess), upload/conversion-guide (admin); returns field fill counts and byte sizes."
+ },
+ {
+  "file": "packages/server/src/optimization-data.ts",
+  "within": "layoutFindings",
+  "api": "Store.recordCount",
+  "count": 1,
+  "gate": "full-access",
+  "why": "optimizationReport only (admin / designAccess)."
+ },
+ {
+  "file": "packages/server/src/optimization.ts",
+  "within": "containerUse",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "full-access",
+  "why": "optimizationReport / optimization-fix only (admin console, designAccess MCP tools); returns container counts and sizes."
+ },
+ {
+  "file": "packages/server/src/optimization.ts",
+  "within": "heldBytes",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "full-access",
+  "why": "unusedFindings via optimizationReport / optimization-fix (admin, designAccess MCP)."
+ },
+ {
+  "file": "packages/server/src/optimization.ts",
+  "within": "one",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "no-record-data",
+  "why": "PRAGMA page_count and page_size: the file's size only."
+ },
+ {
+  "file": "packages/server/src/optimization.ts",
+  "within": "oversizedPictures",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "full-access",
+  "why": "optimizationReport only; returns picture dimensions/counts to admin or designAccess callers."
+ },
+ {
+  "file": "packages/server/src/optimization.ts",
+  "within": "sizes",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "full-access",
+  "why": "optimizationReport only; returns page counts/table sizes to admin or designAccess callers."
+ },
+ {
+  "file": "packages/server/src/optimization.ts",
+  "within": "speedFindings",
+  "api": "Store.recordCount",
+  "count": 3,
+  "gate": "full-access",
+  "why": "optimizationReport only (admin console, MCP optimization_report behind designAccess)."
+ },
+ {
+  "file": "packages/server/src/pgwire.ts",
+  "within": "Connection.validateSyntax",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "no-record-data",
+  "why": "Prepares a statement to check its syntax and runs nothing."
+ },
+ {
+  "file": "packages/server/src/pii.ts",
+  "within": "PiiMasker.constructor",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "own-account",
+  "why": "Counts this account's own vault rows (WHERE account = ?), which hold only values it was already given."
+ },
+ {
+  "file": "packages/server/src/pii.ts",
+  "within": "PiiMasker.known",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "own-account",
+  "why": "Streams this account's own vault rows (account = ?) to mask evicted values; returns only stand-ins."
+ },
+ {
+  "file": "packages/server/src/pii.ts",
+  "within": "PiiMasker.refresh",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "own-account",
+  "why": "Reads only this account's stand-ins (account = ?), values already returned to it through gated reads."
+ },
+ {
+  "file": "packages/server/src/pii.ts",
+  "within": "PiiMasker.text",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "own-account",
+  "why": "Looks up this account's own vault rows (account = ?), values it was already given a stand-in for."
+ },
+ {
+  "file": "packages/server/src/pii.ts",
+  "within": "PiiMasker.token",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "own-account",
+  "why": "Looks up the stand-in for a value already being returned to this account, in its own vault."
+ },
+ {
+  "file": "packages/server/src/pii.ts",
+  "within": "PiiMasker.unmask",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "own-account",
+  "why": "Looks up one of this account's own stand-ins (account = ? AND id = ?)."
+ },
+ {
+  "file": "packages/server/src/pii.ts",
+  "within": "holdsOnlyUuids",
+  "api": "Store.query",
+  "count": 1,
+  "gate": "trusted-process",
+  "why": "Aggregate count over a field to decide whether it holds only UUIDs (a pii flag for masking); called from classifyField, returns a boolean."
+ },
+ {
+  "file": "packages/server/src/pii.ts",
+  "within": "piiPreview",
+  "api": "Store.find",
+  "count": 1,
+  "gate": "full-access",
+  "why": "Only from admin console PII routes (admin.ts:1156/1165/1176), and the sample is masked."
+ },
+ {
+  "file": "packages/server/src/pii.ts",
+  "within": "sampledValues",
+  "api": "Store.query",
+  "count": 1,
+  "gate": "trusted-process",
+  "why": "Samples stored values to decide whether a field is personal; called from classifyField, which returns only a pii flag/kind/reason used for masking and the admin console."
+ },
+ {
+  "file": "packages/server/src/record-context.ts",
+  "within": "describeRecord",
+  "api": "Store.row",
+  "count": 1,
+  "gate": "checked-before",
+  "why": "store.get(info, id, ..., p) checks layout and record access before the row is used; fields are filtered by visibleFields/maskedFields, related groups by viewableIds, and the unstored calculations keyValue works out carry p (read-gate-gaps.test.ts: another file's limits apply)."
+ },
+ {
+  "file": "packages/server/src/record-history.ts",
+  "within": "recordHistory",
+  "api": "Store.auditLog",
+  "count": 2,
+  "gate": "checked-before",
+  "why": "Web client History: store.get(..., privileges) or table view===true for a deleted record, hideField(privileges.field none) and hideTable(view !== true); MCP explain_record_history is in mcp-design (full guard)."
+ },
+ {
+  "file": "packages/server/src/record-search.ts",
+  "within": "searchRecords",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "checked-before",
+  "why": "Full-text hits are kept only for the record ids the account may view and in fields it may see (`v.ids`, `v.fields`); the statement reads index rows, not values."
+ },
+ {
+  "file": "packages/server/src/record-search.ts",
+  "within": "snippet",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "checked-before",
+  "why": "Only for hits whose recordId is in viewableIds(table,pv) and field in the account's visible, non-secret fields (pv.field!==none excludes masked)."
+ },
+ {
+  "file": "packages/server/src/record-search.ts",
+  "within": "source",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "checked-before",
+  "why": "Row read only for hits already filtered by viewableIds; used to drop matches that copy a secret, not returned itself."
+ },
+ {
+  "file": "packages/server/src/rule-suggestions.ts",
+  "within": "suggestRules",
+  "api": "Store.query",
+  "count": 8,
+  "gate": "full-access",
+  "why": "Reached from DesignApi suggest-rules (privileges.full) and mcp-design suggest_rules (full guard)."
+ },
+ {
+  "file": "packages/server/src/script-failure.ts",
+  "within": "explainScriptFailure",
+  "api": "Store.row",
+  "count": 1,
+  "gate": "checked-before",
+  "why": "MCP explain_script_failure requires designAccess and checkScript; the row feeds explainField with privileges.in(owner), which it applies to its pass; fields with privileges.field none are skipped and hidden inputs are shown as no access."
+ },
+ {
+  "file": "packages/server/src/semantic-find.ts",
+  "within": "vectorOf",
+  "api": "Store.container",
+  "count": 1,
+  "gate": "checked-before",
+  "why": "Same: only records in the privileged found set and a field the account may read; only ids and similarities are returned."
+ },
+ {
+  "file": "packages/server/src/semantic-find.ts",
+  "within": "vectorOf",
+  "api": "Store.containerInfo",
+  "count": 1,
+  "gate": "checked-before",
+  "why": "Ids come from store.findIds(info, {privileges}) and the field is checked with privileges.fieldAccess (none/masked refused) before vectors are read."
+ },
+ {
+  "file": "packages/server/src/sql.ts",
+  "within": "SqlEndpoint.handle",
+  "api": "Store.select",
+  "count": 1,
+  "gate": "checked-before",
+  "why": "checkReadsEverything(p.in(target), target) after translateSQL, plus canExport for CSV."
+ },
+ {
+  "file": "packages/server/src/summarize.ts",
+  "within": "summarizeByRecord",
+  "api": "Store.row",
+  "count": 1,
+  "gate": "checked-before",
+  "why": "ids already from findIds with privileges; the raw row only feeds secretValues() for model redaction, values come from evaluateEach with privileges."
+ },
+ {
+  "file": "packages/server/src/summarize.ts",
+  "within": "summarizeRecords",
+  "api": "Store.select",
+  "count": 3,
+  "gate": "checked-before",
+  "why": "ids from store.findIds(info,{privileges}); every grouped/measured column checked with pv.field(...)!==none (masked counts as none)."
+ },
+ {
+  "file": "packages/server/src/warm-worker.ts",
+  "within": "<top>",
+  "api": "Store.find",
+  "count": 1,
+  "gate": "trusted-process",
+  "why": "Warms shared results with no privileges and returns only a layout count; shared summary keys omit the privilege fingerprint for readsEverything passes, so a cross-file result could be reused (listed as unverified in audit-read-gate-inventory.md)."
+ },
+ {
+  "file": "packages/server/src/warm-worker.ts",
+  "within": "count",
+  "api": "Store.recordCount",
+  "count": 1,
+  "gate": "trusted-process",
+  "why": "Warmer worker orders tables by size; posts back only {done, layouts}."
+ },
+ {
+  "file": "packages/server/src/webclient.ts",
+  "within": "WebClient.button",
+  "api": "Store.evaluateEach",
+  "count": 2,
+  "gate": "checked-before",
+  "why": "screen() puts the session's privileges in the options, which Store.evaluateEach applies: a client-supplied record the account may not view gives no values (read-gate-gaps.test.ts). The scan does not see through the method's return type."
+ },
+ {
+  "file": "packages/server/src/webclient.ts",
+  "within": "WebClient.charts",
+  "api": "Store.evaluateEach",
+  "count": 2,
+  "gate": "checked-before",
+  "why": "recordId kept only when store.canView(info,id,privileges); opts.privileges set; formulas naming invisible fields are replaced by \"\"."
+ },
+ {
+  "file": "packages/server/src/webclient.ts",
+  "within": "WebClient.charts",
+  "api": "Store.evaluateRows",
+  "count": 1,
+  "gate": "checked-before",
+  "why": "ids from findIds(...,privileges) intersected with client ids; opts carries privileges."
+ },
+ {
+  "file": "packages/server/src/webclient.ts",
+  "within": "WebClient.explain",
+  "api": "Store.row",
+  "count": 2,
+  "gate": "checked-before",
+  "why": "canSeeDesign (full, or modifiable scripts + readsEverything, no scoped token), store.get(...,privileges) on the record, and mayRead() for another file's store before its row is read."
+ },
+ {
+  "file": "packages/server/src/webclient.ts",
+  "within": "WebClient.menus",
+  "api": "Store.evaluateEach",
+  "count": 1,
+  "gate": "checked-before",
+  "why": "screen() puts the session's privileges in the options, which Store.evaluateEach applies: a record the account may not view gives no values (read-gate-gaps.test.ts). The scan does not see through the method's return type."
+ },
+ {
+  "file": "packages/server/src/webclient.ts",
+  "within": "WebClient.refresh",
+  "api": "Store.previewRow",
+  "count": 1,
+  "gate": "checked-before",
+  "why": "The preview row only feeds getMany(..., {privileges}), which drops records the view rule hides."
+ },
+ {
+  "file": "packages/server/src/webclient.ts",
+  "within": "WebClient.view",
+  "api": "Store.evaluateEach",
+  "count": 3,
+  "gate": "checked-before",
+  "why": "screen() supplies privileges; records path skips ids failing store.canView(info,id,privileges); portal rows come from store.get(...,privileges); find-mode path evaluates on no record."
+ },
+ {
+  "file": "packages/server/src/webclient.ts",
+  "within": "WebClient.view",
+  "api": "Store.previewRow",
+  "count": 2,
+  "gate": "checked-before",
+  "why": "Only for an id that passed store.canView (or a portal row returned by store.get with privileges) and is the script checkpoint's own current record."
+ },
+ {
+  "file": "packages/store/src/audit-anchor.ts",
+  "within": "checkAnchor",
+  "api": "sql.prepare",
+  "count": 2,
+  "gate": "trusted-process",
+  "why": "Verifies the audit hash chain against its anchor and returns a verdict, run by the server and the command line."
+ },
+ {
+  "file": "packages/store/src/calc.ts",
+  "within": "Calculations.allRecords",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "store-internal",
+  "why": "Iterator for Calculations.wholeTable when the pass is unlimited; a limited pass (limitsView) uses rowsById(viewableIds) instead and sumKey includes the privileges fingerprint, so results are never served to a narrower account."
+ },
+ {
+  "file": "packages/store/src/calc.ts",
+  "within": "Calculations.computeColumn",
+  "api": "sql.statement",
+  "count": 1,
+  "gate": "store-internal",
+  "why": "Part of the calculation engine's own lookups, reached through a pass: the pass's privileges (newPass) decide what its callers return, and every Store entry point that returns a worked-out value hands them over (read-gate-gaps.test.ts). A call that builds a pass with no privileges is what to look for."
+ },
+ {
+  "file": "packages/store/src/calc.ts",
+  "within": "Calculations.context",
+  "api": "Store.recordCount",
+  "count": 2,
+  "gate": "checked-before",
+  "why": "Used only when the pass has no limits on records (viewableIds is undefined); otherwise the count is of the records the pass's privileges may view, a line above."
+ },
+ {
+  "file": "packages/store/src/calc.ts",
+  "within": "Calculations.context",
+  "api": "sql.statement",
+  "count": 1,
+  "gate": "store-internal",
+  "why": "Part of the calculation engine's own lookups, reached through a pass: the pass's privileges (newPass) decide what its callers return, and every Store entry point that returns a worked-out value hands them over (read-gate-gaps.test.ts). A call that builds a pass with no privileges is what to look for."
+ },
+ {
+  "file": "packages/store/src/calc.ts",
+  "within": "Calculations.executeSQL",
+  "api": "Store.select",
+  "count": 1,
+  "gate": "checked-before",
+  "why": "SQL is produced by translateSQL(query, privileges), which substitutes scopedTableSql (viewable ids + NULL for hidden fields) for every base table; cache key includes account#fingerprint unless the account readsEverything."
+ },
+ {
+  "file": "packages/store/src/calc.ts",
+  "within": "Calculations.firstRelated",
+  "api": "sql.statement",
+  "count": 1,
+  "gate": "store-internal",
+  "why": "Part of the calculation engine's own lookups, reached through a pass: the pass's privileges (newPass) decide what its callers return, and every Store entry point that returns a worked-out value hands them over (read-gate-gaps.test.ts). A call that builds a pass with no privileges is what to look for."
+ },
+ {
+  "file": "packages/store/src/calc.ts",
+  "within": "Calculations.joinHop",
+  "api": "sql.statement",
+  "count": 2,
+  "gate": "store-internal",
+  "why": "Part of the calculation engine's own lookups, reached through a pass: the pass's privileges (newPass) decide what its callers return, and every Store entry point that returns a worked-out value hands them over (read-gate-gaps.test.ts). A call that builds a pass with no privileges is what to look for."
+ },
+ {
+  "file": "packages/store/src/calc.ts",
+  "within": "Calculations.relatedIds",
+  "api": "sql.statement",
+  "count": 1,
+  "gate": "store-internal",
+  "why": "Part of the calculation engine's own lookups, reached through a pass: the pass's privileges (newPass) decide what its callers return, and every Store entry point that returns a worked-out value hands them over (read-gate-gaps.test.ts). A call that builds a pass with no privileges is what to look for."
+ },
+ {
+  "file": "packages/store/src/calc.ts",
+  "within": "Calculations.rowById",
+  "api": "sql.statement",
+  "count": 1,
+  "gate": "store-internal",
+  "why": "Part of the calculation engine's own lookups, reached through a pass: the pass's privileges (newPass) decide what its callers return, and every Store entry point that returns a worked-out value hands them over (read-gate-gaps.test.ts). A call that builds a pass with no privileges is what to look for."
+ },
+ {
+  "file": "packages/store/src/calc.ts",
+  "within": "Calculations.shareColumn",
+  "api": "Store.recordCount",
+  "count": 1,
+  "gate": "store-internal",
+  "why": "Count used only to check a computed column is complete before sharing; computedValues is only filled by unlimited passes (limited sqlPass bypasses the cache)."
+ },
+ {
+  "file": "packages/store/src/calc.ts",
+  "within": "Calculations.statement",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "store-internal",
+  "why": "Part of the calculation engine's own lookups, reached through a pass: the pass's privileges (newPass) decide what its callers return, and every Store entry point that returns a worked-out value hands them over (read-gate-gaps.test.ts). A call that builds a pass with no privileges is what to look for."
+ },
+ {
+  "file": "packages/store/src/calc.ts",
+  "within": "Calculations.storedRelatedValues",
+  "api": "sql.statement",
+  "count": 1,
+  "gate": "store-internal",
+  "why": "Part of the calculation engine's own lookups, reached through a pass: the pass's privileges (newPass) decide what its callers return, and every Store entry point that returns a worked-out value hands them over (read-gate-gaps.test.ts). A call that builds a pass with no privileges is what to look for."
+ },
+ {
+  "file": "packages/store/src/calc.ts",
+  "within": "Calculations.storedRows",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "store-internal",
+  "why": "Whole-table stored-column iterator for summary collection; reached only from wholeTable/warmer paths keyed by sumKey (fingerprint when privileges limit)."
+ },
+ {
+  "file": "packages/store/src/calc.ts",
+  "within": "Calculations.validate",
+  "api": "Store.valueListItems",
+  "count": 1,
+  "gate": "store-internal",
+  "why": "Field validation \"member of value list\" with the full list; returns only pass/fail (error 506) to the writer. Documented compatibility decision (docs/calculation-privileges.md) - a 1-bit membership oracle for editors."
+ },
+ {
+  "file": "packages/store/src/calc.ts",
+  "within": "containerValue",
+  "api": "Store.container",
+  "count": 1,
+  "gate": "store-internal",
+  "why": "As containerValue/containerInfo: id comes from a privilege-filtered field value."
+ },
+ {
+  "file": "packages/store/src/calc.ts",
+  "within": "containerValue",
+  "api": "Store.containerInfo",
+  "count": 1,
+  "gate": "store-internal",
+  "why": "Container calc functions resolve the container id from a field value the calc already read under pass.privileges (hidden fields read EMPTY)."
+ },
+ {
+  "file": "packages/store/src/calc.ts",
+  "within": "containerValue",
+  "api": "Store.containerRange",
+  "count": 2,
+  "gate": "store-internal",
+  "why": "As containerValue/containerInfo: id comes from a privilege-filtered field value."
+ },
+ {
+  "file": "packages/store/src/calc.ts",
+  "within": "flush",
+  "api": "sql.statement",
+  "count": 1,
+  "gate": "store-internal",
+  "why": "Part of the calculation engine's own lookups, reached through a pass: the pass's privileges (newPass) decide what its callers return, and every Store entry point that returns a worked-out value hands them over (read-gate-gaps.test.ts). A call that builds a pass with no privileges is what to look for."
+ },
+ {
+  "file": "packages/store/src/calc.ts",
+  "within": "nearest",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "store-internal",
+  "why": "Part of the calculation engine's own lookups, reached through a pass: the pass's privileges (newPass) decide what its callers return, and every Store entry point that returns a worked-out value hands them over (read-gate-gaps.test.ts). A call that builds a pass with no privileges is what to look for."
+ },
+ {
+  "file": "packages/store/src/calc.ts",
+  "within": "read",
+  "api": "Store.container",
+  "count": 1,
+  "gate": "store-internal",
+  "why": "Helper inside containerValue; same privilege-filtered container id."
+ },
+ {
+  "file": "packages/store/src/calc.ts",
+  "within": "sameValuesElsewhere",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "store-internal",
+  "why": "Unique/existing-value validation over all records; returns only pass/fail to the writer (documented FileMaker-compatible oracle)."
+ },
+ {
+  "file": "packages/store/src/explain-related.ts",
+  "within": "explainCandidate",
+  "api": "sql.prepare",
+  "count": 2,
+  "gate": "full-access",
+  "why": "Part of explainRelated: callers require an account that reads everything in this file, and a far table in another hosted file is explained only if the account reads everything there."
+ },
+ {
+  "file": "packages/store/src/explain-related.ts",
+  "within": "explainHop",
+  "api": "sql.prepare",
+  "count": 2,
+  "gate": "full-access",
+  "why": "Part of explainRelated: callers require an account that reads everything in this file, and a hop into another hosted file stops unless the account reads everything there."
+ },
+ {
+  "file": "packages/store/src/explain-related.ts",
+  "within": "explainRelated",
+  "api": "Store.get",
+  "count": 1,
+  "gate": "store-internal",
+  "why": "Unprivileged get used only to learn the portal's row order; part of explainRelated, whose callers require an account that reads everything in this file."
+ },
+ {
+  "file": "packages/store/src/explain-related.ts",
+  "within": "explainRelated",
+  "api": "Store.row",
+  "count": 1,
+  "gate": "full-access",
+  "why": "Callers (MCP explain_related, the web client's explain) require an account that reads everything in this file; a table in another hosted file is explained only if the account reads everything there too (hosted())."
+ },
+ {
+  "file": "packages/store/src/export-sql.ts",
+  "within": "duplicates",
+  "api": "Store.select",
+  "count": 1,
+  "gate": "checked-before",
+  "why": "Counts over t.base, the scopedTableSql view."
+ },
+ {
+  "file": "packages/store/src/export-sql.ts",
+  "within": "exportSql",
+  "api": "Store.container",
+  "count": 1,
+  "gate": "checked-before",
+  "why": "Container ids come from columns of the scoped view; hidden container fields are skipped."
+ },
+ {
+  "file": "packages/store/src/export-sql.ts",
+  "within": "exportSql",
+  "api": "Store.select",
+  "count": 2,
+  "gate": "checked-before",
+  "why": "Every table read goes through store.scopedTableSql(table, opts.privileges) (viewable ids, NULL for hidden fields), tables with view=false skipped, canExport checked; sole caller is the CLI (cli/src/main.ts:2064)."
+ },
+ {
+  "file": "packages/store/src/export-sql.ts",
+  "within": "page",
+  "api": "Store.select",
+  "count": 1,
+  "gate": "checked-before",
+  "why": "Reads t.base, the scopedTableSql view built in exportSql."
+ },
+ {
+  "file": "packages/store/src/fidelity.ts",
+  "within": "calcFidelity",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "full-access",
+  "why": "Diagnostic over sample records; only caller is the local CLI (cli/src/main.ts:1918), which has file access."
+ },
+ {
+  "file": "packages/store/src/fmexport.ts",
+  "within": "fmExport",
+  "api": "Store.container",
+  "count": 1,
+  "gate": "full-access",
+  "why": "Same as fmExport."
+ },
+ {
+  "file": "packages/store/src/fmexport.ts",
+  "within": "fmExport",
+  "api": "Store.containerInfo",
+  "count": 1,
+  "gate": "full-access",
+  "why": "Same as fmExport."
+ },
+ {
+  "file": "packages/store/src/fmexport.ts",
+  "within": "fmExport",
+  "api": "Store.query",
+  "count": 1,
+  "gate": "full-access",
+  "why": "Same as fmExport: whole-table export by design, no non-test caller."
+ },
+ {
+  "file": "packages/store/src/fmexport.ts",
+  "within": "fmExport",
+  "api": "Store.recordCount",
+  "count": 1,
+  "gate": "full-access",
+  "why": "Documented owner \"leave anytime\" full export with no account scoping; no production caller outside tests (exported from store index only)."
+ },
+ {
+  "file": "packages/store/src/import.ts",
+  "within": "importDesigns",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "trusted-process",
+  "why": "Offline conversion or import of a whole file, run by the operator from the command line or the admin console; no account is involved."
+ },
+ {
+  "file": "packages/store/src/import.ts",
+  "within": "importFmp12",
+  "api": "sql.exec",
+  "count": 1,
+  "gate": "trusted-process",
+  "why": "Offline conversion or import of a whole file, run by the operator from the command line or the admin console; no account is involved."
+ },
+ {
+  "file": "packages/store/src/import.ts",
+  "within": "importFmp12",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "trusted-process",
+  "why": "Offline conversion or import of a whole file, run by the operator from the command line or the admin console; no account is involved."
+ },
+ {
+  "file": "packages/store/src/import.ts",
+  "within": "readState",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "trusted-process",
+  "why": "Offline conversion or import of a whole file, run by the operator from the command line or the admin console; no account is involved."
+ },
+ {
+  "file": "packages/store/src/layout-speed.ts",
+  "within": "layoutCost",
+  "api": "Store.recordCount",
+  "count": 1,
+  "gate": "full-access",
+  "why": "Layout speed cost uses table sizes; callers speedPlan via design.ts (privileges.full check at design.ts:702) and mcp-design (full-access guard, mcp.ts:2051)."
+ },
+ {
+  "file": "packages/store/src/layout-speed.ts",
+  "within": "speedContext",
+  "api": "Store.recordCount",
+  "count": 1,
+  "gate": "full-access",
+  "why": "Record counts sent to the speed AI; caller design.ts speed() behind privileges.full (design.ts:702)."
+ },
+ {
+  "file": "packages/store/src/reconvert.ts",
+  "within": "build",
+  "api": "sql.prepare",
+  "count": 2,
+  "gate": "trusted-process",
+  "why": "Offline conversion or import of a whole file, run by the operator from the command line or the admin console; no account is involved."
+ },
+ {
+  "file": "packages/store/src/reconvert.ts",
+  "within": "carryRecords",
+  "api": "sql.prepare",
+  "count": 4,
+  "gate": "trusted-process",
+  "why": "Offline conversion or import of a whole file, run by the operator from the command line or the admin console; no account is involved."
+ },
+ {
+  "file": "packages/store/src/reconvert.ts",
+  "within": "carrySettings",
+  "api": "sql.exec",
+  "count": 1,
+  "gate": "trusted-process",
+  "why": "Offline conversion or import of a whole file, run by the operator from the command line or the admin console; no account is involved."
+ },
+ {
+  "file": "packages/store/src/reconvert.ts",
+  "within": "carrySettings",
+  "api": "sql.prepare",
+  "count": 4,
+  "gate": "trusted-process",
+  "why": "Offline conversion or import of a whole file, run by the operator from the command line or the admin console; no account is involved."
+ },
+ {
+  "file": "packages/store/src/reconvert.ts",
+  "within": "copyContainer",
+  "api": "sql.prepare",
+  "count": 2,
+  "gate": "trusted-process",
+  "why": "Offline conversion or import of a whole file, run by the operator from the command line or the admin console; no account is involved."
+ },
+ {
+  "file": "packages/store/src/reconvert.ts",
+  "within": "count",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "trusted-process",
+  "why": "Offline conversion or import of a whole file, run by the operator from the command line or the admin console; no account is involved."
+ },
+ {
+  "file": "packages/store/src/reconvert.ts",
+  "within": "previewOf",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "trusted-process",
+  "why": "Offline conversion or import of a whole file, run by the operator from the command line or the admin console; no account is involved."
+ },
+ {
+  "file": "packages/store/src/reconvert.ts",
+  "within": "reconvertCheck",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "trusted-process",
+  "why": "Offline conversion or import of a whole file, run by the operator from the command line or the admin console; no account is involved."
+ },
+ {
+  "file": "packages/store/src/reconvert.ts",
+  "within": "tableExists",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "trusted-process",
+  "why": "Offline conversion or import of a whole file, run by the operator from the command line or the admin console; no account is involved."
+ },
+ {
+  "file": "packages/store/src/record-chain.ts",
+  "within": "ensureRecordChain",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "store-internal",
+  "why": "Audit hash-chain bookkeeping: links, verifies and prunes entries and returns hashes and verdicts, not values."
+ },
+ {
+  "file": "packages/store/src/record-chain.ts",
+  "within": "linkRecordEntry",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "store-internal",
+  "why": "Audit hash-chain bookkeeping: links, verifies and prunes entries and returns hashes and verdicts, not values."
+ },
+ {
+  "file": "packages/store/src/record-chain.ts",
+  "within": "pruneRecordEntries",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "store-internal",
+  "why": "Audit hash-chain bookkeeping: links, verifies and prunes entries and returns hashes and verdicts, not values."
+ },
+ {
+  "file": "packages/store/src/record-chain.ts",
+  "within": "verifyRecordAudit",
+  "api": "sql.prepare",
+  "count": 2,
+  "gate": "store-internal",
+  "why": "Audit hash-chain bookkeeping: links, verifies and prunes entries and returns hashes and verdicts, not values."
+ },
+ {
+  "file": "packages/store/src/related.ts",
+  "within": "firstRelatedEach",
+  "api": "sql.statement",
+  "count": 1,
+  "gate": "checked-before",
+  "why": "Returns related ids or rows to callers that filter them by the account's viewable ids or pass its privileges (relatedRows' privileged branch, OData's `viewable` set, the portal readers); the unprivileged branch is the server's own or full access."
+ },
+ {
+  "file": "packages/store/src/related.ts",
+  "within": "relatedIdList",
+  "api": "sql.statement",
+  "count": 1,
+  "gate": "checked-before",
+  "why": "Returns related ids or rows to callers that filter them by the account's viewable ids or pass its privileges (relatedRows' privileged branch, OData's `viewable` set, the portal readers); the unprivileged branch is the server's own or full access."
+ },
+ {
+  "file": "packages/store/src/related.ts",
+  "within": "relatedRows",
+  "api": "sql.statement",
+  "count": 3,
+  "gate": "checked-before",
+  "why": "Returns related ids or rows to callers that filter them by the account's viewable ids or pass its privileges (relatedRows' privileged branch, OData's `viewable` set, the portal readers); the unprivileged branch is the server's own or full access."
+ },
+ {
+  "file": "packages/store/src/security-chain.ts",
+  "within": "appendSecurityEvent",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "store-internal",
+  "why": "Audit hash-chain bookkeeping: links, verifies and prunes entries and returns hashes and verdicts, not values."
+ },
+ {
+  "file": "packages/store/src/security-chain.ts",
+  "within": "ensureSecurityChain",
+  "api": "sql.prepare",
+  "count": 4,
+  "gate": "store-internal",
+  "why": "Audit hash-chain bookkeeping: links, verifies and prunes entries and returns hashes and verdicts, not values."
+ },
+ {
+  "file": "packages/store/src/security-chain.ts",
+  "within": "verifySecurityAudit",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "store-internal",
+  "why": "Audit hash-chain bookkeeping: links, verifies and prunes entries and returns hashes and verdicts, not values."
+ },
+ {
+  "file": "packages/store/src/stale-calcs.ts",
+  "within": "RefreshJournal.get",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "full-access",
+  "why": "Undo journal with before/after values; used by undoStaleRefresh, which MCP gates on p.full and admin."
+ },
+ {
+  "file": "packages/store/src/stale-calcs.ts",
+  "within": "RefreshJournal.list",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "full-access",
+  "why": "staleRefreshHistory (summaries, counts) for MCP undo_stale_refresh (p.full) and admin."
+ },
+ {
+  "file": "packages/store/src/stale-calcs.ts",
+  "within": "findStaleCalcs",
+  "api": "Store.recordCount",
+  "count": 1,
+  "gate": "full-access",
+  "why": "Callers: MCP find_stale_calcs (readsEverything(p), mcp.ts:1707), admin console, CLI."
+ },
+ {
+  "file": "packages/store/src/stale-calcs.ts",
+  "within": "findStaleCalcs",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "full-access",
+  "why": "Examples include stored/now values; callers need readsEverything (MCP) or are admin/CLI. Note: \"now\" is computed with no privileges, so a calc reaching another hosted file is computed past the reader's privileges there (minor)."
+ },
+ {
+  "file": "packages/store/src/stale-calcs.ts",
+  "within": "refreshStaleCalcs",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "full-access",
+  "why": "MCP refresh_stale_calcs requires p.full (mcp.ts:1723); admin console; returns counts only."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "<anonymous>",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "store-internal",
+  "why": "Found-set iterator for calculations in findHere; its WHERE is the one already narrowed by viewFilter(info, pv), the same as the page of records it accompanies."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.accountUsage",
+  "api": "Store.auditLog",
+  "count": 1,
+  "gate": "no-record-data",
+  "why": "Security sign-in events; admin console."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.addContainer",
+  "api": "Store.containerRange",
+  "count": 1,
+  "gate": "store-internal",
+  "why": "Compares the bytes of an identical-looking stored file with the caller's own upload before reusing its id; nothing is returned to the caller."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.addContainer",
+  "api": "sql.prepare",
+  "count": 2,
+  "gate": "store-internal",
+  "why": "Looks for a stored file with the same bytes already held by the field being written (the caller has edit access to it); the result is only the id of a file whose bytes the caller has just supplied."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.allowedIds",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "store-internal",
+  "why": "The record-level gate itself (evaluates the view rule per record). Cache key table+account+rule, token = this file's writeToken; note the token does not move on writes in OTHER hosted files, so a rule reading a related table in another file can keep granting stale ids until this file is written."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.approvePending",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "checked-before",
+  "why": "Replays the change with the agent's own privileges (this.privileges(row.agent)); caller security.ts behind full access."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.auditLog",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "full-access",
+  "why": "Public, returns record values (changes) with no Privileges. Callers check: MCP audit resource (p.full), mcp-design audit_log (full-access guard), design.ts /audit (privileges.full), admin console, CLI, scripts recorder/tests (local); record-history.ts filters via hideField/hideTable and webclient history checks get/table view; agent.ts filters own entries by field privileges."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.canView",
+  "api": "Store.row",
+  "count": 1,
+  "gate": "store-internal",
+  "why": "Gate helper: checkLayout + allows(view rule); boolean."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.canViewRecord",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "store-internal",
+  "why": "This is the gate (evaluates the view rule); returns a boolean."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.checkContainerWrite",
+  "api": "Store.row",
+  "count": 1,
+  "gate": "store-internal",
+  "why": "Row passed to checkWrite, which enforces view+edit rules."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.checkEditable",
+  "api": "Store.row",
+  "count": 1,
+  "gate": "store-internal",
+  "why": "Followed by checkRecordRule(view) and (edit)."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.computeValuesCurrent",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "store-internal",
+  "why": "Query includes viewFilter + checkFieldsVisible + checkLayout."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.computedRows",
+  "api": "sql.prepare",
+  "count": 3,
+  "gate": "store-internal",
+  "why": "Temp copy from duplicateSource(privileges), values computed with the account's pass; caller relatedCriteria filters by view rule."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.container",
+  "api": "sql.prepare",
+  "count": 2,
+  "gate": "checked-before",
+  "why": "Public container(id) takes no Privileges; callers obtain ids through gated reads: containers.ts signed URLs, mcp.ts:1142 requires sig/checkUrl for non-readsEverything, odata property() after entity(set,id,p), semantic-find ids from findIds(privileges), engine reads after privileged record reads."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.containerId",
+  "api": "Store.row",
+  "count": 1,
+  "gate": "checked-before",
+  "why": "Public, no Privileges, returns a record's container id; callers read it only after a gated read: odata property() after entity(set,id,p), semantic-find for ids from findIds(privileges), engine after privileged window reads."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.containerInfo",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "checked-before",
+  "why": "As Store.container: id-addressed, callers gate (signed URLs, odata entity, semantic-find findIds)."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.containerIntact",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "no-record-data",
+  "why": "Boolean integrity check of one container id."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.containerIntegrityReport",
+  "api": "sql.prepare",
+  "count": 2,
+  "gate": "full-access",
+  "why": "Counts of container rows, missing and changed external files; admin console and CLI only, no values."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.containerMeta",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "store-internal",
+  "why": "Private helper."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.containerRange",
+  "api": "sql.prepare",
+  "count": 2,
+  "gate": "checked-before",
+  "why": "As Store.container: containers.ts serves ranges only for signed URLs."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.containerReferences",
+  "api": "sql.prepare",
+  "count": 5,
+  "gate": "trusted-process",
+  "why": "Collects the container ids still referenced by fields, retained deleted rows, pending proposals, refresh batches and audit history; returns ids only, for the admin optimization and orphan report."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.countIds",
+  "api": "Store.countIds",
+  "count": 1,
+  "gate": "store-internal",
+  "why": "Cross-file forward with the same opts."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.countIds",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "store-internal",
+  "why": "Query includes viewFilter + checkFieldsVisible + checkLayout."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.create",
+  "api": "sql.prepare",
+  "count": 2,
+  "gate": "store-internal",
+  "why": "Next id = max(id)+1 (FileMaker-style) and lastVisited read filtered by allows(view rule); returns only the new id."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.delete",
+  "api": "Store.row",
+  "count": 1,
+  "gate": "store-internal",
+  "why": "Followed by checkRecordRule(view) and (delete)."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.deleteAccount",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "no-record-data",
+  "why": "Deletes an account's automations and digests by owner; reads no record values."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.deletedRows",
+  "api": "sql.prepare",
+  "count": 2,
+  "gate": "full-access",
+  "why": "Deleted table/field descriptors with record counts and design patch; callers design.ts (privileges.full) and design ops."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.designEffect",
+  "api": "sql.exec",
+  "count": 4,
+  "gate": "trusted-process",
+  "why": "Applying design changes (copies data aside into _fm_deleted_<id>, restores it); returns nothing."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.designEffect",
+  "api": "sql.prepare",
+  "count": 6,
+  "gate": "trusted-process",
+  "why": "Applying design changes (trash/restore/retype fields and tables); returns nothing to a caller."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.designHistory",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "full-access",
+  "why": "Design log; callers design.ts (privileges.full) and mcp-design (full-access guard)."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.duplicate",
+  "api": "Store.row",
+  "count": 1,
+  "gate": "store-internal",
+  "why": "Followed by checkRecordRule(view) before copying."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.duplicate",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "store-internal",
+  "why": "Next id computation."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.embeddedContainerCount",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "full-access",
+  "why": "Counts/bytes for admin optimization-containers."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.embeddedContainers",
+  "api": "sql.prepare",
+  "count": 2,
+  "gate": "trusted-process",
+  "why": "Container move maintenance (admin optimization)."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.ensureNativeIds",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "store-internal",
+  "why": "Reads record ids to give each a uuid when a native file is opened or converted; nothing is returned."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.evaluateCurrent",
+  "api": "Store.row",
+  "count": 1,
+  "gate": "checked-before",
+  "why": "With privileges in the options, a record the account may not view is refused or gives no values (recordViewable: read-gate-gaps.test.ts); the layout itself is checked by the callers (webclient checkLayout, mcp layout access)."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.evaluateEachCurrent",
+  "api": "Store.row",
+  "count": 1,
+  "gate": "checked-before",
+  "why": "With privileges in the options, a record the account may not view is refused or gives no values (recordViewable: read-gate-gaps.test.ts); the layout itself is checked by the callers (webclient checkLayout, mcp layout access)."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.evaluateRowsCurrent",
+  "api": "Store.row",
+  "count": 1,
+  "gate": "checked-before",
+  "why": "With privileges in the options, a record the account may not view is refused or gives no values (recordViewable: read-gate-gaps.test.ts); the layout itself is checked by the callers (webclient checkLayout, mcp layout access)."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.externalContainerCheck",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "full-access",
+  "why": "Counts/missing paths; conversion report and admin."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.externalContainerCount",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "no-record-data",
+  "why": "A count of external files; admin status."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.externalContainerReport",
+  "api": "sql.prepare",
+  "count": 2,
+  "gate": "full-access",
+  "why": "Per-field external file counts/paths; admin console (admin.ts:956) only."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.externalOf",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "store-internal",
+  "why": "Private helper for containerRange."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.fieldIndexCurrent",
+  "api": "sql.prepare",
+  "count": 2,
+  "gate": "store-internal",
+  "why": "With pv: per-record allows() filter and field visibility; without pv (full access) DISTINCT; checkLayout done."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.find",
+  "api": "Store.find",
+  "count": 1,
+  "gate": "store-internal",
+  "why": "Cross-file forward with the same opts (opts.privileges)."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.findHere",
+  "api": "Store.recordCount",
+  "count": 1,
+  "gate": "store-internal",
+  "why": "Used only when view.where === \"1\" (account views every record)."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.findHere",
+  "api": "sql.prepare",
+  "count": 5,
+  "gate": "store-internal",
+  "why": "All five queries include the where built from viewFilter(info, pv) and checkFieldsVisible."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.findIdsCurrent",
+  "api": "Store.findIds",
+  "count": 1,
+  "gate": "store-internal",
+  "why": "Cross-file forward with the same opts."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.findIdsHere",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "store-internal",
+  "why": "Query includes viewFilter + checkFieldsVisible."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.findSource",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "store-internal",
+  "why": "Reads the temp copy of the found source, whose unstored values were computed with the account's privileges; the result is filtered by viewFilter in findHere."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.forgetStandInValues",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "trusted-process",
+  "why": "Deletes vault entries for deleted records; returns nothing."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.foundSetRowsCurrent",
+  "api": "Store.row",
+  "count": 1,
+  "gate": "store-internal",
+  "why": "Base row for addRelated in foundSetRows (checkLayout done); rows shown are filtered by visible() and shown() with opts.privileges."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.getCurrent",
+  "api": "Store.row",
+  "count": 1,
+  "gate": "store-internal",
+  "why": "Followed by checkRecordRule(view) and toRecord(privileges)."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.getCurrent",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "store-internal",
+  "why": "Lists the ids the account may view (the query includes viewFilter's where) to work out a running summary for this one record; only a number is kept."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.getManyCurrent",
+  "api": "Store.getMany",
+  "count": 1,
+  "gate": "store-internal",
+  "why": "Cross-file forward with the same opts (opts.privileges)."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.getManyCurrent",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "store-internal",
+  "why": "Each row filtered by allows(view rule); summaries over viewFilter."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.independentWindowWrite",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "store-internal",
+  "why": "Reads back the audit row of a change this same transaction wrote, by its seq, to hand it to that change's own onAudit when the transaction resumes; nothing is returned to a caller."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.keySql",
+  "api": "sql.prepared",
+  "count": 1,
+  "gate": "store-internal",
+  "why": "Prepares the foreign-key statements; they return ids and counts for the key check, not values to a caller."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.lastSignIns",
+  "api": "Store.auditLog",
+  "count": 1,
+  "gate": "no-record-data",
+  "why": "Security sign-in events only (account -> time); access-review/admin."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.layoutHistory",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "full-access",
+  "why": "Design log; caller design.ts behind privileges.full."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.leastPrivilege",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "no-record-data",
+  "why": "Distinct (account, table) pairs that wrote; no values; admin console."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.ledgerRow",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "no-record-data",
+  "why": "Reads the sign-in ledger (a mark and a generation counter per account key), which is security metadata and holds no record data; used only to count sign-in generations."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.matchIds",
+  "api": "Store.matchIds",
+  "count": 1,
+  "gate": "checked-before",
+  "why": "Public, no Privileges; returns ids matching key values. Only caller engine.relatedIds (engine.ts:5555/5563) filters the result with viewableIds(privileges)."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.matchIds",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "checked-before",
+  "why": "As Store.matchIds/Store.matchIds."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.moveContainersIn",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "trusted-process",
+  "why": "Container storage maintenance; returns counts."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.moveContainersOut",
+  "api": "Store.container",
+  "count": 1,
+  "gate": "trusted-process",
+  "why": "Container storage maintenance; returns counts/ids; admin optimization."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.orphanContainerReport",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "full-access",
+  "why": "Orphan container filenames/paths; admin console (admin.ts:961) and CLI only."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.pendingChanges",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "full-access",
+  "why": "Agent-proposed changes (the agent's own data); caller securityOf() reachable only behind privileges.full (security.ts:165) and mcp-design guard."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.persistentData",
+  "api": "sql.prepared",
+  "count": 1,
+  "gate": "store-internal",
+  "why": "Values a script itself stored with Configure Persistent Data in this file, read back by the scripts that run."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.persistentDataIds",
+  "api": "sql.prepared",
+  "count": 1,
+  "gate": "store-internal",
+  "why": "Values a script itself stored with Configure Persistent Data in this file, read back by the scripts that run."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.portalContainerTarget",
+  "api": "Store.row",
+  "count": 1,
+  "gate": "checked-before",
+  "why": "Reading the parent of a portal container: checkParentViewable refuses a record the account may not view."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.portalCountsCurrent",
+  "api": "Store.row",
+  "count": 1,
+  "gate": "store-internal",
+  "why": "portalCounts takes privileges; portalRows filters counts by viewableIds. It does not re-check the parent's view rule or layout, but its sole caller dataapi.ts:1967 passes a record already read with get(...privileges)."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.prepared",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "store-internal",
+  "why": "The cache of prepared statements: it prepares what its callers ask for; each caller is listed on its own."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.previewRecordRuleCurrent",
+  "api": "sql.prepare",
+  "count": 2,
+  "gate": "full-access",
+  "why": "Admin rule preview (total, sample labels); callers security.ts record-rule/preview behind privileges.full (security.ts:165) and privilege-review (boolean finding, admin/handover/mcp-design full guard)."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.previewRow",
+  "api": "Store.row",
+  "count": 1,
+  "gate": "checked-before",
+  "why": "Public, no Privileges, returns raw row + pending edits; callers webclient.ts:924/946/988 only after canView(info,id,privileges) / for the window's current record."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.pruneAudit",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "trusted-process",
+  "why": "Audit retention maintenance; returns number of entries removed."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.purgeOrphanContainers",
+  "api": "sql.exec",
+  "count": 1,
+  "gate": "trusted-process",
+  "why": "Removes chunks no container row points to; returns counts, admin/CLI."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.purgeOrphanContainers",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "trusted-process",
+  "why": "Cleanup; returns counts; admin/CLI."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.recompute",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "trusted-process",
+  "why": "Stored-calc maintenance after a design change; returns nothing."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.recordAsOf",
+  "api": "sql.prepare",
+  "count": 3,
+  "gate": "full-access",
+  "why": "Public, returns a full past record with no Privileges; only caller is restoreRecord (admin console, admin.ts:1279)."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.recordCount",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "full-access",
+  "why": "Public recordCount(table) returns the whole-table count with no Privileges. Direct external callers are admin/full-access only: optimization*/find-advice (admin console, mcp-design full guard), warm-worker, backup-verify, design.ts DDR (privileges.full). In-store, findHere uses it only when view.where===1. The ungated path is calc context Get(TotalRecordCount) (see Calculations.context)."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.recordViewable",
+  "api": "Store.row",
+  "count": 1,
+  "gate": "checked-before",
+  "why": "Reads the saved record only to judge the view rule on what is saved rather than on an unsaved edit; the answer is a yes or no, and the caller refuses or returns nothing on no (read-gate-gaps.test.ts, \"being edited\")."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.recoverContainersOut",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "trusted-process",
+  "why": "Crash recovery of container moves."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.rejectPending",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "no-record-data",
+  "why": "Reads agent/kind only; returns boolean."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.relatedCriteria",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "store-internal",
+  "why": "Related rows filtered by allows(view rule) and hidden-field check before matching."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.restoreDeletedRowLocked",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "store-internal",
+  "why": "Id-collision check before reinserting (create privilege checked); error 504 reveals only that the id is in use."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.revertAuditEntry",
+  "api": "Store.auditLog",
+  "count": 1,
+  "gate": "checked-before",
+  "why": "Applies opts.privileges itself: delete/update/restore go through privileged delete/update/checkLayout/checkWriteFields; hidden fields reported only as \"can't be put back\". Callers webclient.ts:452 and mcp.ts:1123 pass privileges."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.row",
+  "api": "sql.prepared",
+  "count": 1,
+  "gate": "store-internal",
+  "why": "Store.row's own statement: callers of row are listed and classified as Store.row."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.scriptHistory",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "full-access",
+  "why": "Design log; caller design.ts behind privileges.full."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.securityEvents",
+  "api": "Store.auditLog",
+  "count": 1,
+  "gate": "no-record-data",
+  "why": "security:true entries only (sign-ins, account changes), no record values; admin console caller."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.selectHeldCurrent",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "checked-before",
+  "why": "The held-transaction form of select: a read-only checked statement, reached only through the SQL connection, whose translate() requires readsEverything."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.selectIdsCurrent",
+  "api": "Store.selectIds",
+  "count": 1,
+  "gate": "store-internal",
+  "why": "Cross-file forward with the same opts."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.selectIdsCurrent",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "store-internal",
+  "why": "Query includes viewFilter + checkFieldsVisible + checkLayout."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.selectIn",
+  "api": "Store.select",
+  "count": 1,
+  "gate": "store-internal",
+  "why": "Forwards to select with the same arguments when the transaction does not hold the file."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.setContainer",
+  "api": "Store.row",
+  "count": 1,
+  "gate": "store-internal",
+  "why": "After checkContainerWrite (view+edit rules); returns modId."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.setStoredCalcValues",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "trusted-process",
+  "why": "Stale-calc refresh/undo writer; returns counts and skipped ids; callers gated full (MCP) or admin."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.settleSignIns",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "no-record-data",
+  "why": "Lists the sign-in ledger's keys to drop those of accounts that are gone; security metadata, not record data, and nothing is returned."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.sortIdsCurrentProgress",
+  "api": "sql.prepare",
+  "count": 2,
+  "gate": "checked-before",
+  "why": "Sorts only the ids the account may see: both statements add the view rule of its privileges (view.where) to the ids given."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.sortedPage",
+  "api": "sql.prepare",
+  "count": 2,
+  "gate": "store-internal",
+  "why": "The order kept is of the file's own table and the filter that selected it; a found set that sorts or finds on a computed value is read from a temporary table made for the asking account and never kept."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.timeFind",
+  "api": "Store.recordCount",
+  "count": 1,
+  "gate": "trusted-process",
+  "why": "Total count sent to findListener (server profiler/admin), not to the requesting caller."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.unusedObjects",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "no-record-data",
+  "why": "Layout/script usage counters per privilege set; no record data."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.unusualAccess",
+  "api": "Store.auditLog",
+  "count": 2,
+  "gate": "no-record-data",
+  "why": "Security events only; admin console."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.update",
+  "api": "Store.row",
+  "count": 3,
+  "gate": "checked-before",
+  "why": "Reading the parent of a related field or portal: checkParentViewable refuses a record the account may not view before the related record is touched."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.updatePortals",
+  "api": "Store.row",
+  "count": 2,
+  "gate": "checked-before",
+  "why": "Reading the parent of a portal edit: checkParentViewable refuses a record the account may not view before any portal row is touched."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.valueListItemsCurrent",
+  "api": "Store.row",
+  "count": 1,
+  "gate": "store-internal",
+  "why": "Preceded by this.get(from.info, from.recordId, ..., privileges) gate."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.valueListItemsCurrent",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "store-internal",
+  "why": "Rows filtered by allows(view rule) and hidden fields when privileges given; unprivileged use is validate() only."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.vaultHeld",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "no-record-data",
+  "why": "Boolean whether the PII vault is non-empty."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.wordIndex",
+  "api": "Store.recordCount",
+  "count": 1,
+  "gate": "store-internal",
+  "why": "Decides whether to use the FTS index; nothing returned."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.wordIndex",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "store-internal",
+  "why": "FTS probe count to choose a plan; result never returned; find applies viewFilter."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.writeExternalFile",
+  "api": "Store.evaluateEach",
+  "count": 1,
+  "gate": "store-internal",
+  "why": "Evaluates the field's external-storage path calc while writing a file (setContainer already checked privileges); path stored, not returned (containerInfo later exposes external.path)."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.writeExternalFile",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "no-record-data",
+  "why": "Path-collision check."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "read",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "store-internal",
+  "why": "changeOne helper: reads the record before/after a write to apply a summary delta to the shared whole-table result under the bare (unlimited) sumKey; nothing returned to the caller."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "recs",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "checked-before",
+  "why": "Iterates the found set's own query, whose where clause already carries the account's view filter (summaries are computed over what the caller may view)."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "run",
+  "api": "Store.recordAsOf",
+  "count": 1,
+  "gate": "full-access",
+  "why": "Inside restoreRecord: admin console only (account \"admin console\"); returns the action and changed field names."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "run",
+  "api": "sql.prepare",
+  "count": 3,
+  "gate": "store-internal",
+  "why": "Three closures run under the table's write lock after the privilege checks: restoreRecord (admin console only; before-image of the record put back), delete (before-image for cascade, audit and notify after the view and delete rules passed) and truncate (requires full access; reads rows only to purge the PII vault)."
+ },
+ {
+  "file": "packages/store/src/sync-apply.ts",
+  "within": "applySyncRun",
+  "api": "Store.container",
+  "count": 1,
+  "gate": "trusted-process",
+  "why": "Sync engine."
+ },
+ {
+  "file": "packages/store/src/sync-apply.ts",
+  "within": "applySyncRun",
+  "api": "Store.containerInfo",
+  "count": 1,
+  "gate": "trusted-process",
+  "why": "FileMaker Server sync engine (admin-configured), reads every record by design."
+ },
+ {
+  "file": "packages/store/src/sync-apply.ts",
+  "within": "applySyncRun",
+  "api": "sql.prepare",
+  "count": 2,
+  "gate": "trusted-process",
+  "why": "Sync engine mod-id checks."
+ },
+ {
+  "file": "packages/store/src/sync-apply.ts",
+  "within": "containerChanges",
+  "api": "Store.container",
+  "count": 1,
+  "gate": "trusted-process",
+  "why": "Sync engine."
+ },
+ {
+  "file": "packages/store/src/sync-apply.ts",
+  "within": "fail",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "trusted-process",
+  "why": "Sync engine status read."
+ },
+ {
+  "file": "packages/store/src/sync-apply.ts",
+  "within": "filesToSend",
+  "api": "Store.container",
+  "count": 1,
+  "gate": "trusted-process",
+  "why": "Sync engine."
+ },
+ {
+  "file": "packages/store/src/sync-apply.ts",
+  "within": "filesToSend",
+  "api": "Store.containerInfo",
+  "count": 1,
+  "gate": "trusted-process",
+  "why": "Sync engine."
+ },
+ {
+  "file": "packages/store/src/sync-apply.ts",
+  "within": "pullWouldChange",
+  "api": "Store.container",
+  "count": 1,
+  "gate": "trusted-process",
+  "why": "Sync engine: compares the local container with the remote's to decide whether a pull would change the file; not returned to a client."
+ },
+ {
+  "file": "packages/store/src/sync-apply.ts",
+  "within": "readSyncLog",
+  "api": "sql.prepare",
+  "count": 2,
+  "gate": "full-access",
+  "why": "Sync log (ids, ops, field names, no values); admin sync console (sync-console.ts:568) and CLI."
+ },
+ {
+  "file": "packages/store/src/sync-apply.ts",
+  "within": "recordsIn",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "trusted-process",
+  "why": "Total record count for sync safety checks; not returned to a client."
+ },
+ {
+  "file": "packages/store/src/sync.ts",
+  "within": "readLocalRecords",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "trusted-process",
+  "why": "Sync planning reads the synced table; admin sync console."
+ },
+ {
+  "file": "packages/store/src/text-styles.ts",
+  "within": "TextStyles.st",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "store-internal",
+  "why": "The text-styles table holds run positions and formats, read with the value they style by the caller that has already read it under its privileges."
+ },
+ {
+  "file": "packages/store/src/text-styles.ts",
+  "within": "ensureTextStyles",
+  "api": "sql.exec",
+  "count": 1,
+  "gate": "store-internal",
+  "why": "The text-styles table holds run positions and formats, read with the value they style by the caller that has already read it under its privileges."
+ },
+ {
+  "file": "packages/store/src/words.ts",
+  "within": "WordIndexes.build",
+  "api": "sql.exec",
+  "count": 1,
+  "gate": "trusted-process",
+  "why": "FTS index maintenance; returns nothing."
+ }
+]
