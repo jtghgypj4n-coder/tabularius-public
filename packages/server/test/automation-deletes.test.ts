@@ -118,6 +118,7 @@ test('a capture-only file never has automations', async () => {
 test('a delete that a script reverts sets nothing off', async () => {
   shop.applyDesign([{ op: 'createScript', name: 'Undo delete', text: 'Open Transaction\nGo to Layout [ "Items" ]\nShow All Records\nDelete Record/Request [ With dialog: Off ]\nRevert Transaction\nCommit Transaction' }]);
   const before = log().length;
+  const runsBefore = (await call('Shop', '')).body.automations[0].runs.length;
   const left = names();
   const { runScript } = await import('../../scripts/src/index.ts');
   const r = await runScript(shop, 'Undo delete', { account: 'Admin' });
@@ -125,8 +126,9 @@ test('a delete that a script reverts sets nothing off', async () => {
   await host.automations!.idle(shop);
   assert.deepEqual(names(), left, 'the delete was reverted');
   assert.equal(log().length, before, 'and the automation didn\'t run');
+  // A delete the script reverted is never published, so the automation is not even asked and logs no run at all.
   const runs = (await call('Shop', '')).body.automations[0].runs;
-  assert.match(runs[0].message ?? '', /undone/);
+  assert.equal(runs.length, runsBefore);
 });
 
 test('a file the server names as a capture-only can\'t save automations either', async () => {

@@ -19,7 +19,7 @@ import { DatabaseSync, backup, type Session, type StatementSync, type SQLInputVa
 import { createHash, createHmac, pbkdf2Sync, scrypt, scryptSync, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { isIP } from 'node:net';
 import { basename, dirname, extname, join, relative, resolve, isAbsolute } from 'node:path';
-import { closeSync, constants as fsConstants, copyFileSync, existsSync, linkSync, mkdirSync, readSync, rmSync, statSync } from 'node:fs';
+import { closeSync, constants as fsConstants, copyFileSync, existsSync, linkSync, mkdirSync, readdirSync, readSync, rmSync, statSync } from 'node:fs';
 import { checkedFile, cleanupPath, openSync, readFileSync, writeFileSync, writeSync } from './fs-boundary.ts';
 import { externalFieldNames, parseDate, parseTime, parseTimestamp, type DateStyle, type Field, type FieldType, type LayoutDesign, type LayoutDesigns, type LayoutObject, type Schema, type Table } from '../../fmp12/src/index.ts';
 import { findWhere, registerFindFunctions, beginFindBudget, FindError, type RelatedCriteria, type FieldInfo, type FindRequest, type SqlValue, type WordIndex } from './find.ts';
@@ -848,6 +848,9 @@ export interface QueryOrigins {
   virtual: boolean;
 }
 
+/** Journal markers already reported as unusable in this process, so reopening a file does not repeat the warning. */
+const warnedMarkers = new Set<string>();
+
 export class Store {
   private readonly valueListSorts = new PreparedCache(new Map<string, { token: string; order: ReturnType<typeof valueListOrder> }>(), (value) => new Map(value));
   private readonly valueListRanks = new PreparedCache(new Map<string, ReturnType<typeof valueListOrder>>(), (value) => new Map(value));
@@ -1180,6 +1183,8 @@ export class Store {
     this.sql.exec('CREATE INDEX IF NOT EXISTS _fm_containers_hash ON _fm_containers (sha256, mime, filename) WHERE external IS NULL AND sha256 IS NOT NULL');
     this.externalRoots = externalRoots(dirname(path), name, this.schema?.containerDirectories?.map((d) => d.path) ?? []);
     this.externalDirectoryLinks = existingDirectoryLinks(this.externalRoots);
+    try { this.recoverPendingExternalFiles(); }
+    catch (error) { this.sql.close(); throw error; }
     if (existsSync(this.path + '.containers-out.json')) {
       this.sql.exec('BEGIN IMMEDIATE');
       try { this.recoverContainersOut(); this.sql.exec('COMMIT'); }
@@ -1397,6 +1402,62 @@ export class Store {
   private heldNewIds = new Map<string, number>();
   /** Container files written to disk (external storage) under the held transaction: removed if it rolls back. */
   private heldFiles: (() => void)[] = [];
+  /** The journal markers of those files (see writeExternalFile): taken away when the transaction ends either way. */
+  private heldExternalMarkers: string[] = [];
+
+  private externalMarkerPrefix(): string {
+    return `.openhbam-container-pending-${createHash('sha256').update(resolve(this.path)).digest('hex').slice(0, 16)}-`;
+  }
+
+  /** Resolve interrupted writes only while no other writer can hold an uncommitted reference. */
+  private recoverPendingExternalFiles(): void {
+    const dir = dirname(this.path);
+    const names = readdirSync(dir).filter((name) => name.startsWith(this.externalMarkerPrefix()) && name.endsWith('.json'));
+    if (!names.length) return;
+    this.sql.exec('BEGIN IMMEDIATE');
+    try {
+      const named = this.sql.prepare('SELECT 1 FROM _fm_containers WHERE external = ? LIMIT 1');
+      for (const name of names) {
+        const marker = join(dir, name);
+        try {
+          const { root, rel } = JSON.parse(readFileSync(marker, 'utf8')) as { root: string; rel: string };
+          // A marker naming a root this file no longer serves (the settings changed after a crash) is not ours to act on.
+          if (!this.externalRoots.includes(root) || typeof rel !== 'string') throw new Error('it names a folder this file does not use');
+          const full = safeExistingPath(root, rel, this.externalDirectoryLinks);
+          // Named by a committed container, the file stays; otherwise the write never committed and the file goes.
+          if (!named.get(rel) && full) cleanupPath(full)();
+          rmSync(marker);
+        } catch (error) {
+          // Opening the file must not fail over a leftover note: it stays where it is for an operator to look at.
+          if (!warnedMarkers.has(marker)) {
+            warnedMarkers.add(marker);
+            console.warn(`Skipped an unreadable external container journal (${name}): ${error instanceof Error ? error.message : String(error)}`);
+          }
+        }
+      }
+      this.sql.exec('COMMIT');
+    } catch (e) {
+      this.sql.exec('ROLLBACK');
+      throw e;
+    }
+  }
+
+  /**
+   * The outcome of a write that put container files on disk. Committed: only the journal markers go. Rolled back:
+   * each file's cleanup removes the file it created, then its marker; one that can't be removed is only left behind,
+   * and its marker stays so that opening the file decides about it.
+   */
+  private finishExternalFiles(files: (() => void)[], markers: string[], keep: boolean): void {
+    if (keep) {
+      for (const marker of markers) {
+        try { rmSync(marker, { force: true }); } catch { /* recovery checks the committed reference */ }
+      }
+      return;
+    }
+    for (const remove of files) {
+      try { remove(); } catch { /* orphaned file only */ }
+    }
+  }
 
   /**
    * Before a write: a script's open transaction takes this file (a savepoint),
@@ -1478,26 +1539,57 @@ export class Store {
   private securityBatchPublications?: (() => void)[];
   /** Batch publications held until the caller-owned transaction reaches its outer boundary. */
   private transactionSecurityPublications = new WeakMap<Transaction, (() => void)[]>();
+  /** Container files (their cleanups) and journal markers written inside the single-write transaction we own. */
+  private writeFiles?: (() => void)[];
+  private writeExternalMarkers?: string[];
+  /** Publications of writes made under the held transaction, told when it commits. */
+  private heldPublications: (() => void)[] = [];
 
   /** Keep the record id, serial allocation, validation and write under one file lock. */
   private withWriteTransaction<T>(run: () => T): T {
-    if (this.sql.isTransaction) return run();
+    const nested = this.sql.isTransaction;
+    const name = nested ? `write_${++this.trials}` : undefined;
     const publications: (() => void)[] = [];
+    const parent = this.writePublications;
+    const files: (() => void)[] = [];
+    const parentFiles = this.writeFiles;
+    const markers: string[] = [];
+    const parentMarkers = this.writeExternalMarkers;
+    // Audit rows a held transaction has been told about: a rolled back savepoint takes its own back out.
+    const auditMark = this.heldAudit.length;
     let result: T;
-    this.sql.exec('BEGIN IMMEDIATE');
+    this.sql.exec(name ? `SAVEPOINT ${name}` : 'BEGIN IMMEDIATE');
     this.writePublications = publications;
+    this.writeFiles = files;
+    this.writeExternalMarkers = markers;
     try {
       result = run();
-      this.sql.exec('COMMIT');
+      this.sql.exec(name ? `RELEASE ${name}` : 'COMMIT');
     } catch (e) {
-      if (this.sql.isTransaction) this.sql.exec('ROLLBACK');
+      if (this.sql.isTransaction) this.sql.exec(name ? `ROLLBACK TO ${name}; RELEASE ${name}` : 'ROLLBACK');
+      if (this.heldAudit.length > auditMark) this.heldAudit.length = auditMark;
       this.resetCaches();
+      this.finishExternalFiles(files, markers, false);
       throw e;
     } finally {
-      this.writePublications = undefined;
+      this.writePublications = parent;
+      this.writeFiles = parentFiles;
+      this.writeExternalMarkers = parentMarkers;
     }
+    if (parentFiles) parentFiles.push(...files);
+    else if (this.heldBy) this.heldFiles.push(...files);
+    else this.finishExternalFiles(files, markers, true);
+    if (parentMarkers) parentMarkers.push(...markers);
+    else if (this.heldBy) this.heldExternalMarkers.push(...markers);
+    if (parent) { parent.push(...publications); return result; }
+    if (this.heldBy) { this.heldPublications.push(...publications); return result; }
     for (const publish of publications) publish();
     return result;
+  }
+  /** One store-file write, including any nested record changes and their publications. */
+  writeAtomically<T>(run: () => T): T {
+    this.joinTransaction();
+    return this.withWriteTransaction(run);
   }
   /** Whether the held transaction's savepoint began the SQLite transaction (BEGIN IMMEDIATE), so ending it commits. */
   private heldBegan = false;
@@ -1515,6 +1607,10 @@ export class Store {
     tx.files.delete(this);
     const written = this.heldFiles;
     this.heldFiles = [];
+    const markers = this.heldExternalMarkers;
+    this.heldExternalMarkers = [];
+    const publications = this.heldPublications;
+    this.heldPublications = [];
     const began = this.heldBegan;
     this.heldBegan = false;
     const securityPublications = this.transactionSecurityPublications.get(tx);
@@ -1525,6 +1621,7 @@ export class Store {
       // Never left open holding the file's write lock: what wasn't committed is undone.
       if (began && this.sql.isTransaction) this.sql.exec('ROLLBACK');
       this.resetCaches();
+      if (began) this.finishExternalFiles(written, markers, false);
       throw e;
     }
     if (keep) for (const publish of securityPublications ?? []) publish();
@@ -1532,10 +1629,10 @@ export class Store {
       this.resetCaches();
       // No container names them any more: the files go too, as if they had never been put in.
       // A file that can't be removed (in use, no permission) is only left behind: the rollback stands, and other files' holds still end.
-      for (const f of written) {
-        try { f(); } catch { /* orphaned file only */ }
-      }
+      this.finishExternalFiles(written, markers, false);
     }
+    else this.finishExternalFiles(written, markers, true);
+    if (keep) for (const publish of publications) publish();
     if (this.denialPending.size) this.scheduleDenials(0);
     if (keep) for (const entry of audit) entry.onAudit?.(this, entry.seq);
   }
@@ -1822,7 +1919,9 @@ export class Store {
       return;
     }
     if (this.writePublications) {
-      this.writePublications.push(() => this.notify(kind, table, recordId, modId, by, fields, ids));
+      if (writer.getStore()?.transaction?.open?.quiet) return;
+      const source = by ?? writer.getStore();
+      this.writePublications.push(() => this.notify(kind, table, recordId, modId, source, fields, ids));
       return;
     }
     if (this.keyPublications) {
@@ -2134,41 +2233,41 @@ export class Store {
     // A table with a foreign key puts the record back like any write: its keys checked, under one write lock.
     const named = table.toLowerCase();
     const keyed = this.foreignKeys().some((k) => k.parent.table.name.toLowerCase() === named || k.child.table.name.toLowerCase() === named);
-    const run = (): { action: 'updated' | 'created' | 'deleted' | 'unchanged'; fields: string[] } => {
-    const then = this.recordAsOf(table, recordId, seq);
-    const t = this.schema!.tables.find((x) => x.name.toLowerCase() === table.toLowerCase())!;
-    const T = q(t.name);
-    this.checkLock(t.name, recordId);
-    const now = this.sql.prepare(`SELECT * FROM ${T} WHERE _fm_record_id = ?`).get(recordId) as Record<string, SqlValue> | undefined;
-    if (!then && !now) return { action: 'unchanged', fields: [] };
-    if (!then) {
-      const orphaned = keyed ? this.parentKeysLeaving(t, now!, recordId, opts.privileges) : [];
-      this.sql.prepare(`DELETE FROM ${T} WHERE _fm_record_id = ?`).run(recordId);
-      this.audit('delete', t.name, recordId, Object.fromEntries(Object.entries(now!).filter(([k, v]) => !k.startsWith('_fm_') && v !== null)), opts);
-      this.notify('delete', t.name, recordId);
-      if (orphaned.length) this.followOnDelete(orphaned, opts);
-      return { action: 'deleted', fields: [] };
-    }
-    const cols = Object.keys(then);
-    if (!now) {
-      this.checkChildKeys(t, then as Row);
-      this.sql.prepare(`INSERT INTO ${T} (_fm_record_id${this.fileMode === 'native' ? ', _fm_uuid' : ''}${cols.length ? `, ${cols.map(q).join(', ')}` : ''}) VALUES (?${this.fileMode === 'native' ? ', ?' : ''}${', ?'.repeat(cols.length)})`)
-        .run(recordId, ...(this.fileMode === 'native' ? [this.uuid.next()] : []), ...cols.map((c) => then[c]));
-      this.audit('create', t.name, recordId, Object.fromEntries(cols.filter((c) => then[c] !== null).map((c) => [c, then[c]])), opts);
-      this.notify('create', t.name, recordId, 0);
-      return { action: 'created', fields: cols.filter((c) => then[c] !== null) };
-    }
-    const diff = cols.filter((c) => (now[c] ?? null) !== (then[c] ?? null));
-    if (!diff.length) return { action: 'unchanged', fields: [] };
-    const row = { ...now, ...then } as Row;
-    this.checkChildKeys(t, row, now as Row);
-    this.checkParentKeyChange(t, recordId, row, now as Row, opts.privileges);
-    this.sql.prepare(`UPDATE ${T} SET _fm_mod_id = _fm_mod_id + 1, ${diff.map((c) => `${q(c)} = ?`).join(', ')} WHERE _fm_record_id = ?`).run(...diff.map((c) => then[c]), recordId);
-    this.audit('update', t.name, recordId, Object.fromEntries(diff.map((c) => [c, [now[c] ?? null, then[c] ?? null]])), opts);
-    this.notify('update', t.name, recordId, Number(now._fm_mod_id) + 1);
-    return { action: 'updated', fields: diff };
-    };
-    return keyed ? this.keyStep(run) : run();
+    this.joinTransaction();
+    return this.withWriteTransaction(() => {
+      const then = this.recordAsOf(table, recordId, seq);
+      const t = this.schema!.tables.find((x) => x.name.toLowerCase() === table.toLowerCase())!;
+      const T = q(t.name);
+      this.checkLock(t.name, recordId);
+      const now = this.sql.prepare(`SELECT * FROM ${T} WHERE _fm_record_id = ?`).get(recordId) as Record<string, SqlValue> | undefined;
+      if (!then && !now) return { action: 'unchanged', fields: [] };
+      if (!then) {
+        const orphaned = keyed ? this.parentKeysLeaving(t, now!, recordId, opts.privileges) : [];
+        this.sql.prepare(`DELETE FROM ${T} WHERE _fm_record_id = ?`).run(recordId);
+        this.audit('delete', t.name, recordId, Object.fromEntries(Object.entries(now!).filter(([k, v]) => !k.startsWith('_fm_') && v !== null)), opts);
+        this.notify('delete', t.name, recordId);
+        if (orphaned.length) this.followOnDelete(orphaned, opts);
+        return { action: 'deleted', fields: [] };
+      }
+      const cols = Object.keys(then);
+      if (!now) {
+        this.checkChildKeys(t, then as Row);
+        this.sql.prepare(`INSERT INTO ${T} (_fm_record_id${this.fileMode === 'native' ? ', _fm_uuid' : ''}${cols.length ? `, ${cols.map(q).join(', ')}` : ''}) VALUES (?${this.fileMode === 'native' ? ', ?' : ''}${', ?'.repeat(cols.length)})`)
+          .run(recordId, ...(this.fileMode === 'native' ? [this.uuid.next()] : []), ...cols.map((c) => then[c]));
+        this.audit('create', t.name, recordId, Object.fromEntries(cols.filter((c) => then[c] !== null).map((c) => [c, then[c]])), opts);
+        this.notify('create', t.name, recordId, 0);
+        return { action: 'created', fields: cols.filter((c) => then[c] !== null) };
+      }
+      const diff = cols.filter((c) => (now[c] ?? null) !== (then[c] ?? null));
+      if (!diff.length) return { action: 'unchanged', fields: [] };
+      const row = { ...now, ...then } as Row;
+      this.checkChildKeys(t, row, now as Row);
+      this.checkParentKeyChange(t, recordId, row, now as Row, opts.privileges);
+      this.sql.prepare(`UPDATE ${T} SET _fm_mod_id = _fm_mod_id + 1, ${diff.map((c) => `${q(c)} = ?`).join(', ')} WHERE _fm_record_id = ?`).run(...diff.map((c) => then[c]), recordId);
+      this.audit('update', t.name, recordId, Object.fromEntries(diff.map((c) => [c, [now[c] ?? null, then[c] ?? null]])), opts);
+      this.notify('update', t.name, recordId, Number(now._fm_mod_id) + 1);
+      return { action: 'updated', fields: diff };
+    });
   }
 
   /**
@@ -7289,10 +7388,10 @@ export class Store {
    * Server keeps them), where FileMaker and backups of that folder find it. Undefined for fields stored in the file,
    * and for secure storage, whose files are kept in the database instead (encrypted at rest with it).
    */
-  private addExternalContainer(info: LayoutInfo, recordId: number, field: string, file: ContainerFile, created?: (() => void)[]): number | undefined {
+  private addExternalContainer(info: LayoutInfo, recordId: number, field: string, file: ContainerFile): number | undefined {
     const written = this.writeExternalFile(info, recordId, field, file);
     if (!written) return undefined;
-    created?.push(written.cleanup);
+    crashPoint('record-container:after-external-write');
     const rel = written.rel;
     const kind = file.mime.startsWith('image/') ? 'image' : 'file';
     return Number(this.sql.prepare("INSERT INTO _fm_containers (filename, mime, kind, data, external, external_size, stored) VALUES (?, ?, ?, x'', ?, ?, ?)")
@@ -7342,10 +7441,31 @@ export class Store {
     const full = safeWritePath(root, rel, this.externalDirectoryLinks);
     if (!full) return undefined;
     beforeWrite?.(root, rel);
+    // A note of the file, durable before it exists: if the process dies before the write commits, opening the file finds
+    // the note and removes the file unless a committed container names it. Fixed up by the write's outcome otherwise.
+    let marker: string | undefined;
+    if (!beforeWrite) {
+      if (!this.writeExternalMarkers) throw new StoreError(102, 'External container write needs a transaction');
+      marker = join(dirname(this.path), `${this.externalMarkerPrefix()}${randomUUID()}.json`);
+      atomicWrite(marker, JSON.stringify({ root, rel }));
+      this.writeExternalMarkers.push(marker);
+    }
     // Open external storage keeps its historical umask-filtered permissions.
     // Pass the effective mode because guarded opens also chmod the descriptor.
-    const fd = openSync(full, fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL | (fsConstants.O_NOFOLLOW ?? 0), 0o666 & ~process.umask());
-    const cleanup = cleanupPath(full);
+    let fd: number;
+    try {
+      fd = openSync(full, fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL | (fsConstants.O_NOFOLLOW ?? 0), 0o666 & ~process.umask());
+    } catch (error) {
+      // Nothing of ours was created, so a note must not outlive this and send a later recovery after someone else's file.
+      if (marker) rmSync(marker, { force: true });
+      throw error;
+    }
+    const removeFile = cleanupPath(full);
+    // The file goes first and its marker with it; a file that can't be removed keeps its marker for recovery.
+    const cleanup = marker ? () => { removeFile(); rmSync(marker, { force: true }); } : removeFile;
+    if (this.writeFiles) this.writeFiles.push(cleanup);
+    else if (this.heldBy) this.heldFiles.push(cleanup);
+    this.keyFiles?.push(cleanup);
     let complete = false;
     try {
       if (spooled(file)) eachContainerPiece(file, (_n, piece) => { for (let done = 0; done < piece.length;) {
@@ -7359,8 +7479,7 @@ export class Store {
       // A close that fails also leaves an incomplete file, so it is removed like a failed write.
       try { closeSync(fd); } catch (error) { complete = false; throw error; } finally { if (!complete) cleanup(); }
     }
-    if (this.heldBy) this.heldFiles.push(cleanup);
-    this.keyFiles?.push(cleanup);
+    if (!beforeWrite) { syncPath(full); syncPath(dirname(full)); }
     return { rel, full, cleanup };
   }
 
@@ -7607,42 +7726,32 @@ export class Store {
   setContainer(layout: string | LayoutInfo, recordId: number, field: string, repetition: number,
     file: ContainerFile | null, opts: WriteOptions = {}): { modId: number } {
     const info = this.layoutInfo(layout);
-    this.checkContainerWrite(info, recordId, field, repetition, opts);
     if (info.owner !== this) return info.owner.setContainer(info, recordId, field, repetition, file, opts);
-    this.joinTransaction();
-    // Each removes only the file this call created (the boundary's cleanup checks it is still that entry).
-    const createdExternal: (() => void)[] = [];
-    try { return this.withWriteTransaction(() => {
-      this.sql.exec('SAVEPOINT set_container');
-      try {
-        this.checkContainerWrite(info, recordId, field, repetition, opts);
-        const current = this.row(info, recordId);
-        const id = file && (this.addExternalContainer(info, recordId, field, file, createdExternal) ?? this.addContainer(file, { table: info.table, field }));
-        let value: SqlValue = id;
-        if (repetition > 1 || (this.repeating[info.table] ?? []).includes(field)) {
-          const cur = current[field];
-          const arr: SqlValue[] = typeof cur === 'string' && cur.startsWith('[') ? JSON.parse(cur) : cur != null ? [cur] : [];
-          while (arr.length < repetition) arr.push(null);
-          arr[repetition - 1] = id;
-          value = JSON.stringify(arr);
-          this.markRepeating(info.table, field);
-        }
-        this.sql.prepare(`UPDATE ${q(info.table)} SET _fm_mod_id = _fm_mod_id + 1, ${q(field)} = ? WHERE _fm_record_id = ?`).run(value, recordId);
-        // Never the contents: the name, size and a hash that identifies them.
-        const described = file && `${file.filename ?? '(file)'} (${containerFileSize(file)} bytes, sha256 ${containerFileHash(file)})`;
-        this.audit('update', info.table, recordId, { [repetition > 1 ? `${field}(${repetition})` : field]: [current[field] ?? null, described ?? null] }, opts);
-        this.notify('update', info.table, recordId, Number(current._fm_mod_id) + 1, undefined, [field]);
-        this.sql.exec('RELEASE set_container');
-        return { modId: Number(current._fm_mod_id) + 1 };
-      } catch (error) {
-        if (this.sql.isTransaction) this.sql.exec('ROLLBACK TO set_container; RELEASE set_container');
-        for (const remove of createdExternal) remove();
-        throw error;
-      }
-    }); } catch (error) {
-      for (const remove of createdExternal) remove();
-      throw error;
+    const external = this.table(info).fields.find((f) => f.name === field)?.options?.externalStorage;
+    if (file && external && !external.secure && this.sql.isTransaction && !this.heldBy && !this.writePublications) {
+      throw new StoreError(102, 'External container write requires a managed transaction');
     }
+    this.joinTransaction();
+    return this.withWriteTransaction(() => {
+      this.checkContainerWrite(info, recordId, field, repetition, opts);
+      const current = this.row(info, recordId);
+      const id = file && (this.addExternalContainer(info, recordId, field, file) ?? this.addContainer(file, { table: info.table, field }));
+      let value: SqlValue = id;
+      if (repetition > 1 || (this.repeating[info.table] ?? []).includes(field)) {
+        const cur = current[field];
+        const arr: SqlValue[] = typeof cur === 'string' && cur.startsWith('[') ? JSON.parse(cur) : cur != null ? [cur] : [];
+        while (arr.length < repetition) arr.push(null);
+        arr[repetition - 1] = id;
+        value = JSON.stringify(arr);
+        this.markRepeating(info.table, field);
+      }
+      this.sql.prepare(`UPDATE ${q(info.table)} SET _fm_mod_id = _fm_mod_id + 1, ${q(field)} = ? WHERE _fm_record_id = ?`).run(value, recordId);
+      // Never the contents: the name, size and a hash that identifies them.
+      const described = file && `${file.filename ?? '(file)'} (${containerFileSize(file)} bytes, sha256 ${containerFileHash(file)})`;
+      this.audit('update', info.table, recordId, { [repetition > 1 ? `${field}(${repetition})` : field]: [current[field] ?? null, described ?? null] }, opts);
+      this.notify('update', info.table, recordId, Number(current._fm_mod_id) + 1, undefined, [field]);
+      return { modId: Number(current._fm_mod_id) + 1 };
+    });
   }
 
   // --- records ------------------------------------------------------------
@@ -8422,6 +8531,7 @@ export class Store {
     this.checkWriteFields(info, opts.privileges, fieldNames(data));
     this.checkLayout(info, opts.privileges, true);
     this.gateAgentWrite(opts, 'update', info, recordId, data, modId);
+    if (info.owner !== this) return info.owner.update(info, recordId, data, modId, opts, retry);
     // Related fields ("TO::Field") go to the first related record, as in FileMaker.
     const own: FieldData = {};
     const related = new Map<string, FieldData>();
@@ -8432,86 +8542,86 @@ export class Store {
         related.get(m[1])![m[2]] = v;
       } else own[k] = m ? m[2] : v;
     }
-    if (related.size && info.home) {
-      const row = info.owner.row(info, recordId);
-      // Formatting given as "TO::Field" goes with that related field to the related record; a bare name is the record's own.
-      for (const [to, values] of related) {
-        const given = opts.styles && Object.entries(opts.styles).filter(([k]) => k.startsWith(`${to}::`)).map(([k, runs]) => [k.slice(to.length + 2), runs] as const);
-        info.home.updateRelated(info, row, to, values, { ...opts, styles: given?.length ? Object.fromEntries(given) : undefined });
-      }
-    }
-    if (!Object.keys(own).length && related.size) return { modId: Number(info.owner.row(info, recordId)._fm_mod_id) };
-    if (opts.styles && related.size) {
-      // What is left is the record's own: without the related fields' formatting, which went with them.
-      const mine = Object.entries(opts.styles).filter(([k]) => ![...related.keys()].some((to) => k.startsWith(`${to}::`)));
-      opts = { ...opts, styles: Object.fromEntries(mine) };
-    }
-    if (info.owner !== this) return info.owner.update(info, recordId, own, modId, opts);
-    data = own;
     this.joinTransaction();
     return this.withWriteTransaction(() => {
-    this.checkLock(info.table, recordId);
-    const current = this.row(info, recordId);
-    if (modId !== undefined && Number(current._fm_mod_id) !== modId) {
-      throw new StoreError(306, 'Record modification id does not match');
-    }
-    this.checkWrite(info, this.local(opts.privileges), fieldNames(data), current);
-    const table = this.table(info);
-    if (opts.dataEntry) this.checkEntry(table, data);
-    const styled = opts.styles ? this.styledFields(table, data, opts.styles) : undefined;
-    const cols = this.setGlobals(table, this.columns(info, data, current, opts.dateOrder));
-    const row: Row = { ...(current as Row) };
-    for (const [k, v] of cols) row[k] = v;
-    // The formatting is written with the record in one step: both or neither.
-    const styling = !!styled?.size || this.textStyles.has(table.id);
-    const step = styling && !this.sql.isTransaction ? `styles_${++this.trials}` : undefined;
-    if (step) this.sql.exec(`SAVEPOINT ${step}`);
-    const undo = () => {
-      if (step) this.sql.exec(`ROLLBACK TO ${step}; RELEASE ${step}`);
-      this.textStyles.reset();
-    };
-    let restyled: string[] = [];
-    let diff: string[];
-    const calcRuns = new Map<string, StyleRun[] | undefined>();
-    try {
-      // Before the record's calculations run, so a stored GetAsCSS ( Notes ) sees the new formatting.
-      if (styling) restyled = this.restyle(table, recordId, current as Row, row, styled, !!opts.dataEntry);
-      const typed = { ...row };
-      calcRuns.clear();
-      this.write(() => this.calc.beforeWrite(table, row, new Set(cols.keys()), { isNew: false, account: opts.account, previous: current as Row, noValidation: opts.restoring, required: opts.firstCommit, firstCommit: opts.firstCommit, skipEntryValidation: opts.skipEntryValidation, performAutoEnter: opts.performAutoEnter, calcRuns, entered: data, overrideValidation: opts.dataEntry ? opts.overrideValidation : undefined, editKey: opts.editKey }));
-      // An auto-enter that replaced formatted text: the formatting no longer fits it.
-      for (const n of restyled) {
-        if (row[n] === typed[n]) continue;
-        const f = table.fields.find((x) => x.name === n)!;
-        for (let r = 1; r <= repetitionsOf(f); r++) {
-          const text = this.keptText(f, row[n], r);
-          if (text !== this.keptText(f, typed[n], r)) this.textStyles.write(table.id, recordId, f.id, text ?? '', undefined, r);
+      this.checkLock(info.table, recordId);
+      const current = this.row(info, recordId);
+      if (modId !== undefined && Number(current._fm_mod_id) !== modId) {
+        throw new StoreError(306, 'Record modification id does not match');
+      }
+      // A related-only edit is checked field by field on the related record, not as an edit of this one.
+      if (Object.keys(own).length || !related.size) this.checkWrite(info, this.local(opts.privileges), fieldNames(own), current);
+      if (related.size && info.home) {
+        // Formatting given as "TO::Field" goes with that related field to the related record; a bare name is the record's own.
+        for (const [to, values] of related) {
+          const given = opts.styles && Object.entries(opts.styles).filter(([k]) => k.startsWith(`${to}::`)).map(([k, runs]) => [k.slice(to.length + 2), runs] as const);
+          info.home.updateRelated(info, current, to, values, { ...opts, styles: given?.length ? Object.fromEntries(given) : undefined });
         }
       }
-      this.checkChildKeys(table, row, current as Row);
-      this.checkParentKeyChange(table, recordId, row, current as Row, opts.privileges);
-      const changed = info.fields.map((f) => f.name).filter((n) => cols.has(n) || row[n] !== current[n]);
-      const sets = changed.map((n) => `${q(n)} = ?`);
-      // Only if nobody saved it since it was read: another server process can, between the two.
-      const { changes } = this.changeOne(table, recordId, current as Row, () => this
-        .prepared(`UPDATE ${q(info.table)} SET ${['_fm_mod_id = _fm_mod_id + 1', ...sets].join(', ')} WHERE _fm_record_id = ? AND _fm_mod_id = ?`)
-        .run(...changed.map((n) => row[n] as SqlValue), recordId, current._fm_mod_id as SqlValue));
-      if (!changes) {
-        undo();
-        // Without a modId the caller doesn't mind what it was: compute it again on the new one.
-        if (modId !== undefined || retry >= 5) throw new StoreError(306, 'Record modification id does not match');
-        return this.update(info, recordId, data, undefined, opts, retry + 1);
+      // A related-only edit checks the supplied parent version; the parent version stays unchanged.
+      if (!Object.keys(own).length && related.size) return { modId: Number(current._fm_mod_id) };
+      if (opts.styles && related.size) {
+        // What is left is the record's own: without the related fields' formatting, which went with them.
+        const mine = Object.entries(opts.styles).filter(([k]) => ![...related.keys()].some((to) => k.startsWith(`${to}::`)));
+        opts = { ...opts, styles: Object.fromEntries(mine) };
       }
-      diff = changed.filter((n) => row[n] !== current[n]);
-    } catch (e) {
-      if (step && this.sql.isTransaction) undo();
-      throw e;
-    }
-    if (step) this.sql.exec(`RELEASE ${step}`);
-    restyled.push(...this.keepCalcRuns(table, recordId, row, calcRuns));
-    if (diff.length) this.audit('update', info.table, recordId, Object.fromEntries(diff.map((n) => [n, [current[n] ?? null, row[n] ?? null]])), opts);
-    this.notify('update', info.table, recordId, Number(current._fm_mod_id) + 1, undefined, [...new Set([...diff, ...restyled])]);
-    return { modId: Number(current._fm_mod_id) + 1 };
+      data = own;
+      const table = this.table(info);
+      if (opts.dataEntry) this.checkEntry(table, data);
+      const styled = opts.styles ? this.styledFields(table, data, opts.styles) : undefined;
+      const cols = this.setGlobals(table, this.columns(info, data, current, opts.dateOrder));
+      const row: Row = { ...(current as Row) };
+      for (const [k, v] of cols) row[k] = v;
+      // The formatting is written with the record in one step: both or neither.
+      const styling = !!styled?.size || this.textStyles.has(table.id);
+      const step = styling && !this.sql.isTransaction ? `styles_${++this.trials}` : undefined;
+      if (step) this.sql.exec(`SAVEPOINT ${step}`);
+      const undo = () => {
+        if (step) this.sql.exec(`ROLLBACK TO ${step}; RELEASE ${step}`);
+        this.textStyles.reset();
+      };
+      let restyled: string[] = [];
+      let diff: string[];
+      const calcRuns = new Map<string, StyleRun[] | undefined>();
+      try {
+        // Before the record's calculations run, so a stored GetAsCSS ( Notes ) sees the new formatting.
+        if (styling) restyled = this.restyle(table, recordId, current as Row, row, styled, !!opts.dataEntry);
+        const typed = { ...row };
+        calcRuns.clear();
+        this.write(() => this.calc.beforeWrite(table, row, new Set(cols.keys()), { isNew: false, account: opts.account, previous: current as Row, noValidation: opts.restoring, required: opts.firstCommit, firstCommit: opts.firstCommit, skipEntryValidation: opts.skipEntryValidation, performAutoEnter: opts.performAutoEnter, calcRuns, entered: data, overrideValidation: opts.dataEntry ? opts.overrideValidation : undefined, editKey: opts.editKey }));
+        // An auto-enter that replaced formatted text: the formatting no longer fits it.
+        for (const n of restyled) {
+          if (row[n] === typed[n]) continue;
+          const f = table.fields.find((x) => x.name === n)!;
+          for (let r = 1; r <= repetitionsOf(f); r++) {
+            const text = this.keptText(f, row[n], r);
+            if (text !== this.keptText(f, typed[n], r)) this.textStyles.write(table.id, recordId, f.id, text ?? '', undefined, r);
+          }
+        }
+        this.checkChildKeys(table, row, current as Row);
+        this.checkParentKeyChange(table, recordId, row, current as Row, opts.privileges);
+        const changed = info.fields.map((f) => f.name).filter((n) => cols.has(n) || row[n] !== current[n]);
+        const sets = changed.map((n) => `${q(n)} = ?`);
+        // Only if nobody saved it since it was read: another server process can, between the two.
+        const { changes } = this.changeOne(table, recordId, current as Row, () => this
+          .prepared(`UPDATE ${q(info.table)} SET ${['_fm_mod_id = _fm_mod_id + 1', ...sets].join(', ')} WHERE _fm_record_id = ? AND _fm_mod_id = ?`)
+          .run(...changed.map((n) => row[n] as SqlValue), recordId, current._fm_mod_id as SqlValue));
+        if (!changes) {
+          undo();
+          // Without a modId the caller doesn't mind what it was: compute it again on the new one.
+          if (modId !== undefined || retry >= 5) throw new StoreError(306, 'Record modification id does not match');
+          return this.update(info, recordId, data, undefined, opts, retry + 1);
+        }
+        diff = changed.filter((n) => row[n] !== current[n]);
+      } catch (e) {
+        if (step && this.sql.isTransaction) undo();
+        throw e;
+      }
+      if (step) this.sql.exec(`RELEASE ${step}`);
+      restyled.push(...this.keepCalcRuns(table, recordId, row, calcRuns));
+      if (diff.length) this.audit('update', info.table, recordId, Object.fromEntries(diff.map((n) => [n, [current[n] ?? null, row[n] ?? null]])), opts);
+      this.notify('update', info.table, recordId, Number(current._fm_mod_id) + 1, undefined, [...new Set([...diff, ...restyled])]);
+      return { modId: Number(current._fm_mod_id) + 1 };
     });
   }
 
@@ -8611,21 +8721,23 @@ export class Store {
     if (!t || !f) throw new StoreError(102, `Field "${table}::${field}" is missing`);
     if (f.kind !== 'calculation' || f.options?.unstored || f.options?.global) throw new StoreError(102, `"${t.name}::${f.name}" is not a stored calculation`);
     this.joinTransaction();
-    const read = this.sql.prepare(`SELECT ${q(f.name)} AS v, _fm_mod_id AS m FROM ${q(t.name)} WHERE _fm_record_id = ?`);
-    const write = this.sql.prepare(`UPDATE ${q(t.name)} SET _fm_mod_id = _fm_mod_id + 1, ${q(f.name)} = ? WHERE _fm_record_id = ?`);
-    let set = 0;
-    const skipped: number[] = [];
-    for (const { recordId, value, expect } of values) {
-      const now = read.get(recordId) as { v: SqlValue; m: number } | undefined;
-      const lock = this.locks.holder(t.name, recordId);
-      if (!now || (lock && lock.owner !== writer.getStore()?.owner) || String(now.v ?? '') !== String(expect ?? '')) { skipped.push(recordId); continue; }
-      if (String(now.v ?? '') === String(value ?? '')) continue;
-      write.run(value, recordId);
-      this.audit('update', t.name, recordId, { [f.name]: [now.v ?? null, value ?? null] }, opts);
-      this.notify('update', t.name, recordId, Number(now.m) + 1, undefined, [f.name]);
-      set++;
-    }
-    return { set, skipped };
+    return this.withWriteTransaction(() => {
+      const read = this.sql.prepare(`SELECT ${q(f.name)} AS v, _fm_mod_id AS m FROM ${q(t.name)} WHERE _fm_record_id = ?`);
+      const write = this.sql.prepare(`UPDATE ${q(t.name)} SET _fm_mod_id = _fm_mod_id + 1, ${q(f.name)} = ? WHERE _fm_record_id = ?`);
+      let set = 0;
+      const skipped: number[] = [];
+      for (const { recordId, value, expect } of values) {
+        const now = read.get(recordId) as { v: SqlValue; m: number } | undefined;
+        const lock = this.locks.holder(t.name, recordId);
+        if (!now || (lock && lock.owner !== writer.getStore()?.owner) || String(now.v ?? '') !== String(expect ?? '')) { skipped.push(recordId); continue; }
+        if (String(now.v ?? '') === String(value ?? '')) continue;
+        write.run(value, recordId);
+        this.audit('update', t.name, recordId, { [f.name]: [now.v ?? null, value ?? null] }, opts);
+        this.notify('update', t.name, recordId, Number(now.m) + 1, undefined, [f.name]);
+        set++;
+      }
+      return { set, skipped };
+    });
   }
 
   /** "Prohibit modification of value during data entry": only auto-enter and scripts set these fields. */
@@ -9008,37 +9120,42 @@ export class Store {
     this.gateAgentWrite(opts, 'delete', info, recordId, undefined, undefined);
     if (info.owner !== this) return info.owner.delete(info, recordId, opts);
     this.joinTransaction();
-    this.checkLock(info.table, recordId);
-    const pv = this.local(opts.privileges);
-    if (pv) {
-      const row = this.row(info, recordId);
-      const table = this.table(info);
-      this.checkRecordRule(table, pv, 'delete', 'view', row);
-      this.checkRecordRule(table, pv, 'delete', 'delete', row);
-    }
-    // A parent of a foreign key reads, checks and deletes under one write lock, so no other process adds a child between.
-    const parent = this.keyParent(this.table(info));
-    const run = () => {
-    const before = this.sql.prepare(`SELECT * FROM ${q(info.table)} WHERE _fm_record_id = ?`).get(recordId) as Record<string, SqlValue> | undefined;
-    // Foreign keys this record is the parent of: restrict refuses now, before anything is changed.
-    const orphaned = before && parent ? this.parentKeysLeaving(this.table(info), before, recordId, opts.privileges) : [];
-    if (before && opts.cascade !== false) this.cascadeDelete(info.table, recordId, before, opts);
-    const res = this.changeOne(this.table(info), recordId, before as Row | undefined, () => this.sql.prepare(`DELETE FROM ${q(info.table)} WHERE _fm_record_id = ?`).run(recordId));
-    if (res.changes === 0) throw new StoreError(101, 'Record is missing');
-    this.textStyles.forget(this.table(info).id, recordId);
-    if (before) this.forgetStandInValues(this.table(info), [before]);
-    this.audit('delete', info.table, recordId, before && Object.fromEntries(Object.entries(before).filter(([k, v]) => !k.startsWith('_fm_') && v !== null)), opts);
-    const lock = this.locks.holder(info.table, recordId);
-    if (lock && this.locks.release(info.table, recordId, lock.owner)) {
-      // Said before the delete: a window that marked the record locked would otherwise keep the mark, and a record made
-      // later under the same id (the highest id is used again) would show as locked by someone who is not editing it.
-      this.notify('unlock', info.table, recordId, undefined, { account: lock.account, owner: lock.owner });
-    }
-    this.notify('delete', info.table, recordId);
-    if (orphaned.length) this.followOnDelete(orphaned, opts);
-    };
-    if (parent) this.keyStep(run);
-    else run();
+    this.withWriteTransaction(() => {
+      this.checkLock(info.table, recordId);
+      const pv = this.local(opts.privileges);
+      if (pv) {
+        const row = this.row(info, recordId);
+        const table = this.table(info);
+        this.checkRecordRule(table, pv, 'delete', 'view', row);
+        this.checkRecordRule(table, pv, 'delete', 'delete', row);
+      }
+      // A parent of a foreign key reads, checks and deletes under one write lock, so no other process adds a child between.
+      const parent = this.keyParent(this.table(info));
+      const run = () => {
+        const before = this.sql.prepare(`SELECT * FROM ${q(info.table)} WHERE _fm_record_id = ?`).get(recordId) as Record<string, SqlValue> | undefined;
+        // Foreign keys this record is the parent of: restrict refuses now, before anything is changed.
+        const orphaned = before && parent ? this.parentKeysLeaving(this.table(info), before, recordId, opts.privileges) : [];
+        if (before && opts.cascade !== false) this.cascadeDelete(info.table, recordId, before, opts);
+        const res = this.changeOne(this.table(info), recordId, before as Row | undefined, () => this.sql.prepare(`DELETE FROM ${q(info.table)} WHERE _fm_record_id = ?`).run(recordId));
+        if (res.changes === 0) throw new StoreError(101, 'Record is missing');
+        this.textStyles.forget(this.table(info).id, recordId);
+        if (before) this.forgetStandInValues(this.table(info), [before]);
+        this.audit('delete', info.table, recordId, before && Object.fromEntries(Object.entries(before).filter(([k, v]) => !k.startsWith('_fm_') && v !== null)), opts);
+        const lock = this.locks.holder(info.table, recordId);
+        // The lock is let go with the delete's outcome: a delete that rolls back leaves the record locked.
+        if (lock) this.writePublications!.push(() => {
+          if (this.locks.release(info.table, recordId, lock.owner)) {
+            // Said before the delete: a window that marked the record locked would otherwise keep the mark, and a record made
+            // later under the same id (the highest id is used again) would show as locked by someone who is not editing it.
+            this.notify('unlock', info.table, recordId, undefined, { account: lock.account, owner: lock.owner });
+          }
+        });
+        this.notify('delete', info.table, recordId);
+        if (orphaned.length) this.followOnDelete(orphaned, opts);
+      };
+      if (parent) this.keyStep(run);
+      else run();
+    });
   }
 
   /**
@@ -9226,6 +9343,7 @@ export class Store {
     const outer = this.keyFiles;
     const files: (() => void)[] = [];
     const held = this.heldFiles.length;
+    const writing = this.writeFiles?.length ?? 0;
     this.keyFiles = files;
     try {
       const out = this.keyStepWork(run);
@@ -9238,6 +9356,7 @@ export class Store {
       }
       // They are gone, so the transaction need not remove them again if it rolls back later.
       this.heldFiles.length = Math.min(this.heldFiles.length, held);
+      if (this.writeFiles) this.writeFiles.length = Math.min(this.writeFiles.length, writing);
       throw e;
     } finally {
       this.keyFiles = outer;
@@ -9714,38 +9833,40 @@ export class Store {
     // Check before locks or any mutation, including when the table is empty.
     if (this.local(opts.privileges)) throw new StoreError(200, 'Truncate Table requires full access privileges');
     this.joinTransaction();
-    const locked = this.locks.othersIn(info.table, writer.getStore()?.owner);
-    if (locked.length) throw new StoreError(301, `Record is in use by another user (${locked[0].account})`);
-    // Read before the delete, in batches, only when there are stand-ins to take out; all or nothing with the delete.
-    const table = this.table(info);
-    // As for delete: a parent table checks its children and empties itself under one write lock.
-    const run = (): number => {
-    const orphaned = this.parentKeysLeaving(table, undefined, undefined, opts.privileges);
-    let n: number;
-    this.sql.exec('SAVEPOINT truncate_table');
-    try {
-      const page = this.sql.prepare(`SELECT * FROM ${q(info.table)} WHERE _fm_record_id > ? ORDER BY _fm_record_id LIMIT 1000`);
-      for (let after = 0; this.vaultHeld();) {
-        const rows = page.all(after) as Record<string, SqlValue>[];
-        if (!rows.length) break;
-        this.forgetStandInValues(table, rows);
-        after = Number(rows[rows.length - 1]._fm_record_id);
-      }
-      n = Number(this.sql.prepare(`DELETE FROM ${q(info.table)}`).run().changes);
-      if (orphaned.length) this.followOnDelete(orphaned, opts);
-      this.sql.exec('RELEASE truncate_table');
-    } catch (e) {
-      this.sql.exec('ROLLBACK TO truncate_table');
-      this.sql.exec('RELEASE truncate_table');
-      throw e;
-    }
-    return n;
-    };
-    const n = this.keyParent(table) ? this.keyStep(run) : run();
-    this.textStyles.forget(this.table(info).id);
-    this.audit('truncate', info.table, undefined, { records: n }, opts);
-    this.notify('truncate', info.table);
-    return n;
+    return this.withWriteTransaction(() => {
+      const locked = this.locks.othersIn(info.table, writer.getStore()?.owner);
+      if (locked.length) throw new StoreError(301, `Record is in use by another user (${locked[0].account})`);
+      // Read before the delete, in batches, only when there are stand-ins to take out; all or nothing with the delete.
+      const table = this.table(info);
+      // As for delete: a parent table checks its children and empties itself under one write lock.
+      const run = (): number => {
+        const orphaned = this.parentKeysLeaving(table, undefined, undefined, opts.privileges);
+        let n: number;
+        this.sql.exec('SAVEPOINT truncate_table');
+        try {
+          const page = this.sql.prepare(`SELECT * FROM ${q(info.table)} WHERE _fm_record_id > ? ORDER BY _fm_record_id LIMIT 1000`);
+          for (let after = 0; this.vaultHeld();) {
+            const rows = page.all(after) as Record<string, SqlValue>[];
+            if (!rows.length) break;
+            this.forgetStandInValues(table, rows);
+            after = Number(rows[rows.length - 1]._fm_record_id);
+          }
+          n = Number(this.sql.prepare(`DELETE FROM ${q(info.table)}`).run().changes);
+          if (orphaned.length) this.followOnDelete(orphaned, opts);
+          this.sql.exec('RELEASE truncate_table');
+        } catch (e) {
+          this.sql.exec('ROLLBACK TO truncate_table');
+          this.sql.exec('RELEASE truncate_table');
+          throw e;
+        }
+        return n;
+      };
+      const n = this.keyParent(table) ? this.keyStep(run) : run();
+      this.textStyles.forget(this.table(info).id);
+      this.audit('truncate', info.table, undefined, { records: n }, opts);
+      this.notify('truncate', info.table);
+      return n;
+    });
   }
 
   /**
