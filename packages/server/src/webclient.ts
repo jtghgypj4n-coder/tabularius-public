@@ -58,6 +58,7 @@ import { loadAsset, sendAsset, type Asset } from './static-cache.ts';
 import { Derived, WebBuild, staticImports, versionPage, versionScript } from './web-build.ts';
 import { journalDeletes, journalFieldChange, snapshotField, snapshotFields, snapshotRows } from './cleanup.ts';
 import { said } from './said.ts';
+import { sameSecret } from './secrets.ts';
 
 /** Titles of FileMaker's standard menus, by the "based on" id custom menus store. */
 const MENU_TITLES: Record<number, string> = { 2: 'File', 3: 'Edit', 4: 'View', 5: 'Insert', 6: 'Format', 7: 'Records', 9: 'Window', 10: 'Requests', 0x33: 'Help' };
@@ -271,7 +272,7 @@ export class WebClient {
   private endSession(token: string): void {
     this.timers.delete(token);
     for (const [id, run] of this.paused) {
-      if (run.token !== token) continue;
+      if (!sameSecret(run.token, token)) continue;
       this.paused.delete(id);
       clearTimeout(run.timer);
       run.abandoned = true;
@@ -2177,7 +2178,7 @@ export class WebClient {
       if (!store) throw new ApiError(802, 'Unable to open file', 404);
       sessionPrivileges(store, session);
       const run = this.paused.get(id);
-      if (!run || run.token !== session.token || run.db !== store.name) throw new ApiError(101, 'No script is waiting for that file', 404);
+      if (!run || !sameSecret(run.token, session.token) || run.db !== store.name) throw new ApiError(101, 'No script is waiting for that file', 404);
       if (run.waiting === 'Sort') {
         // {"sort": [{fieldName, sortOrder}, ...]} ([] unsorts); {"cancel": true} for Cancel.
         const body = await readBody(req, 64 * 1024);

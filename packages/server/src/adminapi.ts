@@ -42,6 +42,7 @@ import { CertificateError, type ImportedCertificates } from './cert-import.ts';
 import { ScheduleError, type Schedule, type ScheduleInput, type Schedules } from './schedules.ts';
 import { said } from './said.ts';
 import { logFaultFor } from './fault-log.ts';
+import { sameSecret } from './secrets.ts';
 
 const BASE = '/fmi/admin/api/v2';
 /** Like FileMaker Server, a token lasts 15 minutes past its last use. */
@@ -353,7 +354,7 @@ export class AdminApi {
       return send(401, {}, 212, 'Invalid user account and/or password; please try again'), true;
     }
     await drainSmallBody(req);
-    if (passwordFingerprint !== this.admin.passwordFingerprint()) return send(401, {}, 9, 'Access denied'), true;
+    if (!sameSecret(passwordFingerprint, this.admin.passwordFingerprint())) return send(401, {}, 9, 'Access denied'), true;
     const now = performance.now();
     for (const [t, session] of this.tokens) if (!this.tokenCurrent(session, now, passwordFingerprint)) this.tokens.delete(t);
     if (this.tokens.size >= MAX_TOKENS) return send(401, {}, 956, 'Maximum number of Admin API sessions exceeded'), true;
@@ -377,7 +378,7 @@ export class AdminApi {
   }
 
   private tokenCurrent(session: AdminToken, now: number, passwordFingerprint: string): boolean {
-    return session.passwordFingerprint === passwordFingerprint
+    return sameSecret(session.passwordFingerprint, passwordFingerprint)
       && now - session.lastUsed <= TOKEN_IDLE_MS
       && now - session.created < TOKEN_LIFETIME_MS;
   }

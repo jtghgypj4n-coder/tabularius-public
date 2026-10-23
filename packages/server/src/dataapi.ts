@@ -64,6 +64,7 @@ import { faultLog, logFaultFor, type FaultLog } from './fault-log.ts';
 import { canonicalJson, decimalNumberText } from '../../store/src/native-types.ts';
 import { openApiDocument } from './openapi.ts';
 import { SERVER_VERSION } from './version.ts';
+import { sameSecret } from './secrets.ts';
 
 /** The longest a web-client session whose set turns idle-disconnect off may sit idle: a hard cap, so none lives forever. */
 const KEEP_ALIVE_MAX_MS = 24 * 60 * 60 * 1000;
@@ -1270,7 +1271,7 @@ export class DataApi {
     ].some((name) => name !== undefined && name.toLowerCase() === wanted);
     let ended = 0;
     for (const s of [...this.sessions.values()]) {
-      if (s.db.toLowerCase() !== db.toLowerCase() || !matches(s) || s.token === except) continue;
+      if (s.db.toLowerCase() !== db.toLowerCase() || !matches(s) || sameSecret(s.token, except)) continue;
       this.end(s.token, 'was signed out by the administrator');
       ended++;
     }

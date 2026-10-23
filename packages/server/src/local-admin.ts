@@ -12,6 +12,7 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { sameSecret } from './secrets.ts';
 
 export const LOCAL_FILE = '.openhbam.local';
 
@@ -37,7 +38,7 @@ export function openLocalAccess(folder: string, url: string): () => void {
   writeFileSync(file, JSON.stringify(access), { mode: 0o600 });
   return () => {
     try {
-      if ((JSON.parse(readFileSync(file, 'utf8')) as LocalAccess).token === access.token) rmSync(file, { force: true });
+      if (sameSecret((JSON.parse(readFileSync(file, 'utf8')) as LocalAccess).token, access.token)) rmSync(file, { force: true });
     } catch {
       // already gone
     }

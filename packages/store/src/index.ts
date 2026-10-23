@@ -64,6 +64,7 @@ export { styleCensus, styleCensusText, type StyleCensus } from './style-census.t
 export { parseDelimited, sniffSeparator, type DelimitedFormat } from './delimited.ts';
 export { decodeText } from './text-decode.ts';
 export { csvField, formulaGuard, stripFormulaGuard, visibleControls } from './csv-export.ts';
+export { sameSecret } from './same-secret.ts';
 export { validPrivilegeSetName } from './security-names.ts';
 export { safeExistingPath, safeWritePath } from './safe-path.ts';
 export { accountKey, accountCollisionKey, AccountImportError, parseAccountCsv, type AccountImportRow, type AccountImportIssue, type AccountImportState, type AccountImportDecision, type AccountImportPlan, type AccountImportPreview, type AccountImportResult } from './account-provisioning.ts';
