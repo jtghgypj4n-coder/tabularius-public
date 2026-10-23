@@ -36,7 +36,7 @@ async function setup(t: TestContext) {
   const address = server.address();
   assert.ok(address && typeof address !== 'string');
   const base = `http://127.0.0.1:${address.port}/tabularius/replication/v1/files`;
-  const get = (path: string) => fetch(base + path, { headers: { authorization: `Bearer ${TOKEN}` } });
+  const get = (path: string) => fetch(base + path, { headers: { authorization: `Bearer ${TOKEN}`, connection: 'close' } });
   const gates: ReturnType<typeof deferred>[] = [];
   const slowCopies = (count = 1, snapshotAfterWrites = false) => {
     const copies = Array.from({ length: count }, () => ({ entered: deferred(), release: deferred() }));
