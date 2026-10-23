@@ -34,6 +34,7 @@ export class LogShipper {
   private readonly log: (m: string) => void;
   private readonly followers = new Set<LogFollower>();
   private readonly followed = new Map<Store, number>();
+  private readonly held = new Map<Store, { holders: Set<() => void>; timer: NodeJS.Timeout }>();
   private timer?: NodeJS.Timeout;
 
   constructor(host: Host, log: (m: string) => void = () => {}) {
@@ -91,6 +92,32 @@ export class LogShipper {
     this.followed.clear();
   }
 
+  /** Copies share a hold and its first deadline; a second copy cannot extend the WAL pause. */
+  holdForCopy(store: Store, ms: number, expired: () => void): () => void {
+    let hold = this.held.get(store);
+    if (!hold) {
+      const holders = new Set<() => void>();
+      const timer = setTimeout(() => {
+        this.held.delete(store);
+        for (const notify of holders) notify();
+        this.log(`${store.name}: copy was taken while changes shipped (copy hold timed out)`);
+        this.ship();
+      }, ms);
+      timer.unref();
+      hold = { holders, timer };
+      this.held.set(store, hold);
+    }
+    hold.holders.add(expired);
+    return () => {
+      if (this.held.get(store) !== hold) return;
+      hold.holders.delete(expired);
+      if (!hold.holders.size) {
+        clearTimeout(hold.timer);
+        this.held.delete(store);
+      }
+    };
+  }
+
   /** Hands every file's changes to the followers now. */
   ship(): void {
     const active = new Set(this.host.names().map((name) => this.host.get(name)!));
@@ -98,6 +125,9 @@ export class LogShipper {
     for (const name of this.host.names()) {
       const store = this.host.get(name)!;
       this.follow(store);
+      // follow() disabled automatic checkpoints. Leave every page in the WAL for all followers,
+      // including point-in-time backups; the copy hold's deadline bounds time, not WAL bytes.
+      if (this.held.has(store)) continue;
       store.shipWal((data) => {
         const at = Date.now();
         let ok = true;
@@ -117,6 +147,11 @@ export class LogShipper {
 
   /** Hands over the last changes and stops. */
   stop(): void {
+    for (const hold of this.held.values()) {
+      clearTimeout(hold.timer);
+      for (const notify of hold.holders) notify();
+    }
+    this.held.clear();
     try { if (this.followers.size) this.ship(); }
     finally {
       clearInterval(this.timer);
