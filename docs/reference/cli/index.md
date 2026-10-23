@@ -25,6 +25,7 @@ Each command page includes the current help text, options, exit codes, and a tes
 | [`doctor`](doctor.md) | 7 |
 | [`dump`](dump.md) | 2 |
 | [`encrypt`](encrypt.md) | 0 |
+| [`exit-bundle`](exit-bundle.md) | 3 |
 | [`export`](export.md) | 0 |
 | [`export-sql`](export-sql.md) | 3 |
 | [`fidelity`](fidelity.md) | 3 |

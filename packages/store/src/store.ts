@@ -2677,6 +2677,19 @@ export class Store {
     this.logSecurity(ok ? 'sign-in' : 'sign-in-failed', { account, from, ...(factor ? { detail: { factor } } : {}) });
   }
 
+  /**
+   * Records a full-file export (the portable copy): the account that asked, where the request came from and, in `detail`,
+   * the folder or the reason it was refused. Never a password or a field value.
+   */
+  auditExitBundle(account: string, from: string, ok: boolean, detail: Record<string, unknown> = {}): void {
+    this.logSecurity(ok ? 'data-exported' : 'data-export-refused', { account: account.slice(0, 200), from, detail });
+  }
+
+  /** Whether an account is active and holds the [Full Access] privilege set (the only kind that may take a full copy of the file). */
+  isFullAccessAccount(account: string): boolean {
+    return !this.accountInactive(account) && this.accountIsFull(this.accountPrivilegeSet(account));
+  }
+
   /** Records an administrator clearing an actual sign-in block. */
   auditLockoutCleared(target: string, scope: 'account' | 'address', from: string): void {
     this.logSecurity('lockout-cleared', { target, from, detail: { scope, via: 'admin console' } });
