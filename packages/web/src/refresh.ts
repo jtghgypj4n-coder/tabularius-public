@@ -1,4 +1,4 @@
-import type { DataRecord, LayoutObject, RowState, ViewState } from './types.ts';
+import type { DataRecord, LayoutObject, RowState, FormulaState } from './types.ts';
 
 /** Reject a response for another window, layout or parent record. */
 export function refreshMatches(action: { windowId?: unknown; layoutId?: unknown; recordId?: unknown }, window: string, layout: number, record?: string): boolean {
@@ -16,8 +16,8 @@ export function mergeObjectState<T extends RowState>(old: T, fresh: T, object: L
   const ids = objectIds(object);
   const out = { ...old, hidden: [...old.hidden.filter((id) => !ids.has(id)), ...fresh.hidden.filter((id) => ids.has(id))] };
   for (const key of ['styles', 'labels', 'active', 'web', 'tooltips', 'placeholders', 'charts'] as const) {
-    const a = (old as ViewState)[key];
-    const b = (fresh as ViewState)[key];
+    const a = (old as FormulaState)[key];
+    const b = (fresh as FormulaState)[key];
     if (!a && !b) continue;
     const values: Record<string, unknown> = { ...a };
     for (const id of ids) {

@@ -31,7 +31,7 @@ import { MenuBar, commands, shortcutItem, shortcutText, standardMenus, withoutTa
 import { buildFindRequests, FIND_OPERATORS, findName, matchingCriterion, type SavedFind } from './finds.ts';
 import { PREVIEW_MAX, pageNumbers, pageSize, paginate, paginateColumns, printLimitNotice, slide, type SlideBox } from './preview.ts';
 import { responsiveDesign, stackBreakpoint } from './responsive.ts';
-import type { RefreshData, CustomMenu, CustomMenuItem, DataRecord, FindRequest, GroupRun, LayoutDesign, LayoutMeta, LayoutPart, LayoutObject, MenuItem, PortalRow, ScriptRun, ScriptsMenuEntry, ScriptWindow, SortSpec, Value, ViewState } from './types.ts';
+import type { RefreshData, CustomMenu, CustomMenuItem, DataRecord, FindRequest, GroupRun, LayoutDesign, LayoutMeta, LayoutPart, LayoutObject, MenuItem, PortalRow, ScriptRun, ScriptsMenuEntry, ScriptWindow, SortSpec, Value, FormulaState } from './types.ts';
 import { moveCaret } from './caret.ts';
 import { linkedScript } from './url-script.ts';
 import { macroScript, type MacroAction } from './macro.ts';
@@ -992,10 +992,10 @@ class Session implements Host {
   panels = new Map<number, number>();
   popover?: OpenPopover;
   /** The layout's formulas (hide conditions, tooltips, placeholders) worked out per record id. */
-  states = new Map<string, ViewState>();
-  findState?: ViewState;
+  states = new Map<string, FormulaState>();
+  findState?: FormulaState;
   /** Browse mode with no records: formulas still run, with no record to read. */
-  emptyState?: ViewState;
+  emptyState?: FormulaState;
   /** Sub-summary groups of the sorted found set (null: the layout shows none for this sort). */
   groups?: { fields: string[]; runs: GroupRun[][] } | null;
   private groupsPending?: Promise<void>;
@@ -1500,7 +1500,7 @@ class Session implements Host {
     return this.index + 1;
   }
 
-  get state(): ViewState | undefined {
+  get state(): FormulaState | undefined {
     if (this.mode === 'find') return this.findState;
     return this.record ? this.states.get(this.record.recordId) : this.emptyState;
   }
