@@ -9332,12 +9332,12 @@ export class Store {
    */
   restoreDeletedRow(table: string, row: Record<string, SqlValue>, opts: WriteOptions = {}): void {
     this.joinTransaction();
-    // The parent check and the insert share one file lock, as in create.
-    this.withWriteTransaction(() => this.restoreDeletedRowLocked(table, row, opts));
+    this.withWriteTransaction(() => this.keyStep(() => this.restoreDeletedRowLocked(table, row, opts)));
   }
 
   private restoreDeletedRowLocked(table: string, row: Record<string, SqlValue>, opts: WriteOptions): void {
-    if (!this.schema.tables.some((t) => t.name === table)) throw new StoreError(106, `Table "${table}" is missing`);
+    const definition = this.schema.tables.find((t) => t.name === table);
+    if (!definition) throw new StoreError(106, `Table "${table}" is missing`);
     const pv = this.local(opts.privileges);
     if (pv && pv.table(table).create !== true) throw new StoreError(200, 'Record access is denied', pv.recordDenial(table, 'create', 'create'));
     const id = Number(row._fm_record_id);
@@ -9346,7 +9346,17 @@ export class Store {
     const columns = new Set((this.sql.prepare(`PRAGMA table_info(${q(table)})`).all() as { name: string }[]).map((c) => c.name));
     const kept = this.fileMode === 'native' && (!row._fm_uuid || row._fm_uuid === '') ? { ...row, _fm_uuid: this.uuid.next() } : row;
     const names = Object.keys(kept).filter((k) => columns.has(k));
-    this.checkChildKeys(this.schema.tables.find((t) => t.name === table)!, kept as Row);
+    if (this.fileMode === 'native' && columns.has('_fm_uuid') && kept._fm_uuid &&
+      this.sql.prepare(`SELECT 1 FROM ${q(table)} WHERE _fm_uuid = ?`).get(kept._fm_uuid)) {
+      throw new StoreError(504, `Record ${id} of ${table} can't be put back: _fm_uuid is already used by another record`);
+    }
+    this.checkChildKeys(definition, kept as Row);
+    for (const field of definition.fields) {
+      if (!field.options?.validation?.unique || !columns.has(field.name)) continue;
+      if (this.calc.uniqueCollision({ store: this, table: definition, row: kept as Row }, field)) {
+        throw new StoreError(504, `Record ${id} of ${table} can't be put back: ${table}::${field.name} ${JSON.stringify(kept[field.name])} is already used by another record`);
+      }
+    }
     this.sql.prepare(`INSERT INTO ${q(table)} (${names.map(q).join(', ')}) VALUES (${names.map(() => '?').join(', ')})`).run(...names.map((n) => kept[n]));
     this.audit('create', table, id, Object.fromEntries(names.filter((n) => !n.startsWith('_fm_') && row[n] !== null).map((n) => [n, row[n]])), opts);
     this.notify('create', table, id, Number(row._fm_mod_id ?? 0));

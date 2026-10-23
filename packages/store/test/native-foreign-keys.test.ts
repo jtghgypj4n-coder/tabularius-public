@@ -7,8 +7,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import {
-  applySync, createStore, designReport, designText, planDesignApply, readSyncLog, Store, StoreError, tableDDL,
-  type DesignOp, type RemoteRecord, type RemoteSource, type RemoteWriter,
+  applySync, createStore, designReport, designText, endTransaction, planDesignApply, readSyncLog, Store, StoreError, tableDDL, writer,
+  type DesignOp, type RemoteRecord, type RemoteSource, type RemoteWriter, type Transaction,
 } from '../src/index.ts';
 import type { OnDelete } from '../../fmp12/src/index.ts';
 
@@ -457,4 +457,93 @@ test('putting a merged-away record back checks its parent under the write lock, 
   assert.deepEqual([...new Set(tried)], ['locked']);
   assert.deepEqual(ids(store, 'Customers'), ['c1', 'c2']);
   assert.ok(ids(store, 'Invoices').includes('i3'));
+});
+
+test('put-back refuses a vanished parent without writing the row, audit, or event', (t) => {
+  const store = open(t);
+  sales(store, 'restrict');
+  const parent = store.create('Customers', { ID: 'c9' }).recordId;
+  const child = store.create('Invoices', { ID: 'i9', CustomerID: 'c9' }).recordId;
+  const row = store.sql.prepare('SELECT * FROM "Invoices" WHERE _fm_record_id = ?').get(child) as Record<string, string | number | null>;
+  store.delete('Invoices', child);
+  store.delete('Customers', parent);
+  const before = audits(store);
+  const events: string[] = [];
+  store.listeners.add((change) => events.push(change.kind));
+
+  assert.throws(() => store.restoreDeletedRow('Invoices', row), code(505, /invoice_customer.*no Customers record has ID "c9".*Invoices::CustomerID/));
+  assert.equal(store.sql.prepare('SELECT 1 FROM "Invoices" WHERE _fm_record_id = ?').get(child), undefined);
+  assert.equal(audits(store), before);
+  assert.deepEqual(events, []);
+});
+
+test('put-back refuses a reused record id and still restores an ordinary deleted row', (t) => {
+  const store = open(t);
+  sales(store, 'restrict');
+  const child = store.create('Invoices', { ID: 'i9', CustomerID: 'c2' }).recordId;
+  const row = store.sql.prepare('SELECT * FROM "Invoices" WHERE _fm_record_id = ?').get(child) as Record<string, string | number | null>;
+  store.delete('Invoices', child);
+  const taken = store.create('Invoices', { ID: 'replacement', CustomerID: 'c1' }).recordId;
+  assert.equal(taken, child);
+  const before = audits(store);
+  assert.throws(() => store.restoreDeletedRow('Invoices', row), code(504, new RegExp(`Record ${child} of Invoices can't be put back`)));
+  assert.deepEqual({ ...store.sql.prepare('SELECT ID, CustomerID FROM "Invoices" WHERE _fm_record_id = ?').get(child) }, { ID: 'replacement', CustomerID: 'c1' });
+  assert.equal(audits(store), before);
+
+  store.delete('Invoices', taken);
+  store.restoreDeletedRow('Invoices', row);
+  assert.deepEqual({ ...store.sql.prepare('SELECT ID, CustomerID FROM "Invoices" WHERE _fm_record_id = ?').get(child) }, { ID: 'i9', CustomerID: 'c2' });
+});
+
+test('put-back refuses a taken native UUID as a StoreError before writing', (t) => {
+  const store = open(t);
+  sales(store, 'restrict');
+  const child = store.create('Invoices', { ID: 'i9', CustomerID: 'c2' }).recordId;
+  const row = store.sql.prepare('SELECT * FROM "Invoices" WHERE _fm_record_id = ?').get(child) as Record<string, string | number | null>;
+  const taken = store.create('Invoices', { ID: 'replacement', CustomerID: 'c2' }).recordId;
+  store.delete('Invoices', child);
+  store.sql.prepare('UPDATE "Invoices" SET _fm_uuid = ? WHERE _fm_record_id = ?').run(row._fm_uuid, taken);
+  const before = audits(store);
+
+  assert.throws(() => store.restoreDeletedRow('Invoices', row), code(504, /Invoices.*_fm_uuid/));
+  assert.equal(store.sql.prepare('SELECT 1 FROM "Invoices" WHERE ID = ?').get('i9'), undefined);
+  assert.equal(audits(store), before);
+});
+
+test('put-back refuses a unique field value claimed since the delete', (t) => {
+  const store = open(t);
+  sales(store, 'restrict');
+  store.applyDesign([{ op: 'updateField', table: 'Invoices', field: 'ID', options: { validation: { unique: true } } }]);
+  const child = idOf(store, 'Invoices', 'ID', 'i1');
+  const row = store.sql.prepare('SELECT * FROM "Invoices" WHERE _fm_record_id = ?').get(child) as Record<string, string | number | null>;
+  store.delete('Invoices', child);
+  const replacement = store.create('Invoices', { ID: 'i1', CustomerID: 'c1' }).recordId;
+  assert.notEqual(replacement, child);
+  const before = audits(store);
+  const events: string[] = [];
+  store.listeners.add((change) => events.push(change.kind));
+
+  assert.throws(() => store.restoreDeletedRow('Invoices', row), code(504, /Invoices::ID.*"i1"/));
+  assert.equal(store.sql.prepare('SELECT 1 FROM "Invoices" WHERE _fm_record_id = ?').get(child), undefined);
+  assert.equal(store.sql.prepare('SELECT ID FROM "Invoices" WHERE _fm_record_id = ?').get(replacement)?.ID, 'i1');
+  assert.equal(audits(store), before);
+  assert.deepEqual(events, []);
+});
+
+test('put-back inside a held transaction publishes only after it commits', (t) => {
+  const store = open(t);
+  sales(store, 'restrict');
+  const child = store.create('Invoices', { ID: 'i9', CustomerID: 'c2' }).recordId;
+  const row = store.sql.prepare('SELECT * FROM "Invoices" WHERE _fm_record_id = ?').get(child) as Record<string, string | number | null>;
+  store.delete('Invoices', child);
+  const events: string[] = [];
+  store.listeners.add((change) => events.push(change.kind));
+  const tx: Transaction = { files: new Map() };
+  writer.run({ transaction: { open: tx } }, () => {
+    store.restoreDeletedRow('Invoices', row);
+    assert.deepEqual(events, []);
+  });
+  assert.deepEqual(events, []);
+  endTransaction(tx, true);
+  assert.deepEqual(events, ['create']);
 });

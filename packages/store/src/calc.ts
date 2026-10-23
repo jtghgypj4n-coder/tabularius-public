@@ -2546,6 +2546,15 @@ export class Calculations {
     }
   }
 
+  /** Whether another record already holds a nonempty value of this unique field. */
+  uniqueCollision(rec: Rec, f: Field): boolean {
+    const matches = sameValuesElsewhere(rec, f);
+    if (!matches.size) return false;
+    const pass = this.newPass();
+    for (const rep of matches) if (!isEmpty(this.value(rec, f, rep, pass))) return true;
+    return false;
+  }
+
   private validate(rec: Rec, f: Field, pass: Pass, calculationOnly = false, entered?: Record<string, unknown>, checkCalculation = true): void {
     const all = f.options!.validation!;
     const val = calculationOnly ? { calculation: all.calculation } : all;
