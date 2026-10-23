@@ -115,7 +115,7 @@ async function start(): Promise<void> {
       // A change to a script with unsaved steps here (the assistant's, Replace all, Undo) replaces them: ask first,
       // then drop them, so a later Save can't write the old lines back over it.
       const drafts = scriptTabs(client.db).drafts;
-      const hit = draftsReplaced(changes, drafts);
+      const hit = draftsReplaced(changes, drafts, studio.design.scripts);
       if (hit.length) {
         const names = hit.map((id) => `"${studio.design.scripts.find((x) => x.id === id)?.name ?? drafts.get(id)?.name ?? id}"`).join(', ');
         if (!confirm(`This changes ${names}, which ${hit.length === 1 ? 'has' : 'have'} unsaved changes here. They are replaced by this change. Go ahead?`)) return false;

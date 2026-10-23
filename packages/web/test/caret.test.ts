@@ -48,3 +48,19 @@ test('Shift extends the selection; an arrow without it collapses one', () => {
   moveCaret(el, 'ArrowRight', false);
   assert.deepEqual([el.selectionStart, el.selectionEnd], [2, 2]);
 });
+
+test('a leading newline is the first line when moving down from column zero', () => {
+  const one = box('\nabc', 0);
+  moveCaret(one, 'ArrowDown', false);
+  assert.equal(one.selectionStart, 1);
+  const two = box('\n\nabc', 0);
+  moveCaret(two, 'ArrowDown', false);
+  assert.equal(two.selectionStart, 1);
+  const atStart = box('\nabc', 0);
+  moveCaret(atStart, 'ArrowUp', false);
+  assert.equal(atStart.selectionStart, 0);
+  moveCaret(atStart, 'Home', false);
+  assert.equal(atStart.selectionStart, 0);
+  moveCaret(atStart, 'End', false);
+  assert.equal(atStart.selectionStart, 0);
+});

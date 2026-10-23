@@ -12,7 +12,7 @@ export function moveCaret(el: { value: string; selectionStart: number | null; se
     el.setSelectionRange(p, p);
     return;
   }
-  const lineStart = v.lastIndexOf('\n', at - 1) + 1;
+  const lineStart = at === 0 ? 0 : v.lastIndexOf('\n', at - 1) + 1;
   const column = at - lineStart;
   if (key === 'ArrowLeft') at = Math.max(0, at - 1);
   else if (key === 'ArrowRight') at = Math.min(v.length, at + 1);

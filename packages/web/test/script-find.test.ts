@@ -32,3 +32,16 @@ test('disable, enable and comment steps, keeping the indent and continuation lin
   // Mixed: everything goes off first.
   assert.equal(toggleSteps('// Beep\nBeep', 0, 1, '// '), '// Beep\n// Beep');
 });
+
+test('step scanning skips escaped quotes and treats comment lines as complete steps', () => {
+  const escaped = 'Set Variable [ $x ; Value: "a\\"b" ]\nBeep\nBeep';
+  assert.deepEqual(stepStarts(escaped), [true, true, true]);
+  const escapedOff = toggleSteps(escaped, 1, 1, '// ');
+  assert.equal(escapedOff, 'Set Variable [ $x ; Value: "a\\"b" ]\n// Beep\nBeep');
+  assert.equal(toggleSteps(escapedOff, 1, 1, '// '), escaped);
+  const comment = '# Note: see "Orders [old\nBeep\nBeep\nBeep';
+  assert.deepEqual(stepStarts(comment), [true, true, true, true]);
+  const commentOff = toggleSteps(comment, 2, 2, '// ');
+  assert.equal(commentOff, '# Note: see "Orders [old\nBeep\n// Beep\nBeep');
+  assert.equal(toggleSteps(commentOff, 2, 2, '// '), comment);
+});

@@ -413,11 +413,7 @@ function occurrencePanel(studio: Studio, to: DesignOccurrence): HTMLElement[] {
       }, { class: 'danger' })));
   edit.addEventListener('submit', (e) => {
     e.preventDefault();
-    const change: Record<string, unknown> = { op: 'updateOccurrence', occurrence: to.id };
-    if (name.value.trim() !== to.name) change.name = name.value.trim();
-    if (!to.dataSourceId && Number(table.value) !== to.baseTableId) change.table = Number(table.value);
-    if (color.value !== (to.color ?? '#c7d7ee')) change.color = color.value;
-    void studio.apply([change as never], 'Saved');
+    void studio.apply([occurrenceChange(to, name.value, table.value, color.value) as never], 'Saved');
   });
 
   const others = design.tableOccurrences.filter((t) => t.id !== to.id && fieldsOf(studio, t.id).length);
@@ -439,6 +435,15 @@ function occurrencePanel(studio: Studio, to: DesignOccurrence): HTMLElement[] {
   });
   if (!fieldsOf(studio, to.id).length) relate.hidden = true;
   return [edit, relate];
+}
+
+/** Build the occurrence edit without turning an empty table choice into table id zero. */
+export function occurrenceChange(to: DesignOccurrence, name: string, tableValue: string, color: string): Record<string, unknown> {
+  const change: Record<string, unknown> = { op: 'updateOccurrence', occurrence: to.id };
+  if (name.trim() !== to.name) change.name = name.trim();
+  if (!to.dataSourceId && tableValue !== '' && Number(tableValue) !== to.baseTableId) change.table = Number(tableValue);
+  if (color !== (to.color ?? '#c7d7ee')) change.color = color;
+  return change;
 }
 
 function relationshipPanel(studio: Studio, r: DesignRelationship): HTMLElement[] {

@@ -4,6 +4,7 @@
 
 import { h } from './design/dom.ts';
 import { renderChart } from './chart.ts';
+import { enterActivates } from './ime.ts';
 
 export type WidgetKind = 'chart' | 'table' | 'number';
 export type ChartType = 'column' | 'bar' | 'line' | 'pie';
@@ -132,7 +133,7 @@ export function widgetEditor(w: Widget, onChange: () => void): HTMLElement {
       const add = h('div', { class: 'dash-add' });
       const name = input('', 'Field to add', () => {}, { placeholder: 'Add field…' });
       name.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' && name.value.trim()) {
+        if (enterActivates(e) && name.value.trim()) {
           r[name.value.trim()] = '';
           onChange();
           draw();

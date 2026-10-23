@@ -52,7 +52,15 @@ test('a change that gives a script new steps, or deletes it, is caught when that
   const t = new ScriptTabs();
   t.edit(1, 'mine', 'saved');
   t.edit(3, 'mine', 'saved');
-  assert.deepEqual(draftsReplaced([{ op: 'updateScript', script: 1, text: 'theirs' }, { op: 'updateScript', script: 2, text: 'x' }], t.drafts), [1]);
-  assert.deepEqual(draftsReplaced([{ op: 'updateScript', script: 1, name: 'Renamed' }], t.drafts), []);
-  assert.deepEqual(draftsReplaced([{ op: 'deleteScript', script: 3 }], t.drafts), [3]);
+  const scripts = [{ id: 1, name: 'One' }, { id: 3, name: 'Tidy' }];
+  assert.deepEqual(draftsReplaced([{ op: 'updateScript', script: 1, text: 'theirs' }, { op: 'updateScript', script: 2, text: 'x' }], t.drafts, scripts), [1]);
+  assert.deepEqual(draftsReplaced([{ op: 'updateScript', script: 1, name: 'Renamed' }], t.drafts, scripts), []);
+  assert.deepEqual(draftsReplaced([{ op: 'deleteScript', script: 3 }], t.drafts, scripts), [3]);
+  assert.deepEqual(draftsReplaced([{ op: 'updateScript', script: 'Tidy', text: 'theirs' }], t.drafts, scripts), [3]);
+  assert.deepEqual(draftsReplaced([{ op: 'deleteScript', script: 'tIdY' }], t.drafts, scripts), [3]);
+  const namedDrafts = new Map([[7, { text: 'mine', base: 'saved' }]]);
+  const namedScripts = [{ id: 7, name: 'Tidy' }];
+  assert.deepEqual(draftsReplaced([{ op: 'updateScript', script: 7, steps: [] }], namedDrafts, namedScripts), [7]);
+  assert.deepEqual(draftsReplaced([{ op: 'updateScript', script: 'Tidy', text: 'theirs' }], namedDrafts, namedScripts), [7]);
+  assert.deepEqual(draftsReplaced([{ op: 'deleteScript', script: 'tIdY' }], namedDrafts, namedScripts), [7]);
 });
