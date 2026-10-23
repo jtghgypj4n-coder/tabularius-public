@@ -50,7 +50,9 @@ test('20,000 sign-ins stay below 64 MiB heap and 24 MiB growth after GC in under
     store.mustChangePassword = () => false;
     const handler = s.server.listeners('request')[0] as (req: IncomingMessage, res: ServerResponse) => Promise<void>;
     let requests = 0;
-    const call = async (method: string, url: string, address: string, headers: Record<string, string> = {}, body = '') => {
+    const call = async (method: string, url: string, address: string, extra: Record<string, string> = {}, body = '') => {
+      // HTTP/1.1 requires exactly one Host header; the edge refuses a request without one.
+      const headers = { host: 'localhost', ...extra };
       const input = Readable.from(body ? [Buffer.from(body)] : []);
       const socket = Object.assign(new EventEmitter(), {
         remoteAddress: address, bytesRead: body.length, bytesWritten: 0, destroyed: false,
