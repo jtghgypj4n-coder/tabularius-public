@@ -65,6 +65,10 @@ const MENU_TITLES: Record<number, string> = { 2: 'File', 3: 'Edit', 4: 'View', 5
 const WEB_ROOT = join(import.meta.dirname, '..', '..', 'web');
 
 const ASK_IDLE_MS = 10 * 60_000;
+/** Bound paused scripts across all web client sessions. */
+const PAUSED_TOTAL = 256;
+/** Bound paused scripts owned by one web client session. */
+const PAUSED_PER_SESSION = 8;
 
 /** A Scripts menu entry: a script, a folder of them (a submenu), or a separator. */
 export type ScriptsMenuEntry = { name: string; id: number } | { name: string; items: ScriptsMenuEntry[] } | { separator: true };
@@ -212,7 +216,7 @@ export class WebClient {
   private readonly build = new WebBuild(WEB_ROOT);
   private readonly derived = new Derived();
   private readonly api: DataApi;
-  private readonly paused = new BoundedMap<string, Paused>(256, (run) => {
+  private readonly paused = new BoundedMap<string, Paused>(PAUSED_TOTAL, (run) => {
     clearTimeout(run.timer);
     run.abandoned = true;
     run.answer(run.waiting === 'Pause' ? false : undefined);
@@ -238,6 +242,35 @@ export class WebClient {
     this.host = host;
     this.api = api;
     api.endListeners.add((token) => this.endSession(token));
+  }
+
+  /** Admit a wait while canceling the oldest run of the session that must make room. */
+  private pause(run: Paused): void {
+    const counts = new Map<string, number>();
+    let oldestOwn: [string, Paused] | undefined;
+    for (const entry of this.paused) {
+      const token = entry[1].token;
+      counts.set(token, (counts.get(token) ?? 0) + 1);
+      if (token === run.token && !oldestOwn) oldestOwn = entry;
+    }
+    let victim = (counts.get(run.token) ?? 0) >= PAUSED_PER_SESSION ? oldestOwn : undefined;
+    if (!victim && this.paused.size >= PAUSED_TOTAL) {
+      let most = 0;
+      for (const entry of this.paused) {
+        const count = counts.get(entry[1].token)!;
+        if (count > most) {
+          most = count;
+          victim = entry;
+        }
+      }
+    }
+    if (victim) {
+      this.paused.delete(victim[0]);
+      clearTimeout(victim[1].timer);
+      victim[1].abandoned = true;
+      victim[1].answer(victim[1].waiting === 'Pause' ? false : undefined);
+    }
+    this.paused.set(run.id, run);
   }
 
   private endSession(token: string): void {
@@ -2027,7 +2060,7 @@ export class WebClient {
         run.answer(run.waiting === 'Pause' ? false : undefined);
       }, ASK_IDLE_MS);
       run.timer.unref();
-      this.paused.set(run.id, run);
+      this.pause(run);
       if ('checkpoint' in step) {
         const s = step.checkpoint.state;
         return { script: run.script, waiting: { run: run.id, step: 'Checkpoint' }, actions, ...s };
