@@ -1039,8 +1039,12 @@ A call with the console password (or the console's cookie) that carries no brows
 
 **FileMaker Server's Admin API (v2)**, at `/fmi/admin/api/v2`, for tools
 written for FileMaker Server such as fmcsadmin or Claris Connect: sign in with
-`POST /user/auth` (Basic, any user name) and send the token as `Bearer`. Files
-(list, open, close, pause, resume), clients (list, message, disconnect), the
+`POST /user/auth` (Basic, any user name) and send the token as `Bearer`.
+To sign out, use `DELETE /user/auth` with that Bearer header. It ends that
+session. A token is never sent in the URL, where a reverse proxy may log it:
+`DELETE /user/auth/{token}` answers 404.
+
+Files (list, open, close, pause, resume), clients (list, message, disconnect), the
 server's status, and FileMaker script and backup schedules work (`POST
 /schedules/backup` with `backupType: {resourceType: "ALL_DB", backupTarget,
 retainBackups}` backs up every hosted file into a new set under the target and

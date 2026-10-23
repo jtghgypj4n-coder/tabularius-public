@@ -81,10 +81,15 @@ test('an anonymous caller cannot tell an Admin API route from a missing one by i
       assert.equal(r.headers.get('allow'), null);
       assert.equal((await r.json()).messages[0].code, '9');
     }
-    // The sign-in route is public, so its method answer stays.
+    // Only POST sign-in is public; anonymous callers cannot learn that DELETE is available.
     const login = await fetch(`${base}/user/auth`, { method: 'GET' });
-    assert.equal(login.status, 405);
-    assert.equal(login.headers.get('allow'), 'POST');
+    assert.equal(login.status, 401);
+    assert.equal(login.headers.get('allow'), null);
+    const signIn = await fetch(`${base}/user/auth`, { method: 'POST', headers: { authorization: 'Basic ' + btoa('admin:secret') } });
+    const token = (await signIn.json()).response.token;
+    const signed = await fetch(`${base}/user/auth`, { method: 'GET', headers: { authorization: `Bearer ${token}` } });
+    assert.equal(signed.status, 405);
+    assert.equal(signed.headers.get('allow'), 'POST, DELETE');
   }, 'secret');
 });
 
