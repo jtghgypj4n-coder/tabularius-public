@@ -94,3 +94,27 @@ test('undo leaves values that changed again since', () => {
   assert.deepEqual(totals(store), [[1, 5], [2, 99], [3, null]]);
   store.close();
 });
+
+test('AR-store-core-06 refresh and undo markers roll back with values', () => {
+  const store = shop('JournalFailure');
+  try {
+    store.sql.prepare('UPDATE Orders SET Twice = 4 WHERE Id = 3').run();
+    staleRefreshHistory(store);
+    const heard: string[] = [];
+    store.listeners.add((change) => heard.push(change.kind));
+    store.sql.exec("CREATE TRIGGER reject_refresh BEFORE INSERT ON _fm_calc_refresh BEGIN SELECT RAISE(ABORT, 'journal unavailable'); END");
+    assert.throws(() => refreshStaleCalcs(store, { fields: [{ table: 'Orders', field: 'Twice', recordIds: [3] }] }), /journal unavailable/);
+    assert.equal((store.sql.prepare('SELECT Twice FROM Orders WHERE Id = 3').get() as { Twice: number }).Twice, 4);
+    assert.equal(staleRefreshHistory(store).length, 0);
+    assert.deepEqual(heard, []);
+    store.sql.exec('DROP TRIGGER reject_refresh');
+    const batch = refreshStaleCalcs(store, { fields: [{ table: 'Orders', field: 'Twice', recordIds: [3] }] });
+    assert.deepEqual(heard, ['update']);
+    heard.length = 0;
+    store.sql.exec("CREATE TRIGGER reject_undo BEFORE UPDATE OF undone ON _fm_calc_refresh BEGIN SELECT RAISE(ABORT, 'undo unavailable'); END");
+    assert.throws(() => undoStaleRefresh(store, batch.id), /undo unavailable/);
+    assert.equal((store.sql.prepare('SELECT Twice FROM Orders WHERE Id = 3').get() as { Twice: number }).Twice, 6);
+    assert.equal(staleRefreshHistory(store)[0].undone, undefined);
+    assert.deepEqual(heard, []);
+  } finally { store.close(); }
+});

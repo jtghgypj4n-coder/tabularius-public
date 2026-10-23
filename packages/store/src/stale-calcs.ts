@@ -185,6 +185,10 @@ export interface RefreshBatch {
  * result's id undoes the batch with undoStaleRefresh.
  */
 export function refreshStaleCalcs(store: Store, req: { fields: { table: string; field: string; recordIds?: number[] }[] }, opts: WriteOptions = {}): RefreshBatch & { perField: { table: string; field: string; refreshed: number; failing: number; skipped: number }[] } {
+  return store.writeAtomically(() => refreshStaleCalcsBatch(store, req, opts));
+}
+
+function refreshStaleCalcsBatch(store: Store, req: { fields: { table: string; field: string; recordIds?: number[] }[] }, opts: WriteOptions): RefreshBatch & { perField: { table: string; field: string; refreshed: number; failing: number; skipped: number }[] } {
   if (!Array.isArray(req.fields) || !req.fields.length) throw new StaleCalcError('Nothing to refresh: pick fields');
   const skippedDesign: StaleReport['skipped'] = [];
   const all = storedCalcs(store, {}, skippedDesign);
@@ -218,38 +222,47 @@ export function refreshStaleCalcs(store: Store, req: { fields: { table: string; 
       for (const t of todo) if (!missed.has(t.recordId)) changes.push({ table: table.name, field: field.name, recordId: t.recordId, before: t.expect, after: t.value });
       perField.push({ table: table.name, field: field.name, refreshed: todo.length - skipped.length, failing, skipped: skipped.length });
     }
+    const n = changes.length;
+    const summary = `${n} stored value${n === 1 ? '' : 's'} brought up to date in ${perField.filter((p) => p.refreshed).map((p) => `${p.table}::${p.field}`).join(', ') || 'no field'}`;
+    const batch = new RefreshJournal(store).add({ account: opts.account, summary, changes });
     store.sql.exec('RELEASE stale_refresh');
+    return { ...batch, perField };
   } catch (e) {
     store.sql.exec('ROLLBACK TO stale_refresh; RELEASE stale_refresh');
     throw e;
   }
-  const n = changes.length;
-  const summary = `${n} stored value${n === 1 ? '' : 's'} brought up to date in ${perField.filter((p) => p.refreshed).map((p) => `${p.table}::${p.field}`).join(', ') || 'no field'}`;
-  return { ...new RefreshJournal(store).add({ account: opts.account, summary, changes }), perField };
 }
 
 /** Puts back the values a refresh replaced, where they haven't changed again since. */
 export function undoStaleRefresh(store: Store, id: string, opts: WriteOptions = {}): { undone: number; skipped: number } {
-  const journal = new RefreshJournal(store);
-  const batch = journal.get(id);
-  if (!batch) throw new StaleCalcError('No such refresh');
-  if (batch.undone) throw new StaleCalcError('Already undone');
+  return store.writeAtomically(() => undoStaleRefreshBatch(store, id, opts));
+}
+
+function undoStaleRefreshBatch(store: Store, id: string, opts: WriteOptions): { undone: number; skipped: number } {
   let undone = 0, skipped = 0;
-  const groups = new Map<string, Change[]>();
-  for (const c of batch.changes) groups.set(`${c.table}\u0000${c.field}`, [...(groups.get(`${c.table}\u0000${c.field}`) ?? []), c]);
   store.sql.exec('SAVEPOINT stale_undo');
   try {
+    const journal = new RefreshJournal(store);
+    const batch = journal.get(id);
+    if (!batch) throw new StaleCalcError('No such refresh');
+    if (batch.undone) throw new StaleCalcError('Already undone');
+    const groups = new Map<string, Change[]>();
+    for (const c of batch.changes) {
+      const key = `${c.table}\u0000${c.field}`;
+      const list = groups.get(key);
+      if (list) list.push(c); else groups.set(key, [c]);
+    }
     for (const list of groups.values()) {
       const r = store.setStoredCalcValues(list[0].table, list[0].field, list.map((c) => ({ recordId: c.recordId, value: c.before, expect: c.after })), { ...opts, restoring: true });
       undone += r.set;
       skipped += r.skipped.length;
     }
+    journal.markUndone(id);
     store.sql.exec('RELEASE stale_undo');
   } catch (e) {
     store.sql.exec('ROLLBACK TO stale_undo; RELEASE stale_undo');
     throw e;
   }
-  journal.markUndone(id);
   return { undone, skipped };
 }
 
