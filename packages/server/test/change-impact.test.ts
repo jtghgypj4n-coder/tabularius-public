@@ -80,7 +80,11 @@ test('deleting it breaks every use; a layout rename names its privilege entry an
   assert.equal(layout.clients[0]?.via, 'layout Congress');
   const quiet = await changeImpact(store, host.logs, 'layout', 'Grades', 'rename');
   assert.deepEqual(quiet.clients, []);
-  assert.match(quiet.summary[0], /Nothing uses this layout/);
+  // Nothing names Grades, but three scripts go to a layout by a name worked out at run time ($destinationLayout), so
+  // the check cannot say that nothing uses it: it lists them as possible breaks instead of claiming it is unused.
+  assert.doesNotMatch(quiet.summary[0], /Nothing uses this layout/);
+  assert.equal(quiet.uses.length, 3);
+  assert.ok(quiet.uses.every((u) => u.breaks && u.where.startsWith('Script "[btn] Go to') && /name is computed/.test(u.why)), JSON.stringify(quiet.uses));
   await assert.rejects(changeImpact(store, host.logs, 'layout', 'No Such Layout', 'rename'), /No layout named/);
 });
 

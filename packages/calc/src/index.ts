@@ -14,6 +14,7 @@ export { Env, compare, type CalcContext, type CustomFunctionDef, type DeviceLoca
 export { snapshotMbsCurl, restoreMbsCurl } from './mbs-curl.ts';
 export { beginMbsReplay, rewindMbsReplay, endMbsReplay } from './mbs-replay.ts';
 export { NameTable, parse, fieldRefs, fieldSpans, type CalcNames, type Node } from './parser.ts';
+export { byNameReads, BY_NAME_FUNCTIONS, type ByNameReads } from './by-name.ts';
 export * from './values.ts';
 export { markExecutionRefusal, rethrowExecutionRefusal } from './execution-refusal.ts';
 export { resolveFunction } from './evaluate.ts';
