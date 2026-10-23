@@ -105,7 +105,7 @@ export function scan(files = [...TOP_LEVEL.map((f) => join(ROOT, f)).filter((f) 
 }
 
 function excerpt(line: string): string {
-  const text = line.replace(/^\s*(?:[|>*-]+\s*)+/, '').replace(/\s*\|\s*$/, '').replace(/[`*]/g, '').replace(/\s+/g, ' ').trim();
+  const text = line.replace(/<!--.*?-->/g, '').replace(/^\s*(?:[|>*-]+\s*)+/, '').replace(/\s*\|\s*$/, '').replace(/[`*]/g, '').replace(/\s+/g, ' ').trim();
   const m = STATEMENT.exec(text);
   let from = m ? Math.max(0, m.index - 50) : 0;
   // Start and end on a word.
