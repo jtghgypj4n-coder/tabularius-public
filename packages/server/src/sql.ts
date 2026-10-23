@@ -98,7 +98,8 @@ export class SqlEndpoint {
       if (!Number.isInteger(max) || max < 1 || max > MAX_LIMIT) throw new ApiError(960, `limit must be 1 to ${MAX_LIMIT}`, 400);
       if (format !== 'json' && format !== 'csv') throw new ApiError(960, 'format must be json or csv', 400);
 
-      const { sql: text, target } = store.calc.translateSQL(sql);
+      // A table of another file the account may not read answers as one that isn't there, so the answer does not name the file.
+      const { sql: text, target } = store.calc.translateSQL(sql, undefined, undefined, (file) => p.in(file).readsEverything);
       this.checkReadsEverything(p.in(target), target);
       if (format === 'csv' && (!p.canExport || !p.in(target).canExport)) {
         throw new ApiError(9, 'Insufficient privileges: this account may not export records', 403);

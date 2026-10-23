@@ -2035,9 +2035,10 @@ export class Calculations {
   /**
    * FileMaker SQL as SQLite SQL, and the file it runs in: table occurrences
    * become their base tables (under the occurrence's name), FETCH FIRST
-   * becomes LIMIT, and FileMaker_Tables / FileMaker_Fields are provided.
+   * becomes LIMIT, and FileMaker_Tables / FileMaker_Fields are provided. `mayRead` says whether the caller may read every
+   * record of another file; a query naming a table of one it may not read is refused as a table that isn't there.
    */
-  translateSQL(query: string, privileges?: Privileges, account?: string): { sql: string; target: Store; stable: boolean; computed: { store: Store; table: Table; field: Field }[] } {
+  translateSQL(query: string, privileges?: Privileges, account?: string, mayRead?: (file: Store) => boolean): { sql: string; target: Store; stable: boolean; computed: { store: Store; table: Table; field: Field }[] } {
     query = cleanSql(query);
     if (!oneStatement(query)) throw new CalcError(ERR.calculation, 'SQL runs one statement at a time');
     refuseUnsupportedJoins(query);
@@ -2106,6 +2107,12 @@ export class Calculations {
       const to = byName.get(name.replace(/^"|"$/g, '').replace(/""/g, '"').toLowerCase());
       const t = to && this.occurrenceTable(to.id);
       if (!to || !t) return m;
+      // A table of a file the caller may not read answers word for word as a table that isn't there (so not even a query of
+      // two files says the table exists), under the name the query gave it.
+      if (t.store !== this.store && mayRead && !mayRead(t.store)) {
+        const shown = name.replace(/^"|"$/g, '').replace(/""/g, '"');
+        throw new CalcError(ERR.calculation, `no such table: ${shown}`);
+      }
       if (target && target !== t.store) throw new CalcError(ERR.calculation, 'ExecuteSQL across tables in different files is not supported yet');
       target = t.store;
       // Without full access, the table as the account sees it (its records, NULL for hidden fields).
