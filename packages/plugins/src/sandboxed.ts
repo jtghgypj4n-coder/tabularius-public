@@ -152,7 +152,9 @@ export function loadPlugins(registry: PluginRegistry, dataDir: string, log: (msg
   const offFile = join(root, 'builtin-off.json');
   if (existsSync(offFile)) {
     try {
-      for (const [file, ids] of Object.entries(JSON.parse(readFileSync(offFile, 'utf8')) as Record<string, unknown>)) {
+      const off: unknown = JSON.parse(readFileSync(offFile, 'utf8'));
+      if (off === null || typeof off !== 'object' || Array.isArray(off)) throw new Error('plugins/builtin-off.json is not a list of file names to plug-in ids');
+      for (const [file, ids] of Object.entries(off)) {
         for (const id of Array.isArray(ids) ? ids : []) {
           try {
             registry.setBuiltin(file, String(id), false);
@@ -168,11 +170,15 @@ export function loadPlugins(registry: PluginRegistry, dataDir: string, log: (msg
   }
   const enabledFile = join(root, 'enabled.json');
   if (!existsSync(enabledFile)) return;
-  let enabled: Record<string, unknown>;
+  let enabled: unknown;
   try {
     enabled = JSON.parse(readFileSync(enabledFile, 'utf8'));
   } catch (err) {
     log(`plugins/enabled.json not read: ${(err as Error).message}`);
+    return;
+  }
+  if (enabled === null || typeof enabled !== 'object' || Array.isArray(enabled)) {
+    log('plugins/enabled.json is not a list of file names to plug-in ids');
     return;
   }
   for (const [file, ids] of Object.entries(enabled)) {

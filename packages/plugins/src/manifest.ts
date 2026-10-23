@@ -30,6 +30,11 @@ const SEMVER = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 /** A FileMaker plug-in id: the 4 characters stored with each call (GyBE, MBSP, 3MLR). */
 const OWNER = /^[\x21-\x7e]{4}$/;
 
+/** Names used for state directly inside plugins/ cannot also be package folders. */
+export function reservedPluginId(id: string): boolean {
+  return id.endsWith('.json') || id === 'secrets';
+}
+
 export const PluginFunctionSpec = z.object({
   /** What people write and what reports show. Case doesn't matter. */
   name: z.string().regex(/^[A-Za-z_][A-Za-z0-9_.]*$/),
@@ -45,7 +50,8 @@ export const PluginFunctionSpec = z.object({
 
 export const PluginManifest = z.object({
   /** Reverse-DNS, unique: org.example.troi-file. */
-  id: z.string().regex(/^[a-z0-9]+(?:[.-][a-z0-9]+)+$/),
+  id: z.string().regex(/^[a-z0-9]+(?:[.-][a-z0-9]+)+$/)
+    .refine((id) => !reservedPluginId(id), { message: 'reserved for state files and secrets in plugins/' }),
   name: z.string().min(1),
   version: z.string().regex(SEMVER),
   /** Host API range it was written for, e.g. "^1.0". */
@@ -70,7 +76,7 @@ export const PluginManifest = z.object({
   if (!apiSatisfied(m.api)) ctx.addIssue({ code: 'custom', path: ['api'], message: `needs plug-in API ${m.api}, and this Tabularius offers ${HOST_API}` });
   const seen = new Set<string>();
   for (const f of m.functions) {
-    for (const key of [f.name.toLowerCase(), ...(f.owner ? [`${f.owner}:${f.index}`] : [])]) {
+    for (const key of [f.name.toLowerCase(), ...(f.owner ? [`${f.owner.toLowerCase()}:${f.index}`] : [])]) {
       if (seen.has(key)) ctx.addIssue({ code: 'custom', message: `${key} is provided twice` });
       seen.add(key);
     }

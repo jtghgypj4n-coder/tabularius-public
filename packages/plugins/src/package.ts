@@ -9,7 +9,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, w
 import { readJsonStateSync, updateJsonStateSync } from '../../store/src/durable.ts';
 import { join } from 'node:path';
 import { unzip, zip, type ZipEntry } from '../../calc/src/zip.ts';
-import { parseManifest, type PluginManifest } from './manifest.ts';
+import { parseManifest, reservedPluginId, type PluginManifest } from './manifest.ts';
 
 /** The most a package may hold, unpacked. */
 export const MAX_PACKAGE_BYTES = 20 * 1024 * 1024;
@@ -171,6 +171,7 @@ export interface InstallOptions {
 export function installPackage(dataDir: string, bytes: Uint8Array, opts: InstallOptions = {}): { manifest: PluginManifest; signer?: string; replaced?: string } {
   const info = readPackage(bytes);
   const { manifest } = info;
+  if (reservedPluginId(manifest.id)) throw new Error(`${manifest.id} is reserved for state files and secrets in plugins/`);
   if (!/^[a-z0-9][a-z0-9.-]*$/.test(manifest.id)) throw new Error(`${manifest.id} can't be a folder name`);
   let newlyTrusted: Record<string, string> | undefined;
   if (info.signer) {
