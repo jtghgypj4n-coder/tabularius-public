@@ -60,7 +60,7 @@ test('MCP legacy tokens and cached MCP SQL and OData passwords reject deactivati
   try {
     const full = f.store.privilegeSets().find((p) => p.id === 1)!;
     f.store.savePrivilegeSet({ ...full, extendedPrivileges: [...full.extendedPrivileges, 'fmodata', 'fmxdbc'] });
-    const token = new McpTokens(f.dir).create({ database: 'Local', account: 'Worker' }).token;
+    const token = new McpTokens(f.dir, undefined, (database, account) => { const s = f.host.get(database); return s?.identityAllowed(account) ? s.accountIdentityId(account) : undefined; }).create({ database: 'Local', account: 'Worker' }).token;
     const sql = () => fetch(f.url + '/tabularius/sql/v1/databases/Local', { method: 'POST', headers: { authorization: basic(), 'content-type': 'application/json' }, body: '{"sql":"SELECT Value FROM T"}' });
     const odata = () => fetch(f.url + '/fmi/odata/v4/Local/T', { headers: { authorization: basic() } });
     // Exercise real password-cache hits independently of security-event invalidation.

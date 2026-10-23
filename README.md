@@ -680,7 +680,7 @@ sign in to the account for 15 minutes (Data API, web client and AI alike);
 other addresses still can, so a stranger guessing can't lock the real user out.
 
 Container fields read as signed download URLs that expire (an hour by default;
-`TABULARIUS_CONTAINER_TTL` seconds, or `0` to never expire), so a link that leaks
+`TABULARIUS_CONTAINER_TTL` seconds may shorten it, never lengthen it past an hour), so a link that leaks
 into a browser history or a proxy log stops working. A link made for a signed-in account is tied to that account's entry in the file (the mapping account, for a directory or identity-provider sign-in) and stops working while the account is blocked or removed, even if someone later makes a new account with the same name (other accounts' links are not affected; a sign-in with no entry of its own gets links that simply expire); anyone holding a live link can still fetch that one file until it expires, so keep the expiry short on files that matter. Uploads stream to a temp
 file as they arrive rather than sitting whole in memory, so a large file (or
 several at once) costs disk, not a half-gig of heap per request, and the size

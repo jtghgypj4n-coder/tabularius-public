@@ -915,6 +915,7 @@ export class Store {
   private readonly layoutCache = new PreparedCache(new Map<string, LayoutInfo>(), (value) => new Map(value));
   /** Word indexes for finds on text (see words.ts). */
   readonly words: WordIndexes;
+  private readonly linkIdentityCache = new Map<string, { token: string; identity: string }>();
   /** Privileges by account (lowercase), valid at the metadata and connection versions. */
   private readonly privilegeCache = new PreparedCache(new Map<string, Privileges>(), (value) => new Map(value));
   private readonly privilegeVersion = new PreparedCache<string>('');
@@ -2959,19 +2960,34 @@ export class Store {
 
   /**
    * The account row a container link made for this principal is tied to: the name as stored and the row's identity, so a link
-   * dies when the account is blocked, removed, or removed and made again under the same name. None when the principal has no
+   * dies when the account is blocked, removed, replaced, or its assigned privilege definition changes. None when the principal has no
    * row here (a directory sign-in with no account of its own, a script's system account): its links expire as usual.
    */
   linkPrincipal(name: string): { name: string; identity: string } | undefined {
     const row = this.sql.prepare('SELECT name FROM _fm_accounts WHERE name = ? COLLATE NOCASE').get(name) as { name: string } | undefined;
-    const identity = row && this.accountIdentityId(row.name);
+    if (row) this.accountIdentityId(row.name);
+    const identity = row && this.linkIdentity(row.name)?.identity;
     return row && identity ? { name: row.name, identity } : undefined;
   }
 
-  /** The row a link was tied to, by its exact name: its identity, and whether the account is blocked. */
+  /** The row and privilege definition a link was tied to, by exact name, and whether it is blocked. */
   linkIdentity(name: string): { identity: string; inactive: boolean } | undefined {
     const row = this.sql.prepare('SELECT inactive, identity_id FROM _fm_accounts WHERE name = ?').get(name) as { inactive: number; identity_id: string | null } | undefined;
-    return row?.identity_id ? { identity: row.identity_id, inactive: row.inactive !== 0 } : undefined;
+    if (!row?.identity_id) return undefined;
+    // Re-evaluate the assigned set and its definition on every redemption. A link
+    // must not retain a read grant after either the assignment or the set changes.
+    // The fingerprint is worked out again only when the security chain has moved: it parses every saved set, which a page of
+    // container cells (one link each) and an unsigned request would otherwise pay for each time.
+    const token = this.securityToken();
+    const key = `${name}\0${row.identity_id}`;
+    let identity = this.linkIdentityCache.get(key);
+    if (identity?.token !== token) {
+      const set = this.accountPrivilegeSet(name);
+      identity = { token, identity: createHash('sha256').update(JSON.stringify([row.identity_id, set, set ? this.privilegeSet(set) : null])).digest('hex') };
+      if (this.linkIdentityCache.size >= 1000) this.linkIdentityCache.clear();
+      this.linkIdentityCache.set(key, identity);
+    }
+    return { identity: identity.identity, inactive: row.inactive !== 0 };
   }
 
   /** Accounts that count failed sign-ins together because their names fold to one (see lockoutName); new ones are refused. */
@@ -5062,7 +5078,7 @@ export class Store {
     const row = this.sql.prepare('SELECT account, kind, created FROM _fm_webauthn_challenges WHERE challenge = ?').get(challenge) as
       { account: string | null; kind: string; created: string } | undefined;
     if (row) this.sql.prepare('DELETE FROM _fm_webauthn_challenges WHERE challenge = ?').run(challenge);
-    if (!row || row.kind !== kind || expiryClock.now() - Date.parse(row.created) > 300_000) return { ok: false, account: null };
+    if (!row || row.kind !== kind || !(Date.parse(row.created) + 300_000 > expiryClock.now())) return { ok: false, account: null };
     return { ok: true, account: row.account };
   }
 
@@ -5094,7 +5110,7 @@ export class Store {
     this.joinTransaction();
     if (!this.accounts().some((a) => a.name.toLowerCase() === account.toLowerCase())) throw new StoreError(960, `No account "${account}"`);
     const taken = this.takeWebauthnChallenge(env.challenge, 'register');
-    if (!taken.ok || (taken.account && taken.account.toLowerCase() !== account.toLowerCase())) throw new StoreError(960, 'The registration has expired; start again');
+    if (!taken.ok || this.accountInactive(account) || !taken.account || taken.account.toLowerCase() !== account.toLowerCase()) throw new StoreError(960, 'The registration has expired; start again');
     let cred: RegisteredCredential;
     try {
       cred = verifyRegistration({ attestationObject: response.attestationObject, clientDataJSON: response.clientDataJSON, challenge: env.challenge, origin: env.origin, rpId: env.rpId });

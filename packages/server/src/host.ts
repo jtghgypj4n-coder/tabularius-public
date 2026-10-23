@@ -69,8 +69,11 @@ export class Host {
   private readonly urlKey: Buffer;
   // Signed container/image URLs carry an expiry, so one that leaks (a browser
   // history, a proxy log, a copied link) stops working. Default one hour; set
-  // TABULARIUS_CONTAINER_TTL to the number of seconds, or 0 to never expire.
-  private readonly urlTtlMs = Math.max(0, Number(process.env.TABULARIUS_CONTAINER_TTL ?? 3600)) * 1000;
+  // TABULARIUS_CONTAINER_TTL may shorten it; invalid values cannot disable expiry.
+  private readonly urlTtlMs = (() => {
+    const seconds = Number(process.env.TABULARIUS_CONTAINER_TTL ?? 3600);
+    return (Number.isFinite(seconds) && seconds > 0 ? Math.min(Math.max(seconds, 1), 3600) : 3600) * 1000;
+  })();
   private baseUrl?: string;
   /** The address clients reach the server at, when it was given (--public-url): links and passkeys use it, never a request's headers. */
   publicUrl?: string;
@@ -1261,13 +1264,13 @@ export class Host {
 
   /** The `sig`/`exp`/`as` query string for a fresh, expiring container or image URL. */
   signed(db: string, id: number, kind = '', who?: LinkAccount): string {
-    const exp = this.urlTtlMs ? Math.floor((expiryClock.now() + this.urlTtlMs) / 1000) : 0;
+    const exp = Math.floor((expiryClock.now() + this.urlTtlMs) / 1000);
     return `sig=${this.sign(db, id, kind, exp, who)}${exp ? `&exp=${exp}` : ''}${who ? `&as=${encodeURIComponent(who.name)}` : ''}`;
   }
 
   checkSignature(db: string, id: number, sig: string, kind = '', exp = 0, who?: LinkAccount): boolean {
     // An expiry in the past fails before any signature comparison.
-    if (exp && exp * 1000 <= expiryClock.now()) return false;
+    if (!Number.isSafeInteger(exp) || exp <= 0 || exp * 1000 <= expiryClock.now()) return false;
     const want = Buffer.from(this.sign(db, id, kind, exp, who));
     const got = Buffer.from(sig);
     return want.length === got.length && timingSafeEqual(want, got);
@@ -1279,6 +1282,9 @@ export class Host {
    * or removing the account ends the links made for it (also when a new account takes its name), and no one else's.
    */
   checkUrl(db: string, id: number, params: URLSearchParams, kind = ''): boolean {
+    // The expiry and signature shape are cheap and need no account: refuse on those before looking the account up.
+    const exp = Number(params.get('exp') ?? 0);
+    if (!Number.isSafeInteger(exp) || exp <= 0 || exp * 1000 <= expiryClock.now() || !params.get('sig')) return false;
     const name = params.get('as') ?? '';
     let who: LinkAccount | undefined;
     let blocked = false;
@@ -1288,7 +1294,7 @@ export class Host {
       who = { name, identity: row.identity };
       blocked = row.inactive;
     }
-    return this.checkSignature(db, id, params.get('sig') ?? '', kind, Number(params.get('exp') ?? 0), who) && !blocked;
+    return this.checkSignature(db, id, params.get('sig') ?? '', kind, exp, who) && !blocked;
   }
 
   names(): string[] {

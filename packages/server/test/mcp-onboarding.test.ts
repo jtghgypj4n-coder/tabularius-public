@@ -181,7 +181,7 @@ test('a layout-scoped token sees only its layouts and their tables', { skip }, a
 test('a file\'s Data API token isn\'t an AI app token; an older admin console token still signs in', { skip }, async () => {
   const dataApi = store.createApiToken('Ed', { label: 'Data API only', surfaces: ['fmrest'] });
   await assert.rejects(connect(dataApi));
-  const older = new McpTokens(dir).create({ database: 'Charts', account: 'Clerk', label: 'older' });
+  const older = new McpTokens(dir, undefined, (database, account) => { return store.identityAllowed(account) ? store.accountIdentityId(account) : undefined; }).create({ database: 'Charts', account: 'Clerk', label: 'older' });
   const client = await connect(older.token);
   assert.deepEqual(JSON.parse(textOf(await client.callTool({ name: 'list_databases', arguments: {} }))), ['Charts']);
   await client.close();
