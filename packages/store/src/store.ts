@@ -1232,8 +1232,15 @@ export class Store {
     return true;
   }
 
+  /**
+   * Set by the server: called before a checkpoint folds the write-ahead log away, to hand the changes in it to whatever
+   * follows this file (standbys, point-in-time backups) first. A held standby copy must not keep them back.
+   */
+  beforeCheckpoint?: () => void;
+
   /** Folds the write-ahead log into the database file, so the file alone is complete — before copying or encrypting it. */
   checkpoint(): void {
+    this.beforeCheckpoint?.();
     // Reads use their own lazily-opened connection. A cursor left at an async
     // boundary on that connection can hold a shared-cache table lock and make
     // a checkpoint throw SQLITE_LOCKED. Request reads themselves are
@@ -7239,6 +7246,7 @@ export class Store {
   compactFile(): void {
     if (this.heldBy || this.sql.isTransaction) throw new StoreError(301, 'The file can only be compacted with no transaction open');
     this.sql.exec('VACUUM');
+    this.beforeCheckpoint?.();
     this.sql.exec('PRAGMA wal_checkpoint(TRUNCATE)');
   }
 
