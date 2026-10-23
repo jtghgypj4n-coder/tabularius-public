@@ -395,6 +395,8 @@ unknown, in [docs/known-differences.md](docs/known-differences.md).
 - **Scripts run on the server, and reach the network when you switch it on.** Web requests (Insert from URL, `connection://` addresses) start off for every converted file, so a copy you are testing cannot call outside services; turn on **Script network** for a file in the admin console when this copy is the live one. Mail is sent only once the server is set up to send it; steps that need a screen or a person at FileMaker Pro are skipped or give error 3.
 - **AI script steps use this server's own model;** the account, endpoint, key and model a script names are not used.
 - **The store is not the `.fmp12`.** A converted file lives in an SQLite store beside the original, which is left as it was; changes made here can't be written back into a `.fmp12`. To leave, `tabularius exit-bundle` writes the whole file (every table as SQLite and CSV, container files, globals, serials, the design) to a folder any tool can read; the copy is plaintext, so keep it private.
+- **The store is not the `.fmp12`.** A converted file lives in an SQLite store beside the original, which is left as it was; changes made here can't be written back into a `.fmp12`.
+- **Save a Copy as doesn't make a `.fmp12`.** It always writes a Tabularius SQLite store named `<name>.openhbam.sqlite`, even when a script asks for a `.fmp12` backup; FileMaker cannot open that copy. Use the server's `tabularius backup` command for backups.
 - **Some security detail is flattened.** Per-layout, per-value-list and per-script privileges come over at the privilege set's overall level; review your sets in Manage Security before people sign in.
 
 ## Try it
