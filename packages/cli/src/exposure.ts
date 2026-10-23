@@ -1,9 +1,9 @@
 // `tabularius doctor --exposure [--url URL] [--port 8080] [--sql-port N]`: what a running server is open to, one finding
 // at a time, each with what to change. It reads and asks, with no password or token: it makes plain GET and POST
 // requests that a stranger could make, connects to the server's ports, and reads the options of the installed
-// service (if there is one). It changes nothing and signs nothing in. Not covered, and said in the output: the cookie
-// flags (no sign-in is made, so they are worked out from the address) and the options of a server that was not
-// installed as a service (nothing a server answers shows its --trusted-proxies).
+// service (if there is one). It changes nothing and signs nothing in. A finding is "ok" only for something it saw; what
+// it could not see (the cookie flags, since no sign-in is made; the SQL port when none is named; the proxies of a server
+// that was not installed as a service) is a "check" that says so, never "ok".
 
 import { networkInterfaces } from 'node:os';
 import { connect } from 'node:net';
@@ -70,6 +70,8 @@ export interface ExposureOptions {
   /** The installed service, whose options say what the server was started with. */
   service?: Installed;
   probes?: Probes;
+  /** Where TABULARIUS_TRUSTED_PROXIES is read from (this command's environment). */
+  env?: NodeJS.ProcessEnv;
 }
 
 const option = (args: string[], name: string): string | undefined => {
@@ -83,7 +85,9 @@ export async function runExposure(opts: ExposureOptions = {}): Promise<Check[]> 
   const extra = opts.service?.extra ?? [];
   const tls = extra.some((a) => a === '--https' || a === '--tls-cert' || a.startsWith('--https='));
   const port = opts.port ?? opts.service?.port ?? 8080;
-  const base = new URL(opts.url ?? `${tls ? 'https' : 'http'}://127.0.0.1:${port}`);
+  // Without --url the server is where the installed service listens: its --host if that names one address, else loopback.
+  const serviceHost = opts.service?.host && !['0.0.0.0', '::', '[::]', ''].includes(opts.service.host) ? opts.service.host : undefined;
+  const base = new URL(opts.url ?? `${tls ? 'https' : 'http'}://${brackets(serviceHost ?? '127.0.0.1')}:${port}`);
   const https = base.protocol === 'https:';
   const host = base.hostname.replace(/^\[|\]$/g, '');
   const local = isLoopbackHost(host) || probes.addresses().includes(host);
@@ -131,10 +135,12 @@ export async function runExposure(opts: ExposureOptions = {}): Promise<Check[]> 
     ? { name: 'Browser headers', level: 'ok', message: 'Permissions-Policy is sent' }
     : { name: 'Browser headers', level: 'warn', message: 'the answer carries no Permissions-Policy header', fix: 'Update the server, or check a proxy in front is not removing headers.' });
 
-  // The cookie of the admin console is set at sign-in, and this check does not sign in.
+  // The cookie of the admin console is set at sign-in, and this check does not sign in: what follows is not observed.
   checks.push(https
-    ? { name: 'Console cookie', level: 'ok', message: 'over HTTPS the console cookie is Secure, HttpOnly and SameSite=Strict, named __Host-tabularius_admin (worked out from the address; no sign-in was made)' }
-    : { name: 'Console cookie', level: beyond ? 'problem' : 'ok', message: beyond ? 'the console cookie cannot be Secure over plain HTTP, and this address is reachable from the network (worked out from the address; no sign-in was made)' : 'plain HTTP on this computer only: the cookie is HttpOnly and SameSite=Strict, without Secure (worked out from the address; no sign-in was made)', ...(beyond ? { fix: 'Serve HTTPS (see Plain HTTP).' } : {}) });
+    ? { name: 'Console cookie', level: 'warn', message: 'not observed (no sign-in was made): over HTTPS the console cookie is built to be Secure, HttpOnly and SameSite=Strict, named __Host-tabularius_admin', fix: 'To see it, sign in to the console in a browser and look at the cookie in its developer tools.' }
+    : beyond
+      ? { name: 'Console cookie', level: 'problem', message: 'not observed (no sign-in was made), but over plain HTTP the console cookie cannot be Secure, and this address is reachable from the network', fix: 'Serve HTTPS (see Plain HTTP).' }
+      : { name: 'Console cookie', level: 'warn', message: 'not observed (no sign-in was made): over plain HTTP on this computer only the console cookie is built to be HttpOnly and SameSite=Strict, without Secure', fix: 'To see it, sign in to the console in a browser and look at the cookie in its developer tools.' });
 
   // The server's own idea of its address, from its public discovery answer.
   const meta = await probes.ask(at('/.well-known/oauth-protected-resource'));
@@ -153,49 +159,66 @@ export async function runExposure(opts: ExposureOptions = {}): Promise<Check[]> 
   let passwordSet: boolean | undefined;
   try { passwordSet = (JSON.parse(info?.body ?? '') as { passwordSet?: boolean }).passwordSet; } catch { /* no answer */ }
   const status = await probes.ask(at('/tabularius/admin/v1/status'));
+  const statusSaid = status ? `answered ${status.status}` : 'did not answer';
   if (status?.status === 200 && passwordSet === true) {
     checks.push({ name: 'Admin console', level: 'problem', message: 'the console answers its status without a sign-in although an admin password is set', fix: 'This is a fault: report it as a vulnerability (SECURITY.md) and put a firewall in front until it is fixed.' });
+  } else if (status?.status === 200 && passwordSet === undefined) {
+    checks.push({ name: 'Admin console', level: 'warn', message: 'the console answers its status without a sign-in, and its sign-in page did not say whether an admin password is set', fix: 'Set an admin password if there is none: tabularius admin-password <folder>' });
   } else if (passwordSet === false) {
     checks.push({ name: 'Admin console', level: beyond ? 'problem' : 'warn', message: `no admin password is set, so the console is open to whoever can use this computer${beyond ? ', and the server is reachable from the network' : ''}`, fix: 'Set one: tabularius admin-password <folder>' });
+  } else if (status?.status === 401) {
+    checks.push({ name: 'Admin console', level: beyond ? 'warn' : 'ok', message: beyond ? `the console page and its sign-in are reachable from the network (its API answered 401 without a sign-in)` : 'the console is reachable from this computer only; its API answered 401 without a sign-in', ...(beyond ? { fix: 'If administrators work from one place, firewall the port to them, or serve on loopback and reach the console through a proxy or an SSH tunnel.' } : {}) });
   } else {
-    checks.push({ name: 'Admin console', level: beyond ? 'warn' : 'ok', message: beyond ? 'the console page and its sign-in are reachable from the network (its API needs the password)' : 'the console is reachable from this computer only; its API needs the password', ...(beyond ? { fix: 'If administrators work from one place, firewall the port to them, or serve on loopback and reach the console through a proxy or an SSH tunnel.' } : {}) });
+    checks.push({ name: 'Admin console', level: 'warn', message: `could not confirm that the console API needs a sign-in: its status ${statusSaid} (expected 401)`, fix: 'Check the server is the one you meant (--url), and that nothing in front of it rewrites the answer.' });
   }
 
   // MCP: an AI app needs a token; a server that answers an unsigned request is open.
   const mcp = await probes.ask(at('/mcp'), { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'tabularius-doctor', version: '0' } } }) });
   if (mcp && mcp.status >= 200 && mcp.status < 300) {
     checks.push({ name: 'MCP', level: 'problem', message: 'the AI connector answers a request that carries no token', fix: 'Start the server with an MCP token (tabularius mcp-token <folder> prints it), or turn the connector off.' });
-  } else if (mcp) {
+  } else if (mcp?.status === 401 || mcp?.status === 403) {
     checks.push({ name: 'MCP', level: 'ok', message: `the AI connector refuses a request with no token (${mcp.status})` });
+  } else if (mcp?.status === 404) {
+    checks.push({ name: 'MCP', level: 'ok', message: 'the AI connector is not served here (404)' });
+  } else {
+    checks.push({ name: 'MCP', level: 'warn', message: mcp ? `the AI connector answered ${mcp.status} to a request with no token, so whether it needs one was not checked` : 'the AI connector did not answer, so whether it needs a token was not checked', fix: 'If AI apps use this server, check /mcp answers (a proxy in front may be dropping it) and run this again.' });
   }
 
-  // The PostgreSQL port: only where one was named (by --sql-port or the installed service).
+  // The PostgreSQL port: only where one was named (by --sql-port or the installed service). It is tried where the server is:
+  // on this computer, loopback and every address of it (done above); on another computer, that host.
   if (sqlPort) {
-    const listening = await probes.open('127.0.0.1', sqlPort);
-    if (!listening) checks.push({ name: 'SQL port', level: 'ok', message: `nothing listens on ${sqlPort} on this computer` });
+    const here = local ? ['127.0.0.1', '::1'] : [host];
+    const opened: string[] = [];
+    for (const address of here) if (await probes.open(address, sqlPort)) opened.push(address);
+    const network = local ? exposedTo.filter((a) => a.endsWith(`:${sqlPort}`)).map((a) => a.replace(/^\[?(.*?)\]?:\d+$/, '$1')) : opened;
+    const tried = [...here, ...(local ? probes.addresses() : [])].map(brackets).join(', ');
+    if (!opened.length && !network.length) checks.push({ name: 'SQL port', level: 'ok', message: `nothing accepted a connection on port ${sqlPort} at ${tried}` });
     else {
-      const asked = await probes.sslAnswer('127.0.0.1', sqlPort);
-      const reach = exposedTo.filter((a) => a.endsWith(`:${sqlPort}`));
+      const asked = await probes.sslAnswer((network[0] ?? opened[0])!, sqlPort);
       const plain = asked === 'N';
-      checks.push(reach.length || (!local && !isLoopbackHost(host))
-        ? { name: 'SQL port', level: plain ? 'problem' : 'warn', message: `the SQL port ${sqlPort} accepts connections from the network${plain ? ' and offers no TLS, so a password is sent unencrypted' : ''}`, fix: plain ? 'Serve HTTPS (--https or --tls-cert), which the SQL port uses too, or keep the port on loopback (--host 127.0.0.1) and reach it through an SSH tunnel.' : 'Firewall the port to the machines that need it.' }
+      checks.push(network.length
+        ? { name: 'SQL port', level: plain ? 'problem' : 'warn', message: `the SQL port ${sqlPort} accepts connections from the network (${network.map(brackets).join(', ')})${plain ? ' and offers no TLS, so a password is sent unencrypted' : asked === undefined ? ' (whether it offers TLS was not checked)' : ''}`, fix: plain ? 'Serve HTTPS (--https or --tls-cert), which the SQL port uses too, or keep the port on loopback (--host 127.0.0.1) and reach it through an SSH tunnel.' : 'Firewall the port to the machines that need it.' }
         : { name: 'SQL port', level: 'ok', message: `the SQL port ${sqlPort} is on this computer only${plain ? ' (plain, which is fine there)' : ''}` });
     }
   } else {
-    checks.push({ name: 'SQL port', level: 'ok', message: 'no SQL port was named (--sql-port); if the server was started with one, say so with --sql-port to have it checked' });
+    checks.push({ name: 'SQL port', level: 'warn', message: 'not checked: no SQL port was named (--sql-port) and none is in the installed service\'s options', fix: 'If the server was started with a SQL port, run this again with --sql-port <port>.' });
   }
 
-  // Proxies: only a server installed as a service shows its options.
-  if (opts.service) {
-    const proxies = option(extra, '--trusted-proxies');
-    const open = proxies?.split(',').map((v) => v.trim()).filter((v) => Number(v.split('/')[1]) === 0);
-    checks.push(open?.length
-      ? { name: 'Trusted proxies', level: 'problem', message: `--trusted-proxies includes ${open.join(', ')}, which trusts every address of that kind to say who a client is`, fix: 'Name the proxy\'s own address (a single address or a small range).' }
-      : proxies
-        ? { name: 'Trusted proxies', level: 'ok', message: `forwarded client addresses are believed from ${proxies} only` }
-        : { name: 'Trusted proxies', level: 'ok', message: 'none: X-Forwarded-* headers are believed from this computer only' });
+  // Proxies: the service's --trusted-proxies, else TABULARIUS_TRUSTED_PROXIES, as the server reads them at start.
+  const env = opts.env ?? process.env;
+  const flagged = option(extra, '--trusted-proxies');
+  const proxies = flagged ?? env.TABULARIUS_TRUSTED_PROXIES;
+  const from = flagged !== undefined ? '--trusted-proxies' : opts.service ? 'TABULARIUS_TRUSTED_PROXIES in this command\'s environment, not the service\'s' : 'TABULARIUS_TRUSTED_PROXIES in this command\'s environment';
+  if (proxies?.trim()) {
+    const list = proxies.split(',').map((v) => v.trim()).filter(Boolean);
+    const wide = list.filter((v) => /\/0+$/.test(v));
+    checks.push(wide.length
+      ? { name: 'Trusted proxies', level: 'problem', message: `${from} includes ${wide.join(', ')}, which trusts every address of that kind to say who a client is`, fix: 'Name the proxy\'s own address (a single address or a small range).' }
+      : { name: 'Trusted proxies', level: 'ok', message: `forwarded client addresses are believed from ${list.join(', ')} only (${from})` });
+  } else if (opts.service) {
+    checks.push({ name: 'Trusted proxies', level: 'ok', message: 'none in the installed service\'s options: X-Forwarded-* headers are believed from this computer only' });
   } else {
-    checks.push({ name: 'Trusted proxies', level: 'ok', message: 'not checked: only a server installed as a service shows its options; look for --trusted-proxies in the command that starts it' });
+    checks.push({ name: 'Trusted proxies', level: 'warn', message: 'not checked: only a server installed as a service shows its options, and TABULARIUS_TRUSTED_PROXIES is not set here', fix: 'Look for --trusted-proxies in the command that starts the server; a range ending in /0 trusts every address.' });
   }
   return checks;
 }
