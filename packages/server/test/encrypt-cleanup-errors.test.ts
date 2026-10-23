@@ -1,6 +1,6 @@
 import { test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
-import { closeSync, existsSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, fstatSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { cleanupPath, withFilesystemHook } from '../../store/src/fs-boundary.ts';
@@ -18,11 +18,12 @@ function setup(t: TestContext, asynchronous: boolean, decrypt: boolean) {
   }
   const workError = new Error('injected read failure');
   const warnings = t.mock.method(console, 'warn', (..._args: unknown[]) => {});
-  const run = async (options: { cleanupPath?: typeof cleanupPath; afterClose?: (fd: number) => void; failWork?: boolean } = {}) => {
+  const run = async (options: { cleanupPath?: typeof cleanupPath; afterClose?: (fd: number) => void; failWork?: boolean; stat?: () => never } = {}) => {
     if (decrypt && options.failWork) writeFileSync(source, 'invalid encrypted header');
     if (asynchronous) {
       const operations = {
         cleanupPath: options.cleanupPath,
+        stat: options.stat,
         close: async (file: import('node:fs/promises').FileHandle) => {
           const fd = file.fd;
           await file.close();
@@ -34,6 +35,7 @@ function setup(t: TestContext, asynchronous: boolean, decrypt: boolean) {
     } else {
       const operations = {
         cleanupPath: options.cleanupPath,
+        stat: options.stat,
         close: (fd: number) => { closeSync(fd); options.afterClose?.(fd); },
       };
       if (decrypt) decryptFileSync(source, dest, 'generated passphrase', operations);
@@ -48,6 +50,25 @@ function setup(t: TestContext, asynchronous: boolean, decrypt: boolean) {
 
 for (const asynchronous of [false, true]) for (const decrypt of [false, true]) {
   const label = `${asynchronous ? 'async' : 'sync'} ${decrypt ? 'decryption' : 'encryption'}`;
+
+  test(`${label}: output stat failure removes the empty output`, async (t) => {
+    const s = setup(t, asynchronous, decrypt), failure = new Error('output stat failed');
+    const closed: number[] = [];
+    await assert.rejects(s.run({ stat: () => { throw failure; }, afterClose: (fd) => closed.push(fd) }), (e) => e === failure);
+    assert.equal(existsSync(s.dest), false);
+    assert.equal(new Set(closed).size, 2);
+    for (const fd of closed) assert.throws(() => fstatSync(fd), { code: 'EBADF' });
+  });
+
+  test(`${label}: output stat failure preserves a replacement`, async (t) => {
+    const s = setup(t, asynchronous, decrypt), failure = new Error('output stat failed');
+    await assert.rejects(s.run({ stat: () => {
+      renameSync(s.dest, join(s.dir, 'held'));
+      writeFileSync(s.dest, 'replacement');
+      throw failure;
+    } }), (e) => e === failure);
+    assert.equal(readFileSync(s.dest, 'utf8'), 'replacement');
+  });
 
   test(`${label}: failed cleanup capture removes the opened output`, async (t) => {
     const s = setup(t, asynchronous, decrypt), failure = new Error('cleanup capture failed');
@@ -119,6 +140,6 @@ test('standalone store cleanup still throws its own failure', (t) => {
   const cleanup = cleanupPath(s.source);
   assert.throws(() => withFilesystemHook((event) => {
     if (event.operation === 'remove') throw failure;
-  }, cleanup), (error) => error === failure);
+  }, () => cleanup({ throwOnError: true })), (error) => error === failure);
   assert.equal(existsSync(s.source), true);
 });

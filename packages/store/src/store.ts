@@ -1437,7 +1437,7 @@ export class Store {
           // name may since have been taken by a file of another database that shares the folder.
           if (!named.get(rel) && full && typeof dev === 'string' && typeof ino === 'string') {
             const now = lstatSync(full, { bigint: true });
-            if (String(now.dev) === dev && String(now.ino) === ino) cleanupPath(full)();
+            if (String(now.dev) === dev && String(now.ino) === ino) cleanupPath(full)({ throwOnError: true });
           }
           rmSync(marker);
         } catch (error) {
@@ -7549,14 +7549,14 @@ export class Store {
     }
     const removeFile = cleanupPath(full);
     // The file goes first and its marker with it; a file that can't be removed keeps its marker for recovery.
-    const cleanup = marker ? () => { removeFile(); rmSync(marker, { force: true }); } : removeFile;
+    const cleanup = marker ? () => { removeFile({ throwOnError: true }); rmSync(marker, { force: true }); } : removeFile;
     if (marker) {
       // The note now says which file it made (device and inode), so recovery after a crash removes that one and no other.
       try {
         const made = fstatSync(fd, { bigint: true });
         atomicWrite(marker, JSON.stringify({ root, rel, dev: String(made.dev), ino: String(made.ino) }));
       } catch (error) {
-        try { closeSync(fd); } finally { cleanup(); }
+        try { closeSync(fd); } finally { try { cleanup(); } catch { /* the error that made the cleanup necessary stays the one reported */ } }
         throw error;
       }
     }

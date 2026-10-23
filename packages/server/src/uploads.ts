@@ -137,7 +137,7 @@ export class Uploads {
   /** When each upload last started or received a piece (monotonic milliseconds). */
   private readonly active = new Map<string, number>();
   private readonly writing = new Set<string>();
-  private readonly cleanups = new Map<string, () => void>();
+  private readonly cleanups = new Map<string, ReturnType<typeof cleanupPath>>();
   private readonly conversions = new Map<string, { stop: AbortController; done: Promise<void> }>();
 
   constructor(host: Host, log: (msg: string) => void = () => {}, opts: { now?: () => number; idleMs?: number } = {}) {
@@ -177,10 +177,10 @@ export class Uploads {
     return join(this.dir, `${id}.part`);
   }
 
-  private cleanPart(id: string): void {
+  private cleanPart(id: string, throwOnError = true): void {
     const cleanup = this.cleanups.get(id);
     this.cleanups.delete(id);
-    cleanup?.();
+    cleanup?.({ throwOnError });
   }
 
   private taken(name: string): boolean {
@@ -316,7 +316,7 @@ export class Uploads {
         }
       }
     } catch (e) {
-      this.cleanPart(u.id);
+      this.cleanPart(u.id, false);
       if (stop.signal.aborted) this.log(`cancelled upload of ${u.name}.fmp12`);
       else {
         u.phase = 'failed';
@@ -325,7 +325,7 @@ export class Uploads {
       }
     } finally {
       if (stop.signal.aborted) {
-        this.cleanPart(u.id);
+        this.cleanPart(u.id, false);
         this.uploads.delete(u.id);
         this.active.delete(u.id);
       }

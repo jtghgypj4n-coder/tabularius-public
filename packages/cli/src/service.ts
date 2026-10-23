@@ -293,11 +293,15 @@ export function placeServiceFile(path: string, text: string, system: boolean, ow
   const dir = mkdtempSync(join(tmpdir(), 'tabularius-service-'));
   const tmp = join(dir, 'service');
   const cleanup = cleanupPath(dir, { recursive: true, force: true });
+  let failed = false;
   try {
     writeFileSync(tmp, text, { flag: 'wx', mode: 0o600 });
     run('sudo', ['install', '-m', '600', ...(owner ? ['-o', owner.split(':')[0], '-g', owner.split(':')[1]] : []), tmp, path]);
+  } catch (error) {
+    failed = true;
+    throw error;
   } finally {
-    cleanup();
+    cleanup({ throwOnError: !failed });
   }
 }
 
