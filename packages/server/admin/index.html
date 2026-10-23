@@ -818,6 +818,7 @@
     <p class="meta" id="scim-status" role="status"></p>
     <div class="controls">
       <label>People no group covers get <select id="scim-default"></select></label>
+      <label>Token valid for (days) <input id="scim-days" type="number" min="1" max="3650" step="1" value="90"></label>
       <button id="scim-issue" class="primary">Turn on</button>
       <button id="scim-revoke">Turn off</button>
     </div>
@@ -4029,9 +4030,14 @@ function showScim(r) {
   $('scim-default').innerHTML = '<option value="">No access until a group gives it</option>' +
     sets.map((s) => `<option${s === r.defaultPrivilegeSet ? ' selected' : ''}>${esc(s)}</option>`).join('');
   $('scim-count').textContent = r.on ? r.users || '' : '';
-  $('scim-status').textContent = r.on
-    ? `On since ${new Date(r.issued).toLocaleString()}; ${r.users} ${r.users === 1 ? 'person' : 'people'} provisioned. The provider's base URL is ${location.origin}${r.path}`
-    : 'Off. Turning it on makes a token to paste into the identity provider; turning it off again stops the token and keeps the accounts it made.';
+  const people = `${r.users} ${r.users === 1 ? 'person' : 'people'} provisioned. The provider's base URL is ${location.origin}${r.path}`;
+  $('scim-status').textContent = !r.on
+    ? 'Off. Turning it on makes a token to paste into the identity provider; turning it off again stops the token and keeps the accounts it made.'
+    : r.needsReissue
+      ? `The token was made before tokens expired and no longer works. Make a new token and paste it into the identity provider. ${people}`
+      : r.expired
+        ? `The token expired on ${new Date(r.expires).toLocaleString()} and no longer works. Make a new token and paste it into the identity provider. ${people}`
+        : `On since ${new Date(r.issued).toLocaleString()}; the token works until ${new Date(r.expires).toLocaleString()}. ${people}`;
   $('scim-issue').textContent = r.on ? 'Make a new token' : 'Turn on';
   $('scim-revoke').hidden = !r.on;
 }
@@ -4049,11 +4055,13 @@ $('scim-default').addEventListener('change', async () => {
 });
 $('scim-issue').addEventListener('click', async () => {
   if ($('scim-issue').textContent !== 'Turn on' && !confirm('Make a new token? The one the identity provider has now stops working.')) return;
+  const days = Number($('scim-days').value);
+  if (!Number.isInteger(days) || days < 1 || days > 3650) { say('Days should be a whole number from 1 to 3650: a token always expires.'); return; }
   let r;
-  try { r = await call('POST', '/tabularius/admin/v1/scim/token', { database: $('scim-db').value, defaultPrivilegeSet: $('scim-default').value || null }); }
+  try { r = await call('POST', '/tabularius/admin/v1/scim/token', { database: $('scim-db').value, defaultPrivilegeSet: $('scim-default').value || null, days }); }
   catch (err) { say(`Can't turn it on: ${plainMessage(err)}`); return; }
   showScim(r);
-  $('scim-token').innerHTML = `<p class="note">In the identity provider's provisioning settings, set the base URL (tenant URL) to <code>${esc(location.origin + r.path)}</code> and the API token (secret token) to the one below. It is shown only now.</p>` +
+  $('scim-token').innerHTML = `<p class="note">In the identity provider's provisioning settings, set the base URL (tenant URL) to <code>${esc(location.origin + r.path)}</code> and the API token (secret token) to the one below. It is shown only now, and it works until ${esc(new Date(r.expires).toLocaleString())}.</p>` +
     `<p><code id="scim-token-value">${esc(r.token)}</code> <button id="scim-copy">Copy</button> <span id="scim-copy-status" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></span></p>`;
   $('scim-copy').addEventListener('click', () => copyToClipboard($('scim-copy'), r.token, $('scim-copy-status')));
 });

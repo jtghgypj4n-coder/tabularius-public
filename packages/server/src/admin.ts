@@ -38,7 +38,7 @@ import { auditCsvField } from '../../store/src/audit-output.ts';
 //   GET  /tabularius/admin/v1/sso-mapping             which privilege set an SSO group/email/domain gets: ?database=
 //   POST /tabularius/admin/v1/sso-mapping             add or change one: { database, name, privilegeSet }
 //   DELETE /tabularius/admin/v1/sso-mapping/{name}    remove one: ?database=
-//   GET|POST|DELETE /tabularius/admin/v1/scim[/token|/settings]   provisioning from an identity provider (SCIM): see scim.ts
+//   GET|POST|DELETE /tabularius/admin/v1/scim[/token|/settings]   provisioning from an identity provider (SCIM): see scim.ts (a token takes { days }, 90 unless 1 to 3650 is asked for)
 //   GET  /tabularius/admin/v1/sso-mapping/test        which mapping an email/groups would resolve to, and what it can do:
 //                                                    ?database=&email=&groups=a,b,c
 //   GET  /tabularius/admin/v1/field-access            a privilege set's per-field access on a table: ?database=&privilegeSet=&table=

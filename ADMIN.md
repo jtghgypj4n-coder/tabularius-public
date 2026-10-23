@@ -968,9 +968,11 @@ sets, over SCIM 2.0. Each file is provisioned separately.
 
 1. In the admin console, open **Provisioning (SCIM)**, pick the file and
    choose what people get when no group covers them (no access, or a set).
-2. Click **Turn on**. The console shows the base URL
-   (`https://files.example.com/tabularius/scim/v2/databases/<file>`) and a token
-   starting `ohsc_`. The token is shown once; only its hash is kept in the file.
+2. Choose how many days the token is valid (90 unless you change it; 1 to 3650)
+   and click **Turn on**. The console shows the base URL
+   (`https://files.example.com/tabularius/scim/v2/databases/<file>`), a token
+   starting `ohsc_` and the date it stops working. The token is shown once; only
+   its hash is kept in the file.
 3. In the provider's app for Tabularius, turn on provisioning: in Okta, SCIM 2.0
    with "HTTP Header" authentication; in Entra ID, "Tenant URL" and
    "Secret Token". Paste the two values there.
@@ -998,6 +1000,14 @@ What the provider can do, and what it can't:
   removed or moved by the provider. It never touches an account with a
   password, an AI agent, or an account from the `.fmp12`. Any other external
   account an admin already made for that exact email is taken over.
+
+**The token always expires.** After its date the endpoint refuses it exactly as it
+refuses a wrong token (401), and the console says the token expired. Click **Make a
+new token** before then and paste it into the provider; the old one stops working at
+once. There is no token without an expiry, and nothing renews one by itself. The
+same request through the Admin API is `POST /tabularius/admin/v1/scim/token` with
+`{ "database": "<file>", "days": 90 }`; `GET /tabularius/admin/v1/scim?database=<file>`
+returns `expires`, and `expired` or `needsReissue` when the token no longer works.
 
 Every change is in the file's security log, made by "SCIM". **Turn off** stops
 the token; the accounts it made stay. The requests the endpoint takes follow

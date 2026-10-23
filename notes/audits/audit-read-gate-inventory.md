@@ -424,16 +424,16 @@ The following reasons apply to the exact enumerated expressions in each named fu
 | [packages/server/src/record-search.ts:104](../../packages/server/src/record-search.ts#L104) `searchRecords/snippet` | `SQLite.get` (104); `SQLite.prepare` (104); `Store.sql` (104) | SEARCH |
 | [packages/server/src/record-search.ts:109](../../packages/server/src/record-search.ts#L109) `searchRecords/source` | `SQLite.get` (109); `SQLite.prepare` (109); `Store.sql` (109) | SEARCH |
 | [packages/server/src/rule-suggestions.ts:57](../../packages/server/src/rule-suggestions.ts#L57) `suggestRules` | `Store.query` (57, 69, 86, 136, 138, 152, 153, 169) | DESIGN |
-| [packages/server/src/scim.ts:118](../../packages/server/src/scim.ts#L118) `ScimDirectory/table` | `Store.sql` (118) | AUTH |
-| [packages/server/src/scim.ts:124](../../packages/server/src/scim.ts#L124) `ScimDirectory/settings` | `SQLite.get` (124); `SQLite.prepare` (124); `Store.sql` (124) | AUTH |
-| [packages/server/src/scim.ts:132](../../packages/server/src/scim.ts#L132) `ScimDirectory/save` | `SQLite.prepare` (132); `Store.sql` (132) | AUTH |
-| [packages/server/src/scim.ts:187](../../packages/server/src/scim.ts#L187) `ScimDirectory/rows` | `SQLite.all` (187); `SQLite.prepare` (187, 190); `Store.sql` (187, 190) | AUTH |
-| [packages/server/src/scim.ts:214](../../packages/server/src/scim.ts#L214) `ScimDirectory/setMemberships` | `SQLite.prepare` (214); `Store.sql` (214) | AUTH |
-| [packages/server/src/scim.ts:251](../../packages/server/src/scim.ts#L251) `ScimDirectory/atomically` | `Store.sql` (251) | AUTH |
-| [packages/server/src/scim.ts:291](../../packages/server/src/scim.ts#L291) `ScimDirectory/revokePersonTokens` | `SQLite.all` (291); `SQLite.prepare` (291); `Store.sql` (291) | AUTH |
-| [packages/server/src/scim.ts:342](../../packages/server/src/scim.ts#L342) `ScimDirectory/create/scim_user_create` | `SQLite.prepare` (342); `Store.sql` (342) | AUTH |
-| [packages/server/src/scim.ts:363](../../packages/server/src/scim.ts#L363) `ScimDirectory/update/scim_user_update` | `SQLite.prepare` (363); `Store.sql` (363) | AUTH |
-| [packages/server/src/scim.ts:386](../../packages/server/src/scim.ts#L386) `ScimDirectory/remove/scim_user_remove` | `SQLite.prepare` (386); `Store.sql` (386) | AUTH |
+| [packages/server/src/scim.ts:123](../../packages/server/src/scim.ts#L123) `ScimDirectory/table` | `Store.sql` (123) | AUTH |
+| [packages/server/src/scim.ts:129](../../packages/server/src/scim.ts#L129) `ScimDirectory/settings` | `SQLite.get` (129); `SQLite.prepare` (129); `Store.sql` (129) | AUTH |
+| [packages/server/src/scim.ts:137](../../packages/server/src/scim.ts#L137) `ScimDirectory/save` | `SQLite.prepare` (137); `Store.sql` (137) | AUTH |
+| [packages/server/src/scim.ts:215](../../packages/server/src/scim.ts#L215) `ScimDirectory/rows` | `SQLite.all` (215); `SQLite.prepare` (215, 218); `Store.sql` (215, 218) | AUTH |
+| [packages/server/src/scim.ts:242](../../packages/server/src/scim.ts#L242) `ScimDirectory/setMemberships` | `SQLite.prepare` (242); `Store.sql` (242) | AUTH |
+| [packages/server/src/scim.ts:279](../../packages/server/src/scim.ts#L279) `ScimDirectory/atomically` | `Store.sql` (279) | AUTH |
+| [packages/server/src/scim.ts:319](../../packages/server/src/scim.ts#L319) `ScimDirectory/revokePersonTokens` | `SQLite.all` (319); `SQLite.prepare` (319); `Store.sql` (319) | AUTH |
+| [packages/server/src/scim.ts:370](../../packages/server/src/scim.ts#L370) `ScimDirectory/create/scim_user_create` | `SQLite.prepare` (370); `Store.sql` (370) | AUTH |
+| [packages/server/src/scim.ts:391](../../packages/server/src/scim.ts#L391) `ScimDirectory/update/scim_user_update` | `SQLite.prepare` (391); `Store.sql` (391) | AUTH |
+| [packages/server/src/scim.ts:414](../../packages/server/src/scim.ts#L414) `ScimDirectory/remove/scim_user_remove` | `SQLite.prepare` (414); `Store.sql` (414) | AUTH |
 | [packages/server/src/script-failure.ts:212](../../packages/server/src/script-failure.ts#L212) `explainScriptFailure` | `Store.row` (212) | RECORD |
 | [packages/server/src/security.ts:80](../../packages/server/src/security.ts#L80) `importApproximations` | `SQLite.all` (80); `SQLite.prepare` (80); `Store.sql` (80) | DESIGN |
 | [packages/server/src/security.ts:116](../../packages/server/src/security.ts#L116) `securityOf` | `Store.pendingChanges` (116) | DESIGN |
