@@ -18,7 +18,10 @@ function quick<T>(f: () => T): T {
 }
 
 test('NUMVAL on a long run of digits before a letter, and on numbers', () => {
-  assert.throws(() => quick(() => SQL_DATE_FUNCTIONS.NUMVAL('1'.repeat(N) + 'x')), /not a valid number/);
+  // NUMVAL throws, so the time is read around the throw.
+  const t = performance.now();
+  assert.throws(() => SQL_DATE_FUNCTIONS.NUMVAL('1'.repeat(N) + 'x'), /not a valid number/);
+  assert.ok(performance.now() - t < LIMIT_MS, 'took too long: the pattern backtracks');
   assert.equal(SQL_DATE_FUNCTIONS.NUMVAL(' 12.5e1 '), 125);
 });
 

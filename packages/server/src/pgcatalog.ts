@@ -303,11 +303,19 @@ export function pgSyntax(sql: string): string {
     out = orderByOutputNames(out)
       .replace(/=\s*ANY\s*\(\s*ARRAY\s*\[([^\]]*)\]\s*\)/gi, 'IN ($1)')
       .replace(/=\s*ANY\s*\(/gi, 'IN (')
-      .replace(/\bgenerate_series\s*\(\s*((?:[^(),]|\([^()]*\))+?)\s*,\s*((?:[^(),]|\([^()]*\))+?)\s*\)\s+(?:AS\s+)?(\w+)\s*\(\s*(\w+)\s*\)/gi,
+      .replace(GENERATE_SERIES,
         (_, from: string, to: string, alias: string, col: string) => `(WITH RECURSIVE s(${col}) AS (SELECT ${from} UNION ALL SELECT ${col} + 1 FROM s WHERE ${col} < ${to}) SELECT ${col} FROM s) AS ${alias}`);
   }
   return sqlTokens(out, true).map((t) => kept.get(t.text) ?? t.text).join('');
 }
+
+/**
+ * `generate_series(from, to) AS alias(col)`. An argument is units (a character that is not a bracket, comma or blank, or a
+ * bracketed group) with blanks only between units, so a run of blanks can be read one way and the pattern is linear; a lazy
+ * argument followed by `\s*,` read a long run of blanks once per position.
+ */
+const SERIES_ARG = String.raw`(?:[^(),\s]|\([^()]*\))(?:\s*(?:[^(),\s]|\([^()]*\)))*`;
+export const GENERATE_SERIES = new RegExp(String.raw`\bgenerate_series\s*\(\s*(${SERIES_ARG})\s*,\s*(${SERIES_ARG})\s*\)\s+(?:AS\s+)?(\w+)\s*\(\s*(\w+)\s*\)`, 'gi');
 
 /** The text with quoted strings, quoted names and comments blanked out (same length), so brackets and keywords can be found by position. */
 function masked(sql: string): string {

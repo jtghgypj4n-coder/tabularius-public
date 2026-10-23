@@ -344,12 +344,39 @@ function parseClock(s: string): bigint {
   return us;
 }
 
+/**
+ * A timestamp's date, clock and " BC" mark, split the way `/^(\S+)[ T](\S+?)( BC)?$/` splits it (the date is as long as it can
+ * be) but in one pass: that pattern tried every `T` in a long run of them, each time reading on to the end.
+ */
+export function splitTimestamp(s: string): [date: string, clock: string, bc: string | undefined] | undefined {
+  const space = s.indexOf(' ');
+  if (space === 0) return undefined;
+  // The tail after a separator: no blank in it, or a single " BC" at the end after a clock with none.
+  const tail = (from: number): [string, string | undefined] | undefined => {
+    const t = s.slice(from);
+    const blank = t.indexOf(' ');
+    if (blank === -1) return t ? [t, undefined] : undefined;
+    return blank > 0 && blank === t.length - 3 && t.endsWith(' BC') ? [t.slice(0, blank), ' BC'] : undefined;
+  };
+  if (space > 0) {
+    const t = tail(space + 1);
+    if (t) return [s.slice(0, space), t[0], t[1]];
+    // Only a " BC" at the end can follow a separator before the blank.
+    if (!s.endsWith(' BC') || space !== s.length - 3) return undefined;
+  }
+  // The date reaches the last `T` that leaves a clock behind it (before the blank, if there is one).
+  const i = s.lastIndexOf('T', (space === -1 ? s.length : space) - 2);
+  if (i < 1) return undefined;
+  const t = tail(i + 1);
+  return t ? [s.slice(0, i), t[0], t[1]] : undefined;
+}
+
 function parseTimestamp(s: string): bigint {
   if (s === 'infinity') return INT64_MAX;
   if (s === '-infinity') return INT64_MIN;
-  const m = /^(\S+)[ T](\S+?)( BC)?$/.exec(s);
+  const m = splitTimestamp(s);
   if (!m) throw new BinaryFormatError('a timestamp column holds a value that is not a timestamp; ask for the column in the text format', '22007');
-  const us = BigInt(parseDays(m[1] + (m[3] ?? ''))) * DAY_US + parseClock(m[2]);
+  const us = BigInt(parseDays(m[0] + (m[2] ?? ''))) * DAY_US + parseClock(m[1]);
   if (us < TIMESTAMP_MIN || us >= TIMESTAMP_END) throw timeOverflow('timestamp');
   return us;
 }
