@@ -271,8 +271,8 @@ export const ROWS: Row[] = [
   {
     id: 'sso', section: 'Sign-in and accounts', setting: 'Single sign-on (OpenID Connect, LDAP) and SCIM provisioning',
     default: 'Off: no provider is configured, and SCIM answers 401 without a per-file provisioning token',
-    changedBy: '`--oidc-issuer` with `--oidc-client-id` (or `--oidc-config`), `--ldap-url`; the console makes a SCIM token',
-    risk: 'A provider that signs in anyone with an email address needs `--oidc-trust-email` thought through; a SCIM token can create accounts',
+    changedBy: '`--oidc-issuer` with `--oidc-client-id` (or `--oidc-config`), `--ldap-url`; the console makes a SCIM token (valid 90 days unless 1 to 3650 is asked for, then a new one is needed)',
+    risk: 'A provider that signs in anyone with an email address needs `--oidc-trust-email` thought through; a SCIM token can create accounts until it expires or is turned off',
     how: 'probed', expect: 'off',
     observe: async (c) => {
       const s = (await c.status()).server;

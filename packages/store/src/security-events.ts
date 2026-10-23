@@ -165,7 +165,7 @@ export function describeSecurityEvent(e: AuditEntry): string {
     case 'recovery-code-used': return `Recovery code used by${t}`;
     case 'api-token-issued': return `API token issued to${t}${tokenScope(d)}`;
     case 'api-token-revoked': return 'API token revoked';
-    case 'scim-token-issued': return 'Provisioning (SCIM) token issued: an identity provider can now add, change and remove accounts';
+    case 'scim-token-issued': return `Provisioning (SCIM) token issued${str(d.expires) ? `, valid until ${str(d.expires)}` : ''}: an identity provider can now add, change and remove accounts`;
     case 'scim-token-revoked': return 'Provisioning (SCIM) token revoked';
     case 'agent-added': return `AI agent${t} added${d.needsApproval ? ' (its changes need approval)' : ''}`;
     case 'agent-removed': return `AI agent${t} removed`;
