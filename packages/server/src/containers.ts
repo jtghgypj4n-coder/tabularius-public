@@ -149,7 +149,7 @@ export class ContainerFiles {
       'content-disposition': contentDisposition(safe ? 'inline' : 'attachment', info.filename),
       ...(safe ? {} : { 'content-security-policy': "sandbox; default-src 'none'" }),
       'x-content-type-options': 'nosniff',
-      'cache-control': 'private, max-age=3600',
+      'cache-control': 'private, no-store',
       'accept-ranges': 'bytes',
       etag,
       ...(info.modified === undefined ? {} : { 'last-modified': httpDate(info.modified) }),
@@ -228,7 +228,7 @@ export class ContainerFiles {
     const key = `${store.path}\0${id}\0${size}\0${version}`;
     const etag = `"t${id}-${size}-${version}"`;
     if (matches(req.headers['if-none-match'], etag)) {
-      res.writeHead(304, { etag, 'cache-control': 'private, max-age=86400' }).end();
+      res.writeHead(304, { etag, 'cache-control': 'private, no-store' }).end();
       return;
     }
     let thumb = this.cache.get(key);
@@ -287,7 +287,7 @@ export class ContainerFiles {
       return;
     }
     res.writeHead(200, {
-      'content-type': thumb.mime, 'content-length': thumb.data.length, 'cache-control': 'private, max-age=86400', etag, 'x-content-type-options': 'nosniff',
+      'content-type': thumb.mime, 'content-length': thumb.data.length, 'cache-control': 'private, no-store', etag, 'x-content-type-options': 'nosniff',
     });
     res.end(req.method === 'HEAD' ? undefined : thumb.data);
   }

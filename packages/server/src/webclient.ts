@@ -319,6 +319,7 @@ export class WebClient {
     }
     const img = /^\/tabularius\/images\/([^/]+)\/(\d+)$/.exec(path);
     if (img && req.method === 'GET') {
+      res.setHeader('cache-control', 'private, no-store');
       const [db, id] = [decodeURIComponent(img[1]), Number(img[2])];
       const image = this.host.checkUrl(db, id, url.searchParams, 'image') ? this.host.get(db)?.image(id) : undefined;
       if (!image) {
@@ -327,7 +328,7 @@ export class WebClient {
       }
       res.writeHead(200, {
         'content-type': image.mime, 'content-length': image.data.length,
-        'x-content-type-options': 'nosniff', 'cache-control': 'private, max-age=86400',
+        'x-content-type-options': 'nosniff', 'cache-control': 'private, no-store',
         // SVG icons are documents; keep them from running scripts.
         'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'",
       });
@@ -819,7 +820,7 @@ export class WebClient {
     const walk = (objs: LayoutObject[]) => {
       for (const o of objs) {
         for (const id of [o.imageId, o.icon?.imageId]) {
-          if (id !== undefined) images[id] = `/tabularius/images/${encodeURIComponent(store.name)}/${id}?${this.host.signed(store.name, id, 'image')}`;
+          if (id !== undefined) images[id] = `/tabularius/images/${encodeURIComponent(store.name)}/${id}?${this.host.signed(store.name, id, 'image', store.linkPrincipal(privileges.linkPrincipal))}`;
         }
         if (o.field) {
           occurrences.add(o.field.tableOccurrenceId);

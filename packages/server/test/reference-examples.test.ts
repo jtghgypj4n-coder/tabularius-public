@@ -441,7 +441,7 @@ test('REST reference examples match live status and response shape', async () =>
         if (id) requestTarget = requestTarget.replace(/(\/databases\/Invoices\/)[0-9a-f]{12}(?=\/|$)/, `$1${id}`);
       }
       if (requestTarget.startsWith('/tabularius/admin/v1/uploads/') && runtimeIds.upload) requestTarget = requestTarget.replace(/(\/uploads\/)[\w-]+(?=\/|\?|$)/, `$1${runtimeIds.upload}`);
-      if (requestTarget.startsWith('/tabularius/images/')) requestTarget = `/tabularius/images/Invoices/${f.imageId}?sig=${f.host.sign('Invoices', f.imageId, 'image')}`;
+      if (requestTarget.startsWith('/tabularius/images/')) requestTarget = `/tabularius/images/Invoices/${f.imageId}?${f.host.signed('Invoices', f.imageId, 'image')}`;
       if (requestTarget.startsWith('/tabularius/containers/')) {
         const containerLink = new URL(requestTarget, f.url);
         containerLink.pathname = containerLink.pathname.replace(/\/containers\/[^/]+\/\d+/, `/containers/Invoices/${f.containerId}`);

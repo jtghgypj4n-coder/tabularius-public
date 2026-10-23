@@ -498,7 +498,10 @@ export async function serve(opts: ServeOptions): Promise<{ server: Server; host:
     const timeFinds = (s: Store) => { s.findListener = (t) => profiler.find(s.name, t); };
     for (const s of host.openStores()) timeFinds(s);
     host.onAdd.push(timeFinds);
-    const mcpTokens = new McpTokens(opts.dir);
+    const mcpTokens = new McpTokens(opts.dir, undefined, (database, account) => {
+      const store = host.get(database);
+      return store?.identityAllowed(account) ? store.accountIdentityId(account) : undefined;
+    });
     // The administrator's way into /mcp: the given token, else the folder's own (made on first start).
     const mcpAdminToken = opts.mcpToken || localMcpToken(opts.dir);
     const mcpInFlight = new IdentityInFlight();
@@ -587,6 +590,8 @@ export async function serve(opts: ServeOptions): Promise<{ server: Server; host:
         refuseForwarding(res, (text) => logs.write('Event', 'Warning', '', text));
         return;
       }
+      // Bearer URLs and authentication redirects must not leak to another page.
+      res.setHeader('referrer-policy', 'no-referrer');
       let url: URL;
       try { url = new URL(req.url ?? '/', 'http://localhost'); }
       catch {
@@ -667,6 +672,7 @@ export async function serve(opts: ServeOptions): Promise<{ server: Server; host:
         if (await assistant.handle(req, res, url)) return;
         const c = /^\/tabularius\/containers\/([^/]+)\/(\d+)(?:\/[^/]*)?$/.exec(url.pathname);
         if (c && (req.method === 'GET' || req.method === 'HEAD')) {
+          res.setHeader('cache-control', 'private, no-store');
           const [db, id] = [decodeURIComponent(c[1]), Number(c[2])];
           const store = host.checkUrl(db, id, url.searchParams) ? host.get(db) : undefined;
           if (!store) {

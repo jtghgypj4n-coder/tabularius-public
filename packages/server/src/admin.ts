@@ -2577,7 +2577,7 @@ export class Admin {
       // Every hosted file has a password on each of its accounts (a file from FileMaker often has Admin with none).
       accountsSecured: stores.length > 0 && stores.every((s) => s.blankPasswordAccounts().length === 0),
       backupMade: sets.length > 0,
-      aiConnected: !!this.mcpTokens && this.mcpTokenList(this.mcpTokens).length > 0,
+      aiConnected: !!this.mcpTokens && this.mcpTokenList(this.mcpTokens).some((t) => !t.needsReissue),
       ...(this.serviceInstalled ? { service: this.serviceInstalled() } : {}),
     };
   }

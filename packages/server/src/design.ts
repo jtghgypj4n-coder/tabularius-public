@@ -802,7 +802,7 @@ export class DesignApi {
         send(200, { emptied, design: designOf(store, this.host.names(), other) });
       }
       else if (m[2] === 'images') {
-        const link = (id: number) => `/tabularius/images/${encodeURIComponent(store.name)}/${id}?${this.host.signed(store.name, id, 'image')}`;
+        const link = (id: number) => `/tabularius/images/${encodeURIComponent(store.name)}/${id}?${this.host.signed(store.name, id, 'image', store.linkPrincipal(privileges.linkPrincipal))}`;
         if (req.method === 'GET') send(200, { images: store.images().map((i) => ({ ...i, url: link(i.id) })) });
         else if (req.method === 'POST') {
           const body = await readJson(req);

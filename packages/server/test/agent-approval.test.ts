@@ -70,7 +70,7 @@ test('a gated agent MCP write is queued, listed, and approved over the API', { s
   assert.equal(made.status, 200);
   assert.equal((await made.json()).accounts.find((a: { name: string }) => a.name === 'q-bot').needsApproval, true);
 
-  const minted = new McpTokens(dir).create({ database: 'Charts', account: 'q-bot', label: 'test' });
+  const minted = new McpTokens(dir, undefined, (database, account) => { const s = host.get(database); return s?.identityAllowed(account) ? s.accountIdentityId(account) : undefined; }).create({ database: 'Charts', account: 'q-bot', label: 'test' });
   const store = host.get('Charts')!;
   const createsBefore = store.auditLog({ agent: true, limit: 1000 }).filter((e) => e.kind === 'create').length;
 
@@ -101,7 +101,7 @@ test('a gated agent MCP write is queued, listed, and approved over the API', { s
 test('a gated agent MCP write can be rejected over the API', { skip }, async () => {
   const tok = await adminToken();
   await sec(tok, '', { method: 'POST', body: JSON.stringify({ changes: [{ op: 'setAgentAccount', name: 'r-bot', privilegeSet: 'Bot', needsApproval: true }] }) });
-  const minted = new McpTokens(dir).create({ database: 'Charts', account: 'r-bot', label: 'test' });
+  const minted = new McpTokens(dir, undefined, (database, account) => { const s = host.get(database); return s?.identityAllowed(account) ? s.accountIdentityId(account) : undefined; }).create({ database: 'Charts', account: 'r-bot', label: 'test' });
 
   const res = await mcpTool('delete_record', { database: 'Charts', layout: 'Congress', recordId: 1 }, minted.token);
   assert.equal(res.isError, false, res.text);

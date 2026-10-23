@@ -24,10 +24,13 @@ export interface McpToken {
   /** ISO time it stops working; none when it doesn't expire. */
   expires?: string;
   lastUsed?: string;
+  /** Set when the server refuses this token because it is not tied to the account it was made for: make a new one. */
+  needsReissue?: true;
 }
 
 interface Stored extends McpToken {
   hash: string;
+  accountIdentity?: string;
 }
 
 export class McpTokenError extends Error {}
@@ -40,8 +43,11 @@ export class McpTokens {
   /** Last-used times not yet written: written at most once a minute per token, not on every call. */
   private readonly touched = new BoundedMap<string, number>(1024);
 
-  constructor(dir: string, onLastUsedWriteAttempt?: () => void) {
+  private readonly accountIdentity?: (database: string, account: string) => string | undefined;
+
+  constructor(dir: string, onLastUsedWriteAttempt?: () => void, accountIdentity?: (database: string, account: string) => string | undefined) {
     this.file = join(dir, MCP_TOKENS_FILE);
+    this.accountIdentity = accountIdentity;
     this.onLastUsedWriteAttempt = onLastUsedWriteAttempt;
   }
 
@@ -59,7 +65,8 @@ export class McpTokens {
   }
 
   list(): McpToken[] {
-    return this.read().map(({ hash: _, ...t }) => t);
+    return this.read().map(({ hash: _, accountIdentity, ...t }) => (
+      this.accountIdentity && (!accountIdentity || this.accountIdentity(t.database, t.account) !== accountIdentity) ? { ...t, needsReissue: true as const } : t));
   }
 
   /** A new token for the account in the file; the token is in the result only. */
@@ -69,15 +76,17 @@ export class McpTokens {
     if (!database || !account) throw new McpTokenError('Pick a file and an account');
     const days = input.days === undefined || input.days === null ? undefined : Number(input.days);
     if (days !== undefined && !(Number.isFinite(days) && days > 0 && days <= 3650)) throw new McpTokenError('Days should be from 1 to 3650, or empty for no expiry');
+    const accountIdentity = this.accountIdentity?.(database, account);
+    if (this.accountIdentity && !accountIdentity) throw new McpTokenError('Pick an active account');
     const token = PREFIX + randomBytes(32).toString('base64url');
     const now = new Date();
     const t: Stored = {
       id: randomBytes(6).toString('hex'), database, account, label: String(input.label ?? '').trim().slice(0, 200) || `${account} in ${database}`,
-      created: now.toISOString(), ...(days ? { expires: new Date(expiryClock.now() + days * 86_400_000).toISOString() } : {}), hash: hashOf(token),
+      created: now.toISOString(), ...(days ? { expires: new Date(expiryClock.now() + days * 86_400_000).toISOString() } : {}), hash: hashOf(token), ...(accountIdentity ? { accountIdentity } : {}),
     };
     updateJsonStateSync<Stored[]>(this.file, [], (tokens) => [...tokens, t], { mode: 0o600 });
     this.cache = undefined;
-    const { hash: _, ...shown } = t;
+    const { hash: _, accountIdentity: _identity, ...shown } = t;
     return { ...shown, token };
   }
 
@@ -99,6 +108,9 @@ export class McpTokens {
     const want = Buffer.from(hashOf(token), 'hex');
     const t = this.read().find((x) => timingSafeEqual(Buffer.from(x.hash, 'hex'), want));
     if (!t || (t.expires && !(Date.parse(t.expires) > expiryClock.now()))) return undefined;
+    // Old name-only credentials cannot safely be assigned to today's account.
+    // Reissue them through Manage Security instead of silently adopting them.
+    if (this.accountIdentity && (!t.accountIdentity || this.accountIdentity(t.database, t.account) !== t.accountIdentity)) return undefined;
     const now = performance.now();
     if (now - (this.touched.get(t.id) ?? -Infinity) > 60_000) {
       this.touched.set(t.id, now);

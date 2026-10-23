@@ -65,7 +65,7 @@ export const groups: RestGroup[] = [
           { name: 'id', in: 'path', type: 'number', required: true, description: 'The container id.' },
           { name: 'name', in: 'path', type: 'string', description: 'The file name, for the browser; ignored when matching. It may be left off: /tabularius/containers/{database}/{id} works too.' },
           { name: 'sig', in: 'query', type: 'string', required: true, description: 'The link\'s signature.' },
-          { name: 'exp', in: 'query', type: 'number', description: 'When the link stops working, in Unix seconds. Links last TABULARIUS_CONTAINER_TTL seconds (default 3600); with 0 they carry no exp and never expire.' },
+          { name: 'exp', in: 'query', type: 'number', description: 'When the link stops working, in Unix seconds. Links last TABULARIUS_CONTAINER_TTL seconds (default and maximum 3600).' },
           { name: 'as', in: 'query', type: 'string', description: 'The account the link was made for, when it was made for one. The signature covers the account\'s entry in the file, and the link stops working while that account is blocked or removed.' },
           { name: 'thumb', in: 'query', type: 'number', description: 'Asks for a thumbnail this many pixels across (16 to 1024; 256 when not a number) instead of the file.' },
           { name: 'Range', in: 'header', type: 'string', description: 'One byte range; answered 206 with Content-Range, or 416 when it can\'t be met. Several ranges in one header are not served as multipart: the whole file is sent with 200 (416 only when none of them can be met).' },
