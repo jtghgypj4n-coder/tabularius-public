@@ -9064,7 +9064,10 @@ export class Store {
       outer?.push(...files);
       return out;
     } catch (e) {
-      for (const remove of files.reverse()) remove();
+      // One that can't be removed must not hide the refusal or keep the rest from being tried.
+      for (const remove of files.reverse()) {
+        try { remove(); } catch (removeError) { console.warn('A container file written by a refused step could not be removed', removeError); }
+      }
       // They are gone, so the transaction need not remove them again if it rolls back later.
       this.heldFiles.length = Math.min(this.heldFiles.length, held);
       throw e;
