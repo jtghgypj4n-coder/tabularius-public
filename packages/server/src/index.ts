@@ -71,7 +71,7 @@ import { auditSurface } from './audit-surface.ts';
 import { AutoTls, type AcmeOptions } from './acme.ts';
 import { LogShipper } from './logs.ts';
 import { Replication } from './replication.ts';
-import { STANDBY_STATE, standbyState, unfinishedStandbyFiles } from './standby.ts';
+import { STANDBY_STATE, standbyState, unfinishedStandbyFiles, type StandbyState } from './standby.ts';
 import { Schedules } from './schedules.ts';
 import { SyncConsole } from './sync-console.ts';
 import { watchEventLoop, writer, type Store } from '../../store/src/index.ts';
@@ -225,6 +225,8 @@ export interface ServeOptions {
   replicationToken?: string;
   /** Keep the API tokens when this folder takes over from a standby (see docs/standby-guarantees.md); by default they are ended. */
   keepApiTokensOnTakeover?: boolean;
+  /** Host standby copies that did not reach a whole state; refused by default because they may be mid-copy snapshots. */
+  acceptPartialStandbyFiles?: boolean;
   /** The AI assistant in the web client; off without an API key. */
   ai?: AssistantOptions;
   /** Files (names, with or without .fmp12) whose data is never sent to AI, whatever each file's own setting says. */
@@ -256,6 +258,15 @@ function apiTokenIdentity(host: Host, token: string, from: string): McpIdentity 
 export async function serve(opts: ServeOptions): Promise<{ server: Server; host: Host; url: string; tls?: AutoTls; offsite?: OffsiteSchedule; readonly progressive?: ProgressiveSchedule }> {
   validatePublicUrl(opts.publicUrl);
   const trustedProxies = trustedProxyAddresses(opts.trustedProxies);
+  // Read without standbyState's durable-state cleanup: a refused takeover must not change even stale staging files.
+  // The normal standbyState read below still reports unreadable state and performs cleanup on an accepted start.
+  let takeoverState: StandbyState | undefined;
+  try { takeoverState = JSON.parse(readFileSync(join(opts.dir, STANDBY_STATE), 'utf8')) as StandbyState; }
+  catch { /* The normal standbyState read handles missing or unreadable state. */ }
+  const unfinished = takeoverState ? unfinishedStandbyFiles(takeoverState) : [];
+  if (unfinished.length && !opts.acceptPartialStandbyFiles) {
+    throw new Error(`Cannot serve: ${unfinished.join(', ')}: the copy of each file did not reach a whole state; serving it risks a file that is a mid-copy snapshot. Restore the file from a backup or copy it again from the main server, or start serve with --accept-partial-standby to host it anyway.`);
+  }
   // One request can't hold the server's thread for more than a minute (TABULARIUS_REQUEST_BUDGET_MS; 0 for no limit).
   const budget = process.env.TABULARIUS_REQUEST_BUDGET_MS;
   const disposers: (() => void | Promise<void>)[] = [];
@@ -284,6 +295,7 @@ export async function serve(opts: ServeOptions): Promise<{ server: Server; host:
     const source = opts.cluster ? `server ${opts.cluster.role.id}` : 'server';
     const print = opts.log ?? ((m: string) => console.log(m));
     const log = serverLog(logs, print, source);
+    const was = standbyState(opts.dir, log);
     // A certificate first: without one there is nothing to serve https with.
     const auto = opts.acme ? new AutoTls(opts.dir, { ...opts.acme, httpsPort: opts.port ?? 443, log }) : undefined;
     if (auto) disposers.push(() => auto.stop());
@@ -373,10 +385,9 @@ export async function serve(opts: ServeOptions): Promise<{ server: Server; host:
     }) : undefined;
     disposers.push(() => admin.backups?.stop());
     // A standby's folder served on its own: it takes over from the server it followed.
-    const was = standbyState(opts.dir, log);
     if (was) {
       const unfinished = unfinishedStandbyFiles(was);
-      log(`taking over from ${was.primary}: this folder was its standby${unfinished.length ? `; ${unfinished.join(', ')} had not caught up to a whole state and may need restoring from a backup` : ''}`);
+      log(`taking over from ${was.primary}: this folder was its standby${unfinished.length ? `; ${unfinished.join(', ')} had not caught up to a whole state and may need restoring from a backup; accepted with --accept-partial-standby` : ''}`);
       rmSync(join(opts.dir, STANDBY_STATE), { force: true });
       // The copy is as the primary was some moments before it failed, or longer if the link was down: a token revoked there since
       // is alive here, and nothing says which. They are ended unless the operator knows the standby had caught up.

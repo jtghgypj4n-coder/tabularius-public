@@ -78,7 +78,7 @@ Hosting (point it at a folder of .fmp12 files; each is converted once):
                 [--tls-cert cert.pem --tls-key key.pem] [--allow-plain-http] [--public-url URL] [--mcp-origin URL]... [--proxy-header x-forwarded-for|forwarded|x-real-ip] [--trusted-proxies IP/CIDR,...] [--connections-per-address N]
                 [--https name[,name]|local [--https-email E] [--http-port 80]] [--sql-port 5432]
                 [--backup-every 1d] [--keep 7] [--backup-dir DIR] [--no-backups]
-                [--progressive 5m] [--stats-interval 1m|off] [--log-limit 100MB] [--backup-s3 s3://bucket/prefix [--s3-endpoint URL]] [--replication-token T|--replication-token-file F] [--keep-api-tokens-on-takeover] [--ai] [--allow-blank-passwords]
+                [--progressive 5m] [--stats-interval 1m|off] [--log-limit 100MB] [--backup-s3 s3://bucket/prefix [--s3-endpoint URL]] [--replication-token T|--replication-token-file F] [--keep-api-tokens-on-takeover] [--accept-partial-standby] [--ai] [--allow-blank-passwords]
                 [--oidc-issuer URL --oidc-client-id ID [--oidc-name N] [--oidc-groups-claim C] [--oidc-trust-email]] [--oidc-config providers.json]
                 [--ldap-url ldaps://host [--ldap-user-attribute A] [--ldap-base-dn DN] [--ldap-bind-dn-template T] [--ldap-search-dn DN] [--ldap-name N] [--ldap-email-attribute A] [--ldap-group-attribute A]]
                 [--workers N|auto] [--test-outbound [--mail-redirect ADDRESS] [--mail-copies 20] [--allow-host h[,h]] [--capture-only F[,F]] [--capture-only-copies-to-redirect]]
@@ -168,7 +168,9 @@ Hosting (point it at a folder of .fmp12 files; each is converted once):
                                              TABULARIUS_REPLICATION_TOKEN_FILE). To
                                              take over, stop this and serve the folder (its API
                                              tokens are ended unless serve gets
-                                             --keep-api-tokens-on-takeover).
+                                             --keep-api-tokens-on-takeover). Copies that did not
+                                             reach a whole state are refused unless serve gets
+                                             --accept-partial-standby.
   tabularius migrate-fms <folder> [--fms-dir DIR] [--from URL|export.json] [--user admin] [--insecure]
                 [--save export.json] [--dry-run]
                                              Switch from FileMaker Server in one step: its hosted
@@ -1331,6 +1333,7 @@ function main(argv: string[]): number {
       if (replicationToken !== undefined && replicationToken.length < 16) throw new Error('serve: --replication-token must be at least 16 characters');
       // A folder that was a standby's has its API tokens ended at takeover, as it may hold ones the main server had revoked.
       const keepApiTokensOnTakeover = bool(args, '--keep-api-tokens-on-takeover');
+      const acceptPartialStandbyFiles = bool(args, '--accept-partial-standby');
       // Sign-in through an identity provider (OpenID Connect) for external accounts.
       const issuer = flag(args, '--oidc-issuer') ?? process.env.TABULARIUS_OIDC_ISSUER;
       const clientId = flag(args, '--oidc-client-id') ?? process.env.TABULARIUS_OIDC_CLIENT_ID;
@@ -1432,7 +1435,7 @@ function main(argv: string[]): number {
       const graceText = process.env.TABULARIUS_DRAIN_SECONDS;
       const drainMs = graceText === undefined || graceText === '' ? undefined : Number(graceText) * 1000;
       if (drainMs !== undefined && !(Number.isFinite(drainMs) && drainMs >= 1000 && drainMs <= 86_400_000)) throw new Error('serve: TABULARIUS_DRAIN_SECONDS is a number of seconds (1 to 86400)');
-      serve({ dir: path, drainMs, port, hostname, serviceInstalled: () => installed()?.folder === resolve(path), mcpToken, scriptNetwork, scriptNetworkAllow, listFilesPublicly, appConnections, webhooks, inboundHooks, testOutbound, ...(sendMail ? { sendMail } : {}), tlsCert, tlsKey, publicUrl, mcpAllowedOrigins, proxyHeader, trustedProxies, edgeLimits, acme, backups, offsite, progressive, statsInterval, logLimit, replicationToken, keepApiTokensOnTakeover, sqlPort, ai, aiExclude, oidc, ldap, encryptionKey, background: true }).then(({ url, host, server, offsite: offsiteSchedule }) => {
+      serve({ dir: path, drainMs, port, hostname, serviceInstalled: () => installed()?.folder === resolve(path), mcpToken, scriptNetwork, scriptNetworkAllow, listFilesPublicly, appConnections, webhooks, inboundHooks, testOutbound, ...(sendMail ? { sendMail } : {}), tlsCert, tlsKey, publicUrl, mcpAllowedOrigins, proxyHeader, trustedProxies, edgeLimits, acme, backups, offsite, progressive, statsInterval, logLimit, replicationToken, keepApiTokensOnTakeover, acceptPartialStandbyFiles, sqlPort, ai, aiExclude, oidc, ldap, encryptionKey, background: true }).then(({ url, host, server, offsite: offsiteSchedule }) => {
         // Ready for a stop before anything is printed: whoever sees the first line may signal at once. The last changes go
         // off-site before the process ends. A first signal stops cleanly (running requests finish, the files are saved and
         // closed); a second one stops at once.

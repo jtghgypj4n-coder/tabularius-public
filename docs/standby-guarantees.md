@@ -50,7 +50,7 @@ failure prints the seed and every operation).
 
 To take over, stop the standby and run `tabularius serve <standby folder>`.
 
-- `serve` logs `taking over from <primary>: this folder was its standby` and removes `.openhbam-standby.json`. If a file had
+- On an accepted start, `serve` logs `taking over from <primary>: this folder was its standby` and removes `.openhbam-standby.json`. If a file had
   not reached a state the primary was ever in (a copy still being brought up to date, or a copy interrupted), it says which files "had not
   caught up to a whole state and may need restoring from a backup".
 - The promoted server has every change the standby had acknowledged. It does not have the primary's last changes if they had
@@ -63,6 +63,11 @@ To take over, stop the standby and run `tabularius serve <standby folder>`.
 - A file written by a newer Tabularius than the one that is promoted is not opened, and the log says so
   (`was written by a newer Tabularius ... Update Tabularius to open it`). The standby does not notice while following; the
   first place it shows is the takeover.
+- **Copies that never reached a whole state are refused.** If a file's last applied change is below `wholeAfter`, `serve`
+  names the unfinished files and stops before opening them or changing the folder, keeping `.openhbam-standby.json` for
+  the next attempt. Serving one risks a file that is a mid-copy snapshot: restore it from a backup or copy it again from
+  the main server. `tabularius serve <standby folder> --accept-partial-standby` hosts it anyway, logs
+  `accepted with --accept-partial-standby`, and removes the state file as on a normal takeover.
 - **API tokens are ended at takeover.** The copy is the primary as it was a moment before it failed (longer if the link was
   down), so a token revoked there in that time would work again here, and nothing can say which. `serve` therefore ends every
   API token and AI-app sign-in in the taken-over files and logs how many (`taking over: ended N API tokens`); issue new ones.
