@@ -391,3 +391,25 @@ test('serve() gives every hosted file the ship-first hook for its checkpoints', 
   const { readFileSync } = await import('node:fs');
   assert.match(readFileSync(new URL('../src/index.ts', import.meta.url), 'utf8'), /\.beforeCheckpoint = /);
 });
+
+test('a forced ship during a held copy ends the hold, so the copy falls back to the replayed whole-after position', async (t) => {
+  const h = await setup(t);
+  const [gate] = h.slowCopies();
+  const pending = h.get('/A/copy');
+  await gate.entered;
+  const before = await h.position();
+  for (let i = 0; i < 5; i++) h.store.create('Items', { Name: `During the hold ${i}` });
+  h.shipper.shipBeforeCheckpoint(); // what a pause, close, compaction or checkpoint does
+  const shipped = await h.position();
+  assert.ok(shipped.seq > before.seq, 'the forced ship moved the shipped position');
+  gate.release();
+  const copy = await pending;
+  // The copy is whole only once the changes shipped meanwhile are replayed over it: not at the position the hold began.
+  assert.equal(copy.headers.get('x-tabularius-whole-after'), String(shipped.seq));
+  assert.equal(copy.headers.get('x-tabularius-seq'), String(before.seq));
+  await h.catchUp(copy);
+  // Later ships are no longer held back.
+  h.store.create('Items', { Name: 'After' });
+  h.shipper.ship();
+  assert.ok((await h.position()).seq > shipped.seq);
+});
