@@ -41,6 +41,7 @@ import { PASSWORD_POLICY } from '../../store/src/index.ts';
 import { CertificateError, type ImportedCertificates } from './cert-import.ts';
 import { ScheduleError, type Schedule, type ScheduleInput, type Schedules } from './schedules.ts';
 import { said } from './said.ts';
+import { logFaultFor } from './fault-log.ts';
 
 const BASE = '/fmi/admin/api/v2';
 /** Like FileMaker Server, a token lasts 15 minutes past its last use. */
@@ -321,7 +322,7 @@ export class AdminApi {
       else if (e instanceof ScheduleError) send(400, {}, 960, e.message);
       else if (e instanceof URIError) send(400, {}, 960, 'Parameter is invalid: the request path has an invalid % escape');
       else {
-        console.error(e);
+        logFaultFor(this.host)(e);
         send(500, {}, -1, 'Internal server error');
       }
     } finally { done?.(); }

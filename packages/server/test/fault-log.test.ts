@@ -2,7 +2,7 @@
 // when the next minute begins, so one caller can't fill the log.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { faultLog } from '../src/fault-log.ts';
+import { faultLog, redactPaths } from '../src/fault-log.ts';
 import { SECRET_SEEDS } from '../../scripts/test/secret-seeds.ts';
 import { REDACTED } from '../../scripts/src/redaction.ts';
 
@@ -17,7 +17,9 @@ for (const [name, secret] of SECRET_SEEDS) test(`faults retain frames and cause 
   assert.ok(!text.includes(secret));
   assert.ok(text.includes(`Error: invalid ${name}=${REDACTED}`));
   assert.ok(text.includes('at issue (packages/server/src/mcp-tokens.ts:41:5)'));
-  assert.ok(text.includes('at check (file:///repo/packages/scripts/src/credentials.ts:8:2)'));
+  // An absolute path in a frame loses its folders; the function, file name and line:column stay.
+  assert.ok(text.includes('at check ([path]/credentials.ts:8:2)'));
+  assert.ok(!text.includes('/repo/packages'));
   assert.ok(text.includes(`Caused by: Error: upstream echoed ${REDACTED}`));
   assert.ok(text.includes('at read (packages/scripts/src/credentials.ts:12:3)'));
   assert.ok(text.includes('Caused by: Error: connection refused'));
@@ -28,7 +30,7 @@ test('fault cause cycles terminate without losing the stack', () => {
   error.cause = error;
   const lines: unknown[] = [];
   faultLog((line) => lines.push(line))(error);
-  assert.equal(lines[0], `${error.stack}\nCaused by: [circular cause]`);
+  assert.equal(lines[0], `${redactPaths(error.stack!)}\nCaused by: [circular cause]`);
 });
 
 test('the first faults of a minute are logged whole, the rest are counted and the count is logged next minute', () => {
@@ -37,7 +39,7 @@ test('the first faults of a minute are logged whole, the rest are counted and th
   const log = faultLog((x) => lines.push(x), () => t, 3);
   const causes = Array.from({ length: 10 }, (_, i) => new Error(`cause ${i}`));
   for (const e of causes) log(e);
-  assert.deepEqual(lines, causes.slice(0, 3).map((e) => e.stack), 'only the first three, each with its own stack');
+  assert.deepEqual(lines, causes.slice(0, 3).map((e) => redactPaths(e.stack!)), 'only the first three, each with its own stack');
   t += 30_000;
   log(new Error('same minute'));
   assert.equal(lines.length, 3, 'still the same minute');
@@ -46,7 +48,7 @@ test('the first faults of a minute are logged whole, the rest are counted and th
   log(next);
   assert.equal(lines.length, 5);
   assert.match(String(lines[3]), /^8 more faults in the minute before were not logged/);
-  assert.equal(lines[4], next.stack);
+  assert.equal(lines[4], redactPaths(next.stack!));
 });
 
 test('a quiet minute logs nothing extra', () => {

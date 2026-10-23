@@ -1,8 +1,8 @@
 {
   "account-provisioning.ts": "e09c2f2525727f068c5b2446c079af47b6c4b1cde80396efbbf2602a432bc041",
   "acme.ts": "ce88cf77a262f4106daab946ab88cfc2a8c61bb46c7f7c95a48d9466dd05ea2f",
-  "admin.ts": "54d4cf54cf9d9e2b54ff3baff6e4168bb9d851b4a54d92373b31ea260da148cf",
-  "adminapi.ts": "fa98f16e22e5f483687d23705e55e13edd20bb7dac42d0605a6baec4e0a45e74",
+  "admin.ts": "a356e8dfbfb35726444f5fb83a1013dd93fb9483b834c1e7ae33bcba7c353a40",
+  "adminapi.ts": "0fa8dd192cb76634101feb0e2a494acb85bc986e02f12bfec8c02c3dbb0a5d3f",
   "agent.ts": "b5ff6a5b52faddc57e9fbed6bf8efe1880c8fd374e0c53dc810c6ab587246b2a",
   "assistant.ts": "146c58e3b059f0391453b0572b41e987178e50568c719b610d77e2a4c67e5956",
   "automations.ts": "67c42eef06ce44a0f1966f0e7a98894c5b5c9b882d3e852db064b47dac417929",
