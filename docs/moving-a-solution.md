@@ -664,11 +664,13 @@ calculation, the MCP `evaluate_calculation` tool, a formula preview) gets
 `[MBS] ERROR: JavaScript handles are only available in a script`, because
 nothing there would end a handle.
 Each session can hold eight handles; each server process can hold 32 across
-all sessions. At global capacity, `JS.New` drops the least recently used
-handle of the same account (or, when that account holds none, of any account) to make room, and the dropped handle's reference
-then answers like an expired one (`[MBS] ERROR: Invalid JavaScript reference`)
-and its state is gone; a session that already holds eight is still refused.
-A handle expires after **60 seconds idle**, measured from
+all sessions. At global capacity, `JS.New` drops the calling account's own
+least recently used handle to make room, and that handle's reference then
+answers like an expired one (`[MBS] ERROR: Invalid JavaScript reference`) and
+its state is gone. An account that holds no handle, or a caller with no
+account, gets `[MBS] ERROR: JavaScript context limit reached for this server (32)`
+without creating a handle and without dropping anyone else's. A session that
+already holds eight is refused as before. A handle expires after **60 seconds idle**, measured from
 creation or the end of its latest sandbox call using elapsed time, unaffected
 by system-clock changes. This includes handles never evaluated. Expiry stops
 the sandbox and invalidates the reference; scripts must call `JS.New` again
