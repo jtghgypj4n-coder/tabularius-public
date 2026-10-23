@@ -965,11 +965,11 @@ export function checkCalculation(store: Store, layoutName: string, formula: stri
   const warnings = lintFormula(store, formula, { occurrence: toId, privileges }).filter((w) => w.code !== 'reference').map((w) => w.message);
   if (warnings.length) check.warnings = warnings;
   if (sampleRecords > 0) {
-    const ids = store.findIds(info).slice(0, Math.min(sampleRecords, 20));
+    const ids = store.findIds(info, { privileges }).slice(0, Math.min(sampleRecords, 20));
     const guard = formulaGuard(store, toId, formula);
     check.results = ids.map((recordId) => {
       try {
-        return { recordId, ...guard(store.evaluate(info, formula, recordId, privileges ? { account: privileges.account, privileges, typed: true } : {})) };
+        return { recordId, ...guard(store.evaluate(info, formula, recordId, { privileges, ...(privileges ? { account: privileges.account, typed: true } : {}) })) };
       } catch (e) {
         return { recordId, error: (e as Error).message };
       }

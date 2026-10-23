@@ -516,6 +516,8 @@ export interface WriteOptions {
   privileges?: Privileges;
   /** applyDesign: whether the caller may design that other hosted file too, so a layout or value list can use its tables. Unset, none is read. */
   readOtherFile?: (file: Store) => boolean;
+  /** The parent record was made by this same request, so its portal rows are the account's to fill in even if it may not view the record afterwards. */
+  justCreated?: boolean;
   /** A person typing (Data API, web client), not a script: fields that prohibit modification refuse it. */
   dataEntry?: boolean;
   /** create: the record the window was on, for fields with "value from last visited record". */
@@ -5547,6 +5549,34 @@ export class Store {
     return this.withDesignRead(() => this.viewableIdsCurrent(...args));
   }
 
+  /**
+   * How many records of a table the privileges can view (those with an id up to `upTo`, when given); undefined when they can
+   * view them all. Counted on the kept list without copying it, since a list of records asks for this once per record; `memo`
+   * (a pass's) keeps the list for the rest of the pass, so a rule that is never cached is not scanned again for every record.
+   */
+  viewableCount(table: string, privileges?: Privileges, upTo?: number, memo?: Map<string, number[]>): number | undefined {
+    return this.withDesignRead(() => {
+      const pv = this.local(privileges);
+      const rule = pv?.table(table).view ?? true;
+      if (rule === true) return undefined;
+      if (rule === false) return 0;
+      const key = `${this.name}\u0000${table}\u0000${pv!.account.toLowerCase()}`;
+      let ids = memo?.get(key);
+      if (!ids) {
+        ids = this.allowedIds(this.schema.tables.find((t) => t.name === table)!, rule, pv!.account);
+        memo?.set(key, ids);
+      }
+      if (upTo === undefined) return ids.length;
+      // Ids come in record order: the count up to `upTo` is where it would be put.
+      let lo = 0, hi = ids.length;
+      while (lo < hi) {
+        const mid = (lo + hi) >>> 1;
+        if (ids[mid] <= upTo) lo = mid + 1; else hi = mid;
+      }
+      return lo;
+    });
+  }
+
   private viewableIdsCurrent(table: string, privileges?: Privileges): number[] | undefined {
     const pv = this.local(privileges);
     const rule = pv?.table(table).view ?? true;
@@ -7815,7 +7845,8 @@ export class Store {
     const found = opts.query?.length ? (this.sql.prepare(`SELECT count(*) AS n FROM ${t} WHERE ${where}`).get(...params) as { n: number }).n : total;
     const offset = Math.max(1, opts.offset ?? 1) - 1;
     const order = this.orderBy(info, opts.sort, opts.privileges);
-    const rows = opts.sort?.length && found >= SORTED_KEEP_MIN && t !== 'temp._fm_find'
+    // The order kept is of the file's data as it is: not of a find's own temporary table, whose computed values are the asking account's.
+    const rows = opts.sort?.length && found >= SORTED_KEEP_MIN && !t.startsWith('temp.')
       ? this.sortedPage(t, where, params, order, offset, limit, found)
       : this.sql.prepare(`SELECT * FROM ${t} WHERE ${where} ORDER BY ${order} LIMIT ? OFFSET ?`).all(...params, limit, offset) as Record<string, SqlValue>[];
     // Every record found (no find, no record-level limits): summaries over the whole table, kept while the data is the same.
@@ -7829,7 +7860,7 @@ export class Store {
     }
     const foundForCalc = { foundSet: { table, recs: { *[Symbol.iterator](): Generator<Rec> {
       for (const row of info.owner.sql.prepare(`SELECT * FROM ${t} WHERE ${where} ORDER BY ${order}`).iterate(...params) as Iterable<Row>) yield { store: info.owner, table, row };
-    } } }, sums: new Map<string, Summed>(), sort: opts.sort };
+    } } }, sums: new Map<string, Summed>(), viewable: new Map<string, number[]>(), sort: opts.sort };
     // Found-set portals (on the layout's own occurrence) list the records found, in the found set's order.
     const graph = info.home ?? this;
     const foundSet = rows.length && info.plan?.portals.some((x) => x.occurrenceId === info.plan!.occurrenceId)
@@ -8274,7 +8305,7 @@ export class Store {
         const row = (opts.rows?.get(Number(rec.row._fm_record_id)) ?? rec.row) as Row;
         if (!pv || owner.allows(table, pv.table(info.table).view, row as Record<string, SqlValue>, pv.account)) yield { store: owner, table, row };
       }
-    } } }, sums: new Map<string, Summed>(), sort: opts.sort };
+    } } }, sums: new Map<string, Summed>(), viewable: new Map<string, number[]>(), sort: opts.sort };
     const out: StoredRecord[] = [];
     for (const id of ids) {
       const row = opts.rows?.get(id) ?? this.sql.prepare(`SELECT * FROM ${q(info.table)} WHERE _fm_record_id = ?`).get(id) as Record<string, SqlValue> | undefined;
@@ -8295,6 +8326,16 @@ export class Store {
     if (!t) return false;
     const row = this.sql.prepare(`SELECT * FROM ${q(table)} WHERE _fm_record_id = ?`).get(recordId) as Record<string, SqlValue> | undefined;
     return !!row && this.allows(t, rule, row, pv.account);
+  }
+
+  /** Whether an account may see a record with these values (its table's view rule), for a record that is gone: the values an audit entry kept. */
+  canViewRow(table: string, row: Record<string, unknown>, privileges?: Privileges): boolean {
+    const pv = this.local(privileges);
+    if (!pv) return true;
+    const rule = pv.table(table).view;
+    if (rule === true || rule === false) return rule;
+    const t = this.schema.tables.find((x) => x.name === table);
+    return !!t && this.allows(t, rule, row as Record<string, SqlValue>, pv.account);
   }
 
   canView(layout: string | LayoutInfo, recordId: number, privileges?: Privileges): boolean {
@@ -8416,6 +8457,13 @@ export class Store {
     this.withWriteTransaction(() => this.calc.setGlobal(table, def, v));
   }
 
+  /** Related fields and portal rows are reached through their parent record: one the account may not view is as closed to them as it is to a read. */
+  private checkParentViewable(info: LayoutInfo, row: Row, privileges: Privileges | undefined): void {
+    const owner = info.owner;
+    const pv = owner.local(privileges);
+    if (pv) owner.checkRecordRule(owner.table(info), pv, 'edit', 'view', row as Record<string, SqlValue>);
+  }
+
   update(layout: string | LayoutInfo, recordId: number, data: FieldData, modId?: number, opts: WriteOptions = {}, retry = 0): { modId: number } {
     const info = this.layoutInfo(layout);
     this.checkLayout(info, opts.privileges);
@@ -8434,6 +8482,7 @@ export class Store {
     }
     if (related.size && info.home) {
       const row = info.owner.row(info, recordId);
+      this.checkParentViewable(info, row, opts.privileges);
       // Formatting given as "TO::Field" goes with that related field to the related record; a bare name is the record's own.
       for (const [to, values] of related) {
         const given = opts.styles && Object.entries(opts.styles).filter(([k]) => k.startsWith(`${to}::`)).map(([k, runs]) => [k.slice(to.length + 2), runs] as const);
@@ -8684,6 +8733,15 @@ export class Store {
     return this.withDesignRead(() => this.evaluateCurrent(...args));
   }
 
+  /** A record the account's view rule hides cannot be the context of a formula it supplies: the record is as missing as one that is not there. */
+  private recordViewable(owner: Store, info: LayoutInfo, row: Row, privileges: Privileges | undefined, recordId?: number, supplied = false): boolean {
+    const pv = owner.local(privileges);
+    if (!pv) return true;
+    // Whether a record may be viewed depends on what is stored, not on an edit the caller has not saved yet.
+    const stored = supplied && recordId !== undefined ? owner.row(info, recordId) : row;
+    return owner.allows(owner.table(info), pv.table(info.table).view, stored as Record<string, SqlValue>, pv.account);
+  }
+
   private evaluateCurrent(layout: string | LayoutInfo, formula: string, recordId?: number, opts: EvaluateOptions & Pick<Pass, 'onRead' | 'onQuery'> = {}): { value: string; type: Value['type'] } {
     const info = this.layoutInfo(layout);
     const to = this.calc.occurrence(info.occurrence);
@@ -8691,6 +8749,7 @@ export class Store {
     const owner = info.owner;
     const table = owner.schema.tables.find((t) => t.name === info.table)!;
     const rec = recordId === undefined ? undefined : { store: owner, table, row: (opts.row ?? owner.row(info, recordId)) as Row };
+    if (rec && !this.recordViewable(owner, info, rec.row, opts.privileges, recordId, !!opts.row)) throw new StoreError(101, 'Record is missing');
     const pass = this.calc.newPass(opts.account, opts.privileges);
     pass.onRead = opts.onRead;
     pass.onQuery = opts.onQuery;
@@ -8735,6 +8794,7 @@ export class Store {
       rethrowExecutionRefusal(e);
       return formulas.map(() => undefined);
     }
+    if (rec && !this.recordViewable(owner, info, rec.row, opts.privileges, recordId, !!opts.row)) return formulas.map(() => undefined);
     const ctx = this.calc.context(rec, to.id, this.calc.newPass(opts.account, opts.privileges));
     const baseGet = ctx.get;
     ctx.get = (name) => opts.get?.(name) ?? baseGet?.(name);
@@ -8792,6 +8852,7 @@ export class Store {
       const rule = pv?.table(target.table.name).view ?? true;
       if (rule === false) return [];
       const rec = { store: owner, table, row: (opts.row ?? opts.rows?.get(rows.recordId) ?? owner.row(info, rows.recordId)) as Row };
+      if (!this.recordViewable(owner, info, rec.row, opts.privileges, rows.recordId, !!opts.row)) return [];
       const out: (Value | undefined)[][] = [];
       for (const r of this.calc.relatedRecs(rec, self.id, to.id, pass)) {
         checkMemory();
@@ -8884,6 +8945,7 @@ export class Store {
     const plan = info.plan;
     if (!plan) throw new StoreError(102, 'This layout has no portals');
     const row = info.owner.row(info, recordId);
+    if (!opts.justCreated) this.checkParentViewable(info, row, opts.privileges);
     const rowsOf = new Map<number, Set<number>>();
     const portal = (name: string) => {
       const p = plan.portals.find((x) => x.name === name || x.occurrence === name);
@@ -8975,6 +9037,7 @@ export class Store {
     const occ = p && occurrence(this, p.occurrenceId);
     if (!plan || !p || !occ) throw new StoreError(102, `Portal "${portalName}" is missing`);
     const row = info.owner.row(info, recordId);
+    this.checkParentViewable(info, row, opts.privileges);
     if (!(relatedIdList(this, plan.occurrenceId, row, p.occurrenceId)?.ids ?? []).includes(portalRecordId)) {
       throw new StoreError(101, `Record ${portalRecordId} is not a row of portal "${portalName}" for this record`);
     }

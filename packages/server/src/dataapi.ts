@@ -1817,9 +1817,19 @@ export class DataApi {
       }
       if (p[2] === 'passkey' && p[3] === 'register' && p.length === 4 && method === 'POST') {
         const body = await readJson(req);
+        if (!body.response || typeof body.response !== 'object' || Array.isArray(body.response)) throw new ApiError(960, 'Send {"response": {...}} from the browser\'s passkey creation', 400);
         const response = body.response as { attestationObject: string; clientDataJSON: string; challenge: string };
+        for (const part of ['attestationObject', 'clientDataJSON', 'challenge'] as const) {
+          if (typeof response[part] !== 'string') throw new ApiError(960, `Parameter is invalid: response.${part} must be a string`, 400);
+        }
         const label = typeof body.label === 'string' ? body.label : undefined;
-        return store.registerPasskey(self, response, { rpId: env.rpId, origin: env.origin, challenge: response.challenge }, label);
+        try {
+          return store.registerPasskey(self, response, { rpId: env.rpId, origin: env.origin, challenge: response.challenge }, label);
+        } catch (e) {
+          // A challenge that is unknown or has expired is the caller's to retry, not a server fault.
+          if (e instanceof StoreError && e.code === 960) throw new ApiError(960, e.message, 400);
+          throw e;
+        }
       }
       if (p[2] === 'passkey' && p.length === 3 && method === 'GET') {
         return { passkeys: store.passkeys(self) };
@@ -2134,7 +2144,7 @@ export class DataApi {
             // Adding related records leaves the new record's own modId as it is.
             const r = atomically(() => {
               const made = create();
-              store.updatePortals(layout, made.recordId, portalData, [], { account, privileges, ...entry, dateOrder: writeDateOrder(store, body.dateformats) });
+              store.updatePortals(layout, made.recordId, portalData, [], { account, privileges, justCreated: true, ...entry, dateOrder: writeDateOrder(store, body.dateformats) });
               return made;
             });
             return { ...(r.id ? { id: r.id } : {}), recordId: String(r.recordId), modId: String(r.modId) };

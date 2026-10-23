@@ -541,7 +541,8 @@ function findDuplicates(owner: Store, table: string, rows: Map<number, Record<st
       const best = [...counts.values()].sort((a, b) => b.n - a.n)[0];
       if (best) fill[f] = best.v;
     }
-    const related = keys.map((k) => ({
+    // Counted for the child records the account can see, and only through keys it can read at both ends.
+    const related = keys.filter((k) => !pv || (pv.table(k.child).view !== false && pv.field(table, k.parentField) !== 'none' && pv.field(k.child, k.childField) !== 'none')).map((k) => ({
       table: k.child, via: `${k.childField} = ${table}::${k.parentField}`,
       records: recs.filter((r) => r.recordId !== keep).reduce((n, r) => n + relatedCount(owner, k, r.recordId, keep, visibleChildren.get(k.child)), 0),
     })).filter((x) => x.records > 0);
@@ -1063,7 +1064,12 @@ class CleanupJournal {
 interface Row { id: string; at: string; account: string | null; layout: string; summary: string; changes: number; undo: string; undone: string | null }
 const fromRow = (r: Row): CleanupBatch => ({ id: r.id, at: r.at, ...(r.account ? { account: r.account } : {}), layout: r.layout, summary: r.summary, changes: r.changes, ...(r.undone ? { undone: r.undone } : {}) });
 
-export const cleanupHistory = (store: Store) => new CleanupJournal(store).list();
+/** The batches applied, newest first; to an account without full access, only its own (the ones it may undo). */
+export const cleanupHistory = (store: Store, who?: { account?: string; privileges?: Privileges }) => {
+  const all = new CleanupJournal(store).list();
+  if (!who?.privileges || who.privileges.full) return all;
+  return all.filter((b) => (b.account ?? '').toLowerCase() === (who.account ?? '').toLowerCase());
+};
 /** Keeps a batch of changes made elsewhere (an assistant's run), so it shows in the history and can be undone like a cleanup. */
 export const journalBatch = (store: Store, b: { account?: string; layout: string; summary: string; undo: UndoOp[] }) => new CleanupJournal(store).add(b);
 export const appendToBatch = (store: Store, id: string, undo: UndoOp[], summary: string) => new CleanupJournal(store).append(id, undo, summary);
@@ -1099,9 +1105,10 @@ export class CleanupApi {
         const fields = Array.isArray(body.fields) ? body.fields.filter((f: unknown): f is string => typeof f === 'string') : undefined;
         send(200, scanData(store, { layout: said(body.layout), checks, fields }, privileges));
       } else if (m[2] === 'apply' && req.method === 'POST') {
-        send(200, applyCleanup(store, await readJson(req) as unknown as ApplyRequest, who));
+        const body = await readJson(req);
+        send(200, applyCleanup(store, { ...body, layout: said(body.layout) } as unknown as ApplyRequest, who));
       } else if (m[2] === 'history' && !m[3] && req.method === 'GET') {
-        send(200, { history: cleanupHistory(store) });
+        send(200, { history: cleanupHistory(store, who) });
       } else if (m[2] === 'history' && m[3] && req.method === 'POST') {
         send(200, undoCleanup(store, m[3], who));
       } else throw new ApiError(3, 'Not supported', 405);

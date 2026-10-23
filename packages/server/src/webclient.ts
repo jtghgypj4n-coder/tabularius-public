@@ -658,7 +658,7 @@ export class WebClient {
     };
     const related = (target: { portal?: string; field?: string }, candidate?: number) => {
       try {
-        return redactRelated(explainRelated(store, info, recordId, target, { candidate, limit: 10 }));
+        return redactRelated(explainRelated(store, info, recordId, target, { candidate, limit: 10, privileges }));
       } catch (e) {
         if (e instanceof ExplainRelatedError) throw new ApiError(3, e.message, 400);
         throw e;

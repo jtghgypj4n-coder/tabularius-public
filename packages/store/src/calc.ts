@@ -101,6 +101,8 @@ export interface Pass {
   sort?: { fieldName: string }[];
   /** Summaries over all of a table's records, worked out once in the pass. */
   sums?: Map<string, Summed>;
+  /** The ids a limited view rule allows, worked out once in the pass (a rule that changes with the clock is then one answer for it). */
+  viewable?: Map<string, number[]>;
   /**
    * The pass shows values to a person (a record read through a layout): a
    * whole-table summary or ExecuteSQL result from before the latest change
@@ -1878,13 +1880,18 @@ export class Calculations {
           case 'calculationrepetitionnumber': return num(extra.calculationRepetition ?? 1);
           case 'recordnumber': case 'foundcount': case 'totalrecordcount': {
             // With no record (a formula worked out from a layout alone), the counts are still the table's.
+            // For an account that cannot view every record, the records it cannot view are not counted.
             if (!rec) {
               const own = name.toLowerCase() !== 'recordnumber' ? this.occurrenceTable(toId) : undefined;
-              return num(own ? own.store.recordCount(own.table.name) : 0);
+              const seen = own && own.store.viewableCount(own.table.name, pass.privileges, undefined, (pass.viewable ??= new Map()));
+              return num(own ? seen ?? own.store.recordCount(own.table.name) : 0);
             }
-            return num(name.toLowerCase() === 'recordnumber'
-              ? (rec.store.calc.statement(`SELECT count(*) AS n FROM ${q(rec.table.name)} WHERE _fm_record_id <= ?`).get(rec.row._fm_record_id as number) as { n: number }).n
-              : rec.store.recordCount(rec.table.name));
+            const id = rec.row._fm_record_id as number;
+            if (name.toLowerCase() === 'recordnumber') {
+              const upTo = rec.store.viewableCount(rec.table.name, pass.privileges, id, (pass.viewable ??= new Map()));
+              return num(upTo ?? (rec.store.calc.statement(`SELECT count(*) AS n FROM ${q(rec.table.name)} WHERE _fm_record_id <= ?`).get(id) as { n: number }).n);
+            }
+            return num(rec.store.viewableCount(rec.table.name, pass.privileges, undefined, (pass.viewable ??= new Map())) ?? rec.store.recordCount(rec.table.name));
           }
         }
         return undefined;

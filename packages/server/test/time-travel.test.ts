@@ -104,3 +104,11 @@ test('only full access can record a run', async () => {
   const r = await record(await login('Reader'), { script: 'Tidy', layout: 'Items' });
   assert.equal(r.status, 403);
 });
+
+test('recording a script that is not there is a bad request, not a server error', async () => {
+  const admin = await login('Admin');
+  for (const body of [{ layout: 'Items' }, { script: 'No such script', layout: 'Items' }]) {
+    const r = await record(admin, body);
+    assert.equal(r.status, 400, JSON.stringify(r.body));
+  }
+});

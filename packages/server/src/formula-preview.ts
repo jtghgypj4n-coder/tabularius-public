@@ -28,7 +28,7 @@ export function previewFormula(store: Store, contextTo: number | undefined, text
   let ids: number[];
   try {
     info = store.layout(layout.name);
-    ids = store.findIds(info).slice(0, limit + 1);
+    ids = store.findIds(info, { privileges }).slice(0, limit + 1);
   } catch {
     return undefined;
   }
@@ -39,7 +39,7 @@ export function previewFormula(store: Store, contextTo: number | undefined, text
     layout: layout.name,
     results: pick.map((recordId) => {
       try {
-        const { value } = store.evaluate(info, text, recordId, privileges ? { account: privileges.account, privileges, typed: true } : {});
+        const { value } = store.evaluate(info, text, recordId, { privileges, ...(privileges ? { account: privileges.account, typed: true } : {}) });
         return { recordId, value: value.length > 500 ? value.slice(0, 500) + '…' : value };
       } catch (e) {
         return { recordId, error: (e as Error).message.slice(0, 300) };

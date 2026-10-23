@@ -10,6 +10,7 @@ import type { Rec, Row } from './calc.ts';
 import type { SqlValue } from './find.ts';
 import { q } from './import.ts';
 import { condition, keyValue, keys, occurrence, occurrenceByName, relationPath, type Hop, type Occurrence } from './related.ts';
+import type { Privileges } from './privileges.ts';
 import type { LayoutInfo, LayoutPlan, Store } from './store.ts';
 
 export interface MatchExplanation {
@@ -92,7 +93,7 @@ const show = (v: SqlValue) => (v === null || v === '' ? 'empty' : JSON.stringify
 export function explainRelated(
   store: Store, info: LayoutInfo, recordId: number,
   target: { portal?: string; field?: string },
-  opts: { candidate?: number; limit?: number } = {},
+  opts: { candidate?: number; limit?: number; privileges?: Privileges } = {},
 ): RelatedExplanation {
   const limit = Math.max(1, Math.min(opts.limit ?? 25, 200));
   const fromTo = occurrenceByName(store, info.occurrence);
@@ -129,7 +130,9 @@ export function explainRelated(
     to: { occurrence: toTo.name, table: '' },
     path: [], related: 0, rows: [], verdict: '', notes,
   };
-  const far = occurrence(store, toTo.id);
+  // A table in another hosted file is explained only to an account that reads everything there: its rows, keys and counts are that file's.
+  const hosted = (o: Occurrence | undefined) => (o && opts.privileges && o.store !== store && !opts.privileges.in(o.store).readsEverything ? undefined : o);
+  const far = hosted(occurrence(store, toTo.id));
   if (!far) {
     const ds = toTo.dataSourceId !== undefined ? store.schema.dataSources.find((d) => d.id === toTo.dataSourceId) : undefined;
     out.verdict = ds
@@ -154,7 +157,7 @@ export function explainRelated(
   let stop: string | undefined;
   for (let h = 0; h < path.length; h++) {
     const hop = path[h];
-    const next = occurrence(store, hop.forward ? hop.rel.rightTableOccurrenceId : hop.rel.leftTableOccurrenceId);
+    const next = hosted(occurrence(store, hop.forward ? hop.rel.rightTableOccurrenceId : hop.rel.leftTableOccurrenceId));
     if (!next) {
       stop = 'a table occurrence on the way is in a file that isn\'t hosted here';
       break;
@@ -173,7 +176,7 @@ export function explainRelated(
 
   // The portal's filter and sort, and the order it shows rows in.
   const filterOf = portal?.filter;
-  const formulaPass = store.calc.newPass();
+  const formulaPass = store.calc.newPass(opts.privileges?.account, opts.privileges);
   const recOf = (r: Record<string, SqlValue>): Rec => ({ store: far.store, table: far.table, row: r as Row });
   const runFilter = (r: Record<string, SqlValue>): { shown: boolean; text: string } => {
     try {
@@ -244,7 +247,7 @@ export function explainRelated(
     }
   }
 
-  if (opts.candidate !== undefined) out.candidate = explainCandidate(store, far, path, home, row, opts.candidate, rows, filterOf, order, store.calc.context.bind(store.calc));
+  if (opts.candidate !== undefined) out.candidate = explainCandidate(store, far, path, home, row, opts.candidate, rows, filterOf, order, store.calc.context.bind(store.calc), opts.privileges);
 
   // The verdict.
   const where = portal ? `the portal "${portal.name}"` : fieldName ? out.field!.name : `"${toTo.name}"`;
@@ -356,7 +359,7 @@ function explainHop(hop: Hop, from: Occurrence, to: Occurrence, rows: Record<str
 function explainCandidate(
   store: Store, far: Occurrence, path: Hop[], home: Occurrence, row: Record<string, SqlValue>, id: number,
   related: Record<string, SqlValue>[], filter: string | undefined, order: number[] | undefined,
-  context: Store['calc']['context'],
+  context: Store['calc']['context'], privileges?: Privileges,
 ): CandidateExplanation {
   const target = far.store.sql.prepare(`SELECT * FROM ${q(far.table.name)} WHERE _fm_record_id = ?`).get(id) as Record<string, SqlValue> | undefined;
   const out: CandidateExplanation = { recordId: id, exists: !!target, related: false, shown: false, checks: [], reason: '' };
@@ -377,7 +380,7 @@ function explainCandidate(
     }
   }
   if (filter && out.related) {
-    const ctx = context({ store: far.store, table: far.table, row: target as Row }, far.to.id, store.calc.newPass());
+    const ctx = context({ store: far.store, table: far.table, row: target as Row }, far.to.id, store.calc.newPass(privileges?.account, privileges));
     try {
       const e = explainEvaluation(compile(filter, store.calc.names(far.to.id)), ctx, { maxSteps: 60 });
       out.filter = e.error ? { error: `${e.error.code}: ${e.error.message}`, ...(e.step ? { steps: e.step } : {}) } : { value: asText(e.value!, store.dateOrder), ...(e.step ? { steps: e.step } : {}) };

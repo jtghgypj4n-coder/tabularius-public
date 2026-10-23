@@ -59,3 +59,53 @@ test('Execute FileMaker Data API: prohibitmode, entrymode and deleteRelated', ()
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('Execute FileMaker Data API: a record created with portal rows is not refused for the account\'s view rule', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'tabularius-dapi-step-'));
+  try {
+    createStore(join(dir, 'D.sqlite'));
+    const store = new Store(join(dir, 'D.sqlite'), 'D');
+    store.applyDesign([
+      { op: 'createTable', name: 'Invoices', fields: [{ name: 'Id', type: 'number' }] },
+      { op: 'createTable', name: 'Lines', fields: [{ name: 'InvoiceId', type: 'number' }, { name: 'Item' }] },
+      { op: 'createRelationship', left: 'Invoices', right: 'Lines', predicates: [{ left: 'Id', right: 'InvoiceId' }] },
+    ] as never);
+    const layout = store.design('Invoices')!;
+    const portal = { id: 900, kind: 'portal', type: 3, anchors: { left: true, top: true, right: false, bottom: false }, bounds: { top: 200, left: 20, bottom: 300, right: 300 }, style: {}, portal: { tableOccurrenceId: store.schema.tableOccurrences.find((t) => t.name === 'Lines')!.id, tableOccurrence: 'Lines', rows: 4, initialRow: 1 }, children: [] };
+    store.applyDesign([{ op: 'updateLayout', layout: 'Invoices', design: { objects: [...layout.objects, portal] } as never }]);
+    store.savePrivilegeSet({ name: 'Entry', records: { view: 'Id < 3', edit: true, create: true, delete: false }, layouts: 'viewOnly', valueLists: 'viewOnly', scripts: 'viewOnly', extendedPrivileges: ['fmrest'] } as never);
+    store.setPassword('Typist', 'pw', 'Entry');
+    const privileges = store.privileges('Typist');
+    const created = JSON.parse(executeDataApi(store, JSON.stringify({ action: 'create', layouts: 'Invoices', fieldData: { Id: '9' }, portalData: { Lines: [{ 'Lines::Item': 'first' }] } }), { account: 'Typist', privileges }).json);
+    assert.equal(created.messages[0].code, '0', JSON.stringify(created));
+    assert.deepEqual(store.query('SELECT Item FROM Lines').map((r) => r.Item), ['first']);
+    store.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('Execute FileMaker Data API: a read of a layout the account has no access to is refused and names nothing of it', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'tabularius-dapi-step-'));
+  try {
+    createStore(join(dir, 'D.sqlite'));
+    const store = new Store(join(dir, 'D.sqlite'), 'D');
+    store.applyDesign([
+      { op: 'createTable', name: 'Invoices', fields: [{ name: 'Id', type: 'number' }] },
+      { op: 'createLayout', name: 'Public', occurrence: 'Invoices' },
+    ] as never);
+    store.create('Invoices', { Id: '1' });
+    store.savePrivilegeSet({ name: 'Entry', records: { view: true, edit: false, create: false, delete: false }, layouts: 'viewOnly', layoutAccess: { Invoices: { layout: 'none', records: 'none' } }, valueLists: 'viewOnly', scripts: 'viewOnly', extendedPrivileges: ['fmrest'] } as never);
+    store.setPassword('Typist', 'pw', 'Entry');
+    const privileges = store.privileges('Typist');
+    // The response is shaped by another layout the account may use: the one it has no access to must still be refused, not described.
+    const read = (who: object) => executeDataApi(store, JSON.stringify({ action: 'read', layouts: 'Invoices', 'layout.response': 'Public' }), who).json;
+    assert.match(read({}), /"foundCount":1/, 'control: with no limits the layout reads');
+    const refused = read({ account: 'Typist', privileges });
+    assert.equal(JSON.parse(refused).messages[0].code, '105', refused);
+    assert.doesNotMatch(refused, /dataInfo|"table"/);
+    store.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
