@@ -1123,6 +1123,7 @@ By hand:
 <!-- docs-example: illustrative -->
 ```sh
 tabularius backup ~/Databases                          # now
+tabularius compact ~/Databases                         # reclaim database and WAL space while serving
 tabularius restore ~/Databases 2026-10-11_020000       # stop the server first
 tabularius restore ~/Databases 2026-10-11_020000 Contacts   # just one file
 ```

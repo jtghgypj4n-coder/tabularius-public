@@ -275,6 +275,7 @@ function consoleMethods(path: string): string | undefined {
   if (/^pii\/[^/]+\/field$/.test(name) || /^digests\/[^/]+\/[0-9a-f]{12}\/run$/.test(name)) return 'POST';
   if (name === 'digests') return 'GET';
   if (/^optimization\/[^/]+$/.test(name)) return 'GET';
+  if (/^optimization\/[^/]+\/compact$/.test(name)) return 'POST';
   if (/^optimization\/[^/]+\/containers$/.test(name)) return 'GET, POST';
   if (/^optimization\/[^/]+\/(fix|undo|containers\/undo)$/.test(name)) return 'POST';
   if (/^sso-mapping\/[^/]+$/.test(name) || /^passkeys\/[^/]+$/.test(name) || /^mcp\/tokens\/[0-9a-f]+$/.test(name)) return 'DELETE';
@@ -1266,10 +1267,17 @@ export class Admin {
         // are moved out to managed external storage by a POST to /containers, and back by /containers/undo.
         const rest = path.slice('/tabularius/admin/v1/optimization/'.length);
         const parts = rest.split('/');
-        const verb = ['fix', 'undo', 'containers', 'containers/undo'].find((v) => parts.length > 1 && rest.endsWith(`/${v}`) && parts.length === v.split('/').length + 1);
+        const verb = ['fix', 'undo', 'containers', 'containers/undo', 'compact'].find((v) => parts.length > 1 && rest.endsWith(`/${v}`) && parts.length === v.split('/').length + 1);
         const store = this.host.get(decodeURIComponent(verb ? parts[0]! : rest));
         if (!store) send(404, { error: 'No such hosted file' });
-        else if (!verb && req.method === 'GET') send(200, { ...optimizationReport(store), containerMoves: containerMoves(store) });
+        else if (!verb && req.method === 'GET') send(200, { ...optimizationReport(store), containerMoves: containerMoves(store), compaction: this.host.compactionReports.get(store.name.toLowerCase()) ?? null });
+        else if (verb === 'compact' && req.method === 'POST') {
+          try {
+            const report = await this.host.compact(store.name);
+            this.log(`${store.name}: space reclaimed by an administrator${report.convertedToIncremental ? ' (converted to incremental vacuum)' : ''}: ${report.beforeBytes} to ${report.afterBytes} bytes, log ${report.walBeforeBytes} to ${report.walAfterBytes}`);
+            send(200, this.host.compactionReports.get(store.name.toLowerCase()) ?? { at: new Date().toISOString(), report });
+          } catch (e) { send(409, { error: (e as Error).message }); }
+        }
         else if (verb === 'containers' && req.method === 'GET') send(200, { moves: containerMoves(store) });
         else if (!verb || req.method !== 'POST') send(405, { error: 'method not allowed' });
         else if (verb.startsWith('containers')) {

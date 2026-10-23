@@ -14,7 +14,7 @@ import { Outbox } from './outbox.ts';
 import { MailLimit, MAIL_LIMIT_FILE } from './mail-limit.ts';
 import { mailTransport, redirectTransport, type SmtpConfig } from './smtp.ts';
 import { captureOnly, neverAllowed, type OutboundTest, type OutgoingMail, type ScriptConnections, type RedirectedMessage, type ScriptAi } from '../../scripts/src/index.ts';
-import { readdirSync, existsSync, renameSync, rmSync, statSync } from 'node:fs';
+import { accessSync, constants, readdirSync, existsSync, renameSync, rmSync, statSync } from 'node:fs';
 import { completeConversionSource, conversionTemp, finishConversion, publishConversion, stageConversionSource, sweepConversionTemps } from './conversion-files.ts';
 import { Worker } from 'node:worker_threads';
 import { Warmer } from './warmer.ts';
@@ -33,6 +33,7 @@ import { loadPlugins, PluginRegistry } from '../../plugins/src/index.ts';
 import { installPackage, readPackage, trustedPublishers } from '../../plugins/src/package.ts';
 import { ServerConfig } from './server-config.ts';
 import { Notifier } from './notifications.ts';
+import { compactInWorker, compactionDue, fileBytes, type CompactionReport } from './compaction.ts';
 
 export const STORE_EXT = '.openhbam.sqlite';
 
@@ -386,9 +387,11 @@ export class Host {
   private readonly warmer?: Warmer;
   private readonly share: boolean;
 
-  constructor(dir: string, log: (msg: string) => void = () => {}, opts: { background?: boolean; encryptionKey?: string; urlKey?: Buffer; locks?: (store: Store) => RecordLocks; follower?: boolean; shareResults?: boolean; warmSettleMs?: number } = {}) {
+  constructor(dir: string, log: (msg: string) => void = () => {}, opts: { background?: boolean; encryptionKey?: string; urlKey?: Buffer; locks?: (store: Store) => RecordLocks; follower?: boolean; shareResults?: boolean; warmSettleMs?: number; compactionWorker?: (path: string, convert?: boolean) => Promise<CompactionReport> } = {}) {
     this.dir = dir;
     this.log = log;
+    this.compactionWorker = opts.compactionWorker ?? compactInWorker;
+    this.mayCompact = !opts.follower;
     this.config = new ServerConfig(dir);
     // Plug-ins the server's own folder installs and enables (plugins/), before any file is hosted.
     loadPlugins(this.plugins, dir, log);
@@ -518,6 +521,12 @@ export class Host {
   private converting = false;
   private readonly shutdown = new AbortController();
   private readonly conversionTasks = new Set<Promise<unknown>>();
+  readonly compactionReports = new Map<string, { at: string; report: CompactionReport }>();
+  readonly compactionLast = new Map<string, number>();
+  private readonly compactionJobs = new Map<string, Promise<CompactionReport>>();
+  private readonly compactionClosing = new Set<string>();
+  private readonly compactionWorker: (path: string, convert?: boolean) => Promise<CompactionReport>;
+  private readonly mayCompact: boolean;
 
   private assertOpen(): void {
     this.shutdown.signal.throwIfAborted();
@@ -888,9 +897,53 @@ export class Host {
   /** Ends clients before closing the connection, including a file that was already paused. */
   readonly beforeFileClose: ((store: Store) => void)[] = [];
 
+  /**
+   * One worker per hosted file. A second caller shares its result. `convert: false` (the timer) leaves a file that is not
+   * yet in incremental vacuum mode alone instead of rewriting it, which locks writers out for the whole rewrite.
+   */
+  compact(name: string, opts: { convert?: boolean } = {}): Promise<CompactionReport> {
+    const key = name.toLowerCase();
+    if (this.shutdown.signal.aborted) return Promise.reject(new Error('host is closing'));
+    const existing = this.compactionJobs.get(key);
+    if (existing) return existing;
+    const store = this.stores.get(key);
+    if (!this.mayCompact) return Promise.reject(new Error('compaction is unavailable on a follower process'));
+    if (this.compactionClosing.has(key)) return Promise.reject(new Error(`${name} is closing`));
+    if (!store) return Promise.reject(new Error(`${name} is not hosted or is paused`));
+    try { accessSync(store.path, constants.W_OK); accessSync(this.dir, constants.W_OK); }
+    catch { return Promise.reject(new Error(`${name} is on a read-only file or mount; compaction requires write access`)); }
+    this.compactionLast.set(key, Date.now());
+    const job = this.compactionWorker(store.path, opts.convert ?? true).then((report) => {
+      if (this.stores.get(key) === store) this.compactionReports.set(key, { at: new Date().toISOString(), report });
+      return report;
+    }).finally(() => { this.compactionJobs.delete(key); });
+    this.compactionJobs.set(key, job);
+    return job;
+  }
+
+  compactionTick(now = Date.now()): void {
+    if (this.shutdown.signal.aborted || !this.mayCompact) return;
+    for (const store of this.stores.values()) {
+      const key = store.name.toLowerCase();
+      if (this.compactionClosing.has(key) || this.compactionJobs.has(key)) continue;
+      if (compactionDue(now, this.compactionLast.get(key), undefined, fileBytes(store.path + '-wal'))) {
+        void this.compact(store.name, { convert: false }).catch((e) => this.log(`${store.name}: compaction failed: ${(e as Error).message}`));
+        this.compactionLast.set(key, now);
+      }
+    }
+  }
+
+  async waitForCompaction(name: string): Promise<void> {
+    const key = name.toLowerCase();
+    if (!this.storeOf(name) && !this.compactionJobs.has(key)) return;
+    this.compactionClosing.add(key);
+    await this.compactionJobs.get(key)?.then(() => {}, () => {});
+  }
+
   /** Stops serving a file, like closing it in FileMaker Server's console. Its sessions end with it. */
   closeFile(name: string): boolean {
     const key = name.toLowerCase();
+    if (this.compactionJobs.has(key)) throw new Error(`${name} is being compacted; wait for compaction before closing`);
     const store = this.stores.get(key) ?? this.paused.get(key);
     if (!store) return false;
     if (this.stores.has(key)) for (const f of this.beforeClose) f(store);
@@ -900,6 +953,9 @@ export class Host {
     store.close();
     this.stores.delete(key);
     this.paused.delete(key);
+    this.compactionReports.delete(key);
+    this.compactionLast.delete(key);
+    this.compactionClosing.delete(key);
     const path = store.path;
     this.closed.set(store.name, { path, fileMode: store.fileMode });
     for (const s of this.stores.values()) s.resetCaches();
@@ -918,6 +974,9 @@ export class Host {
     if (this.stores.get(key) !== store && this.paused.get(key) !== store) return;
     this.stores.delete(key);
     this.paused.delete(key);
+    this.compactionReports.delete(key);
+    this.compactionLast.delete(key);
+    this.compactionClosing.delete(key);
     this.closed.set(store.name, { path: store.path, fileMode: store.fileMode, damaged: damage.detail });
     try { store.close(); } catch { /* a damaged file may not close cleanly */ }
     for (const s of this.stores.values()) s.resetCaches();
@@ -999,6 +1058,7 @@ export class Host {
     if (paused) {
       this.paused.delete(key);
       this.stores.set(key, paused);
+      this.compactionClosing.delete(key);
       return true;
     }
     const entry = [...this.closed.entries()].find(([n]) => n.toLowerCase() === key);
@@ -1047,12 +1107,16 @@ export class Host {
   /** Holds a file open but out of reach, with everything written to its file, so it can be copied safely. */
   pauseFile(name: string): boolean {
     const key = name.toLowerCase();
+    if (this.compactionJobs.has(key)) throw new Error(`${name} is being compacted; wait for compaction before pausing`);
     const store = this.stores.get(key);
     if (!store) return this.paused.has(key);
     for (const f of this.beforeClose) f(store);
     store.checkpoint();
     this.stores.delete(key);
     this.paused.set(key, store);
+    this.compactionReports.delete(key);
+    this.compactionLast.delete(key);
+    this.compactionClosing.delete(key);
     this.fileGenerations.set(store, this.fileGeneration(store) + 1);
     return true;
   }
@@ -1060,20 +1124,33 @@ export class Host {
   /** closeFile, after the server's other processes have closed it too. */
   async closeFileEverywhere(name: string): Promise<boolean> {
     if (!this.storeOf(name)) return false;
-    await this.peers?.sync(name, 'close');
-    return this.closeFile(name);
+    await this.waitForCompaction(name);
+    try {
+      await this.peers?.sync(name, 'close');
+      return this.closeFile(name);
+    } catch (e) {
+      if (this.storeOf(name)) this.compactionClosing.delete(name.toLowerCase());
+      throw e;
+    }
   }
 
   /** pauseFile, in the server's other processes too. */
   async pauseFileEverywhere(name: string): Promise<boolean> {
-    if (this.storeOf(name)) await this.peers?.sync(name, 'pause');
-    return this.pauseFile(name);
+    await this.waitForCompaction(name);
+    try {
+      if (this.storeOf(name)) await this.peers?.sync(name, 'pause');
+      return this.pauseFile(name);
+    } catch (e) {
+      if (this.get(name)) this.compactionClosing.delete(name.toLowerCase());
+      throw e;
+    }
   }
 
   /** openFile (or a file newly hosted here), then in the server's other processes too. */
   async openFileEverywhere(name: string): Promise<boolean> {
     this.assertOpen();
     const opened = this.get(name) ? true : this.openFile(name);
+    if (opened) this.compactionClosing.delete(name.toLowerCase());
     if (opened) await this.peers?.sync(name, 'open');
     return opened;
   }
@@ -1096,6 +1173,7 @@ export class Host {
     // A copy made before migrating the file is as sensitive as the file: with encryption at rest it is kept encrypted too.
     for (const backup of store.migrationBackups) this.lock(backup);
     this.stores.set(store.name.toLowerCase(), store);
+    this.compactionClosing.delete(store.name.toLowerCase());
     // Multi-file solutions: layouts can use tables in other files hosted here.
     store.resolveFile = (name) => this.get(name);
     try {
@@ -1224,9 +1302,9 @@ export class Host {
     // be folded into one piece (with encryption at rest, the piece that is encrypted).
     const checks = [...this.integrityWorkers].map((w) => w.terminate());
     const warming = this.warmer?.busy || this.warmStop !== undefined || checks.length > 0 || this.conversionTasks.size > 0;
-    const stopped = Promise.all([this.stopWarming(), ...checks, Promise.allSettled([...this.conversionTasks])]).then(() => {});
+    const stopped = Promise.all([this.stopWarming(), ...checks, Promise.allSettled([...this.conversionTasks]), Promise.allSettled([...this.compactionJobs.values()])]).then(() => {});
     const lock = !opts.unlocked;
-    if (!warming) {
+    if (!warming && this.compactionJobs.size === 0) {
       this.closeStores(lock);
       return (this.closing = Promise.resolve());
     }
@@ -1253,6 +1331,8 @@ export class Host {
       s.close();
       if (this.encryptionKey && lock && whole) this.lock(path);
     }
+    this.compactionReports.clear();
+    this.compactionLast.clear();
     // A file that was unlocked but not opened (written by a newer version, or damaged) has no store to lock it above, and
     // would stay on disk as plaintext. A log with changes in it is left alone: removing it would lose them.
     if (this.encryptionKey && lock) {

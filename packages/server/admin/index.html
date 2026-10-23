@@ -1080,7 +1080,9 @@ function optimizationHtml(name, r) {
     ? ' <span class="meta">Undone</span>'
     : i === r.changes.findIndex((x) => !x.undone) ? ` <button data-opt-undo="${c.id}" data-opt-name="${esc(name)}">Undo</button>` : ' <span class="meta">Undo the newer ones first</span>'}</li>`).join('')}</ul>` : '';
   const moves = r.containerMoves?.length ? `<h4>Container files moved out of the file</h4><ul class="plain review">${r.containerMoves.map((m) => `<li>${esc(m.moved)} file${m.moved === 1 ? '' : 's'} of ${esc(m.table)}::${esc(m.field)} (${esc((m.bytes / 1024 ** 2).toFixed(1))} MB), ${esc(when(m.at))}. <span class="meta">They are in the folder beside the hosted file: back it up with the file.</span> <button data-opt-unmove="${esc(m.id)}" data-opt-name="${esc(name)}">Put them back</button></li>`).join('')}</ul>` : '';
-  return `${guideHtml(r.text)}${todo}${changes}${moves}<p class="meta">Made ${esc(when(r.made))}. Nothing here is changed unless you press a button. <button data-optimize="${esc(name)}">Look again</button> <button data-guide-close data-name="${esc(name)}">Close</button></p>`;
+  const c = r.compaction;
+  const compactStatus = c ? `Last pass ${esc(when(c.at))}: database ${esc(c.report.beforeBytes)} → ${esc(c.report.afterBytes)} bytes; WAL ${esc(c.report.walBeforeBytes)} → ${esc(c.report.walAfterBytes)} bytes; ${esc(c.report.durationMs)} ms (${esc(c.report.writerWaitMs)} ms waiting for a writer); free pages ${esc(c.report.freePagesBefore)} → ${esc(c.report.freePagesAfter)}.` : 'No pass reported yet.';
+  return `${guideHtml(r.text)}${todo}${changes}${moves}<h4>Reclaim space</h4><p class="meta">Works while people use the file. The first pass can take a while and needs twice the database and WAL size free.</p><button data-opt-compact="${esc(name)}">Reclaim space</button> <span role="status">${compactStatus}</span><p class="meta">Made ${esc(when(r.made))}. Nothing else here is changed unless you press a button. <button data-optimize="${esc(name)}">Look again</button> <button data-guide-close data-name="${esc(name)}">Close</button></p>`;
 }
 
 /** The personal data isolation panel: the switch, how each field is treated (with a way to mark it), and what a model gets. */
@@ -2295,14 +2297,19 @@ document.addEventListener('click', async (e) => {
     // Its own buttons were replaced: keyboard and screen reader go to the start of the guide.
     if (r) $('guide').focus();
   }
-  const opt = e.target.closest('[data-optimize], [data-opt-run], [data-opt-undo], [data-opt-unmove]');
+  const opt = e.target.closest('[data-optimize], [data-opt-run], [data-opt-undo], [data-opt-unmove], [data-opt-compact]');
   if (opt) {
-    const name = opt.dataset.optimize ?? opt.dataset.optName;
+    const name = opt.dataset.optimize ?? opt.dataset.optCompact ?? opt.dataset.optName;
     if (opt.dataset.busy) return;
     opt.dataset.busy = '1';
     opt.disabled = true;
     try {
-      if (opt.dataset.optRun !== undefined) {
+      if (opt.dataset.optCompact !== undefined) {
+        const status = opt.nextElementSibling;
+        status.textContent = 'Reclaiming space…';
+        const result = await call('POST', `/tabularius/admin/v1/optimization/${encodeURIComponent(name)}/compact`, {}).catch((err) => (status.textContent = plainMessage(err), null));
+        if (!result) return;
+      } else if (opt.dataset.optRun !== undefined) {
         // An action the report described: only on a click, after saying what it does.
         const [fi, ai] = opt.dataset.optRun.split(',').map(Number);
         const action = optimizations.get(name)?.findings[fi]?.actions?.[ai];

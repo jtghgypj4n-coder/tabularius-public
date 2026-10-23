@@ -477,7 +477,7 @@ export const groups: RestGroup[] = [
           request: `GET /tabularius/admin/v1/optimization/Invoices\n${COOKIE}`,
           status: 200,
           response: j({
-            database: 'Invoices', made: '2026-10-15T01:00:00.000Z', storeBytes: 27_000_000, spaceByTable: [{ name: '_fm_containers', bytes: 25_000_000 }],
+            database: 'Invoices', made: '2026-10-15T01:00:00.000Z', storeBytes: 27_000_000, compaction: null, spaceByTable: [{ name: '_fm_containers', bytes: 25_000_000 }],
             containers: { files: 8, bytes: 22_000_000, images: 5, imageBytes: 6_400_000, outsideFiles: 0 },
             findings: [{
               id: 'embedded-container:Assets::Photo', impact: 'high', title: 'Container files inside the file: Assets::Photo',
@@ -488,7 +488,21 @@ export const groups: RestGroup[] = [
             headline: 'Invoices: 1 suggestion (1 high impact), 21.0 MB of container files stored inside the file (81% of 25.7 MB)', text: '# Invoices: ways to make it smaller and faster\n…',
           }),
         },
-        notes: 'A finding\'s actions say what can be done and, when it can be done now, the request that does it (an index is added with POST /tabularius/admin/v1/indexes; container files are moved with POST …/containers); none runs by itself. The response also has containerMoves, the moves made so far that can still be undone. Methods other than GET and the two POSTs below are 405.',
+        notes: 'A finding\'s actions say what can be done and, when it can be done now, the request that does it (an index is added with POST /tabularius/admin/v1/indexes; container files are moved with POST …/containers); none runs by itself. The response also has containerMoves, the moves made so far that can still be undone, and compaction, the last pass with its time (or null). Methods other than GET and the POSTs below are 405.',
+      },
+      {
+        method: 'POST',
+        path: '/tabularius/admin/v1/optimization/{database}/compact',
+        summary: 'Reclaims free pages and truncates the WAL while the file stays hosted. The first pass converts the file to incremental vacuum and can take a while; it needs twice the database and WAL size free.',
+        permissions: WRITE,
+        params: [{ name: 'database', in: 'path', type: 'string', required: true, description: 'Hosted file (404 when it is not hosted).' }],
+        example: {
+          request: `POST /tabularius/admin/v1/optimization/Invoices/compact\n${COOKIE}\n${W}`,
+          status: 200,
+          response: j({ at: '2026-10-21T00:00:00.000Z', report: { beforeBytes: 100000, afterBytes: 50000, walBeforeBytes: 1000, walAfterBytes: 0, durationMs: 25, writerWaitMs: 0, convertedToIncremental: true, freePagesBefore: 10, freePagesAfter: 0 } }),
+          skipReason: 'Rewrites a hosted file.',
+        },
+        notes: '409 returns an error when disk space is insufficient or a writer or reader prevents completion. Retry later. The report measures bytes on disk and SQLite free pages before and after this pass.',
       },
       {
         method: 'POST',

@@ -14203,6 +14203,7 @@ Source: `packages/server/src/admin.ts`
 | GET | [`/tabularius/admin/v1/conversion-guide/{database}`](#admin-files-get-tabularius-admin-v1-conversion-guide-database) | A converted file's plain-English guide: what won't work until something is done, what works differently, and what to do before people use it. Made now if there is none for its conversion yet. |
 | POST | [`/tabularius/admin/v1/conversion-guide/{database}`](#admin-files-post-tabularius-admin-v1-conversion-guide-database) | Makes the file's conversion guide again and returns it. |
 | GET | [`/tabularius/admin/v1/optimization/{database}`](#admin-files-get-tabularius-admin-v1-optimization-database) | Ways to make a converted file smaller and faster, worst first: container files kept inside the file (size by field), sorts and matches no index serves, and fields, scripts, table occurrences and value lists nothing uses. Changes nothing. |
+| POST | [`/tabularius/admin/v1/optimization/{database}/compact`](#admin-files-post-tabularius-admin-v1-optimization-database-compact) | Reclaims free pages and truncates the WAL while the file stays hosted. The first pass converts the file to incremental vacuum and can take a while; it needs twice the database and WAL size free. |
 | POST | [`/tabularius/admin/v1/optimization/{database}/containers`](#admin-files-post-tabularius-admin-v1-optimization-database-containers) | Moves the container files a field keeps inside the database out to managed external storage (its folder beside the hosted file), sets the field to store its files outside the file if it doesn't, and rewrites the file so it shrinks. With preview: true it only says what would happen. |
 | POST | [`/tabularius/admin/v1/optimization/{database}/containers/undo`](#admin-files-post-tabularius-admin-v1-optimization-database-containers-undo) | Puts the files of an earlier move back in the database (and the field's storage setting back, if the move changed it). |
 | POST | [`/tabularius/admin/v1/optimization/{database}/fix`](#admin-files-post-tabularius-admin-v1-optimization-database-fix) | Makes one fix from the report: hides or removes the scripts, value lists or table occurrences nothing uses, or stores an unstored calculation a sort depends on. With preview: true it only lists what it would do. |
@@ -14792,6 +14793,7 @@ Response `200`:
   "database": "Invoices",
   "made": "2026-10-15T01:00:00.000Z",
   "storeBytes": 27000000,
+  "compaction": null,
   "spaceByTable": [
     {
       "name": "_fm_containers",
@@ -14832,7 +14834,50 @@ Response `200`:
 }
 ```
 
-A finding's actions say what can be done and, when it can be done now, the request that does it (an index is added with POST /tabularius/admin/v1/indexes; container files are moved with POST …/containers); none runs by itself. The response also has containerMoves, the moves made so far that can still be undone. Methods other than GET and the two POSTs below are 405.
+A finding's actions say what can be done and, when it can be done now, the request that does it (an index is added with POST /tabularius/admin/v1/indexes; container files are moved with POST …/containers); none runs by itself. The response also has containerMoves, the moves made so far that can still be undone, and compaction, the last pass with its time (or null). Methods other than GET and the POSTs below are 405.
+
+<a id="admin-files-post-tabularius-admin-v1-optimization-database-compact"></a>
+
+### `POST /tabularius/admin/v1/optimization/{database}/compact`
+
+Reclaims free pages and truncates the WAL while the file stays hosted. The first pass converts the file to incremental vacuum and can take a while; it needs twice the database and WAL size free.
+
+**Permissions:** Admin console: a console sign-in (the tabularius_admin cookie from POST /tabularius/admin/v1/sign-in), or the admin password by HTTP Basic (any user name), or the folder's local channel token in x-tabularius-local (Tabularius commands on the server machine). With no admin password set, only requests from this machine (loopback) are let in. Not a GET, so it also needs the header x-tabularius-admin: 1 (403 "missing x-tabularius-admin header" without it).
+
+**Parameters:**
+
+| Name | In | Type | Required | Description |
+| --- | --- | --- | --- | --- |
+| `database` | path | string | yes | Hosted file (404 when it is not hosted). |
+
+**Example:**
+
+```http
+POST /tabularius/admin/v1/optimization/Invoices/compact
+Cookie: tabularius_admin=6b1f0c2e6b1f0c2e6b1f0c2e6b1f0c2e6b1f0c2e6b1f0c2e6b1f0c2e6b1f0c2e
+x-tabularius-admin: 1
+```
+
+Response `200`:
+
+```json
+{
+  "at": "2026-10-21T00:00:00.000Z",
+  "report": {
+    "beforeBytes": 100000,
+    "afterBytes": 50000,
+    "walBeforeBytes": 1000,
+    "walAfterBytes": 0,
+    "durationMs": 25,
+    "writerWaitMs": 0,
+    "convertedToIncremental": true,
+    "freePagesBefore": 10,
+    "freePagesAfter": 0
+  }
+}
+```
+
+409 returns an error when disk space is insufficient or a writer or reader prevents completion. Retry later. The report measures bytes on disk and SQLite free pages before and after this pass.
 
 <a id="admin-files-post-tabularius-admin-v1-optimization-database-containers"></a>
 

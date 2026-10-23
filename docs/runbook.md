@@ -273,6 +273,12 @@ tabularius verify-backup <folder> --from <other-disk-folder>
 
 **Lost:** the backups that were skipped. The files themselves are not touched by a refused backup.
 
+### Reclaiming space
+
+Deleted records and moved data can leave free pages inside a hosted SQLite file, while its write-ahead log (WAL) can grow. Use **Reclaim space** in the admin console or `tabularius compact <folder> [database]` to run one pass while people keep using the file. The server also starts a pass daily (the first one ten minutes after it starts; the 64 MiB WAL trigger is held off for those ten minutes too) or when a file's WAL reaches 64 MiB, but that pass only updates statistics and truncates the WAL. Converting a file to incremental vacuum rewrites it once, holds off every writer until it is done (a writer waits only five seconds, then gets "database is locked"), and so runs only when you ask for it with Reclaim space or `tabularius compact`: do it at a quiet time, the first time, for a large file. Later passes reclaim at most 1,000 free pages each. The rewrite uses SQLite's temporary folder, which is not the data folder (set `SQLITE_TMPDIR` to put it beside the file), and with encryption at rest that temporary copy is not encrypted while it exists. A pass refuses before writing if it cannot read free disk space or if less than twice the database plus WAL size is free. Free space first and retry.
+
+The report gives database bytes and WAL bytes before and after, elapsed time, time waiting for another writer, and SQLite free pages before and after. A reader can prevent WAL truncation; retry later. Claris Server's own checkpoint and vacuum behavior is unverified, so no parity is claimed. <!-- known-difference: Server operation ;; FileMaker Server's own checkpoint and vacuum behaviour is unverified, so no parity is claimed with Reclaim space ;; A reclaim pass may free more or less space, or take longer or shorter, than FileMaker Server's ;; A FileMaker Server run of its own compaction on a comparable file -->
+
 ## A restore refuses a backup set as unsigned or altered
 
 **You see:** `restore` stops before anything is put back, with `backup.json has no signature, so nothing says the checksums in it are the ones this backup was made with`, or `backup.json does not match its signature: wrong passphrase (not the one the set was made with), or backup.json was edited, or it is not from this set`. `verify-backup` says the same, or ends with `it has no signature`.
