@@ -177,7 +177,7 @@ test('every row of the table holds on a server started with no flags', async (t)
       const s = new Store(file, 'Shop');
       try {
         const a = s.auditSettings();
-        return !a.logReads && a.retentionDays === 0 ? 'writes logged, reads not, kept forever' : JSON.stringify(a);
+        return !a.logReads && a.retentionDays === 400 ? 'writes logged, reads not, kept 400 days' : JSON.stringify(a);
       } finally { s.close(); }
     },
     fileHeader(name) {
