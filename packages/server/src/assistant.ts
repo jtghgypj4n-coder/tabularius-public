@@ -130,10 +130,40 @@ export interface AssistantOptions {
   dailyTokens?: number;
   /** The same, per account (in each file), so one person can't use the whole day's allowance. */
   accountDailyTokens?: number;
+  /**
+   * Tokens one question (a run of model calls and tool steps) may use, as billed (cached input at a tenth). Strict:
+   * before each model call the worst case it could add is reserved, and a call that could take the run past this is
+   * not made (DEFAULT_RUN_TOKENS when not set).
+   */
+  runTokens?: number;
 }
+
+/** What one run may use unless --ai-run-tokens says otherwise: far above an ordinary question, well below a runaway loop. */
+export const DEFAULT_RUN_TOKENS = 300_000;
+/** Tokens counted for each picture before it is sent (the provider's largest charge for one is about 4,800). */
+export const IMAGE_RESERVE_TOKENS = 5000;
+/** The most a model call may write, unless its route says otherwise. */
+const DEFAULT_MAX_TOKENS = 4096;
 
 /** What an answer's tokens count against the daily limit: cached input is billed at a tenth. */
 export const billedTokens = (u: Pick<Usage, 'inputTokens' | 'cachedTokens' | 'outputTokens'>) => u.inputTokens - u.cachedTokens + Math.ceil(u.cachedTokens / 10) + u.outputTokens;
+
+/**
+ * A safe guess at the input of a model call, for reserving it before it is sent: a token for every 3 characters
+ * (providers average about 4), and each picture as IMAGE_RESERVE_TOKENS instead of by its base64 length.
+ */
+export function estimateInputTokens(system: string, tools: unknown[], messages: { role?: string; content: string | object[] }[]): number {
+  let chars = system.length + JSON.stringify(tools).length;
+  let images = 0;
+  for (const m of messages) {
+    if (typeof m.content === 'string') chars += m.content.length;
+    else for (const b of m.content) {
+      if ((b as { type?: string }).type === 'image') images++;
+      else chars += JSON.stringify(b).length;
+    }
+  }
+  return Math.ceil(chars / 3) + images * IMAGE_RESERVE_TOKENS;
+}
 
 /** Texts per request to the embedding endpoint. */
 const EMBED_BATCH = 64;
@@ -1859,6 +1889,9 @@ export class Assistant {
       // dashboards, cleanups, automations, plans or connection cards.
       const stopped = (reason: string) => ({ reply: `I stopped there: ${reason}.`, proposals: [] as Proposal[], foundSets: [] as FoundSet[], drafts: [] as Draft[],
         charts: [] as ChartOut[], dashboards: [] as DashboardOut[], cleanups: [] as CleanupOut[], automations: [] as AutomationOut[], tools: used, usage });
+      // The run's strict token budget: what the run has used plus the worst the next call could add must fit.
+      const runBudget = Number.isFinite(this.opts.runTokens) && this.opts.runTokens! > 0 ? this.opts.runTokens! : DEFAULT_RUN_TOKENS;
+      let lastInput = 0;
       for (let turn = 0; turn < (this.opts.maxTurns ?? 12); turn++) {
         progress.signal?.throwIfAborted();
         // AI turned off for the file (or one it uses) mid-question: nothing more of it goes to the model, not even
@@ -1868,7 +1901,16 @@ export class Assistant {
         // The daily limit stops a long question between steps; what it found so far is kept.
         const over = turn > 0 ? this.overLimit(who) : undefined;
         if (over) return { reply: `I stopped there: ${over}.`, proposals, foundSets, drafts, charts, dashboards, cleanups, automations, ...(connectionCards.length ? { connections: connectionCards } : {}), ...(plans.length ? { plans } : {}), tools: used, usage };
-        const response = await this.call(system, requestTools, messages, progress.signal, usage, progress.onText, route).finally(() => this.count(usage, who));
+        // The input is never less than the last call's was (tool search adds tools on the provider's side).
+        const reserved = Math.max(estimateInputTokens(system, requestTools, messages), lastInput) + DEFAULT_MAX_TOKENS;
+        if (billedTokens(usage) + reserved > runBudget) {
+          return { reply: `I stopped there: this question reached its budget of ${runBudget.toLocaleString('en-US')} tokens for one run (--ai-run-tokens); the next step could have gone past it. Try a smaller question.`, proposals, foundSets, drafts, charts, dashboards, cleanups, automations, ...(connectionCards.length ? { connections: connectionCards } : {}), ...(plans.length ? { plans } : {}), tools: used, usage };
+        }
+        const inputBefore = usage.inputTokens;
+        const response = await this.call(system, requestTools, messages, progress.signal, usage, progress.onText, route).finally(() => {
+          lastInput = usage.inputTokens - inputBefore;
+          this.count(usage, who);
+        });
         const afterCall = accessRefusal();
         if (afterCall) return stopped(afterCall);
         messages.push({ role: 'assistant', content: response.content });
@@ -2177,7 +2219,7 @@ export class Assistant {
       signal,
       headers: this.headers(),
       body: JSON.stringify({
-        model, max_tokens: route.maxTokens ?? 4096,
+        model, max_tokens: route.maxTokens ?? DEFAULT_MAX_TOKENS,
         ...(route.effort ? { output_config: { effort: route.effort } } : {}),
         system: [{ type: 'text', text: system, cache_control: cache }], tools: cachedTools, messages: cachedMessages,
         ...(onText ? { stream: true } : {}),

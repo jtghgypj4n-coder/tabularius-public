@@ -8,6 +8,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { LOCKOUT, PASSWORD_POLICY } from '../../store/src/index.ts';
+import { DEFAULT_RUN_TOKENS } from '../src/assistant.ts';
 
 export interface Ctx {
   base: string;
@@ -301,6 +302,14 @@ export const ROWS: Row[] = [
     risk: 'With it on, questions and what the assistant reads go to the provider. A file switched off with `tabularius ai <folder> <database> off`, or named by `--ai-exclude`, is never sent. The AI-visible policy (next row) is a different thing: turning it off removes the refusal to read secret-named fields',
     how: 'probed', expect: 'off',
     observe: async (c) => ((await c.status()).server.ai.state === 'no-key' && !/AI assistant on/.test(c.log()) ? 'off' : 'on'),
+  },
+  {
+    id: 'ai-run-budget', section: 'What can reach outside', setting: 'Token budget for one assistant question',
+    default: '300,000 tokens (as billed: cached input at a tenth), strict: before each model call the worst it could add is reserved, and a pasted picture counts 5,000 tokens, so a call that could pass the budget is not made',
+    changedBy: '`--ai-run-tokens N` or `TABULARIUS_AI_RUN_TOKENS`',
+    risk: 'A higher number lets one question, or a loop of tool steps, spend more of the day and month limits. There is no way to turn the budget off, and no dollar budget for one question (the monthly one is `--ai-monthly-budget`)',
+    how: 'probed', expect: '300000',
+    observe: async () => String(DEFAULT_RUN_TOKENS),
   },
   {
     id: 'ai-policy', section: 'What can reach outside', setting: 'Per-file AI-visible policy',

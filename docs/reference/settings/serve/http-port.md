@@ -9,6 +9,6 @@
 | Restart needed | Yes; serve flags are read when the server starts. |
 | Environment | [`TABULARIUS_HTTP_PORT`](../environment/tabularius_http_port.md) |
 | Explained in | [docs/reference/settings/serve-flags.md](../serve-flags.md) |
-| Code | [packages/cli/src/main.ts:1254](../../../../packages/cli/src/main.ts#L1254) |
+| Code | [packages/cli/src/main.ts:1255](../../../../packages/cli/src/main.ts#L1255) |
 
 [All serve flags](../serve-flags.md)

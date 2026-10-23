@@ -48,7 +48,7 @@ Each command page includes the current help text, options, exit codes, and a tes
 | [`restore`](restore.md) | 6 |
 | [`schema`](schema.md) | 1 |
 | [`script-tests`](script-tests.md) | 2 |
-| [`serve`](serve.md) | 77 |
+| [`serve`](serve.md) | 78 |
 | [`service`](service.md) | 3 |
 | [`stale-calcs`](stale-calcs.md) | 3 |
 | [`standby`](standby.md) | 7 |

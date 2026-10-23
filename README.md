@@ -324,7 +324,13 @@ when you press Ctrl-C. To host your own FileMaker file, see [QUICKSTART.md](QUIC
   and each answer shows the tokens it used. `--ai-daily-tokens 2000000` caps
   what the assistant may use per day (cached input counts at a tenth); past it, questions wait until the next day (UTC).
   `--ai-account-daily-tokens 200000` does the same per account, and shows
-  each person their own usage. The count is
+  each person their own usage. One question has a
+  strict budget of its own, `--ai-run-tokens` (default 300,000 tokens, cached
+  input at a tenth): before each model call the most it could add is
+  counted (the input so far, a pasted picture as 5,000 tokens, and the
+  most the answer may write), and a call that could take the question past
+  the budget is not made; the answer says so and keeps what it found. There
+  is no dollar budget for one question, only the month's. The count is
   kept in `<folder>/.openhbam-ai-usage.sqlite`, shared by every worker
   (`--workers`), so the limits and the monthly budget hold for the whole
   server, and a restart doesn't reset them.

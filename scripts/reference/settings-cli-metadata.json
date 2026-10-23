@@ -100,6 +100,13 @@
       "restart": "Yes for a running server.",
       "explainedBy": "docs/environment-variables.md"
     },
+    "TABULARIUS_AI_RUN_TOKENS": {
+      "description": "A strict cap on tokens one assistant question may use; a model call that could take it past the cap is not made.",
+      "default": "300000",
+      "accepted": "Positive number of tokens",
+      "restart": "Yes for a running server.",
+      "explainedBy": "docs/environment-variables.md"
+    },
     "TABULARIUS_AI_WORKSPACE_ID": {
       "description": "The workspace id for a key not made inside a workspace.",
       "default": "~/.openhbam/anthropic-workspace-id if available",
@@ -858,6 +865,11 @@
     "--ai-monthly-budget": {
       "default": "No monthly budget cap",
       "accepted": "Positive US dollar amount, with optional leading $",
+      "explainedBy": "README.md"
+    },
+    "--ai-run-tokens": {
+      "default": "300000",
+      "accepted": "Positive number of tokens",
       "explainedBy": "README.md"
     },
     "--ai-workspace-id": {
