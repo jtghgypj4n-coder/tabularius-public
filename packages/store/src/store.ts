@@ -19,7 +19,7 @@ import { DatabaseSync, backup, type Session, type StatementSync, type SQLInputVa
 import { createHash, createHmac, pbkdf2Sync, scrypt, scryptSync, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { isIP } from 'node:net';
 import { basename, dirname, extname, join, relative, resolve, isAbsolute } from 'node:path';
-import { closeSync, constants as fsConstants, copyFileSync, existsSync, linkSync, mkdirSync, readdirSync, readSync, rmSync, statSync } from 'node:fs';
+import { closeSync, constants as fsConstants, copyFileSync, existsSync, fstatSync, linkSync, lstatSync, mkdirSync, readdirSync, readSync, renameSync, rmSync, statSync } from 'node:fs';
 import { checkedFile, cleanupPath, openSync, readFileSync, writeFileSync, writeSync } from './fs-boundary.ts';
 import { externalFieldNames, parseDate, parseTime, parseTimestamp, type DateStyle, type Field, type FieldType, type LayoutDesign, type LayoutDesigns, type LayoutObject, type Schema, type Table } from '../../fmp12/src/index.ts';
 import { findWhere, registerFindFunctions, beginFindBudget, FindError, type RelatedCriteria, type FieldInfo, type FindRequest, type SqlValue, type WordIndex } from './find.ts';
@@ -1423,12 +1423,17 @@ export class Store {
       for (const name of names) {
         const marker = join(dir, name);
         try {
-          const { root, rel } = JSON.parse(readFileSync(marker, 'utf8')) as { root: string; rel: string };
+          const { root, rel, dev, ino } = JSON.parse(readFileSync(marker, 'utf8')) as { root: string; rel: string; dev?: string; ino?: string };
           // A marker naming a root this file no longer serves (the settings changed after a crash) is not ours to act on.
           if (!this.externalRoots.includes(root) || typeof rel !== 'string') throw new Error('it names a folder this file does not use');
           const full = safeExistingPath(root, rel, this.externalDirectoryLinks);
-          // Named by a committed container, the file stays; otherwise the write never committed and the file goes.
-          if (!named.get(rel) && full) cleanupPath(full)();
+          // Named by a committed container, the file stays; otherwise the write never committed and the file goes. Only the
+          // very file this write created: a marker without its device and inode was left before the file existed, and the
+          // name may since have been taken by a file of another database that shares the folder.
+          if (!named.get(rel) && full && typeof dev === 'string' && typeof ino === 'string') {
+            const now = lstatSync(full, { bigint: true });
+            if (String(now.dev) === dev && String(now.ino) === ino) cleanupPath(full)();
+          }
           rmSync(marker);
         } catch (error) {
           // Opening the file must not fail over a leftover note: it stays where it is for an operator to look at.
@@ -1500,7 +1505,13 @@ export class Store {
       row: this.sql.prepare('SELECT * FROM _fm_audit WHERE seq = ?').get(seq) as Record<string, SQLInputValue>, onAudit,
     }));
     this.heldAudit = [];
-    this.sql.exec(`ROLLBACK TO ${name}; RELEASE ${name}; COMMIT`);
+    // While the held rows are out of the file, another process opening it must not take their container files for
+    // abandoned ones: the journal notes are set aside (a name recovery does not read) until the transaction is back.
+    const aside = this.heldExternalMarkers.flatMap((marker) => {
+      try { renameSync(marker, `${marker}.held`); return [marker]; } catch { return []; }
+    });
+    const bringBack = () => { for (const marker of aside) { try { renameSync(`${marker}.held`, marker); } catch { /* recovery looks at the file */ } } };
+    try { this.sql.exec(`ROLLBACK TO ${name}; RELEASE ${name}; COMMIT`); } catch (e) { bringBack(); throw e; }
     this.heldBy = undefined;
     this.heldBegan = false;
     tx.files.delete(this);
@@ -1514,9 +1525,10 @@ export class Store {
       // Audit rows have generated sequence numbers and a hash chain. Reinsert and relink them
       // after the independent write, instead of replaying their old sequence numbers.
       // Node's changeset filter includes a table when it returns true. Rebuild the
-      // audit chain separately and let write triggers update the version counters.
+      // audit chain separately and let write triggers update the version counters (a container's too: replaying its
+      // row writes the version again, and a second row for the same id is a conflict).
       const applied = this.sql.applyChangeset(changes, { filter: (table) =>
-        !['_fm_audit', '_fm_record_chain_state', '_fm_metadata_versions', '_fm_cache_version'].includes(table) });
+        !['_fm_audit', '_fm_record_chain_state', '_fm_metadata_versions', '_fm_cache_version', '_fm_container_versions'].includes(table) });
       if (!applied) throw new StoreError(301, 'The pending transaction could not be restored');
       for (const { row, onAudit } of audit) {
         const cols = Object.keys(row).filter((column) => !['seq', 'rchain_seq', 'rprev_hash', 'rhash'].includes(column));
@@ -1529,9 +1541,11 @@ export class Store {
       this.resetCaches();
     } catch (e) {
       // The independent commit stands. End the restored savepoint so no partial replay remains.
+      bringBack();
       this.endTransaction(tx, false);
       throw e;
     }
+    bringBack();
     if (failed !== undefined) throw failed;
     return result;
   }
@@ -2479,7 +2493,11 @@ export class Store {
     const pending = this.heldBy !== undefined && this.heldBy === w?.transaction?.open;
     if (pending) this.heldAudit.push({ seq, onAudit: w?.onAudit });
     linkRecordEntry(this.sql, seq);
-    if (!pending) w?.onAudit?.(this, seq);
+    // Told once the write is committed: an entry that rolls back with its write must never be announced as one of ours.
+    if (!pending && w?.onAudit) {
+      if (this.writePublications) { const heard = w.onAudit; this.writePublications.push(() => heard(this, seq)); }
+      else w.onAudit(this, seq);
+    }
   }
 
   private readonly denialKeys = new Map<string, number>();
@@ -7520,6 +7538,16 @@ export class Store {
     const removeFile = cleanupPath(full);
     // The file goes first and its marker with it; a file that can't be removed keeps its marker for recovery.
     const cleanup = marker ? () => { removeFile(); rmSync(marker, { force: true }); } : removeFile;
+    if (marker) {
+      // The note now says which file it made (device and inode), so recovery after a crash removes that one and no other.
+      try {
+        const made = fstatSync(fd, { bigint: true });
+        atomicWrite(marker, JSON.stringify({ root, rel, dev: String(made.dev), ino: String(made.ino) }));
+      } catch (error) {
+        try { closeSync(fd); } finally { cleanup(); }
+        throw error;
+      }
+    }
     if (this.writeFiles) this.writeFiles.push(cleanup);
     else if (this.heldBy) this.heldFiles.push(cleanup);
     this.keyFiles?.push(cleanup);

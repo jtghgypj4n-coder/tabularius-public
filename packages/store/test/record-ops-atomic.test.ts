@@ -1,6 +1,6 @@
 import { test, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -347,4 +347,68 @@ test('an external container file is only written inside a store write', (t) => {
   const { s, id } = externalItems(t);
   const write = (s as unknown as { writeExternalFile(info: unknown, id: number, field: string, file: unknown): unknown }).writeExternalFile.bind(s);
   assert.throws(() => write(s.layout('Items'), id, 'Doc', { filename: 'loose.txt', mime: 'text/plain', data: Buffer.from('x') }), /needs a transaction/);
+});
+
+test('an audit entry is announced only after its write commits, never when the write rolls back', (t) => {
+  const s = shop(t);
+  s.applyDesign([{ op: 'createTable', name: 'Items', fields: [{ name: 'Name' }] }] as never);
+  const id = s.create('Items', { Name: 'a' }).recordId;
+  const heard: number[] = [];
+  const seen: boolean[] = [];
+  const onAudit = (file: object, seq: number) => { heard.push(seq); seen.push(!!(file as Store).sql.prepare('SELECT 1 FROM _fm_audit WHERE seq = ?').get(seq)); };
+  // A failure only at COMMIT, after the audit row was written and the write's own steps are done.
+  s.sql.exec('CREATE TABLE nowhere (id INTEGER PRIMARY KEY)');
+  s.sql.exec('CREATE TABLE late_check (a INTEGER REFERENCES nowhere(id) DEFERRABLE INITIALLY DEFERRED)');
+  s.sql.exec("CREATE TRIGGER fail_at_commit AFTER INSERT ON _fm_audit WHEN NEW.kind = 'update' BEGIN INSERT INTO late_check VALUES (1); END");
+  assert.throws(() => writer.run({ account: 'Alice', onAudit }, () => s.update('Items', id, { Name: 'b' })), /FOREIGN KEY|constraint/i);
+  assert.deepEqual(heard, [], 'a write that rolled back announces nothing');
+  s.sql.exec('DROP TRIGGER fail_at_commit');
+  writer.run({ account: 'Alice', onAudit }, () => s.update('Items', id, { Name: 'c' }));
+  assert.equal(heard.length, 1);
+  assert.deepEqual(seen, [true], 'announced with the row committed');
+});
+
+test('a journal note from before the file existed does not remove another file of the same name', (t) => {
+  const { s, pending } = externalItems(t);
+  const root = s.externalRoots[0];
+  const dir = join(root, 'Items', 'Docs');
+  mkdirSync(dir, { recursive: true });
+  const prefix = (s as unknown as { externalMarkerPrefix(): string }).externalMarkerPrefix();
+  // Another database sharing the folder has since committed a file under the name this note was made for.
+  const theirs = join(dir, 'shared.txt');
+  writeFileSync(theirs, 'theirs');
+  writeFileSync(join(dirname(s.path), `${prefix}before-open.json`), JSON.stringify({ root, rel: 'Items/Docs/shared.txt' }));
+  // A note whose device and inode belong to some other file is no better.
+  writeFileSync(join(dirname(s.path), `${prefix}wrong-file.json`), JSON.stringify({ root, rel: 'Items/Docs/shared.txt', dev: '1', ino: '1' }));
+  const reopened = new Store(s.path, 'Records');
+  t.after(() => reopened.close());
+  assert.equal(readFileSync(theirs, 'utf8'), 'theirs');
+  assert.deepEqual(pending(), []);
+  // A note with the identity of the very file it made still removes it.
+  const mine = join(dir, 'mine.txt');
+  writeFileSync(mine, 'mine');
+  const made = statSync(mine, { bigint: true });
+  writeFileSync(join(dirname(s.path), `${prefix}made.json`), JSON.stringify({ root, rel: 'Items/Docs/mine.txt', dev: String(made.dev), ino: String(made.ino) }));
+  const again = new Store(s.path, 'Records');
+  t.after(() => again.close());
+  assert.equal(existsSync(mine), false);
+  assert.deepEqual(pending(), []);
+});
+
+test('while another window commits, the held transaction\'s container files survive another process opening the file', (t) => {
+  const { s, id, pending, file } = externalItems(t);
+  const tx: Transaction = { files: new Map() };
+  writer.run({ account: 'Alice', transaction: { open: tx } }, () => s.setContainer('Items', id, 'Doc', 1, { filename: 'held.txt', mime: 'text/plain', data: Buffer.from('data') }));
+  assert.equal(pending().length, 1);
+  s.independentWindowWrite(tx, () => {
+    // The held rows are out of the file for now; opening the file (here, its recovery step) must leave their files alone.
+    (s as unknown as { recoverPendingExternalFiles(): void }).recoverPendingExternalFiles();
+    assert.equal(existsSync(file), true, 'the held file is not taken for an abandoned one');
+  });
+  assert.equal(pending().filter((name) => name.endsWith('.json')).length, 1, 'the note is back once the transaction is');
+  assert.equal(pending().length, 1);
+  endTransaction(tx, true);
+  assert.equal(existsSync(file), true);
+  assert.deepEqual(pending(), []);
+  assert.ok(s.containerId('Items', id, 'Doc'));
 });
