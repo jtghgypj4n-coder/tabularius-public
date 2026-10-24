@@ -16,7 +16,7 @@ test('AR-store-security-02: assertion policies', () => {
     rpId, origin, challenge, storedSignCount: 0 };
   assert.throws(() => verifyAssertion(input), /user verification/);
   assert.deepEqual(verifyAssertion({ ...input, userVerification: 'preferred' }), { signCount: 1 });
-  assert.throws(() => verifyAssertion({ ...input, userVerification: 'preferred', signature: '' }), /did not verify/);
+  assert.throws(() => verifyAssertion({ ...input, userVerification: 'preferred', signature: Buffer.alloc(64).toString('base64url') }), /did not verify/);
   assert.deepEqual(verifyAssertion({ ...input, ...forgeAssertion(auth, challenge, 1) }), { signCount: 1 });
 });
 
