@@ -409,7 +409,8 @@ test('AR-server-data-apis-04 pgwire', async (t) => {
   t.after(() => pg.close());
   const c = await PgClient.open({ port: await pg.listen(), user: 'Reader', password: 'test-password', database: 'Main' });
   t.after(() => c.close());
-  assert.equal((await c.simple('SELECT * FROM ExternalPrivate')).error?.code, '42501');
+  // A table of a file the account may not read answers as one that is not there, so the answer does not name the file.
+  assert.equal((await c.simple('SELECT * FROM ExternalPrivate')).error?.code, '42P01');
   for (const query of ['SELECT table_name, column_name FROM information_schema.columns', 'SELECT TableName, FieldName FROM FileMaker_Fields']) await t.test(query, async () => {
     for (const r of [await c.simple(query), await c.extended(query)]) {
       assert.equal(r.error, undefined);
@@ -420,7 +421,8 @@ test('AR-server-data-apis-04 pgwire', async (t) => {
   f.other.savePrivilegeSet({ ...definition, records: { ...all, fields: { PrivateColumn: 'masked' } } });
   f.other.setPassword('Reader', 'other-password', 'Reader');
   const query = "SELECT column_name FROM information_schema.columns WHERE table_name = 'ExternalPrivate' ORDER BY column_name";
-  assert.deepEqual((await c.simple(query)).rows, [['PublicColumn']]);
+  // A file whose masked field the account cannot read is not read by SQL at all: the table answers as one that is not there.
+  assert.deepEqual((await c.simple(query)).rows, []);
   f.other.savePrivilegeSet(definition);
   assert.deepEqual((await c.extended(query)).rows, [['PrivateColumn'], ['PublicColumn']]);
   f.other.setAccountActive('Reader', false);
