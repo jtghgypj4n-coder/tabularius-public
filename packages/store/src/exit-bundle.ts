@@ -6,7 +6,7 @@
 // A full copy is the most sensitive thing the server can write, so who may ask is strict (a Full Access account that
 // signs in again here), every refusal and every success is a security event, and an unfinished stage can be discarded.
 
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { chmodSync, closeSync, constants, copyFileSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, renameSync, rmSync, writeFileSync, writeSync, type Stats } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -46,6 +46,7 @@ const MANIFEST = 'manifest.json';
 const CONTAINER_TABLE = '_exit_containers';
 const BATCH = 500;
 const PIECE = 1024 * 1024;
+const LOCK_MAX_AGE = 6 * 60 * 60 * 1000;
 const GENERIC_REFUSAL = 'this account and password cannot take a full copy of the file; use a Full Access account';
 
 const running = new Map<string, true>();
@@ -164,6 +165,50 @@ function remove(path: string): void {
   rmSync(path, { force: true });
 }
 
+/** The sidecar remains in place when the stage is renamed to the finished folder. */
+function takeProcessLock(target: string, busyMessage: string): () => void {
+  const path = `${target}.lock`;
+  const owner = JSON.stringify({ pid: process.pid, startedAt: Date.now(), id: randomUUID() });
+  for (let attempt = 0; attempt < 3; attempt++) {
+    let fd: number;
+    try {
+      fd = openSync(path, 'wx', 0o600);
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if ((code === 'ENOENT' || code === 'ENOTDIR') && !lstatOrUndefined(dirname(target))?.isDirectory()) {
+        throw new ExitBundleError(`the folder ${dirname(target)} does not exist`, 400);
+      }
+      if (code !== 'EEXIST') throw error;
+      const stat = lstatOrUndefined(path);
+      if (!stat) continue;
+      if (!stat.isFile()) throw new ExitBundleError(busyMessage, 409);
+      let held: { pid?: unknown; startedAt?: unknown };
+      try { held = JSON.parse(readFileSync(path, 'utf8')) as typeof held; } catch { throw new ExitBundleError(busyMessage, 409); }
+      if (typeof held.pid !== 'number' || !Number.isSafeInteger(held.pid) || held.pid <= 0 ||
+          typeof held.startedAt !== 'number' || !Number.isFinite(held.startedAt) || held.startedAt < 0) {
+        throw new ExitBundleError(busyMessage, 409);
+      }
+      const pid = held.pid;
+      const startedAt = held.startedAt;
+      let alive = true;
+      try { process.kill(pid, 0); } catch (e) { alive = (e as NodeJS.ErrnoException).code !== 'ESRCH'; }
+      if (alive && Date.now() - startedAt <= LOCK_MAX_AGE) throw new ExitBundleError(busyMessage, 409);
+      console.warn(`Replacing stale exit-bundle lock at ${path} (process ${pid}, timestamp ${startedAt}).`);
+      rmSync(path);
+      continue;
+    }
+    try { writeSync(fd, owner); } catch (error) { closeSync(fd); rmSync(path, { force: true }); throw error; }
+    closeSync(fd);
+    return () => {
+      // A run past the age limit may have had its lock replaced; leave the new owner's lock alone.
+      try { if (readFileSync(path, 'utf8') === owner) rmSync(path); } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      }
+    };
+  }
+  throw new ExitBundleError(busyMessage, 409);
+}
+
 /**
  * Writes a full copy of `source` to `folder`. Refuses unless `account` is an active Full Access account that signs in
  * with `password` the way any sign-in does; a half-finished copy stays in `<folder>.partial` and the next run resumes it.
@@ -176,12 +221,14 @@ export async function exitBundle(source: Store, folder: string, opts: ExitBundle
   // Checked again: a second request may have been let in while this one signed in.
   if (running.has(target)) throw new ExitBundleError('an export to that folder is already running', 409);
   running.set(target, true);
+  let releaseLock: (() => void) | undefined;
   try {
+    releaseLock = takeProcessLock(target, 'an export to that folder is already running');
     const report = await build(source, target, opts);
     source.auditExitBundle(account, from, true, { folder: target });
     return report;
   } finally {
-    running.delete(target);
+    try { releaseLock?.(); } finally { running.delete(target); }
   }
 }
 
@@ -191,12 +238,19 @@ export async function discardExitBundle(source: Store, folder: string, opts: { a
   const account = await authorize(source, opts.account, opts.password, from);
   const target = resolve(folder);
   if (running.has(target)) throw new ExitBundleError('an export to that folder is running; wait for it to finish', 409);
-  const stage = `${target}.partial`;
-  const st = lstatOrUndefined(stage);
-  if (!st) throw new ExitBundleError(`there is no unfinished copy at ${stage}`, 404);
-  checkStage(stage, st);
-  rmSync(stage, { recursive: true, force: true });
-  source.auditExitBundle(account, from, true, { folder: target, discarded: true });
+  running.set(target, true);
+  let releaseLock: (() => void) | undefined;
+  try {
+    releaseLock = takeProcessLock(target, 'an export to that folder is running; wait for it to finish');
+    const stage = `${target}.partial`;
+    const st = lstatOrUndefined(stage);
+    if (!st) throw new ExitBundleError(`there is no unfinished copy at ${stage}`, 404);
+    checkStage(stage, st);
+    rmSync(stage, { recursive: true, force: true });
+    source.auditExitBundle(account, from, true, { folder: target, discarded: true });
+  } finally {
+    try { releaseLock?.(); } finally { running.delete(target); }
+  }
 }
 
 async function build(source: Store, target: string, opts: ExitBundleOptions): Promise<ExitBundleReport> {
@@ -339,7 +393,8 @@ function writeContainers(source: Store, out: DatabaseSync, stage: string, tables
     const info = source.containerInfo(id);
     if (!info) { missing.push(id); continue; }
     if (info.external && (info.external.missing || info.external.changed)) {
-      throw new ExitBundleError(`the file for container ${id} is stored outside the database at ${info.external.path} and is ${info.external.missing ? 'missing' : 'not the size it was when stored'}; put it back and run again`, 409);
+      const filename = info.filename?.split(/[\\/]/).at(-1);
+      throw new ExitBundleError(`the file for container ${id}${filename ? ` (${safeName(filename)})` : ''} is ${info.external.missing ? 'missing' : 'not the size it was when stored'}; put the file back where the solution keeps it and run again`, 409);
     }
     const path = `containers/${id}-${safeName(info.filename ?? 'container')}`;
     const file = join(stage, ...path.split('/'));

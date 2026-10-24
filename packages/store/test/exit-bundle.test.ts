@@ -4,9 +4,9 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { chmodSync, chownSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { isAbsolute, join, resolve, sep } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import { createStore, discardExitBundle, exitBundle, ExitBundleError, Store } from '../src/index.ts';
+import { createStore, discardExitBundle, exitBundle, ExitBundleError, Store, totpCode } from '../src/index.ts';
 
 const PASSWORD = ['correct', 'horse', 'battery', 'staple'].join(' ');
 const ROWS = 10_500;
@@ -15,6 +15,7 @@ let store: Store;
 let inside: number;
 let outside: number;
 let outsideBytes: Buffer;
+const externalDirectory = 'private-container-directory-358';
 
 const files = (root: string, rel = ''): string[] =>
   readdirSync(join(root, rel), { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? files(root, join(rel, e.name)) : [join(rel, e.name).split('\\').join('/')]));
@@ -42,10 +43,10 @@ before(() => {
   inside = store.addContainer({ filename: 'photo one.png', mime: 'image/png', data: Buffer.from('inside the file') });
   // An externally stored file: the folder beside the hosted file holds the bytes.
   outsideBytes = Buffer.from('%PDF-1.4 outside the file, '.repeat(100));
-  mkdirSync(join(dir, 'RC_Data_FMS', 'Shop', 'Scans'), { recursive: true });
-  writeFileSync(join(dir, 'RC_Data_FMS', 'Shop', 'Scans', 'scan.pdf'), outsideBytes);
+  mkdirSync(join(dir, 'RC_Data_FMS', 'Shop', externalDirectory), { recursive: true });
+  writeFileSync(join(dir, 'RC_Data_FMS', 'Shop', externalDirectory, 'scan.pdf'), outsideBytes);
   const sql = (store as unknown as { sql: DatabaseSync }).sql;
-  sql.prepare("INSERT INTO _fm_containers (filename, mime, kind, data, external) VALUES ('scan.pdf', 'application/pdf', 'file', x'', 'Scans/scan.pdf')").run();
+  sql.prepare("INSERT INTO _fm_containers (filename, mime, kind, data, external, external_size) VALUES ('scan.pdf', 'application/pdf', 'file', x'', ?, ?)").run(`${externalDirectory}/scan.pdf`, outsideBytes.length);
   outside = Number((sql.prepare('SELECT max(id) AS id FROM _fm_containers').get() as { id: number }).id);
   sql.exec('BEGIN');
   const add = sql.prepare('INSERT INTO Customers (Name, Credit, Photo, Scan, Number) VALUES (?, ?, ?, ?, ?)');
@@ -67,6 +68,7 @@ test('a crash after the first committed batch leaves only the stage, and a resum
   await assert.rejects(exitBundle(store, target, asAdmin({ afterBatch: () => { if (++batches === 1) throw new Error('crash'); } })), /crash/);
   assert.equal(existsSync(target), false);
   assert.equal(existsSync(`${target}.partial`), true);
+  assert.equal(existsSync(`${target}.lock`), false);
   assert.equal(statSync(`${target}.partial`).mode & 0o777, 0o700);
   // A record created after the snapshot does not appear in the resumed copy.
   const sql = (store as unknown as { sql: DatabaseSync }).sql;
@@ -149,6 +151,7 @@ test('a copy stopped between deleting the snapshot and the last rename publishes
 });
 
 test('an existing target is refused with 409, a table named _exit_containers is refused, and a second run for the same folder is refused while one runs', async () => {
+  await assert.rejects(exitBundle(store, join(dir, 'missing-parent', 'copy'), asAdmin()), (e: ExitBundleError) => e.status === 400 && /does not exist/.test(e.message));
   const target = join(dir, 'exists');
   mkdirSync(target);
   await assert.rejects(exitBundle(store, target, asAdmin()), (e: ExitBundleError) => e.status === 409 && /already exists/.test(e.message));
@@ -177,14 +180,108 @@ test('a stage whose snapshot does not match its record refuses to resume', async
 });
 
 test('a container file that is missing outside the database stops the copy with a message that says which', async () => {
-  rmSync(join(dir, 'RC_Data_FMS', 'Shop', 'Scans', 'scan.pdf'));
+  const sql = (store as unknown as { sql: DatabaseSync }).sql;
+  const filenameDirectory = 'private-filename-directory-358';
+  sql.prepare('UPDATE _fm_containers SET filename = ? WHERE id = ?').run(`${filenameDirectory}/scan.pdf`, outside);
+  rmSync(join(dir, 'RC_Data_FMS', 'Shop', externalDirectory, 'scan.pdf'));
   try {
-    await assert.rejects(exitBundle(store, join(dir, 'gone'), asAdmin()), (e: ExitBundleError) => e.status === 409 && /Scans\/scan\.pdf/.test(e.message) && /missing/.test(e.message));
+    await assert.rejects(exitBundle(store, join(dir, 'gone'), asAdmin()), (e: ExitBundleError) => e.status === 409 && e.message.includes(`container ${outside}`) && e.message.includes('scan.pdf') && /missing/.test(e.message) && /put the file back where the solution keeps it and run again/.test(e.message) && !e.message.includes(externalDirectory) && !e.message.includes(filenameDirectory) && !e.message.includes(dir));
     assert.equal(existsSync(join(dir, 'gone')), false);
   } finally {
-    writeFileSync(join(dir, 'RC_Data_FMS', 'Shop', 'Scans', 'scan.pdf'), outsideBytes);
+    sql.prepare('UPDATE _fm_containers SET filename = ? WHERE id = ?').run('scan.pdf', outside);
+    writeFileSync(join(dir, 'RC_Data_FMS', 'Shop', externalDirectory, 'scan.pdf'), outsideBytes);
     rmSync(`${join(dir, 'gone')}.partial`, { recursive: true, force: true });
   }
+});
+
+test('a changed external container reports its file name without exposing the storage directory', async () => {
+  const path = join(dir, 'RC_Data_FMS', 'Shop', externalDirectory, 'scan.pdf');
+  writeFileSync(path, Buffer.from('changed size'));
+  try {
+    await assert.rejects(exitBundle(store, join(dir, 'changed-external'), asAdmin()), (e: ExitBundleError) => e.status === 409 && e.message.includes(`container ${outside}`) && e.message.includes('scan.pdf') && /not the size/.test(e.message) && !e.message.includes(externalDirectory) && !e.message.includes(dir));
+  } finally {
+    writeFileSync(path, outsideBytes);
+    rmSync(`${join(dir, 'changed-external')}.partial`, { recursive: true, force: true });
+  }
+});
+
+test('account password hashes and second-factor secrets are absent from every finished bundle file', async () => {
+  const enrollment = store.enrollTotp('Admin');
+  assert.equal(store.confirmTotp('Admin', totpCode(enrollment.secret)), true);
+  const sql = (store as unknown as { sql: DatabaseSync }).sql;
+  const hash = (sql.prepare('SELECT password_hash FROM _fm_accounts WHERE name = ?').get('Admin') as { password_hash: string }).password_hash;
+  const secrets = [hash, enrollment.secret];
+  const target = join(dir, 'no-account-secrets');
+  try {
+    await exitBundle(store, target, asAdmin());
+    for (const rel of files(target)) {
+      const path = join(target, rel);
+      const contents = rel.endsWith('.sqlite') ? (() => {
+        const db = new DatabaseSync(path);
+        try {
+          return (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name").all() as { name: string }[])
+            .map(({ name }) => JSON.stringify(db.prepare(`SELECT * FROM "${name.replace(/"/g, '""')}"`).all())).join('\n');
+        } finally { db.close(); }
+      })() : readFileSync(path, 'utf8');
+      for (const secret of secrets) assert.equal(contents.includes(secret), false, rel);
+    }
+  } finally {
+    store.disableTotp('Admin');
+  }
+});
+
+test('hostile container filenames remain inside the bundle containers folder', async () => {
+  const sql = (store as unknown as { sql: DatabaseSync }).sql;
+  const target = join(dir, 'safe-container-names');
+  const names = ['../../x', '..\\..\\x', '/absolute/x', `name${String.fromCharCode(0)}nul`, 'folder/..'];
+  const ids = names.map((filename) => store.addContainer({ filename, mime: 'text/plain', data: Buffer.from('safe bytes') }));
+  const insert = sql.prepare('INSERT INTO Customers (Name, Photo) VALUES (?, ?)');
+  try {
+    for (const id of ids) insert.run('filename check', id);
+    await exitBundle(store, target, asAdmin());
+    const containerRoot = resolve(target, 'containers');
+    const written = files(target).filter((rel) => rel.startsWith('containers/'));
+    for (const id of ids) assert.ok(written.some((rel) => rel.startsWith(`containers/${id}-`)), String(id));
+    for (const rel of files(target)) {
+      const path = resolve(target, rel);
+      assert.equal(isAbsolute(rel), false, rel);
+      assert.ok(path.startsWith(`${resolve(target)}${sep}`), rel);
+      if (rel.startsWith('containers/')) assert.ok(path.startsWith(`${containerRoot}${sep}`), rel);
+    }
+  } finally {
+    sql.prepare("DELETE FROM Customers WHERE Name = 'filename check'").run();
+  }
+});
+
+test('a stale process lock is replaced and a live process lock refuses the same folder', async () => {
+  const target = join(dir, 'stale-lock');
+  const lock = `${target}.lock`;
+  const old = JSON.stringify({ pid: process.pid, startedAt: Date.now() - 7 * 60 * 60 * 1000 });
+  writeFileSync(lock, old, { mode: 0o600 });
+  let observed = false;
+  await exitBundle(store, target, asAdmin({ afterBatch: () => {
+    const held = JSON.parse(readFileSync(lock, 'utf8')) as { pid: number; startedAt: number };
+    assert.equal(held.pid, process.pid);
+    assert.ok(held.startedAt > Date.now() - 60_000);
+    observed = true;
+  } }));
+  assert.equal(observed, true);
+  assert.equal(existsSync(lock), false);
+
+  const busy = join(dir, 'live-process-lock');
+  const busyLock = `${busy}.lock`;
+  writeFileSync(busyLock, JSON.stringify({ pid: process.pid, startedAt: Date.now() }), { mode: 0o600 });
+  try {
+    await assert.rejects(exitBundle(store, busy, asAdmin()), (e: ExitBundleError) => e.status === 409 && e.message === 'an export to that folder is already running');
+    await assert.rejects(discardExitBundle(store, busy, asAdmin()), (e: ExitBundleError) => e.status === 409 && /running; wait/.test(e.message));
+    assert.equal(existsSync(busy), false);
+  } finally { rmSync(busyLock); }
+
+  const dead = join(dir, 'dead-process-lock');
+  const deadLock = `${dead}.lock`;
+  writeFileSync(deadLock, JSON.stringify({ pid: 99_999_999, startedAt: Date.now() }), { mode: 0o600 });
+  await exitBundle(store, dead, asAdmin());
+  assert.equal(existsSync(deadLock), false);
 });
 
 test('discard removes the stage, audits it, and refuses a missing stage, a symlink and a stage another user owns', async () => {
