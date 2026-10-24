@@ -47,8 +47,7 @@ import type { Node } from './parser.ts';
 import { ALL_STYLES, STYLE_BITS, restyle, rgbHex, sliceRuns, toCss, type TextFormat } from './styled.ts';
 import {
   CalcError, HostWait, ERR, EMPTY, asBoolean, asDate, asNumber, asNumberOrEmpty, asText, asTime, asTimestamp, bool, dayNumber,
-  decimalSum, exactOf, exactAbs, exactDivFloor, exactMod, exactOf, exactRound, exactSign, exactTruncate, formatNumber, fromDayNumber, fromExact,
-  fromExact, isBeyondDouble, isEmpty, isOverlongWholeText, num, numberFromText, parseDateText, parseTimeText, parseTimestampText, text, type Value,
+  decimalSum, exactAbs, exactDivFloor, exactMod, exactOf, exactSign, formatNumber, fromDayNumber, fromExact, isBeyondDouble, isEmpty, isOverlongWholeText, num, numberFromText, parseDateText, parseTimeText, parseTimestampText, text, type Value,
 } from './values.ts';
 
 export interface Fn {
@@ -74,10 +73,11 @@ const N = (v: Value | undefined) => (v === undefined ? 0 : asNumber(v));
 /** Number result, or empty when an input number is empty (FileMaker propagates empty). */
 function numeric(names: string | string[], min: number, max: number, f: (...n: number[]) => number,
   exact?: (...v: Value[]) => bigint | undefined): void {
-  numericWithEnv(names, min, max, (ns) => f(...ns));
+  numericWithEnv(names, min, max, (ns) => f(...ns), exact);
 }
 
-function numericWithEnv(names: string | string[], min: number, max: number, f: (ns: number[], env: Env) => number): void {
+function numericWithEnv(names: string | string[], min: number, max: number, f: (ns: number[], env: Env) => number,
+  exact?: (...v: Value[]) => bigint | undefined): void {
   eager(names, min, max, (v, env) => {
     const ns = v.map(asNumberOrEmpty);
     if (ns[0] === undefined) return EMPTY;
@@ -641,8 +641,8 @@ numeric('Abs', 1, 1, Math.abs, exactAbs);
 numeric('Ceiling', 1, 1, Math.ceil, exactOf);
 numeric('Floor', 1, 1, Math.floor, exactOf);
 numeric('Int', 1, 1, Math.trunc, exactOf);
-eager('Round', 2, 2, (v) => roundValue(v, true), exactRound);
-eager('Truncate', 2, 2, (v) => roundValue(v, false), exactTruncate);
+eager('Round', 2, 2, (v) => roundValue(v, true));
+eager('Truncate', 2, 2, (v) => roundValue(v, false));
 numeric('SetPrecision', 2, 2, (n) => n);
 // By zero these give "?", like the / operator.
 numeric('Mod', 2, 2, (n, d) => (d === 0 ? NaN : n - d * Math.floor(n / d)), exactMod);
