@@ -178,7 +178,7 @@ The following reasons apply to the exact enumerated expressions in each named fu
 | [packages/cli/src/doctor.ts:139](../../packages/cli/src/doctor.ts#L139) `accountChecks` | `SQLite.all` (139); `SQLite.prepare` (139) | OPERATOR |
 | [packages/cli/src/main.ts:711](../../packages/cli/src/main.ts#L711) `accountsWithPasswordOff` | `SQLite.all` (711); `SQLite.prepare` (711) | OPERATOR |
 | [packages/cli/src/main.ts:740](../../packages/cli/src/main.ts#L740) `hostedRead` | `SQLite.all` (740, 743); `SQLite.prepare` (740, 743); `Store.sql` (740, 743) | OPERATOR |
-| [packages/cli/src/main.ts:2399](../../packages/cli/src/main.ts#L2399) `main` | `Store.orphanContainerReport` (2399); `Store.auditLog` (2872); `SQLite.get` (3131); `SQLite.prepare` (3131) | OPERATOR |
+| [packages/cli/src/main.ts:2404](../../packages/cli/src/main.ts#L2404) `main` | `Store.orphanContainerReport` (2404); `Store.auditLog` (2877); `SQLite.get` (3136); `SQLite.prepare` (3136) | OPERATOR |
 | [packages/scripts/src/data-api-step.ts:104](../../packages/scripts/src/data-api-step.ts#L104) `respond` | `Store.get` (104, 131, 140); `Store.find` (105, 117) | SCRIPT |
 | [packages/scripts/src/engine.ts:7964](../../packages/scripts/src/engine.ts#L7964) `ScriptEngine/containerFile` | `Store.get` (7964); `Store.containerId` (7965); `Store.container` (7966) | SCRIPT |
 | [packages/scripts/src/engine.ts:5582](../../packages/scripts/src/engine.ts#L5582) `ScriptEngine/design` | `Store.valueListItems` (5582) | SCRIPT |

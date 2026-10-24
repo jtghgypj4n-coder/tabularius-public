@@ -431,7 +431,7 @@ Hosting (point it at a folder of .fmp12 files; each is converted once):
                                              are scanned once (--dedupe-only: just count them,
                                              comparing same-size files only; --all: also walk
                                              Library, System and Applications folders; --list: scan
-                                             the .fmp12 paths in FILE, one per line, instead
+                                             the .fmp12 paths in FILE, one per line (spaces are preserved), instead
                                              of walking a folder). Writes corpus-report.json and
                                              .md: counts and masked formula shapes only, no
                                              file names, record data or names
@@ -1128,6 +1128,11 @@ function corpusScanCommand(args: string[]): number {
   const list = flag(args, '--list');
   const [dir] = args;
   if (!dir && !list) throw new Error('corpus-scan: give a folder of .fmp12 files, or --list FILE');
+  if (timeout) {
+    const timeoutSeconds = Number(timeout);
+    if (!Number.isFinite(timeoutSeconds) || timeoutSeconds <= 0) throw new Error('corpus-scan --timeout needs a positive number of seconds');
+    if (timeoutSeconds > 2147483) throw new Error('corpus-scan --timeout must be at most 2147483 seconds');
+  }
   later(corpusScan(resolve(dir ?? '.'), {
     out, convert, dedupeOnly, all, only, list: list && resolve(list), entry: process.argv[1],
     jobs: jobs ? Number(jobs) : undefined,

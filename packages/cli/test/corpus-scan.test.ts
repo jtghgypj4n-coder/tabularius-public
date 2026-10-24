@@ -155,24 +155,34 @@ test('corpus-scan validates jobs and timeout before deduping', async () => {
       await assert.rejects(corpusScan(dir, { out: join(dir, 'out'), entry: main, jobs, log: (line) => lines.push(line) }), /corpus-scan --jobs needs a whole number of 1 or more/);
       assert.equal(lines.some((line) => line.includes('comparing same-size files')), false);
     }
-    for (const timeoutSeconds of [0, NaN, Infinity]) {
+    for (const timeoutSeconds of [0, -1, NaN, Infinity]) {
       const lines: string[] = [];
       await assert.rejects(corpusScan(dir, { out: join(dir, 'out'), entry: main, timeoutSeconds, log: (line) => lines.push(line) }), /corpus-scan --timeout needs a positive number of seconds/);
       assert.equal(lines.some((line) => line.includes('comparing same-size files')), false);
     }
+    await corpusScan(dir, { out: join(dir, 'out'), entry: main, timeoutSeconds: 2147483, dedupeOnly: true });
+    for (const timeoutSeconds of [2147484, 1e12]) {
+      await assert.rejects(corpusScan(dir, { out: join(dir, 'out'), entry: main, timeoutSeconds }), /corpus-scan --timeout must be at most 2147483 seconds/);
+    }
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
-test('--list accepts CRLF, LF and mixed endings with spaces and duplicates', () => {
+test('--list preserves filename spaces and strips only CRLF endings', () => {
   const dir = mkdtempSync(join(tmpdir(), 'corpus-list-endings-'));
   try {
     const first = join(dir, 'one.fmp12');
     const second = join(dir, 'two.fmp12');
+    const trailing = join(dir, 'name with trailing space .fmp12');
+    const leading = join(dir, ' lead.fmp12');
     writeFileSync(first, Buffer.alloc(100));
     writeFileSync(second, Buffer.alloc(100));
+    writeFileSync(trailing, Buffer.alloc(0));
+    writeFileSync(leading, Buffer.alloc(0));
     const list = join(dir, 'list.txt');
-    writeFileSync(list, `  ${first}  \r\n${second}\n${first}\r\nignored.txt\n  \r\n`);
-    assert.deepEqual(listedFiles(list), { paths: [realpathSync(first), realpathSync(second)], unreadable: 0 });
+    writeFileSync(list, `${first}\r\n${second}\n${first}\r\n${trailing}\r\n${leading}\r\nignored.txt\r\n\r\n`);
+    const paths = listedFiles(list).paths;
+    assert.deepEqual(paths, [first, leading, second, trailing].map((path) => realpathSync(path)).sort());
+    assert.equal(paths.filter((path) => path === realpathSync(trailing)).length, 1);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
