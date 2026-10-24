@@ -100,7 +100,7 @@ A step marked **error 3** is unavailable; **does nothing** means it succeeds wit
 | [New File](82-new-file.md) | error 3 |
 | [Open Data File](191-open-data-file.md) | works |
 | [Open File](33-open-file.md) | works |
-| [Open File Options](114-open-file-options.md) | does nothing |
+| [Open File Options](114-open-file-options.md) | error 3 |
 | [Open PDF](246-open-pdf.md) | partly |
 | [Print PDF](242-print-pdf.md) | works |
 | [Read from Data File](193-read-from-data-file.md) | partly |
@@ -172,20 +172,20 @@ A step marked **error 3** is unavailable; **does nothing** means it succeeds wit
 | [Insert Image Caption](241-insert-image-caption.md) | error 3 |
 | [Insert Picture](56-insert-picture.md) | partly |
 | [Install Menu Set](142-install-menu-set.md) | works |
-| [Open Favorites](183-open-favorites.md) | does nothing |
+| [Open Favorites](183-open-favorites.md) | error 3 |
 | [Open Help](32-open-help.md) | works |
-| [Open Hosts](118-open-hosts.md) | does nothing |
+| [Open Hosts](118-open-hosts.md) | error 3 |
 | [Open Manage Containers](156-open-manage-containers.md) | works |
 | [Open Manage Data Sources](140-open-manage-data-sources.md) | works |
 | [Open Manage Database](38-open-manage-database.md) | works |
 | [Open Manage Themes](165-open-manage-themes.md) | works |
 | [Open Manage Value Lists](112-open-manage-value-lists.md) | works |
-| [Open Settings](105-open-settings.md) | does nothing |
-| [Open Sharing](113-open-sharing.md) | does nothing |
-| [Open Upload to Host](172-open-upload-to-host.md) | does nothing |
+| [Open Settings](105-open-settings.md) | error 3 |
+| [Open Sharing](113-open-sharing.md) | error 3 |
+| [Open Upload to Host](172-open-upload-to-host.md) | error 3 |
 | [Open URL](111-open-url.md) | works |
 | [Print](43-print.md) | partly |
-| [Print Setup](42-print-setup.md) | does nothing |
+| [Print Setup](42-print-setup.md) | error 3 |
 | [Select All](50-select-all.md) | works |
 | [Select Dictionaries](108-select-dictionaries.md) | error 3 |
 | [Send DDE Execute](64-send-dde-execute.md) | error 3 |

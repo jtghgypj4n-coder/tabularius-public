@@ -11,6 +11,7 @@ export const ERROR_3_STEPS: ReadonlySet<string> = new Set([
   'Fine-Tune Model', 'Configure Regression Model',
   'Send DDE Execute', 'Speak', 'Insert Image Caption', 'Insert Image Captions in Found Set',
   'Execute SQL', 'Perform AppleScript', 'Get Folder Path', 'Send Event', 'Configure Machine Learning Model',
+  'Print Setup', 'Open Settings', 'Open Sharing', 'Open File Options', 'Open Hosts', 'Open Upload to Host', 'Open Favorites',
 ]);
 
 /**

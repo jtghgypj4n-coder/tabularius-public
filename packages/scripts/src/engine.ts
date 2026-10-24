@@ -4833,7 +4833,7 @@ export class ScriptEngine {
       case 168: // Set Layout Object Animation: every window, for the script
         if (p.on !== undefined) this.animations = p.on;
         return undefined;
-      case 120: case 42:
+      case 120:
         return undefined;
       case 32: // Open Help: the server's guides are available at /docs.
         this.actions.push({ step: s.name, script: f.script.name, open: 'help' });
@@ -4844,7 +4844,9 @@ export class ScriptEngine {
       case 149: // Open Edit Saved Finds: the web client's Edit Saved Finds dialog
         this.actions.push({ step: s.name, script: f.script.name, open: 'saved-finds' });
         return undefined;
-      case 105: case 109: case 113: case 114: case 118: case 129: case 172: case 183: case 209:
+      case 42: case 105: case 113: case 114: case 118: case 172: case 183:
+        throw new ScriptError(ERROR.unavailable, `${s.name} is not available in a server-side script`);
+      case 109: case 129: case 209:
         return undefined;
     }
     return unsupported();

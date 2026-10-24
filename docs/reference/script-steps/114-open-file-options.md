@@ -11,13 +11,13 @@ verified: f200448e0
 
 Open File Options is a files and output script step. This page describes how the offline Tabularius engine handles it.
 
-- **Support:** does nothing
+- **Support:** error 3
 - **Registry ID:** 114
 
 ## What the engine does
 
-The engine accepts this step but does not perform its named action.
-Return successfully without opening their corresponding client flows.
+This step is unavailable in this engine and returns error 3.
+Throws error 3 (command unavailable) in a server-side script. Reference-client behavior is unverified.
 
 FileMaker comparisons in this note are inferred unless a Claris help page is linked. See the [full support notes](../../script-steps-support.md) for surrounding conditions.
 
@@ -31,7 +31,11 @@ Permission to run the script; access to any named record, field, layout or file 
 
 ## Error codes
 
-Known codes from the engine and the [script error-code reference](../../error-codes.md): `0`, `800`, `802`, `809`, `850`. Other failures can arise from calculations or targets used by the step.
+Known codes from the engine and the [script error-code reference](../../error-codes.md): `3`. Other failures can arise from calculations or targets used by the step.
+
+## Replacement
+
+There is no direct offline replacement for this step.
 
 ## Offline script example
 
@@ -41,4 +45,4 @@ Use a synthetic local solution with an empty `Examples` table and a text field n
 Open File Options
 ```
 
-**Expected end state:** With no target supplied, the step returns `0` and leaves the synthetic file’s records unchanged.
+**Expected end state:** On an offline synthetic file, the step returns error `3` and changes no records.

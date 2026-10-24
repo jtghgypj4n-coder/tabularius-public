@@ -33,7 +33,8 @@ test('support classifications agree with the engine availability list', () => {
     assert.ok(p.codes.includes(3), p.name);
     assert.match(pageText(p), /## Replacement/);
   }
-  assert.equal(pages.find((p) => p.name === 'Print Setup')?.status, 'does nothing');
+  for (const name of ['Print Setup', 'Open Settings', 'Open Sharing', 'Open File Options', 'Open Hosts', 'Open Upload to Host', 'Open Favorites'])
+    assert.equal(pages.find((p) => p.name === name)?.status, 'error 3');
   // Refresh Portal clears the read cache and asks the client to refresh, so it is partly supported.
   for (const name of ['Refresh Portal', 'Import Records', 'Save Records as PDF', 'Send Mail'])
     assert.equal(pages.find((p) => p.name === name)?.status, 'partly');
@@ -48,7 +49,8 @@ test('Refresh Portal is documented as a handler with a missing-target error', ()
 });
 
 test('every inert client-flow and dictionary step is documented as doing nothing', () => {
-  for (const id of [105, 109, 113, 114, 118, 129, 172, 183, 209]) {
+  // Open Settings, Open Sharing, Open File Options, Open Hosts, Open Upload to Host and Open Favorites now set error 3 (checked above).
+  for (const id of [109, 129, 209]) {
     const page = pages.find((p) => p.id === id)!;
     assert.equal(page.status, 'does nothing', page.name);
     assert.match(pageText(page), /The engine accepts this step but does not perform its named action\./);
