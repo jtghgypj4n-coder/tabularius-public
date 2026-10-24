@@ -224,4 +224,7 @@ image tag in the examples are `tabularius`.
 A standby and its primary should be upgraded together, the primary first: a standby on the new name asks for
 `/tabularius/replication/...`, which a primary still on the old name does not answer (the standby says so, and names the
 order). A primary on the new name still answers a standby on the old one, so the standby keeps following until it is
-upgraded. See [standby servers](standby-guarantees.md).
+upgraded. A standby now also refuses to replace a file that was changed in its own folder since it last copied it (it stops at
+start, or reports it while following, and points to `--overwrite`); before it copied the file again over the change and logged
+one line. A standby folder whose file was edited by hand, or served after a takeover, needs `--overwrite` once. The notes now also record, while a copy or a change is being applied, the states the file may be in, so that what a crash of the standby leaves is told from a change made here; notes left by an older version in the middle of that work (a size of -1 and nothing more) cannot say, so the file is taken as the standby's own once and copied again; a line in the log says so, and that anything written to the file since is lost. See
+[standby servers](standby-guarantees.md).

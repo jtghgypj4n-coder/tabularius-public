@@ -4,8 +4,8 @@
 // `Standby` and a loopback proxy that cuts or truncates the link. A plain model of what the primary committed (one
 // digest per committed edit) is the reference; the standby, whenever it is looked at, must hold exactly one of those
 // states and never one the primary has not committed. What is promised, and what is not, is in
-// docs/standby-guarantees.md; the three things found that the code does not do are in
-// notes/audits/r24-02-standby-model.md and are the three `todo` tests at the end.
+// docs/standby-guarantees.md; the three things found that the code did not do are in
+// notes/audits/r24-02-standby-model.md; the first is fixed and the other two are the `todo` tests at the end.
 //
 // A failure prints the seed and the history of operations. SEED=<n> replays one seed; STANDBY_SEEDS=<n> runs n seeds.
 import { test } from 'node:test';
@@ -904,14 +904,7 @@ test('a primary killed without warning: its acknowledged edits are all there whe
   }
 });
 
-// ---------------------------------------------------------------------------------------------------- what the code does not do yet
-// Each of these states a rule the design asks for and fails today. They are `todo`: they run, their failure is reported
-// as expected, and they turn into ordinary tests the day they pass. The reproductions and the reasons are in
-// notes/audits/r24-02-standby-model.md.
-
-const AUDIT = 'notes/audits/r24-02-standby-model.md';
-
-test('a standby does not silently discard writes made on its own folder (it refuses and reports)', { todo: `${AUDIT}, finding 1` }, async () => {
+test('a standby does not silently discard writes made on its own folder (it refuses and reports)', async () => {
   const w = await build(81);
   try {
     w.edit();
@@ -920,19 +913,29 @@ test('a standby does not silently discard writes made on its own folder (it refu
     const local = new Store(w.standbyFile(), DB);
     local.update('Items', [...w.model.rows.keys()][0]!, { Name: 'written on the standby' });
     local.close();
-    await w.startStandbyNow();
-    const end = Date.now() + 5000;
-    while (!w.standbyLog.some((m) => /changed here/.test(m)) && Date.now() < end) await sleep(20);
-    await sleep(500);
-    await w.stopStandby();
+    // The standby refuses to start, naming the file and the way past it, and the file is left as it was.
+    await assert.rejects(w.startStandbyNow(), /changed here since it was last updated: use --overwrite/);
     const copy = join(w.root, 'local.sqlite');
     copyFileSync(w.standbyFile(), copy);
-    const kept = fileDigest(copy, []).includes('written on the standby');
-    assert.ok(kept, 'the write made on the standby survives, or the standby stops and says so; today it is copied over with one log line');
+    assert.ok(fileDigest(copy, []).includes('written on the standby'), 'the write made on the standby survives');
+    // --overwrite is the way past it, and replaces the file with the primary's copy.
+    w.standby = new Standby({ folder: w.standbyNode.dir, primary: w.primary.link.url, token: TOKEN, wait: 1, overwrite: true, log: (m) => void w.standbyLog.push(m) });
+    w.standby.start();
+    await w.settle('after --overwrite');
+    await w.stopStandby();
+    copyFileSync(w.standbyFile(), copy);
+    assert.ok(!fileDigest(copy, []).includes('written on the standby'), 'the primary copy replaced it');
   } finally {
     await w.closeAll();
   }
 });
+
+// ---------------------------------------------------------------------------------------------------- what the code does not do yet
+// Each of these states a rule the design asks for and fails today. They are `todo`: they run, their failure is reported
+// as expected, and they turn into ordinary tests the day they pass. The reproductions and the reasons are in
+// notes/audits/r24-02-standby-model.md.
+
+const AUDIT = 'notes/audits/r24-02-standby-model.md';
 
 test('a container stored outside the file (open external storage) reaches the standby, by hash', { todo: `${AUDIT}, finding 2` }, async () => {
   const w = await build(82);
