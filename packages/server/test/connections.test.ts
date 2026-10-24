@@ -193,6 +193,27 @@ test('with a passphrase the key stays out of the folder, and a missing passphras
   }
 });
 
+test('an empty or blank TABULARIUS_SECRETS_KEY is refused, never read as no key or as a passphrase', () => {
+  try {
+    for (const value of ['', '   ', '\t\n']) {
+      const d = mkdtempSync(join(tmpdir(), 'tabularius-connections-empty-'));
+      try {
+        process.env.TABULARIUS_SECRETS_KEY = value;
+        assert.throws(() => {
+          const c = new Connections(d);
+          c.create({ name: 'r2', type: 's3', config: { bucket: 'files', region: 'auto' } });
+          c.setSecret('r2', 'accessKey', 'ak');
+        }, (e: Error) => /^TABULARIUS_SECRETS_KEY is set but empty/.test(e.message) && !e.message.includes(`"${value}"`), JSON.stringify(value));
+        assert.ok(!existsSync(join(d, '.openhbam-connections.key')), 'no key file is made as a fallback');
+      } finally {
+        rmSync(d, { recursive: true });
+      }
+    }
+  } finally {
+    delete process.env.TABULARIUS_SECRETS_KEY;
+  }
+});
+
 test('deleting a connection deletes its secrets', async () => {
   const listed = (await admin('GET', '/connections')).body.connections;
   const id = listed[0].id;

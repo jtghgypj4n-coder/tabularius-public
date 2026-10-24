@@ -1295,7 +1295,7 @@ function main(argv: string[]): number {
       if (!Number.isInteger(portNumber) || portNumber < 0 || portNumber > 65535) throw new Error(`serve: ${portFlag !== undefined ? '--port' : 'the PORT variable'} takes a port number from 1 to 65535, not "${portText}"`);
       const port = positiveWholeNumber(portFlag !== undefined ? '--port' : 'PORT', String(portText), 8080, { min: 0, max: 65535 });
       const hostname = flag(args, '--host') ?? process.env.TABULARIUS_HOST ?? (acme ? '0.0.0.0' : '127.0.0.1');
-      const mcpToken = tokenOption(args, '--mcp-token', '--mcp-token-file', process.env.TABULARIUS_MCP_TOKEN, process.env.TABULARIUS_MCP_TOKEN_FILE, 'serve').value;
+      const mcpToken = tokenOption(args, '--mcp-token', '--mcp-token-file', secret('TABULARIUS_MCP_TOKEN'), process.env.TABULARIUS_MCP_TOKEN_FILE, 'serve').value;
       // Scripts stay offline unless asked: Insert from URL could reach mail, SMS or payment services.
       const scriptNetwork = bool(args, '--allow-script-network');
       // Scripts' requests never reach this machine's own network (loopback, 10/8, 192.168/16 and so on) unless listed here.
@@ -1376,7 +1376,7 @@ function main(argv: string[]): number {
       const sqlWrites = bool(args, '--sql-writes') || boolean('TABULARIUS_SQL_WRITES');
       if (sqlWrites && sqlPort === undefined) throw new Error('serve: --sql-writes lets the SQL port write, so it needs --sql-port (or TABULARIUS_SQL_PORT)');
       // Standby servers follow this one's changes, signing in with this token.
-      const { value: replicationToken, file: replicationTokenFile } = tokenOption(args, '--replication-token', '--replication-token-file', process.env.TABULARIUS_REPLICATION_TOKEN, process.env.TABULARIUS_REPLICATION_TOKEN_FILE, 'serve');
+      const { value: replicationToken, file: replicationTokenFile } = tokenOption(args, '--replication-token', '--replication-token-file', secret('TABULARIUS_REPLICATION_TOKEN'), process.env.TABULARIUS_REPLICATION_TOKEN_FILE, 'serve');
       if (replicationToken !== undefined && replicationToken.length < 16) throw new Error('serve: --replication-token must be at least 16 characters');
       // A folder that was a standby's has its API tokens ended at takeover, as it may hold ones the main server had revoked.
       const keepApiTokensOnTakeover = bool(args, '--keep-api-tokens-on-takeover');
@@ -1388,7 +1388,7 @@ function main(argv: string[]): number {
       const single = issuer && clientId ? {
         issuer, clientId,
         name: flag(args, '--oidc-name') ?? process.env.TABULARIUS_OIDC_NAME ?? new URL(issuer).hostname,
-        clientSecret: process.env.TABULARIUS_OIDC_CLIENT_SECRET,
+        clientSecret: secret('TABULARIUS_OIDC_CLIENT_SECRET'),
         groupsClaim: flag(args, '--oidc-groups-claim') ?? process.env.TABULARIUS_OIDC_GROUPS_CLAIM,
         ...(args.includes('--oidc-trust-email') || boolean('TABULARIUS_OIDC_TRUST_EMAIL', { words: 'strict' }) ? { trustEmail: true } : {}),
         // Data API apps (getoauthurl) people may be sent back to after signing in, besides this server and this computer.
@@ -1412,7 +1412,7 @@ function main(argv: string[]): number {
         name: flag(args, '--ldap-name') ?? process.env.TABULARIUS_LDAP_NAME ?? new URL(ldapUrl).hostname,
         bindDnTemplate: flag(args, '--ldap-bind-dn-template') ?? process.env.TABULARIUS_LDAP_BIND_DN_TEMPLATE,
         searchDn: flag(args, '--ldap-search-dn') ?? process.env.TABULARIUS_LDAP_SEARCH_DN,
-        searchPassword: process.env.TABULARIUS_LDAP_SEARCH_PASSWORD,
+        searchPassword: secret('TABULARIUS_LDAP_SEARCH_PASSWORD'),
         baseDn: flag(args, '--ldap-base-dn') ?? process.env.TABULARIUS_LDAP_BASE_DN,
         userAttribute: flag(args, '--ldap-user-attribute') ?? process.env.TABULARIUS_LDAP_USER_ATTRIBUTE,
         emailAttribute: flag(args, '--ldap-email-attribute') ?? process.env.TABULARIUS_LDAP_EMAIL_ATTRIBUTE,
@@ -1421,9 +1421,9 @@ function main(argv: string[]): number {
       if (ldap && !ldap.bindDnTemplate && !ldap.baseDn) throw new Error('serve: --ldap-url needs either --ldap-bind-dn-template or --ldap-base-dn');
       // The AI assistant sends questions and what its tools read to the model provider: only when asked.
       const embedOptions = (a: string[]): { embedUrl?: string; embedModel?: string; embedKey?: string; imageEmbed?: { provider: string; model: string; key: string } } => {
-        const img = resolveImageEmbed(flag(a, '--ai-image-embed') ?? process.env.TABULARIUS_AI_IMAGE_EMBED, flag(a, '--ai-image-embed-model') ?? process.env.TABULARIUS_AI_IMAGE_EMBED_MODEL, process.env.TABULARIUS_AI_IMAGE_EMBED_KEY);
+        const img = resolveImageEmbed(flag(a, '--ai-image-embed') ?? process.env.TABULARIUS_AI_IMAGE_EMBED, flag(a, '--ai-image-embed-model') ?? process.env.TABULARIUS_AI_IMAGE_EMBED_MODEL, secret('TABULARIUS_AI_IMAGE_EMBED_KEY'));
         const imageEmbed = img ? { imageEmbed: { provider: img.provider.id, model: img.model, key: img.key } } : {};
-        const e = resolveEmbedEndpoint(flag(a, '--ai-embed-url') ?? process.env.TABULARIUS_AI_EMBED_URL, flag(a, '--ai-embed-model') ?? process.env.TABULARIUS_AI_EMBED_MODEL, process.env.TABULARIUS_AI_EMBED_KEY);
+        const e = resolveEmbedEndpoint(flag(a, '--ai-embed-url') ?? process.env.TABULARIUS_AI_EMBED_URL, flag(a, '--ai-embed-model') ?? process.env.TABULARIUS_AI_EMBED_MODEL, secret('TABULARIUS_AI_EMBED_KEY'));
         return e ? { embedUrl: e.url, embedModel: e.model, ...(e.key ? { embedKey: e.key } : {}), ...imageEmbed } : imageEmbed;
       };
       let ai: { apiKey: string; keySource?: 'environment' | 'file'; keyFile?: string; workspaceId?: string; workspaceFile?: string; model?: string; fastModel?: string; embedUrl?: string; embedModel?: string; embedKey?: string; imageEmbed?: { provider: string; model: string; key: string }; dailyTokens?: number; accountDailyTokens?: number; runTokens?: number; monthlyBudgetUsd?: number } | undefined;
@@ -1722,7 +1722,7 @@ function main(argv: string[]): number {
     }
     case 'standby': {
       const primary = flag(args, '--primary') ?? process.env.TABULARIUS_PRIMARY;
-      const token = tokenOption(args, '--token', '--token-file', process.env.TABULARIUS_REPLICATION_TOKEN, process.env.TABULARIUS_REPLICATION_TOKEN_FILE, 'standby').value;
+      const token = tokenOption(args, '--token', '--token-file', secret('TABULARIUS_REPLICATION_TOKEN'), process.env.TABULARIUS_REPLICATION_TOKEN_FILE, 'standby').value;
       if (!primary || !token) throw new Error('standby: give --primary URL and --token or --token-file (the main server\'s replication token)');
       const standby = new Standby({ folder: path, primary, token, overwrite: bool(args, '--overwrite'), log: (m) => console.log(m) });
       standby.start();
