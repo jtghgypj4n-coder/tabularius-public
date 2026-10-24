@@ -33,8 +33,7 @@ test('support classifications agree with the engine availability list', () => {
     assert.ok(p.codes.includes(3), p.name);
     assert.match(pageText(p), /## Replacement/);
   }
-  for (const name of ['Print Setup', 'Open Help'])
-    assert.equal(pages.find((p) => p.name === name)?.status, 'does nothing');
+  assert.equal(pages.find((p) => p.name === 'Print Setup')?.status, 'does nothing');
   // Refresh Portal clears the read cache and asks the client to refresh, so it is partly supported.
   for (const name of ['Refresh Portal', 'Import Records', 'Save Records as PDF', 'Send Mail'])
     assert.equal(pages.find((p) => p.name === name)?.status, 'partly');
@@ -49,12 +48,18 @@ test('Refresh Portal is documented as a handler with a missing-target error', ()
 });
 
 test('every inert client-flow and dictionary step is documented as doing nothing', () => {
-  for (const id of [32, 105, 109, 113, 114, 118, 129, 172, 183, 209]) {
+  for (const id of [105, 109, 113, 114, 118, 129, 172, 183, 209]) {
     const page = pages.find((p) => p.id === id)!;
     assert.equal(page.status, 'does nothing', page.name);
     assert.match(pageText(page), /The engine accepts this step but does not perform its named action\./);
     assert.doesNotMatch(pageText(page), /The engine has a handler/);
   }
+});
+
+test('Open Help is documented as asking the web client to open the hosted guides, not as doing nothing', () => {
+  const page = pages.find((p) => p.id === 32)!;
+  assert.equal(page.status, 'works');
+  assert.match(pageText(page), /hosted guides/);
 });
 
 test('Close File documents the unnamed-file no-op without classifying every Close File as inert', () => {
