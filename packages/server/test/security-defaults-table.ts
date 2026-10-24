@@ -497,6 +497,7 @@ export const ROWS: Row[] = [
       const store = c.source('packages/store/src/store.ts');
       const debug = c.source('packages/server/src/debug.ts');
       return [grep(store, /export const MAX_API_TOKENS_PER_ACCOUNT = (1000);/), grep(store, /export const MAX_PENDING_PER_AGENT = (500);/), grep(debug, /export const MAX_RUNS_PER_SESSION = (3);/)].join(' / ');
+    },
   },
   {
     id: 'sign-in-failure-audit', section: 'Limits', setting: 'Failed sign-ins in the security audit',
