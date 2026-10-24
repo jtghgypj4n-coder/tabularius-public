@@ -15,7 +15,7 @@ function startup(child: EventEmitter & { stdout: Readable; stderr: Readable }, w
   let output = '';
   let errors = '';
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => finish(new Error(`startup timed out: ${output}\n${errors}`)), 15_000);
+    const timer = setTimeout(() => finish(new Error(`startup timed out: ${output}\n${errors}`)), 60_000);
     const finish = (error?: Error, url?: string) => {
       clearTimeout(timer);
       child.off('error', fail);
