@@ -91,6 +91,8 @@ export interface Session {
   account: string;
   /** Epoch milliseconds, for display only. */
   started: number;
+  /** Monotonic sign-in time for the optional 30-day web session limit. */
+  signedInAt?: number;
   /** Monotonic milliseconds, for idle expiry and eviction. */
   lastUsed: number;
   /** Calls using this session right now, for validateSession's isSessionInUse. */
@@ -1037,6 +1039,7 @@ export class DataApi {
           : new ApiError(-1, 'Unknown error');
         if (!(e instanceof ApiError) && !(e instanceof StoreError) && !locked) logFaultFor(this.host.get(parts[1] ?? '') ?? this.host)(e);
         [status, code] = [err.status, err.code];
+        if (parts[2] !== 'sessions') this.clearDeviceOnExpiry(req, res, err.status, used?.client === 'web');
         bytes = this.send(res, err.status, { response: {}, messages: [{ code: String(err.code), message: err.message }],
           ...(err.denial ? { 'tabularius:denial': explainAccessDenial(err.denial) } : {}) }, err.retryAfter ? { 'retry-after': String(err.retryAfter) } : {}, nativeResponse);
       }
@@ -1083,6 +1086,8 @@ export class DataApi {
    */
   private timedOut(s: Session, now = performance.now()): boolean {
     if (s.token.startsWith('ohbt_')) return false;
+    // Tabularius device policy; equivalent behavior in other products is unverified.
+    if (s.client === 'web' && this.host.config.stopKeepingRecordData() && s.signedInAt !== undefined && now - s.signedInAt >= 30 * 86_400_000) return true;
     const idle = now - s.lastUsed;
     const limit = s.client === 'web' ? this.host.config.webSessionIdleMinutes() : this.host.config.sessionIdleMinutes();
     if (idle <= limit * 60_000) return false;
@@ -1098,6 +1103,16 @@ export class DataApi {
       return !p.full && !p.idleDisconnect;
     } catch {
       return false;
+    }
+  }
+
+  /** Web calls identify themselves even after their token has been swept or revoked; no ended-token list is kept. */
+  clearDeviceOnExpiry(req: IncomingMessage, res: ServerResponse, status: number, webRoute = false): void {
+    if (status !== 401 || !(webRoute || req.headers['x-tabularius-client'] === 'web') || !this.host.config.stopKeepingRecordData()) return;
+    const token = /^Bearer\s+(.+)$/i.exec(req.headers.authorization ?? '')?.[1] ?? req.headers['x-fm-data-access-token'];
+    // A wrong file or other refusal must not clear a session that is still usable.
+    if (typeof token === 'string' && token && !this.alive(token)) {
+      res.setHeader('Clear-Site-Data', '"cache", "storage"');
     }
   }
 
@@ -1538,7 +1553,7 @@ export class DataApi {
     const token = this.tokenPrefix + randomBytes(24 - this.tokenPrefix.length / 2).toString('hex');
     const principalId = store.accountIdentityId(account);
     const personId = externalIdentity?.person ? store.accountIdentityId(externalIdentity.person) : undefined;
-    const session: Session = { token, db: store.name, account, principalId, personId, started: Date.now(), lastUsed: performance.now(), scripts: new ScriptSession(), client, ...(via ? { via, viaId } : {}), ...(externalIdentity ? { externalIdentity } : {}), ...(from ? { from } : {}), ...(device ? { device: device.slice(0, 200) } : {}), ...(dataSources ? { dataSources } : {}) };
+    const session: Session = { token, db: store.name, account, principalId, personId, started: Date.now(), signedInAt: performance.now(), lastUsed: performance.now(), scripts: new ScriptSession(), client, ...(via ? { via, viaId } : {}), ...(externalIdentity ? { externalIdentity } : {}), ...(from ? { from } : {}), ...(device ? { device: device.slice(0, 200) } : {}), ...(dataSources ? { dataSources } : {}) };
     session.signInMark = store.signInMark(account, via, externalIdentity?.person);
     session.signedInExtended = store.privileges(account, via, externalIdentity?.person).set.extendedPrivileges.map(e => e.toLowerCase());
     try {

@@ -2779,7 +2779,7 @@ class LayoutEditor {
         const there = new DesignClient(db, api.token);
         const done = (text: string) => {
           signedIn.delete(api);
-          void api.logout();
+          void api.endSession();
           signIn.hidden = true;
           out.replaceChildren(h('p', {}, text));
         };
@@ -2806,7 +2806,7 @@ class LayoutEditor {
     this.libraryDialog(`Update other files to version ${entry.version} of "${name}"`, others.length
       ? [h('p', { class: 'd-muted' }, 'Each file has its own accounts: sign in to one with an account that has full access there to see what changes, then update it.'), h('ul', { class: 'le-library-files' }, ...rows)]
       : [h('p', { class: 'd-muted' }, 'No other file has placed it yet.')], (close) => [button('Done', close)], () => {
-      for (const api of signedIn) void api.logout();
+      for (const api of signedIn) void api.endSession();
       signedIn.clear();
     });
   }

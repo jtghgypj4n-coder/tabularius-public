@@ -184,6 +184,13 @@ export class Api {
   }
 
   async logout(): Promise<void> {
+    await fetch(`/tabularius/app/v1/databases/${enc(this.db)}/sign-out`, {
+      method: 'POST', headers: { authorization: `Bearer ${this.token}` },
+    }).catch(() => {});
+  }
+
+  /** Releases a temporary session (for example a library preview) without clearing the signed-in browser. */
+  async endSession(): Promise<void> {
     await fetch(`/fmi/data/vLatest/databases/${enc(this.db)}/sessions/${enc(this.token)}`, { method: 'DELETE' }).catch(() => {});
   }
 
@@ -346,7 +353,7 @@ export class Api {
     const raw = body instanceof FormData || body instanceof Blob;
     const r = await fetch(path, {
       method,
-      headers: { authorization: `Bearer ${this.token}`, ...(window ? { 'x-tabularius-window': window } : {}), ...(body === undefined || raw ? {} : { 'content-type': 'application/json' }) },
+      headers: { authorization: `Bearer ${this.token}`, 'x-tabularius-client': 'web', ...(window ? { 'x-tabularius-window': window } : {}), ...(body === undefined || raw ? {} : { 'content-type': 'application/json' }) },
       body: body === undefined ? undefined : raw ? (body as FormData | Blob) : JSON.stringify(body),
       signal,
     });

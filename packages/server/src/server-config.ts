@@ -84,6 +84,15 @@ export class ServerConfig {
     this.write({ webSessionIdleMinutes: minutes ?? undefined });
   }
 
+  /** Partial device policy: server-directed clearing and a 30-day web session limit; browser writes are unchanged. */
+  stopKeepingRecordData(): boolean {
+    return this.values().stopKeepingRecordData === true;
+  }
+
+  setStopKeepingRecordData(on: boolean): void {
+    this.write({ stopKeepingRecordData: on || undefined });
+  }
+
   /** Where server events are emailed, when set. */
   notifications(): NotifySettings | undefined {
     const v = this.values().notifications as Partial<NotifySettings> | undefined;

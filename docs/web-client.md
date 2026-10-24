@@ -297,3 +297,35 @@ the web shows as text that names the host to allow.
   The console refuses the names the server answers to, since a page of one would run beside the app: the address it was reached at, `--public-url`, the `--https` domains, the `--mcp-origin` and `--browser-origin` origins and the computer's own name. Set `--public-url` so the server knows its public address. A list that came back with a restored backup is checked against these names too, every time it is read, and against the name each request came in by: an entry that covers one is not honoured, and the console's answer lists it as `ignored`. So does an entry in a restored file that fails the checks above (a wildcard over a public suffix, for one). The app page's policy names at most 200 hosts (about 8 KB of names) across all files; a host past that is not framed.
 
 <!-- known-difference: Web client ;; A web viewer loads an https address only when an administrator listed its host for the file, over https only; FileMaker loads any address, and Go Back, Go Forward and Perform JavaScript in Web Viewer do not work on a page from a web host ;; An address on the web shows as text naming the host, until it is listed ;; Owner decision -->
+
+## Browser storage and forgetting a device
+
+The browser keeps the sign-in token and layout selection in session storage,
+preferences and saved-find values in local storage, and, when an offline copy is
+enabled, encrypted record responses, layout data and pending edits in IndexedDB.
+Assistant messages can also remain in session storage. The service worker keeps
+app assets in its cache.
+
+Web sign-out now calls `POST /tabularius/app/v1/databases/{database}/sign-out`.
+It ends that session and sends `Clear-Site-Data: "cache", "storage"`. The
+Data API’s `DELETE /fmi/data/vLatest/databases/{database}/sessions/{token}`,
+used by integrations, does not send this header. A signed-in web session can also
+call `POST /tabularius/app/v1/databases/{database}/forget-device` with its Bearer
+token: 204, the same clearing header, and that token ends. A missing or expired
+session gets 401; a Data API session or scoped API token gets 403.
+
+In the Admin console’s **Connected** section, **Stop keeping record data on
+devices** is off by default. Turning it on also requests clearing when a web data
+call returns 401 after the session expires or is revoked, and ends web sessions
+30 days after sign-in even while active. The limit uses elapsed time; clock edits
+do not reset it. A disconnected device receives no clearing response until it
+contacts the server. With the setting off, existing idle limits are unchanged.
+
+**Partial:** this setting currently implements server-directed clearing and the
+30-day session limit only. It does not prevent browser storage writes while a
+session is active. Clearing depends on browser support in a secure context; it
+is not proof of erasure. Clear-Site-Data is origin-wide: it may remove offline
+copies and unsent edits, saved preferences and other tabs’ stored tokens on the
+same origin. It never requests clearing cookies, and it ends only the requesting
+session token on the server. Save or sync pending edits first. Cross-browser
+erasure behavior and equivalent behavior in FileMaker are unverified. <!-- known-difference: Web client ;; Browser erasure and equivalent device-forgetting behavior in FileMaker are unverified ;; Clearing requests and session expiry are tested; actual browser erasure is not established ;; Cross-browser storage checks and a comparison with FileMaker -->

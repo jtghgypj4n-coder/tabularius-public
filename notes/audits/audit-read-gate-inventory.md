@@ -216,10 +216,10 @@ The following reasons apply to the exact enumerated expressions in each named fu
 | [packages/scripts/src/testrun.ts:199](../../packages/scripts/src/testrun.ts#L199) `seedSelections` | `Calculations.globalValue` (199); `Store.find` (204) | DESIGN |
 | [packages/scripts/src/testrun.ts:338](../../packages/scripts/src/testrun.ts#L338) `testRun` | `Store.evaluateEach` (338) | DESIGN |
 | [packages/scripts/src/testrun.ts:270](../../packages/scripts/src/testrun.ts#L270) `testScript` | `Store.findIds` (270) | DESIGN |
-| [packages/server/src/admin.ts:2271](../../packages/server/src/admin.ts#L2271) `Admin/audit` | `Store.auditLog` (2271) | ADMIN |
-| [packages/server/src/admin.ts:1040](../../packages/server/src/admin.ts#L1040) `Admin/handle` | `Store.externalContainerReport` (1040); `Store.orphanContainerReport` (1045, 1049) | ADMIN |
-| [packages/server/src/admin.ts:2702](../../packages/server/src/admin.ts#L2702) `Admin/status` | `Store.externalContainerCount` (2702) | ADMIN |
-| [packages/server/src/admin.ts:2354](../../packages/server/src/admin.ts#L2354) `Admin/viewAs` | `Store.find` (2354) | ADMIN |
+| [packages/server/src/admin.ts:2278](../../packages/server/src/admin.ts#L2278) `Admin/audit` | `Store.auditLog` (2278) | ADMIN |
+| [packages/server/src/admin.ts:1047](../../packages/server/src/admin.ts#L1047) `Admin/handle` | `Store.externalContainerReport` (1047); `Store.orphanContainerReport` (1052, 1056) | ADMIN |
+| [packages/server/src/admin.ts:2709](../../packages/server/src/admin.ts#L2709) `Admin/status` | `Store.externalContainerCount` (2709) | ADMIN |
+| [packages/server/src/admin.ts:2361](../../packages/server/src/admin.ts#L2361) `Admin/viewAs` | `Store.find` (2361) | ADMIN |
 | [packages/server/src/agent.ts:316](../../packages/server/src/agent.ts#L316) `dryRunPlan` | `Store.findIds` (316) | DESIGN |
 | [packages/server/src/agent.ts:339](../../packages/server/src/agent.ts#L339) `runApprovedStep` | `Store.findIds` (339) | DESIGN |
 | [packages/server/src/agent.ts:162](../../packages/server/src/agent.ts#L162) `runStep` | `Store.findIds` (162); `Store.auditLog` (230); `Store.canViewRecord` (242) | DESIGN |
@@ -293,9 +293,9 @@ The following reasons apply to the exact enumerated expressions in each named fu
 | [packages/server/src/dashboards.ts:369](../../packages/server/src/dashboards.ts#L369) `Dashboards/list` | `SQLite.all` (369); `SQLite.prepare` (369); `Store.sql` (369) | DASHBOARD |
 | [packages/server/src/dashboards.ts:359](../../packages/server/src/dashboards.ts#L359) `Dashboards/table` | `Store.sql` (359) | DASHBOARD |
 | [packages/server/src/dashboards.ts:402](../../packages/server/src/dashboards.ts#L402) `Dashboards/update` | `SQLite.prepare` (402); `Store.sql` (402) | DASHBOARD |
-| [packages/server/src/dataapi.ts:1960](../../packages/server/src/dataapi.ts#L1960) `DataApi/route` | `Store.get` (1960, 2182, 2183, 2206, 2214, 2261, 2285, 2305, 2342); `Store.valueListItems` (1975); `Store.find` (2137, 2185, 2375); `Store.findIds` (2141, 2380); `Store.query` (2380) | REST |
-| [packages/server/src/dataapi.ts:2089](../../packages/server/src/dataapi.ts#L2089) `DataApi/route/recordOut` | `Store.portalCounts` (2089) | REST |
-| [packages/server/src/dataapi.ts:2125](../../packages/server/src/dataapi.ts#L2125) `DataApi/route/shownAs` | `Store.get` (2125) | REST |
+| [packages/server/src/dataapi.ts:1975](../../packages/server/src/dataapi.ts#L1975) `DataApi/route` | `Store.get` (1975, 2197, 2198, 2221, 2229, 2276, 2300, 2320, 2357); `Store.valueListItems` (1990); `Store.find` (2152, 2200, 2390); `Store.findIds` (2156, 2395); `Store.query` (2395) | REST |
+| [packages/server/src/dataapi.ts:2104](../../packages/server/src/dataapi.ts#L2104) `DataApi/route/recordOut` | `Store.portalCounts` (2104) | REST |
+| [packages/server/src/dataapi.ts:2140](../../packages/server/src/dataapi.ts#L2140) `DataApi/route/shownAs` | `Store.get` (2140) | REST |
 | [packages/server/src/debug.ts:344](../../packages/server/src/debug.ts#L344) `DebugApi/handle` | `Store.row` (344, 473); `Store.get` (353, 478); `Store.evaluate` (377) | DESIGN |
 | [packages/server/src/debug.ts:193](../../packages/server/src/debug.ts#L193) `learnStoredCredentials` | `Calculations.globalValue` (193); `Store.sql` (199, 209, 209); `SQLite.iterate` (209, 209); `SQLite.prepare` (209, 209); `Store.iterateCommitted` (209) | DESIGN |
 | [packages/server/src/design.ts:730](../../packages/server/src/design.ts#L730) `DesignApi/handle` | `Store.auditLog` (730); `Store.evaluate` (797) | DESIGN |
@@ -455,26 +455,26 @@ The following reasons apply to the exact enumerated expressions in each named fu
 | [packages/server/src/sync-console.ts:463](../../packages/server/src/sync-console.ts#L463) `SyncConsole/runCheck/assertActive` | `Store.sql` (463) | DESIGN |
 | [packages/server/src/warm-worker.ts:34](../../packages/server/src/warm-worker.ts#L34) `message` | `Store.find` (34) | INTERNAL |
 | [packages/server/src/warm-worker.ts:19](../../packages/server/src/warm-worker.ts#L19) `message/count` | `Store.recordCount` (19) | INTERNAL |
-| [packages/server/src/webclient.ts:1664](../../packages/server/src/webclient.ts#L1664) `WebClient/aiReplace` | `Store.canView` (1664); `Store.getMany` (1680) | WEB |
-| [packages/server/src/webclient.ts:1848](../../packages/server/src/webclient.ts#L1848) `WebClient/button` | `Store.findIds` (1848, 1898); `Store.evaluateEach` (1857, 1858) | WEB |
-| [packages/server/src/webclient.ts:1250](../../packages/server/src/webclient.ts#L1250) `WebClient/charts` | `Calculations.context` (1250); `Store.canView` (1278); `Store.evaluateEach` (1287, 1291); `Store.evaluateRows` (1296, 1298) | WEB |
-| [packages/server/src/webclient.ts:1241](../../packages/server/src/webclient.ts#L1241) `WebClient/charts/foundSet` | `Store.findIds` (1241) | WEB |
-| [packages/server/src/webclient.ts:1281](../../packages/server/src/webclient.ts#L1281) `WebClient/charts/get` | `Store.get` (1281) | WEB |
-| [packages/server/src/webclient.ts:667](../../packages/server/src/webclient.ts#L667) `WebClient/explain` | `Store.get` (667); `Store.row` (700, 713) | WEB |
-| [packages/server/src/webclient.ts:1470](../../packages/server/src/webclient.ts#L1470) `WebClient/exportRecords` | `Store.getMany` (1470) | WEB |
-| [packages/server/src/webclient.ts:1157](../../packages/server/src/webclient.ts#L1157) `WebClient/foundIds` | `Store.findIds` (1157) | WEB |
-| [packages/server/src/webclient.ts:1201](../../packages/server/src/webclient.ts#L1201) `WebClient/foundSetPortal` | `Store.foundSetRows` (1201, 1208) | WEB |
-| [packages/server/src/webclient.ts:1740](../../packages/server/src/webclient.ts#L1740) `WebClient/groups` | `Store.findIds` (1740); `Store.groupSummaries` (1746) | WEB |
-| [packages/server/src/webclient.ts:530](../../packages/server/src/webclient.ts#L530) `WebClient/history` | `Store.get` (530) | WEB |
-| [packages/server/src/webclient.ts:726](../../packages/server/src/webclient.ts#L726) `WebClient/index` | `Store.fieldIndex` (726) | WEB |
-| [packages/server/src/webclient.ts:816](../../packages/server/src/webclient.ts#L816) `WebClient/menus` | `Store.evaluateEach` (816) | WEB |
-| [packages/server/src/webclient.ts:1172](../../packages/server/src/webclient.ts#L1172) `WebClient/records` | `Store.getMany` (1172); `Store.find` (1175) | WEB |
-| [packages/server/src/webclient.ts:1118](../../packages/server/src/webclient.ts#L1118) `WebClient/refresh` | `Store.previewRow` (1118); `Store.getMany` (1123); `Store.foundSetRows` (1145) | WEB |
-| [packages/server/src/webclient.ts:1364](../../packages/server/src/webclient.ts#L1364) `WebClient/streamExportRecords/nextBatch` | `Store.selectIds` (1364); `Store.getMany` (1370) | WEB |
-| [packages/server/src/webclient.ts:1032](../../packages/server/src/webclient.ts#L1032) `WebClient/view` | `Store.evaluateEach` (1032, 1056, 1075); `Store.canView` (1050); `Store.previewRow` (1054, 1076); `Store.get` (1067); `Store.row` (1068, 1068) | WEB |
-| [packages/server/src/webclient.ts:1053](../../packages/server/src/webclient.ts#L1053) `WebClient/view/get` | `Store.get` (1053) | WEB |
-| [packages/server/src/webclient.ts:2627](../../packages/server/src/webclient.ts#L2627) `foundIds` | `Store.findIds` (2627, 2629) | WEB |
-| [packages/server/src/webclient.ts:2548](../../packages/server/src/webclient.ts#L2548) `listItems` | `Store.valueListItems` (2548) | WEB |
+| [packages/server/src/webclient.ts:1682](../../packages/server/src/webclient.ts#L1682) `WebClient/aiReplace` | `Store.canView` (1682); `Store.getMany` (1698) | WEB |
+| [packages/server/src/webclient.ts:1866](../../packages/server/src/webclient.ts#L1866) `WebClient/button` | `Store.findIds` (1866, 1916); `Store.evaluateEach` (1875, 1876) | WEB |
+| [packages/server/src/webclient.ts:1268](../../packages/server/src/webclient.ts#L1268) `WebClient/charts` | `Calculations.context` (1268); `Store.canView` (1296); `Store.evaluateEach` (1305, 1309); `Store.evaluateRows` (1314, 1316) | WEB |
+| [packages/server/src/webclient.ts:1259](../../packages/server/src/webclient.ts#L1259) `WebClient/charts/foundSet` | `Store.findIds` (1259) | WEB |
+| [packages/server/src/webclient.ts:1299](../../packages/server/src/webclient.ts#L1299) `WebClient/charts/get` | `Store.get` (1299) | WEB |
+| [packages/server/src/webclient.ts:685](../../packages/server/src/webclient.ts#L685) `WebClient/explain` | `Store.get` (685); `Store.row` (718, 731) | WEB |
+| [packages/server/src/webclient.ts:1488](../../packages/server/src/webclient.ts#L1488) `WebClient/exportRecords` | `Store.getMany` (1488) | WEB |
+| [packages/server/src/webclient.ts:1175](../../packages/server/src/webclient.ts#L1175) `WebClient/foundIds` | `Store.findIds` (1175) | WEB |
+| [packages/server/src/webclient.ts:1219](../../packages/server/src/webclient.ts#L1219) `WebClient/foundSetPortal` | `Store.foundSetRows` (1219, 1226) | WEB |
+| [packages/server/src/webclient.ts:1758](../../packages/server/src/webclient.ts#L1758) `WebClient/groups` | `Store.findIds` (1758); `Store.groupSummaries` (1764) | WEB |
+| [packages/server/src/webclient.ts:547](../../packages/server/src/webclient.ts#L547) `WebClient/history` | `Store.get` (547) | WEB |
+| [packages/server/src/webclient.ts:744](../../packages/server/src/webclient.ts#L744) `WebClient/index` | `Store.fieldIndex` (744) | WEB |
+| [packages/server/src/webclient.ts:834](../../packages/server/src/webclient.ts#L834) `WebClient/menus` | `Store.evaluateEach` (834) | WEB |
+| [packages/server/src/webclient.ts:1190](../../packages/server/src/webclient.ts#L1190) `WebClient/records` | `Store.getMany` (1190); `Store.find` (1193) | WEB |
+| [packages/server/src/webclient.ts:1136](../../packages/server/src/webclient.ts#L1136) `WebClient/refresh` | `Store.previewRow` (1136); `Store.getMany` (1141); `Store.foundSetRows` (1163) | WEB |
+| [packages/server/src/webclient.ts:1382](../../packages/server/src/webclient.ts#L1382) `WebClient/streamExportRecords/nextBatch` | `Store.selectIds` (1382); `Store.getMany` (1388) | WEB |
+| [packages/server/src/webclient.ts:1050](../../packages/server/src/webclient.ts#L1050) `WebClient/view` | `Store.evaluateEach` (1050, 1074, 1093); `Store.canView` (1068); `Store.previewRow` (1072, 1094); `Store.get` (1085); `Store.row` (1086, 1086) | WEB |
+| [packages/server/src/webclient.ts:1071](../../packages/server/src/webclient.ts#L1071) `WebClient/view/get` | `Store.get` (1071) | WEB |
+| [packages/server/src/webclient.ts:2648](../../packages/server/src/webclient.ts#L2648) `foundIds` | `Store.findIds` (2648, 2650) | WEB |
+| [packages/server/src/webclient.ts:2569](../../packages/server/src/webclient.ts#L2569) `listItems` | `Store.valueListItems` (2569) | WEB |
 | [packages/store/src/activity.ts:498](../../packages/store/src/activity.ts#L498) `SharedRecordLocks/acquire` | `SQLite.prepare` (498) | CORE |
 | [packages/store/src/activity.ts:536](../../packages/store/src/activity.ts#L536) `SharedRecordLocks/all` | `SQLite.all` (536); `SQLite.prepare` (536) | CORE |
 | [packages/store/src/activity.ts:440](../../packages/store/src/activity.ts#L440) `SharedRecordLocks/constructor` | `SQLite.get` (440); `SQLite.prepare` (440) | CORE |
