@@ -145,7 +145,7 @@ export interface ContainerUpload extends ContainerTarget {
 
 interface Held extends ContainerUpload {
   path: string;
-  cleanup: () => void;
+  cleanup: ReturnType<typeof cleanupPath>;
   hash: Hash;
   /** The SHA-256 the client said the file has, to check at the end. */
   expected?: string;
@@ -295,7 +295,7 @@ export class ContainerUploads {
     if (u.received !== u.size) throw new ContainerUploadError(409, `Only ${u.received} of ${u.size} bytes have arrived`, u.received);
     const sha256 = u.hash.copy().digest('hex');
     if (u.expected && u.expected !== sha256) {
-      this.drop(u);
+      this.drop(u, false);
       throw new ContainerUploadError(422, 'The file that arrived is not the one described (its SHA-256 differs); upload it again');
     }
     this.touch(u);
@@ -323,9 +323,9 @@ export class ContainerUploads {
     else this.uploads.delete(id);
   }
 
-  private drop(u: Held): void {
+  private drop(u: Held, throwOnError = true): void {
     this.uploads.delete(u.id);
-    u.cleanup();
+    u.cleanup({ throwOnError });
   }
 
   /** Removes uploads nothing has arrived for in the idle time: their bytes would otherwise stay until the server stopped. */

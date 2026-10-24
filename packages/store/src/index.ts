@@ -7,8 +7,8 @@ export { STORE_FORMAT, StoreFormatError, storedFormat, refuseNewer } from './sto
 export { FileDamaged, FileReadOnly, DiskTrouble, isDamageError } from './damage.ts';
 export { explainAccessDenial, type AccessDenial, type AccessDenialExplanation, type AccessOperation, type AccessPermission, type RuleOutcome } from './access-denial.ts';
 export { ERROR_MEANINGS, errorMeaning, plainMessage } from './error-codes.ts';
-export { Store, StoreError, PendingApprovalError, FindError, foldSecurityName, type WriteOptions, hashPassword, generateTempPassword, addressBucket, LOCKOUT, PASSWORD_POLICY, DEFAULT_MIN_PASSWORD_LENGTH, defaultMinPasswordLength, checkPassword, checkPasswordAsync, spendPasswordCheck, type FindRequest, type FindOptions, type FindTiming, type FindResult, type GroupRun, type StoredRecord, type FieldData, type LayoutInfo, type SortSpec, type DateFormat, type Container, type ContainerFile, type ContainerInfo, CONTAINER_CHUNK, type ContainerUrl, type PortalRow, type LayoutPlan, type PortalPaging, type EvaluateOptions, type SecurityOp, type AccountMutationAudit, type PasswordPolicy, type AuditEntry, type AuditSettings, NOT_LOGGED, type SecurityEvent, type SecurityEventKind, type AccessAlert, type AccessAlertKind, type TokenHygieneFinding, type LeastPrivilegeFinding } from './store.ts';
-export { accountsSharingLockout, lockoutName } from './sign-in-failures.ts';
+export { Store, StoreError, PendingApprovalError, FindError, foldSecurityName, type WriteOptions, hashPassword, generateTempPassword, MAX_API_TOKENS_PER_ACCOUNT, MAX_PENDING_PER_AGENT, addressBucket, LOCKOUT, PASSWORD_POLICY, DEFAULT_MIN_PASSWORD_LENGTH, defaultMinPasswordLength, checkPassword, checkPasswordAsync, spendPasswordCheck, type FindRequest, type FindOptions, type FindTiming, type FindResult, type GroupRun, type StoredRecord, type FieldData, type LayoutInfo, type SortSpec, type DateFormat, type Container, type ContainerFile, type ContainerInfo, CONTAINER_CHUNK, type ContainerUrl, type PortalRow, type LayoutPlan, type PortalPaging, type EvaluateOptions, type SecurityOp, type AccountMutationAudit, type PasswordPolicy, type AuditEntry, type AuditSettings, NOT_LOGGED, type SecurityEvent, type SecurityEventKind, type AccessAlert, type AccessAlertKind, type TokenHygieneFinding, type LeastPrivilegeFinding, API_TOKEN_DEFAULT_DAYS, API_TOKEN_MAX_DAYS, spendRecoveryCodeCheck, AUDIT_RETENTION_DEFAULT_DAYS } from './store.ts';
+export { accountsSharingLockout, lockoutName, SIGN_IN_FAILURE_AUDIT_FLOOR, signInFailureAuditShare } from './sign-in-failures.ts';
 export { SECURITY_EVENT_KINDS, SECURITY_EVENT_CATEGORIES, securityEventCategory, categoryKinds, securityEventSeverity, describeSecurityEvent, type SecurityEventSeverity } from './security-events.ts';
 export { normalizeWebViewerHost, normalizeWebViewerHosts, webViewerEntryCovers, WEB_VIEWER_HOSTS_MAX } from './web-viewer-hosts.ts';
 export { verifySecurityAudit, type SecurityAuditVerification } from './security-chain.ts';
@@ -64,12 +64,14 @@ export { styleCensus, styleCensusText, type StyleCensus } from './style-census.t
 
 export { parseDelimited, sniffSeparator, type DelimitedFormat } from './delimited.ts';
 export { decodeText } from './text-decode.ts';
-export { csvField, formulaGuard, stripFormulaGuard } from './csv-export.ts';
+export { csvField, formulaGuard, stripFormulaGuard, visibleControls } from './csv-export.ts';
+export { sameSecret } from './same-secret.ts';
 export { validPrivilegeSetName } from './security-names.ts';
 export { safeExistingPath, safeWritePath } from './safe-path.ts';
 export { accountKey, accountCollisionKey, AccountImportError, parseAccountCsv, type AccountImportRow, type AccountImportIssue, type AccountImportState, type AccountImportDecision, type AccountImportPlan, type AccountImportPreview, type AccountImportResult } from './account-provisioning.ts';
 export { fieldDisplayTypes, fieldMetaData } from './field-meta.ts';
 export { exportSql, exportSqlSummary } from './export-sql.ts';
+export { exitBundle, discardExitBundle, ExitBundleError, type ExitBundleOptions, type ExitBundleReport } from './exit-bundle.ts';
 export type { ExportSqlOptions, ExportSqlReport, ExportSqlSink, SqlDialect } from './export-sql.ts';
 export { applyStarter, starterSummaries, starterTarget, STARTER_NAMES, type Starter, type StarterResult } from './starters.ts';
 export { planImportTables, importTables, importTablesSummary, notionMarkdownSheet, parseNumber, MAX_IMPORT_ROWS, MAX_IMPORT_COLUMNS } from './import-tables.ts';

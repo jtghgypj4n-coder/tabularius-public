@@ -41,11 +41,11 @@ const SAFE_SETTINGS = new Set(['blockNewUsers', 'sessionIdleMinutes', 'webSessio
 /** Environment variables whose values are a number, a duration or a choice, shown with their value; the others by name only. */
 const SAFE_ENV = new Set([
   'TABULARIUS_WORKERS', 'TABULARIUS_PROGRESSIVE', 'TABULARIUS_BACKUP_EVERY', 'TABULARIUS_BACKUP_KEEP', 'TABULARIUS_SQL_PORT',
-  'TABULARIUS_HTTP_PORT', 'TABULARIUS_STOP_GRACE_MS', 'TABULARIUS_DRAIN_SECONDS', 'TABULARIUS_UPLOAD_IDLE_HOURS', 'TABULARIUS_AI_DAILY_TOKENS', 'TABULARIUS_AI_ACCOUNT_DAILY_TOKENS',
+  'TABULARIUS_HTTP_PORT', 'TABULARIUS_STOP_GRACE_MS', 'TABULARIUS_DRAIN_SECONDS', 'TABULARIUS_UPLOAD_IDLE_HOURS', 'TABULARIUS_AI_DAILY_TOKENS', 'TABULARIUS_AI_ACCOUNT_DAILY_TOKENS', 'TABULARIUS_AI_RUN_TOKENS',
   'TABULARIUS_AI_MONTHLY_BUDGET', 'TABULARIUS_TRACE_SQL_MIN_MS', 'TZ', 'LANG',
 ]);
 /** `serve` flags whose values are the same kind of thing. */
-const SAFE_FLAGS = new Set(['--port', '--workers', '--progressive', '--backup-every', '--keep', '--stats-interval', '--log-limit', '--sql-port', '--http-port', '--ai-daily-tokens', '--ai-account-daily-tokens', '--ai-monthly-budget']);
+const SAFE_FLAGS = new Set(['--port', '--workers', '--progressive', '--backup-every', '--keep', '--stats-interval', '--log-limit', '--sql-port', '--http-port', '--ai-daily-tokens', '--ai-account-daily-tokens', '--ai-run-tokens', '--ai-monthly-budget']);
 const SECRET_ENV = /key|token|secret|pass|credential|auth|smtp|cookie|session|bearer|private/i;
 
 const URL_AUTH = /(?<![a-z0-9+.-])([a-z][a-z0-9+.-]*:\/\/)[^\s/@"'<>]+@/gi;

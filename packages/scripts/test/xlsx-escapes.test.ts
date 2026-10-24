@@ -27,3 +27,7 @@ test('inline, formula string and shared string cells decode OOXML escapes', () =
 test('writer preserves literal escape-looking text, and malformed escapes stay literal', () => {
   assert.deepEqual(readXlsx(xlsx([['_x0041_', '_x00ZZ_', '_x41_', '_x000D_']])), [['_x0041_', '_x00ZZ_', '_x41_', '_x000D_']]);
 });
+
+test('a control character XML cannot hold is written as visible \\uXXXX text, not dropped', () => {
+  assert.deepEqual(readXlsx(xlsx([['a\u0007b\u0000c', 'tab\there', 'line\nbreak']])), [['a\\u0007b\\u0000c', 'tab\there', 'line\nbreak']]);
+});

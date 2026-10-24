@@ -26,12 +26,15 @@
 //
 // Sign in with the file's provisioning token (Authorization: Bearer ohsc_...),
 // issued from the admin console (or POST /tabularius/admin/v1/scim/token) and
-// shown once; only its hash is kept, in the file. Every change is in the
+// shown once; only its hash is kept, in the file. It always expires (90 days
+// unless 1 to 3650 is asked for) and is refused afterwards like a wrong token. Every change is in the
 // file's security log, made by "SCIM".
 
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { StoreError, isFullAccess, type Store } from '../../store/src/index.ts';
+import { expiryClock } from '../../store/src/clock.ts';
+import { DEFAULT_TOKEN_DAYS, MAX_TOKEN_DAYS, tokenExpiry } from './token-expiry.ts';
 import { ApiError, readJson, type DataApi } from './dataapi.ts';
 import type { Host } from './host.ts';
 
@@ -62,6 +65,8 @@ class ScimError extends Error {
 interface Settings {
   tokenHash?: string;
   issued?: string;
+  /** When the token stops working (ISO). A token stored without one predates expiry and is refused. */
+  expires?: string;
   defaultPrivilegeSet?: string;
 }
 
@@ -144,13 +149,22 @@ export class ScimDirectory {
     return set.name;
   }
 
-  /** A new provisioning token (the old one stops working). Shown once; only its hash is kept. */
-  issueToken(opts: { defaultPrivilegeSet?: string | null } = {}): string {
+  /**
+   * A new provisioning token (the old one stops working). Shown once; only its hash is kept. It always expires: after
+   * `days` (1 to 3650), 90 when none is asked for. Refused, with the current token left as it was, when the days are not valid.
+   */
+  issueToken(opts: { defaultPrivilegeSet?: string | null; days?: unknown } = {}): string {
+    const asked = opts.days ?? DEFAULT_TOKEN_DAYS;
+    const days = typeof asked === 'number' ? asked : typeof asked === 'string' && asked.trim() ? Number(asked) : NaN;
+    // Checked here, with a message that does not offer 0 for "never": a provisioning token has no such choice.
+    if (!(Number.isInteger(days) && days >= 1 && days <= MAX_TOKEN_DAYS)) throw new StoreError(960, `Days should be a whole number from 1 to ${MAX_TOKEN_DAYS}: a provisioning token always expires`);
+    const expires = tokenExpiry(days);
+    if (!expires) throw new StoreError(960, `Days should be above 0 and at most ${MAX_TOKEN_DAYS}: a provisioning token always expires`);
     const s = this.settings();
     if (opts.defaultPrivilegeSet !== undefined) s.defaultPrivilegeSet = opts.defaultPrivilegeSet === null ? undefined : this.checkSet(opts.defaultPrivilegeSet);
     const token = TOKEN_PREFIX + randomBytes(32).toString('base64url');
-    this.save({ ...s, tokenHash: hash(token), issued: new Date().toISOString() });
-    this.store.logProvisioningToken(true);
+    this.save({ ...s, tokenHash: hash(token), issued: new Date().toISOString(), expires: expires.toISOString() });
+    this.store.logProvisioningToken(true, undefined, expires.toISOString());
     return token;
   }
 
@@ -158,7 +172,7 @@ export class ScimDirectory {
   revokeToken(): boolean {
     const s = this.settings();
     if (!s.tokenHash) return false;
-    this.save({ ...s, tokenHash: undefined, issued: undefined });
+    this.save({ ...s, tokenHash: undefined, issued: undefined, expires: undefined });
     this.store.logProvisioningToken(false);
     return true;
   }
@@ -168,12 +182,30 @@ export class ScimDirectory {
     this.save({ ...s, defaultPrivilegeSet: name === null ? undefined : this.checkSet(name) });
   }
 
+  /** Whether the token is the file's current one and still within its life. */
   tokenValid(token: string): boolean {
-    const want = this.settings().tokenHash;
+    const { tokenHash: want, expires } = this.settings();
     if (!want || !token.startsWith(TOKEN_PREFIX)) return false;
     const a = Buffer.from(hash(token), 'hex');
     const b = Buffer.from(want, 'hex');
-    return a.length === b.length && timingSafeEqual(a, b);
+    return a.length === b.length && timingSafeEqual(a, b) && this.live(expires);
+  }
+
+  /** Whether an expiry date is still ahead. No date (a token made before they existed) or one that does not read is not. */
+  private live(expires: string | undefined): boolean {
+    return !!expires && Date.parse(expires) > expiryClock.now();
+  }
+
+  /** What the console shows of the token: whether provisioning is set up, until when, and whether the token is still accepted. */
+  tokenStatus(): { on: boolean; active: boolean; expires?: string; expired?: true; needsReissue?: true } {
+    const { tokenHash, expires } = this.settings();
+    if (!tokenHash) return { on: false, active: false };
+    const active = this.live(expires);
+    return {
+      on: true, active, ...(expires ? { expires } : {}),
+      // A date that has passed: say so. No date at all: made before tokens expired, so a new one is needed.
+      ...(!active && expires ? { expired: true as const } : {}), ...(!expires ? { needsReissue: true as const } : {}),
+    };
   }
 
   /** The file's accounts by lower-case name, read once per request rather than once per user. */
@@ -904,7 +936,7 @@ export async function scimAdmin(host: Host, req: IncomingMessage, url: URL, send
   const status = () => {
     const s = dir.settings();
     return {
-      database: store.name, on: !!s.tokenHash, ...(s.issued ? { issued: s.issued } : {}),
+      database: store.name, ...dir.tokenStatus(), ...(s.issued ? { issued: s.issued } : {}),
       ...(s.defaultPrivilegeSet ? { defaultPrivilegeSet: s.defaultPrivilegeSet } : {}),
       path: `/tabularius/scim/v2/databases/${encodeURIComponent(store.name)}`,
       users: dir.userCount(), privilegeSets: dir.groupSets(),
@@ -914,9 +946,12 @@ export async function scimAdmin(host: Host, req: IncomingMessage, url: URL, send
     if (path === '/tabularius/admin/v1/scim' && req.method === 'GET') send(200, status());
     else if (path === '/tabularius/admin/v1/scim/token' && req.method === 'POST') {
       const def = body.defaultPrivilegeSet;
-      const token = dir.issueToken(def === undefined || def === '' ? {} : { defaultPrivilegeSet: def === null ? null : String(def) });
+      const token = dir.issueToken({ ...(def === undefined || def === '' ? {} : { defaultPrivilegeSet: def === null ? null : String(def) }), days: body.days === '' ? undefined : body.days });
       send(200, { ...status(), token });
-    } else if (path === '/tabularius/admin/v1/scim/token' && req.method === 'DELETE') send(200, { ...status(), revoked: dir.revokeToken(), on: false });
+    } else if (path === '/tabularius/admin/v1/scim/token' && req.method === 'DELETE') {
+      const revoked = dir.revokeToken();
+      send(200, { ...status(), revoked });
+    }
     else if (path === '/tabularius/admin/v1/scim/settings' && req.method === 'POST') {
       const def = body.defaultPrivilegeSet;
       dir.setDefaultPrivilegeSet(def === null || def === '' || def === undefined ? null : String(def));

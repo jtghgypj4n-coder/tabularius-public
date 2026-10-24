@@ -140,7 +140,7 @@ test('script CSV, TSV and Merge exports guard formulas and control prefixes with
       assert.equal((await run(store, dir, ids, exportStep)).error, 0);
       const rows = parseDelimited(readFileSync(join(dir, file), 'utf8'), sep);
       const values = format === 'MRGE' ? rows.slice(1) : rows;
-      assert.deepEqual(values.map((r) => r[0]), prefixes.map((p) => `'${p === '\t' && format === 'TABS' ? ' ' : p === '\r' ? '\v' : p}1+1`));
+      assert.deepEqual(values.map((r) => r[0]), prefixes.map((p) => `'${p === '\t' ? '\\u0009' : p === '\r' ? '\v' : p}1+1`));
       assert.deepEqual(values.map((r) => r[1]), prefixes.map(() => '-42'));
     }
   } finally { store.close(); rmSync(dir, { recursive: true, force: true }); }

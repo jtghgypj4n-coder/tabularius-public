@@ -5,7 +5,8 @@
 // "Checked by" says how a row is observed: "probed" is a request to the running server (or a file it made), "read from
 // code" is a constant or a line of source that the test reads, because nothing on a running server shows it from this side.
 
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { LOCKOUT, PASSWORD_POLICY } from '../../store/src/index.ts';
 
@@ -32,7 +33,7 @@ export interface Ctx {
   /** What a token made with no options looks like. */
   apiTokenShape(): string;
   /** A setting a file made now starts with. */
-  newStoreSetting(key: 'aiPolicy'): string;
+  newStoreSetting(key: 'aiPolicy' | 'sqlRequiresFmxdbc'): string;
   /** Whether the folder's settings turn on scripts installing plug-ins. */
   scriptPluginInstall(): boolean;
   /** How the file's audit trail is set. */
@@ -254,8 +255,8 @@ export const ROWS: Row[] = [
   {
     id: 'api-tokens', section: 'Sign-in and accounts', setting: 'API tokens (`ohbt_`) made for an account',
     default: 'Expire after 90 days (a calendar feed address, 365), and can write, unless made read-only or given another lifetime',
-    changedBy: 'Chosen when the token is made (`--expires-days` or `expiresDays`, 0 for none; `readOnly`, surfaces, layouts), or for every new one except calendar feeds with `TABULARIUS_TOKEN_DEFAULT_DAYS` (0 for none); the console lists and revokes them',
-    risk: 'A token that leaks works until it expires or someone revokes it. Asking for 0 days makes one that never expires, and the security health page lists those. Tokens made before this default keep the lifetime they had',
+    changedBy: 'Chosen when the token is made (`--expires-days` or `expiresDays`, 1 to 3650 days; `readOnly`, surfaces, layouts), or for every new one except calendar feeds with `TABULARIUS_TOKEN_DEFAULT_DAYS`; the console lists and revokes them',
+    risk: 'A token that leaks works until it expires or someone revokes it. A token cannot be made without an expiry. Tokens made before every token had to expire have none: they no longer work and the console lists them as needing to be made again',
     how: 'probed', expect: 'expires in 90 days, read-write',
     observe: async (c) => c.apiTokenShape(),
   },
@@ -270,8 +271,8 @@ export const ROWS: Row[] = [
   {
     id: 'sso', section: 'Sign-in and accounts', setting: 'Single sign-on (OpenID Connect, LDAP) and SCIM provisioning',
     default: 'Off: no provider is configured, and SCIM answers 401 without a per-file provisioning token',
-    changedBy: '`--oidc-issuer` with `--oidc-client-id` (or `--oidc-config`), `--ldap-url`; the console makes a SCIM token',
-    risk: 'A provider that signs in anyone with an email address needs `--oidc-trust-email` thought through; a SCIM token can create accounts',
+    changedBy: '`--oidc-issuer` with `--oidc-client-id` (or `--oidc-config`), `--ldap-url`; the console makes a SCIM token (valid 90 days unless 1 to 3650 is asked for, then a new one is needed)',
+    risk: 'A provider that signs in anyone with an email address needs `--oidc-trust-email` thought through; a SCIM token can create accounts until it expires or is turned off',
     how: 'probed', expect: 'off',
     observe: async (c) => {
       const s = (await c.status()).server;
@@ -301,6 +302,27 @@ export const ROWS: Row[] = [
     risk: 'With it on, questions and what the assistant reads go to the provider. A file switched off with `tabularius ai <folder> <database> off`, or named by `--ai-exclude`, is never sent. The AI-visible policy (next row) is a different thing: turning it off removes the refusal to read secret-named fields',
     how: 'probed', expect: 'off',
     observe: async (c) => ((await c.status()).server.ai.state === 'no-key' && !/AI assistant on/.test(c.log()) ? 'off' : 'on'),
+  },
+  {
+    id: 'ai-run-budget', section: 'What can reach outside', setting: 'Token budget for one assistant question',
+    default: '300,000 tokens (as billed: cached input at a tenth), strict: before each model call the worst it could add is reserved (text counted cautiously, a pasted picture as 5,000 tokens, and a margin when the provider\'s tool search is used), so a call that could pass the budget is not made',
+    changedBy: '`--ai-run-tokens N` or `TABULARIUS_AI_RUN_TOKENS`: a whole number from 1 to 10,000,000',
+    risk: 'A higher number lets one question, or a loop of tool steps, spend more of the day and month limits. The budget cannot be switched off (zero, fractions, 1e308 and numbers above 10,000,000 are refused at start), and there is no dollar budget for one question (the monthly one is `--ai-monthly-budget`)',
+    how: 'probed', expect: 'one question up to 300,000 tokens; 1e308 refused',
+    observe: async (c) => {
+      // A key in a private file (outside the hosted folder), so a server with the assistant on can start.
+      const home = mkdtempSync(join(tmpdir(), 'tabularius-defaults-key-'));
+      const key = join(home, 'key');
+      writeFileSync(key, ['probe', 'key'].join('-'), { mode: 0o600 });
+      try {
+        const on = await c.other(['--ai', '--ai-key-file', key]);
+        const budget = /one question may use up to ([\d,]+) tokens/.exec(on)?.[1];
+        const off = await c.refused(['--ai', '--ai-key-file', key, '--ai-run-tokens', '1e308']);
+        return `one question up to ${budget} tokens; 1e308 ${/needs a whole number of tokens/.test(off) ? 'refused' : 'accepted'}`;
+      } finally {
+        rmSync(home, { recursive: true, force: true });
+      }
+    },
   },
   {
     id: 'ai-policy', section: 'What can reach outside', setting: 'Per-file AI-visible policy',
@@ -386,6 +408,14 @@ export const ROWS: Row[] = [
     observe: async (c) => (grep(c.source('packages/server/src/index.ts'), /(writes: opts\.sqlWrites === true)/) && grep(c.source('packages/server/src/pgwire.ts'), /(return this\.opts\.writes === true;)/) ? 'off' : 'on'),
   },
   {
+    id: 'sql-second-file', section: 'What can reach outside', setting: 'SQL through another hosted file needs the SQL privilege in that file',
+    default: 'Off: an account that reads every record of a data file can be queried through a user-interface file whatever the data file\'s extended privileges say',
+    changedBy: '`tabularius sql-privilege <folder> <name> on|off`; the console; `POST /tabularius/admin/v1/sql-privilege/{database}`',
+    risk: 'Off, an account with the SQL privilege (`fmxdbc`) in the interface file reaches the data file\'s tables with only its record and field privileges there. On, its set in the data file must hold `fmxdbc` too',
+    how: 'probed', expect: 'off',
+    observe: async (c) => (c.newStoreSetting('sqlRequiresFmxdbc') === 'true' ? 'on' : 'off'),
+  },
+  {
     id: 'standby', section: 'What can reach outside', setting: 'Standby servers following this one (replication)',
     default: 'Off: the replication routes answer 404',
     changedBy: '`--replication-token` (at least 16 characters)',
@@ -426,6 +456,30 @@ export const ROWS: Row[] = [
     observe: async (c) => (grep(c.source('packages/server/src/import-tables-route.ts'), /const MAX_BODY = (50 \* 1024 \* 1024) \+ 256 \* 1024;/) ? '50 MiB' : 'changed'),
   },
   {
+    id: 'thumbnail-converters', section: 'Limits', setting: 'Picture thumbnails: passthrough size and limits on the converter programs',
+    default: 'A picture is sent as it is only up to 128 KiB (and no bigger than the thumbnail asked for); the converter (pdftoppm, or sips on macOS) gets 20 seconds and, on Linux only, is run with prlimit (or ulimit in sh) at 512 MiB of address space, 20 seconds of CPU and 16 MiB for a file it writes',
+    changedBy: 'Not switchable; `TABULARIUS_THUMBNAILS=builtin` turns the converter programs off',
+    risk: 'On macOS and Windows the converter has no address-space, CPU or file-size limit beyond the 20-second timeout, the 16 MiB input cap and two converters at a time',
+    how: 'read from code', expect: '128 KiB; prlimit 512 MiB, 20 s, 16 MiB',
+    observe: async (c) => (grep(c.source('packages/server/src/containers.ts'), /(THUMBNAIL_PASSTHROUGH_BYTES = 128 \* 1024;)/) && /--as=\$\{TOOL_ADDRESS_SPACE\}/.test(c.source('packages/server/src/containers.ts')) && grep(c.source('packages/server/src/containers.ts'), /(TOOL_ADDRESS_SPACE = 512 \* 1024 \* 1024;)/) ? '128 KiB; prlimit 512 MiB, 20 s, 16 MiB' : 'changed'),
+  },
+  {
+    id: 'archive-limits', section: 'Limits', setting: 'Excel workbooks, plug-in packages, Notion ZIPs and BE_Unzip archives read from an uploaded file',
+    default: 'At most 4096 entries; no entry may unpack to more than 1000 times its compressed size; an Excel XML part may nest at most 64 levels; at most 256 MiB unpacked from a workbook and 20 MiB from a plug-in package',
+    changedBy: 'Not switchable',
+    risk: 'A small file can be built to unpack to gigabytes or to thousands of parts; the file is refused whole, before anything is imported or installed',
+    how: 'read from code', expect: '4096 entries, 1000:1, depth 64',
+    observe: async (c) => (grep(c.source('packages/calc/src/zip.ts'), /(ARCHIVE_MAX_ENTRIES = 4096;)/) && grep(c.source('packages/calc/src/zip.ts'), /(ARCHIVE_MAX_RATIO = 1000;)/) && grep(c.source('packages/scripts/src/xlsx.ts'), /(MAX_XML_DEPTH = 64;)/) ? '4096 entries, 1000:1, depth 64' : 'changed'),
+  },
+  {
+    id: 'calendar-import-limits', section: 'Limits', setting: 'Calendar (.ics) import size',
+    default: 'At most 8 MiB and 5000 events (each occurrence of a repeating event counts); a file over a limit, or cut off inside an event, is refused whole and nothing is imported',
+    changedBy: 'Not switchable',
+    risk: 'A partial import that looks complete is worse than a refusal',
+    how: 'read from code', expect: '5000 events, refused whole',
+    observe: async (c) => (grep(c.source('packages/store/src/calendar.ts'), /(READ_LIMITS = \{ events: 5000,)/) && /class CalendarReadError/.test(c.source('packages/store/src/calendar.ts')) ? '5000 events, refused whole' : 'changed'),
+  },
+  {
     id: 'request-time', section: 'Limits', setting: 'Time one request may hold the server',
     default: 'A minute; then it is stopped (error 812)',
     changedBy: '`TABULARIUS_REQUEST_BUDGET_MS` (0 for none)',
@@ -434,11 +488,34 @@ export const ROWS: Row[] = [
     observe: async (c) => (/budget === undefined \|\| budget === '' \? 60_000 : Number\(budget\)/.test(c.source('packages/server/src/index.ts')) ? '60 s' : 'changed'),
   },
   {
+    id: 'growth-caps', section: 'Limits', setting: 'What one account, agent or session can pile up',
+    default: '1,000 API tokens that work per account, 500 changes waiting for approval per approval-gated agent, 3 debugger runs or recordings at a time per session; past a limit the call is refused (error 812) and says what to do',
+    changedBy: 'Not switchable',
+    risk: 'Without a limit one account or agent could fill the file with tokens or proposals, or fill the disk with debugger copies',
+    how: 'read from code', expect: '1000 / 500 / 3',
+    observe: async (c) => {
+      const store = c.source('packages/store/src/store.ts');
+      const debug = c.source('packages/server/src/debug.ts');
+      return [grep(store, /export const MAX_API_TOKENS_PER_ACCOUNT = (1000);/), grep(store, /export const MAX_PENDING_PER_AGENT = (500);/), grep(debug, /export const MAX_RUNS_PER_SESSION = (3);/)].join(' / ');
+    },
+  },
+  {
+    id: 'sign-in-failure-audit', section: 'Limits', setting: 'Failed sign-ins in the security audit',
+    default: 'After the first 1,000, failed sign-in rows may be at most 80% of a file\'s security events; past that they are not written (lockout rows are always written, nothing is removed). Each server process counts once a minute, so several can overshoot a little',
+    changedBy: '`TABULARIUS_SIGN_IN_FAILURE_AUDIT_SHARE` (a plain decimal from 0 to 1; 1 for no limit)',
+    risk: 'Past the share the audit has no row for a failure, so the usage report and the failed-burst alert see fewer of them (the access log has them all); without a limit a flood of wrong passwords fills the audit',
+    how: 'read from code', expect: '0.8 / 1000',
+    observe: async (c) => {
+      const code = c.source('packages/store/src/sign-in-failures.ts');
+      return grep(code, /export const SIGN_IN_FAILURE_AUDIT_FLOOR = (1000);/) && /if \(!text\) return (0\.8);/.test(code) ? '0.8 / 1000' : 'changed';
+    },
+  },
+  {
     id: 'audit', section: 'Data at rest', setting: 'Audit trail',
-    default: 'On: every record created, changed, deleted or duplicated is logged; reads are not logged; kept without limit',
+    default: 'On: every record created, changed, deleted or duplicated is logged; reads are not logged; record entries are kept 400 days, then removed (security events are kept without limit)',
     changedBy: '`logReads`, `redactSensitive`, `excludeFields` and `retentionDays` in the file\'s audit settings (console)',
-    risk: 'Logging reads grows the log fast; a retention limit deletes history; there is no switch to turn record logging off',
-    how: 'probed', expect: 'writes logged, reads not, kept forever',
+    risk: 'Logging reads grows the log fast; a retention limit deletes history, so 0 (keep every entry) is the choice for anyone who must keep a complete trail; there is no switch to turn record logging off',
+    how: 'probed', expect: 'writes logged, reads not, kept 400 days',
     observe: async (c) => c.auditShape(),
   },
   {

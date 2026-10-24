@@ -8,7 +8,7 @@ const PASSKEY_SECOND_FACTOR_REQUIRED = 9000;
 import { ViewerState, viewerKey, viewerMessage, restoreViewer, type ViewerAction } from './web-viewer.ts';
 import { SessionLifetime } from './session-lifetime.ts';
 import { mergeObjectState, mergeObjectRecord, mergeFoundObjectRows, refreshMatches, checkpointCache, foundPortalPage, foundPortalRange } from './refresh.ts';
-import { Api, ApiError, PIECED_FROM, listDatabases, retryableRequest, retrying, unreachableRequest, type ExportFormat } from './api.ts';
+import { Api, ApiError, PIECED_FROM, fileListOff, listDatabases, retryableRequest, retrying, unreachableRequest, type ExportFormat } from './api.ts';
 import { OfflineCopy, copyKey, deriveBits, exportKey, importKey, indexedDbShelf, newSalt, type OfflineKey, type QueuedEdit } from './offline.ts';
 import { passkeySupported, signInWithPasskey, signInWithPasskeyFactor, signInWithRecoveryCode, type PasskeyLogin } from './webauthn.ts';
 import { scriptFailureMessage } from './script-error.ts';
@@ -19,11 +19,12 @@ import { calendarDialog } from './calendar-dialog.ts';
 import { readUrlState, writeUrlState, writeAddress, addsHistoryEntry, pageTitle, type UrlState } from './url-state.ts';
 import { importTablesDialog } from './import-tables-dialog.ts';
 import { importDialog, importTooLarge, type ImportFound } from './import-dialog.ts';
+import { importResultSummary, importSkippedRows } from './import-result.ts';
 import { LayoutRenderer, containerKind, callWebViewer, answerPageCalls, tellPages, previewStyled, type Host, type Mode, type RowContext } from './layout.ts';
 import { editRuns, formatAt, restyleRange, type TextFormat } from './styled.ts';
 import { LockedError, Locks, Presence, currentLocks, currentViewers, listen, type Change } from './live.ts';
 import { relayedChange, relayedFrom, type Relayed } from './change-relay.ts';
-import { clearWatches } from './watch-storage.ts';
+import { forgetPrefs, forgetTabState, keptRemove, keptSet, prefStorageKey, purgeExpiredKept } from './device-data.ts';
 import { recentRecords, mergePrefs } from './prefs-merge.ts';
 import { showExplanation } from './explain.ts';
 import { showRecordHistory } from './record-history.ts';
@@ -394,6 +395,8 @@ function errorText(e: unknown): string {
 // ---------------------------------------------------------------- start / login
 
 async function start(): Promise<void> {
+  // What this browser kept for later (saved finds and the like) goes after 30 days without use.
+  purgeExpiredKept();
   const required = browserFeatures().find((feature) => feature.name === 'structuredClone' && !feature.available);
   if (required) {
     const root = document.querySelector<HTMLElement>('#app');
@@ -522,7 +525,8 @@ async function showLogin(message?: string): Promise<void> {
   // Without a connection, the files this browser keeps offline copies of can still be opened, with their password.
   let unreachable = false;
   let busy = false;
-  const online = await listDatabases().catch((e) => { if (e instanceof ApiError && e.status === 503) busy = true; else unreachable = true; return [] as string[]; });
+  // A server that keeps its list of files off (the default) answers so: that is not an unreachable server, the name is typed.
+  const online = await listDatabases().catch((e) => { if (e instanceof ApiError && e.status === 503) busy = true; else if (!fileListOff(e)) unreachable = true; return [] as string[]; });
   if (busy) {
     showBusyScreen();
     return;
@@ -536,6 +540,7 @@ async function showLogin(message?: string): Promise<void> {
   const typed = !dbs.length && !unreachable;
   const select = (typed ? h('input', { name: 'db', required: '', autocomplete: 'off', spellcheck: 'false' }) : h('select', { name: 'db', required: '' })) as HTMLSelectElement;
   if (!typed) for (const d of dbs) select.append(h('option', { value: d }, d));
+  if (typed) select.setAttribute('aria-describedby', 'login-file-hint');
   // A link to one file (/app/?db=Name, as the admin console opens a file it has just hosted) picks it.
   const wanted = new URLSearchParams(location.search).get('db');
   const last = wanted ?? localStorageGet('openhbam.db');
@@ -572,7 +577,8 @@ async function showLogin(message?: string): Promise<void> {
     ...(unreachable ? [h('p', { class: 'login-empty' }, dbs.length
       ? "The server can't be reached, so only the files this browser keeps offline copies of can be opened. Changes to fields are sent once the connection is back."
       : "The server can't be reached, and this browser keeps no offline copies. The list of files comes back with the connection.")] : []),
-    dbs.length || typed ? h('label', {}, 'File', select) : '',
+    dbs.length || typed ? h('label', {}, typed ? 'File name' : 'File', select) : '',
+    ...(typed ? [h('p', { id: 'login-file-hint', class: 'login-empty' }, "This server does not list its files. Type the name of the file to open.")] : []),
     h('label', {}, 'Account name', account),
     h('label', {}, 'Password', password),
     otpLabel,
@@ -763,14 +769,21 @@ async function offlineKeyFor(api: Api, account: string, password: string, previo
     const bits = await deriveBits(password, salt);
     const key = await copyKey(bits);
     const found = await OfflineCopy.open(shelf, api.db, account, key);
-    if (found !== 'wrong') api.offline = found;
-    else if (previous) api.offline = await previous.moveTo(salt, key);
+    if (found !== 'wrong') {
+      api.offline = found;
+      if (found) sweepLater(found);
+    } else if (previous) api.offline = await previous.moveTo(salt, key);
     else if (await OfflineCopy.waitingIn(shelf, api.db, account)) api.staleCopy = true;
     else api.offline = await OfflineCopy.create(shelf, api.db, account, salt, key);
     return exportKey(account, salt, bits);
   } catch {
     return undefined;
   }
+}
+
+/** Deletes the copy's responses kept more than 30 days ago (at most once a day), in the background. */
+function sweepLater(copy: OfflineCopy): void {
+  void copy.sweepExpired().catch(() => {});
 }
 
 /** A reload: the session's key opens the copy again. */
@@ -780,8 +793,10 @@ async function restoreOffline(api: Api, saved: OfflineKey | undefined): Promise<
     const k = await importKey(saved);
     api.offlineKey = saved;
     const found = await OfflineCopy.open(shelf, api.db, k.account, k.key);
-    if (found instanceof OfflineCopy) api.offline = found;
-    else if (found === 'wrong' && await OfflineCopy.waitingIn(shelf, api.db, k.account)) api.staleCopy = true;
+    if (found instanceof OfflineCopy) {
+      api.offline = found;
+      sweepLater(found);
+    } else if (found === 'wrong' && await OfflineCopy.waitingIn(shelf, api.db, k.account)) api.staleCopy = true;
   } catch {
     // Opens without the copy.
   }
@@ -803,6 +818,7 @@ async function openOfflineCopy(db: string, account: string, password: string): P
   if (!opened) return undefined;
   const api = new Api(db, '');
   api.offline = opened.copy;
+  sweepLater(opened.copy);
   api.offlineKey = opened.key;
   return api;
 }
@@ -1061,13 +1077,14 @@ class Session implements Host {
     this.stopPageCalls = answerPageCalls((id, method, args) => this.pageCall(id, method, args));
     api.onExpired = () => {
       if (this.disposed) return;
-      if (this.accountName) clearWatches(this.api.db, this.accountName);
+      if (this.accountName) forgetPrefs(this.api.db, this.accountName, this.api.offline ? [...this.unsentPrefs] : []);
       // The session is gone: nothing here may keep talking to the server (presence, lock renewals), and the keys are the login page's.
       this.teardown();
       this.locks.dispose();
       const currentToken = currentSessionToken();
       if (currentToken && currentToken !== api.token) return;
       offlineHooks = undefined;
+      forgetTabState();
       sessionStorageSet('tabularius.session', undefined);
       showLogin('Your session ended. Please log in again.');
     };
@@ -2637,21 +2654,29 @@ class Session implements Host {
     this.index = 0;
     this.mode = 'browse';
     await this.reload();
-    const skippedCount = r.skippedCount ?? r.skipped.length;
-    const skipped = skippedCount ? `; ${skippedCount} left out` : '';
-    const pending = r.pendingApproval ? `; ${r.pendingApproval} waiting for approval` : '';
-    const updated = r.updated !== undefined ? `Updated ${r.updated} record(s)${r.imported ? ` and added ${r.imported}` : ''}` : `Imported ${r.imported} record(s)`;
     const cantUndo = r.undoable === false ? ' Too many records changed to keep an Undo.' : '';
-    toast(`${r.stopped ? 'Stopped: ' : ''}${updated}${skipped}${pending}.${cantUndo}`, 'info', (r.imported || r.updated) && r.undoable !== false ? {
-      label: 'Undo',
-      run: () => void this.api.undoImport(layout, r.id).then(async (u) => {
+    const undo = () => void this.api.undoImport(layout, r.id).then(async (u) => {
         const made = new Set(r.foundSet.slice(r.updated ?? 0));
         this.ids = this.ids?.filter((id) => !made.has(id));
         await this.reload();
         const back = u.restored !== undefined ? `${u.restored} field value(s) put back` : '';
         toast(`Import undone: ${[`${u.deleted} record(s) deleted`, back].filter(Boolean).join(', ')}${u.kept.length ? `; ${u.kept.length} left because they changed since` : ''}.`, 'info');
-      }).catch((e) => toast(errorText(e))),
-    } : undefined);
+      }).catch((e) => toast(errorText(e)));
+    const showSkipped = () => {
+      const { rows, more } = importSkippedRows(r.skipped);
+      const dialog = h('dialog', { class: 'replace-dialog export-dialog', 'aria-label': 'Left-out import rows' }) as HTMLDialogElement;
+      dialog.append(h('h2', {}, 'Left-out import rows'), h('ol', {}, ...rows.map((item) => h('li', {}, `Row ${item.row}: ${item.why}`))));
+      if (more) dialog.append(h('p', {}, more));
+      const close = button('Close', () => dialog.close());
+      const actions = h('div', { class: 'actions' },
+        (r.imported || r.updated) && r.undoable !== false ? button('Undo import', () => { dialog.close(); undo(); }, { class: 'danger' }) : '', close);
+      dialog.append(actions);
+      document.body.append(dialog);
+      dialog.addEventListener('close', () => dialog.remove(), { once: true });
+      dialog.showModal();
+    };
+    toast(`${importResultSummary(r)}${cantUndo}`, 'info', r.skipped.length ? { label: 'Show left-out rows', run: showSkipped }
+      : (r.imported || r.updated) && r.undoable !== false ? { label: 'Undo', run: undo } : undefined);
   }
 
   /**
@@ -3430,22 +3455,24 @@ class Session implements Host {
     };
     let migrateRecent = recent !== undefined && JSON.stringify(recent) !== JSON.stringify(this.prefs.recent);
     if (recent !== undefined) {
-      localStorageSet(this.prefKey('recent'), JSON.stringify(this.prefs.recent));
+      this.keepPrefLocally('recent', this.prefs.recent);
     }
     if (this.api.copyOnly) {
       if (migrateRecent) this.unsentPrefs.add('recent');
       return;
     }
     this.loadingPrefs = true;
+    let reached = false;
     try {
       const kept = await this.api.prefs() as typeof this.prefs;
+      reached = true;
       this.serverPrefs = structuredClone(kept);
       if (kept.recent !== undefined) {
         const safe = recentRecords(kept.recent);
         const changed = JSON.stringify(safe) !== JSON.stringify(kept.recent);
         if (!this.unsentPrefs.has('recent')) this.prefs.recent = safe;
         kept.recent = safe;
-        localStorageSet(this.prefKey('recent'), JSON.stringify(this.prefs.recent));
+        this.keepPrefLocally('recent', this.prefs.recent);
         migrateRecent ||= changed;
       }
       for (const k of PREF_NAMES) {
@@ -3458,6 +3485,8 @@ class Session implements Host {
     }
     this.loadingPrefs = false;
     if (migrateRecent) this.unsentPrefs.add('recent');
+    // The server has them (or is about to be sent them): a browser copy from an earlier version is not needed without an offline copy.
+    if (reached) for (const k of PREF_NAMES) this.dropLocalPref(k);
     this.sendPrefs();
   }
 
@@ -3471,7 +3500,7 @@ class Session implements Host {
   private savePref<K extends PrefName>(key: K, value: NonNullable<Session['prefs'][K]>): void {
     const safe = key === 'recent' ? recentRecords(value) : value;
     (this.prefs as Record<string, unknown>)[key] = safe;
-    localStorageSet(key === 'finds' ? this.findsKey() : this.prefKey(key), JSON.stringify(safe));
+    this.keepPrefLocally(key, safe);
     this.unsentPrefs.add(key);
     this.sendPrefs();
   }
@@ -3494,8 +3523,9 @@ class Session implements Host {
       if (this.disposed) return;
       const merged = mergePrefs(key, server, this.serverPrefs[key], this.prefs[key]);
       (this.prefs as Record<string, unknown>)[key] = merged;
-      localStorageSet(key === 'finds' ? this.findsKey() : this.prefKey(key), JSON.stringify(merged));
+      this.keepPrefLocally(key, merged);
       await this.api.setPref(key, merged);
+      this.dropLocalPref(key);
       if (this.disposed) return;
       this.serverPrefs[key] = structuredClone(merged);
     } catch {
@@ -3508,7 +3538,28 @@ class Session implements Host {
   }
 
   private prefKey(key: string): string {
-    return `tabularius.${key}.${this.api.db}.${this.accountName}`;
+    return prefStorageKey(key, this.api.db, this.accountName);
+  }
+
+  /**
+   * A browser copy of a pref exists only for an offline copy to use: the server holds them, and a copy made for no
+   * one would leave saved finds (their criteria are typed values) on the device. Without an offline copy, what an
+   * earlier version kept is removed once the server has it.
+   */
+  private keepPrefLocally(name: PrefName, value: unknown): void {
+    if (this.api.offline) keptSet(this.prefKey(name), JSON.stringify(value));
+  }
+
+  private dropLocalPref(name: PrefName): void {
+    if (!this.api.offline && !this.unsentPrefs.has(name)) keptRemove(this.prefKey(name));
+  }
+
+  /** Sends the prefs still waiting, for sign-out: each is tried once. */
+  private async flushPrefs(): Promise<void> {
+    if (this.loadingPrefs || this.api.copyOnly || this.api.isOffline) return;
+    const waiting = [...this.unsentPrefs];
+    this.unsentPrefs.clear();
+    await Promise.all(waiting.map((k) => this.sendPref(k)));
   }
 
   private findStore(): { saved: SavedFind[]; recent: SavedFind[] } {
@@ -3576,7 +3627,7 @@ class Session implements Host {
   }
 
   private findsKey(): string {
-    return `tabularius.finds.${this.api.db}.${this.accountName}`;
+    return this.prefKey('finds');
   }
 
   /** The words a find came from, when it is the one Find with AI filled in, unchanged. */
@@ -8401,10 +8452,13 @@ class Session implements Host {
     // Claris's order: OnWindowClose (which can keep the window), then OnLastWindowClose.
     if (!(await this.windowCloseAllowed())) return;
     if (this.onLastWindowClose && this.meta) await this.fileTrigger('OnLastWindowClose');
-    if (this.accountName) clearWatches(this.api.db, this.accountName);
+    // Prefs still waiting to go to the server are sent first; the rest of what this browser kept for the account goes with the sign-out.
+    await this.flushPrefs();
+    if (this.accountName) forgetPrefs(this.api.db, this.accountName, this.api.offline ? [...this.unsentPrefs] : []);
     this.teardown();
     await this.locks.releaseAll();
     await this.api.logout();
+    forgetTabState();
     sessionStorageSet('tabularius.session', undefined);
     location.reload();
   }

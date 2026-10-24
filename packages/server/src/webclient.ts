@@ -35,7 +35,7 @@ import { ReadAudit } from './read-audit.ts';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { dirname, join, normalize, extname, sep } from 'node:path';
 import { stripTypeScriptTypes } from 'node:module';
-import { explainAccessDenial, fmpXmlResult, fmpXmlHeader, fmpXmlRow, fmpXmlFooter, formulaGuard, PendingApprovalError, PrivilegeError, StoreError, ExplainRelatedError, writer, canCreateRelated, explainField, explainRelated, occurrence, csvField, type EvaluateOptions, type FindRequest, type LayoutInfo, type Privileges, type SortSpec, type Store } from '../../store/src/index.ts';
+import { explainAccessDenial, fmpXmlResult, fmpXmlHeader, fmpXmlRow, fmpXmlFooter, formulaGuard, visibleControls, PendingApprovalError, PrivilegeError, StoreError, ExplainRelatedError, writer, canCreateRelated, explainField, explainRelated, occurrence, csvField, type EvaluateOptions, type FindRequest, type LayoutInfo, type Privileges, type SortSpec, type Store } from '../../store/src/index.ts';
 import { externalFieldNames, type DeviceType, type CustomMenu, type Script, type CustomMenuItem, type LayoutDesign, type LayoutObject, type StepParams, type Theme, type TriggerMode } from '../../fmp12/src/index.ts';
 import { asBoolean, asText, compile, num, text, type DeviceLocation, type Value } from '../../calc/src/index.ts';
 import { randomBytes } from 'node:crypto';
@@ -58,6 +58,7 @@ import { loadAsset, sendAsset, type Asset } from './static-cache.ts';
 import { Derived, WebBuild, staticImports, versionPage, versionScript } from './web-build.ts';
 import { journalDeletes, journalFieldChange, snapshotField, snapshotFields, snapshotRows } from './cleanup.ts';
 import { said } from './said.ts';
+import { sameSecret } from './secrets.ts';
 
 /** Titles of FileMaker's standard menus, by the "based on" id custom menus store. */
 const MENU_TITLES: Record<number, string> = { 2: 'File', 3: 'Edit', 4: 'View', 5: 'Insert', 6: 'Format', 7: 'Records', 9: 'Window', 10: 'Requests', 0x33: 'Help' };
@@ -252,7 +253,7 @@ export class WebClient {
     let own = 0;
     let oldestOwn: [string, Paused] | undefined;
     for (const entry of this.paused) {
-      if (entry[1].token !== run.token) continue;
+      if (!sameSecret(entry[1].token, run.token)) continue;
       own++;
       oldestOwn ??= entry;
     }
@@ -271,7 +272,7 @@ export class WebClient {
   private endSession(token: string): void {
     this.timers.delete(token);
     for (const [id, run] of this.paused) {
-      if (run.token !== token) continue;
+      if (!sameSecret(run.token, token)) continue;
       this.paused.delete(id);
       clearTimeout(run.timer);
       run.abandoned = true;
@@ -836,7 +837,7 @@ export class WebClient {
     const info = store.layout(name);
     const design = info.layoutId !== undefined ? store.design(info.layoutId) : undefined;
     if (!design) throw new ApiError(105, `Layout "${name}" has no design`, 404);
-    const theme = store.designs().themes.find((t) => t.id === design.themeId);
+    const theme = store.themes().find((t) => t.id === design.themeId);
 
     // Images: signed URLs, so <img> can load them without the session token.
     const images: Record<number, string> = {};
@@ -1347,8 +1348,8 @@ export class WebClient {
     const sort = sortOf(body.sort);
     const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/\r\n|[\r\n]/g, '<br>');
     const cell = (v: string | number, i: number) => {
-      const one = String(v).replace(/\r\n|[\r\n]/g, '\v');
-      return format === 'tab' ? formulaGuard(one.replace(/\t/g, ' '), kinds[i]) : csvField(one, { quoteAll: true, type: kinds[i] });
+      // Controls (a tab among them) are written as visible \uXXXX text; returns go out as vertical tabs.
+      return format === 'tab' ? visibleControls(formulaGuard(String(v), kinds[i])).replace(/\r\n|[\r\n]/g, '\v') : csvField(String(v), { quoteAll: true, type: kinds[i], lineBreak: '\v' });
     };
     const sepr = format === 'tab' ? '\t' : ',';
     const base = String(typeof body.name === 'string' && body.name.trim() ? body.name.trim() : layout).replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_');
@@ -1507,8 +1508,8 @@ export class WebClient {
     // A value a spreadsheet would take for a formula gets an apostrophe in front, unless its field holds numbers or dates.
     const kinds = fields.map((f) => def(f)?.type);
     const cell = (v: string | number, i: number) => {
-      const one = String(v).replace(/\r\n|[\r\n]/g, '\v'); // returns in a field export as vertical tabs, as in FileMaker
-      return format === 'tab' ? formulaGuard(one.replace(/\t/g, ' '), kinds[i]) : csvField(one, { quoteAll: true, type: kinds[i] });
+      // Controls (a tab among them) are written as visible \uXXXX text; returns go out as vertical tabs, as in FileMaker.
+      return format === 'tab' ? visibleControls(formulaGuard(String(v), kinds[i])).replace(/\r\n|[\r\n]/g, '\v') : csvField(String(v), { quoteAll: true, type: kinds[i], lineBreak: '\v' });
     };
     const sepr = format === 'tab' ? '\t' : ',';
     // A merge file always starts with the field names (Claris: "The first record is a header that lists the field names").
@@ -2177,7 +2178,7 @@ export class WebClient {
       if (!store) throw new ApiError(802, 'Unable to open file', 404);
       sessionPrivileges(store, session);
       const run = this.paused.get(id);
-      if (!run || run.token !== session.token || run.db !== store.name) throw new ApiError(101, 'No script is waiting for that file', 404);
+      if (!run || !sameSecret(run.token, session.token) || run.db !== store.name) throw new ApiError(101, 'No script is waiting for that file', 404);
       if (run.waiting === 'Sort') {
         // {"sort": [{fieldName, sortOrder}, ...]} ([] unsorts); {"cancel": true} for Cancel.
         const body = await readBody(req, 64 * 1024);

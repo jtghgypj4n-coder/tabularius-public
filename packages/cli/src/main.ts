@@ -1,10 +1,12 @@
 #!/usr/bin/env node
+import { encryptionKeyFromEnv, positiveWholeNumber } from '../../server/src/setting-values.ts';
 import { checkSqlExportPath } from '../../store/src/portable-path.ts';
 import { listenForStop } from './stop-request.ts';
 import { auditJsonLine } from '../../store/src/audit-output.ts';
 // tabularius: inspect and convert FileMaker .fmp12 files.
 
 import '../../store/src/legacy-env.ts';
+import { boolean, checkServeSettings, secret } from '../../store/src/settings.ts';
 import { isLoopbackHost, plainHttpRefusal } from './loopback.ts';
 import { availableParallelism, homedir, tmpdir } from 'node:os';
 import { spawn } from 'node:child_process';
@@ -16,14 +18,15 @@ import { readSecret } from './prompt.ts';
 import { askServer } from './ask-server.ts';
 import { defaultBundleName, diagnostics, writeBundle } from './diagnostics.ts';
 import { doctorText, runDoctor } from './doctor.ts';
+import { runExposure } from './exposure.ts';
 import { startDemo } from './demo.ts';
 import { checkPort, defaults, installed, installService, serviceFile, uninstallService, servicePlainRefusal, defaultServiceHost, upgrade, validateServicePublicUrl, type Platform, type ServiceOptions } from './service.ts';
 import { claimFolder } from '../../server/src/backup.ts';
 import { FmpDatabase, fileSource, encryptionInfo, readLayoutDesigns, segmentOf, inspectText, type Schema } from '../../fmp12/src/index.ts';
-import { BUILT_IN_EXTENDED_PRIVILEGES, addCensus, styleCensus, styleCensusText, calcFidelity, censusText, exportSql, exportSqlSummary, planImportTables, importTables, importTablesSummary, notionMarkdownSheet, MAX_IMPORT_ROWS, type SheetInput, type ColumnOverrides, type ColumnKind, findStaleCalcs, layoutCensus, type LayoutCensus, createStore, designReport, importFmp12, PASSWORD_POLICY, DEFAULT_MIN_PASSWORD_LENGTH, reconvert, reconvertCheck, verifySecurityAudit, verifyRecordAudit, anchorHead, checkAnchor, Store, syncPlan, openForPlanning, applySync, readSyncLog, releaseHeldTables, type ConflictPolicy, writeBackKit, designText, writeDesignText, diffDesigns, planDesignApply, readDesignFolder, type DesignOp, type ReconvertPreview, csvField } from '../../store/src/index.ts';
+import { BUILT_IN_EXTENDED_PRIVILEGES, addCensus, styleCensus, styleCensusText, calcFidelity, censusText, exportSql, exportSqlSummary, planImportTables, importTables, importTablesSummary, notionMarkdownSheet, MAX_IMPORT_ROWS, type SheetInput, type ColumnOverrides, type ColumnKind, findStaleCalcs, layoutCensus, type LayoutCensus, createStore, designReport, importFmp12, PASSWORD_POLICY, DEFAULT_MIN_PASSWORD_LENGTH, reconvert, reconvertCheck, verifySecurityAudit, verifyRecordAudit, anchorHead, checkAnchor, Store, syncPlan, openForPlanning, applySync, readSyncLog, releaseHeldTables, type ConflictPolicy, writeBackKit, designText, writeDesignText, diffDesigns, planDesignApply, readDesignFolder, type DesignOp, type ReconvertPreview, csvField, exitBundle, discardExitBundle } from '../../store/src/index.ts';
 import { xlsxSheetNames } from '../../scripts/src/xlsx.ts';
 import { importFileRowIterator, neverAllowed, parseAllowList, SCREEN_STEPS, SERVER_STEPS, testScripts, type ScriptTestResult } from '../../scripts/src/index.ts';
-import { conversionReport, explainScriptFailure, type ScriptFailure, DEFAULT_MODEL, Host, serve, serveCluster, serveStdio, aiStatus, STORE_EXT, ENCRYPTED_EXT, encryptFileSync, decryptFileSync, setAdminPassword, adminPasswordProblem, tokenExpiry, readLocalMcpToken, backupFolder, backupSets, defaultBackupDir, parseInterval, parseTime, restoreAt, restoreBackup, AccountChangesError, type AccountDifference, type ChangedSince, verifySet, describeCheck, resolveEmbedEndpoint, resolveImageEmbed, localCertificateFiles, Standby, S3, s3FromEnv, mirrorDown, fetchFmsExport, migrateFms, describeMigration, copySize, readSettings, runningServer, dataApiSource, dataApiClient, checkSyncAllowed, describeApply, describePlan, verifySync, describeSyncVerification, parseSyncConfig, CONTAINER_PULL_MAX_BYTES, type FmsExport } from '../../server/src/index.ts';
+import { conversionReport, explainScriptFailure, type ScriptFailure, DEFAULT_MODEL, DEFAULT_RUN_TOKENS, MAX_RUN_TOKENS, parseRunTokens, Host, serve, serveCluster, serveStdio, aiStatus, STORE_EXT, ENCRYPTED_EXT, encryptFileSync, decryptFileSync, setAdminPassword, adminPasswordProblem, tokenExpiry, readLocalMcpToken, backupFolder, backupSets, defaultBackupDir, parseInterval, parseTime, restoreAt, restoreBackup, AccountChangesError, type AccountDifference, type ChangedSince, verifySet, describeCheck, resolveEmbedEndpoint, resolveImageEmbed, localCertificateFiles, Standby, S3, s3FromEnv, mirrorDown, fetchFmsExport, migrateFms, describeMigration, copySize, readSettings, runningServer, dataApiSource, dataApiClient, checkSyncAllowed, describeApply, describePlan, verifySync, describeSyncVerification, parseSyncConfig, CONTAINER_PULL_MAX_BYTES, type FmsExport } from '../../server/src/index.ts';
 // optimize's report (kept apart from the busy import line above).
 import { sheetsFromFile, checkSheetNames, sheetNameOf } from '../../server/src/import-sheets.ts';
 import { optimizationReport, openApiDocument, typesFromOpenApi, checkSolution, checkSolutionText, createFeed, importIcs, listFeeds, revokeFeed } from '../../server/src/index.ts';
@@ -47,6 +50,8 @@ import { scriptText } from '../../fmp12/src/index.ts';
 import { lintScript } from '../../store/src/index.ts';
 import { applyStarter, STARTER_NAMES } from '../../store/src/index.ts';
 import { NATIVE_REFUSAL } from '../../store/src/index.ts';
+import { checkNativeCompat, planNativeUpgrade, upgradeNativeFile } from '../../store/src/native-compat.ts';
+import { safeExistingPath } from '../../store/src/safe-path.ts';
 import { resolveAiKey } from './ai-key.ts';
 import { readSecretFile } from './secret-file.ts';
 import { corpusScan, scanFile } from './corpus-scan.ts';
@@ -128,6 +133,7 @@ Hosting (point it at a folder of .fmp12 files; each is converted once):
                                              questions, default claude-haiku-5-5, off for one model;
                                              --ai-daily-tokens N caps tokens per day,
                                              --ai-account-daily-tokens N per account,
+                                             --ai-run-tokens N for one question (default 300000, strict),
                                              --ai-monthly-budget D stops at about D US dollars a month).
                                              --ai-exclude A,B keeps those files from AI apps
                                              and the assistant entirely (also: tabularius ai ... off).
@@ -253,6 +259,14 @@ Hosting (point it at a folder of .fmp12 files; each is converted once):
                                              be reached (Node version, folder, disk, port, certificate,
                                              backups, service, address), with one fix for each. Changes
                                              nothing; exits 1 if there is a problem
+  tabularius doctor --exposure [--url https://...] [--port 8080] [--sql-port N]
+                                             What a running server is open to, with what to change:
+                                             the addresses it listens on, plain HTTP, HSTS and browser
+                                             headers, the public URL, the admin console, the AI (MCP)
+                                             connector, the SQL port and trusted proxies. Asks the
+                                             server without a password and signs nothing in; reads the
+                                             installed service's options. Changes nothing; exits 1 if
+                                             there is a problem
   tabularius diagnostics [<folder>] [--out <file.zip|folder>] [--include-names] [--full]
                                              Collect what a bug report needs and nothing it must not
                                              carry: versions, system, settings that are switches or
@@ -381,6 +395,15 @@ Hosting (point it at a folder of .fmp12 files; each is converted once):
                                              relationships and a portal. --preview shows the
                                              plan and writes nothing; --set overrides a kind
                                              (or link:Sheet, or skip). Data only; counts only
+  tabularius exit-bundle <folder> <database> --out <folder> --account A [--discard]
+                                             Take a portable copy of the whole file: every table
+                                             (SQLite and CSV), every container file, globals,
+                                             serial counters, the design and the accounts without
+                                             their secrets, with a manifest of SHA-256 hashes.
+                                             A Full Access account; the password is asked for
+                                             (or TABULARIUS_PASSWORD). PLAINTEXT, even when files
+                                             are encrypted at rest. A stopped copy resumes when run
+                                             again; --discard removes an unfinished one
   tabularius export-sql <folder> <database> --out file.sql [--dialect postgres|sqlite] [--account A]
                                              Leave with your data: tables, records, keys and
                                              value lists as a SQL script (container files go
@@ -449,6 +472,7 @@ Hosting (point it at a folder of .fmp12 files; each is converted once):
   tabularius plugins <folder> [list]         Plug-ins in <folder>/plugins/ and the files each is on for
   tabularius plugins <folder> enable|disable <database> <plugin-id>
   tabularius ai-policy <folder> <name> on|off     Set the per-file AI-visible policy
+  tabularius sql-privilege <folder> <name> on|off  Whether SQL reaching <name> through another file needs the fmxdbc privilege in <name> too (off by default)
   tabularius plugins <folder> secret <plugin-id> <NAME> [--clear]   Set a plug-in's secret from standard input
   tabularius plugins <folder> install <package.ohplugin> [--trust <fingerprint>] [--allow-unsigned] [--replace]
   tabularius plugins <folder> uninstall <plugin-id>
@@ -457,19 +481,19 @@ Hosting (point it at a folder of .fmp12 files; each is converted once):
   tabularius plugins <folder> pack <plug-in folder> [--key key.pem] [-o file.ohplugin]
                                              Turn a plug-in on or off for one hosted file; the
                                              server applies it when it next starts
-  tabularius token <folder> <database> create <account> [--label L] [--read-only] [--expires-days N|0] [--surfaces fmrest,fmodata,fmxdbc] [--layouts L1,L2,...]
+  tabularius token <folder> <database> create <account> [--label L] [--read-only] [--expires-days N] [--surfaces fmrest,fmodata,fmxdbc] [--layouts L1,L2,...]
                                              A revocable API token for an integration, acting as
                                              <account> (use it as a Bearer token on the Data API
                                              and SQL). Shown once. --read-only forbids writes. It stops
-                                             working after 90 days unless --expires-days says otherwise
-                                             (0 for none).
+                                             working after 90 days unless --expires-days (up to 3650)
+                                             says otherwise; a token always expires.
                                              --layouts limits it to those Data API layouts (and
                                              only the Data API; OData and SQL refuse it).
       ... list                               The file's tokens (never the secret)
       ... revoke <id>                        Revoke a token by its id
   tabularius calendar-feed <folder> <database> create --account A --layout L --start FIELD [--end F] [--title F] [--description F] [--location F]
                                              [--zone UTC|Europe/London] [--query '[{"Status":"open"}]'] [--limit N] [--label L]
-                                             [--expires-days N|0] [--public-url https://host] [--json]
+                                             [--expires-days N] [--public-url https://host] [--json]
                                              A calendar link for a layout's date field: a read-only API token
                                              scoped to that layout, as <account>, and the address that carries
                                              the field choices. The address is shown once, as a token is.
@@ -504,6 +528,12 @@ Hosting (point it at a folder of .fmp12 files; each is converted once):
                                              not console authentication.
   tabularius new <folder> <database> [--native] [--starter crm|inventory|invoicing|tasks|booking [--no-sample]]
                                      Start a database (no FileMaker file needed), empty or with a ready-to-use app
+  tabularius compat-check <folder> <database>
+                                             Read-only list of native features a compat export would lose;
+                                             one finding per line, exit 1 if any are found
+  tabularius upgrade-file <folder> <database> --to native [--apply]
+                                             Preview a one-way compat-to-native upgrade; --apply backs
+                                             up the hosted folder first, then converts stored dates to ISO
   tabularius design <folder> <database> <changes.json>
                                              Apply design changes (tables, fields, layouts,
                                              scripts; see docs/design-mode.md)
@@ -735,11 +765,10 @@ function optionValue(args: string[], name: string, what: string): string | undef
 }
 
 function expiryDays(args: string[], command: string): string | undefined {
-  const error = () => new Error(`${command}: --expires-days takes a number of days above zero, or 0 (or "never") for no expiry`);
+  const error = () => new Error(`${command}: --expires-days takes a number of days above zero, up to 3650; a token always expires`);
   let days: string | undefined;
   try { days = strictFlag(args, '--expires-days'); } catch { throw error(); }
-  if (days === 'never') return '0';
-  if (days !== undefined && !/^\d+(\.\d+)?$/.test(days)) throw error();
+  if (days !== undefined && !(/^\d+(\.\d+)?$/.test(days) && Number(days) > 0 && Number(days) <= 3650)) throw error();
   return days;
 }
 
@@ -1056,9 +1085,11 @@ async function freePort(from: number): Promise<number> {
  * hosted and opened in the web client.
  */
 async function firstRun(): Promise<void> {
+  encryptionKeyFromEnv();
+  const portFrom = positiveWholeNumber('PORT', process.env.PORT, 8080, { min: 0, max: 65535 });
   const folder = process.env.TABULARIUS_FOLDER ?? join(homedir(), 'tabularius');
   mkdirSync(folder, { recursive: true });
-  const port = await freePort(Number(process.env.PORT ?? 8080));
+  const port = await freePort(portFrom);
   console.log(`tabularius: hosting ${folder} on this computer. Drop .fmp12 files on the page that opens, or into that folder. Ctrl-C stops it.`);
   process.exitCode = main(['serve', folder, '--port', String(port), '--open']);
 }
@@ -1196,6 +1227,15 @@ function main(argv: string[]): number {
     // flag() takes its pair out of args, so each is read once, before the folder is picked from what is left.
     const port = flag(args, '--port');
     const url = flag(args, '--url');
+    if (args.includes('--exposure')) {
+      // What a running server is open to; asks it like a stranger would (no password), and reads the installed service's options.
+      const sqlPort = flag(args, '--sql-port');
+      runExposure({ ...(url ? { url } : {}), ...(port ? { port: Number(port) } : {}), ...(sqlPort ? { sqlPort: Number(sqlPort) } : {}), service: installed() }).then((checks) => {
+        process.stdout.write(doctorText(checks));
+        if (checks.some((c) => c.level === 'problem')) process.exitCode = 1;
+      }, (e) => { process.stderr.write(`error: ${plainError(e)}\n`); process.exitCode = 1; });
+      return 0;
+    }
     const embedUrl = flag(args, '--ai-embed-url');
     const embedModel = flag(args, '--ai-embed-model');
     const full = args.includes('--full');
@@ -1236,6 +1276,9 @@ function main(argv: string[]): number {
   }
   switch (cmd) {
     case 'serve': {
+      // Settings that are set to something unusable stop the server here, before anything starts (an empty key is not "no key").
+      checkServeSettings();
+      const encryptionKey = secret('TABULARIUS_ENCRYPTION_KEY');
       const folderProblem = hostFolderProblem(path);
       if (folderProblem) throw new Error(`serve: ${folderProblem}`);
       const publicUrl = flag(args, '--public-url') ?? process.env.TABULARIUS_PUBLIC_URL;
@@ -1247,18 +1290,20 @@ function main(argv: string[]): number {
       // --https local: a certificate from the folder's own authority, for a local network (local-tls.ts).
       const localHttps = httpsFlag === 'local' || httpsFlag === 'lan';
       const https = localHttps ? undefined : httpsFlag;
+      const httpPortFlag = flag(args, '--http-port');
       const acme = https ? {
         domains: https.split(',').map((d) => d.trim()).filter(Boolean),
         email: flag(args, '--https-email') ?? process.env.TABULARIUS_HTTPS_EMAIL,
         directory: flag(args, '--acme-directory') ?? process.env.TABULARIUS_ACME_DIRECTORY,
-        httpPort: Number(flag(args, '--http-port') ?? process.env.TABULARIUS_HTTP_PORT ?? 80),
+        httpPort: positiveWholeNumber(httpPortFlag !== undefined ? '--http-port' : 'TABULARIUS_HTTP_PORT', httpPortFlag ?? process.env.TABULARIUS_HTTP_PORT, 80, { min: 0, max: 65535 }),
       } : undefined;
       const portFlag = flag(args, '--port');
       const portText = portFlag ?? process.env.PORT ?? (acme ? 443 : 8080);
-      const port = Number(portText);
-      if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error(`serve: ${portFlag !== undefined ? '--port' : 'the PORT variable'} takes a port number from 1 to 65535, not "${portText}"`);
+      const portNumber = Number(portText);
+      if (!Number.isInteger(portNumber) || portNumber < 0 || portNumber > 65535) throw new Error(`serve: ${portFlag !== undefined ? '--port' : 'the PORT variable'} takes a port number from 1 to 65535, not "${portText}"`);
+      const port = positiveWholeNumber(portFlag !== undefined ? '--port' : 'PORT', String(portText), 8080, { min: 0, max: 65535 });
       const hostname = flag(args, '--host') ?? process.env.TABULARIUS_HOST ?? (acme ? '0.0.0.0' : '127.0.0.1');
-      const mcpToken = tokenOption(args, '--mcp-token', '--mcp-token-file', process.env.TABULARIUS_MCP_TOKEN, process.env.TABULARIUS_MCP_TOKEN_FILE, 'serve').value;
+      const mcpToken = tokenOption(args, '--mcp-token', '--mcp-token-file', secret('TABULARIUS_MCP_TOKEN'), process.env.TABULARIUS_MCP_TOKEN_FILE, 'serve').value;
       // Scripts stay offline unless asked: Insert from URL could reach mail, SMS or payment services.
       const scriptNetwork = bool(args, '--allow-script-network');
       // Scripts' requests never reach this machine's own network (loopback, 10/8, 192.168/16 and so on) unless listed here.
@@ -1269,7 +1314,7 @@ function main(argv: string[]): number {
       } catch (e) {
         throw new Error(`serve: --allow-script-network-to: ${(e as Error).message}`);
       }
-      const listFilesPublicly = bool(args, '--list-files-publicly') || /^(1|true|yes|on)$/i.test(process.env.TABULARIUS_LIST_FILES_PUBLICLY ?? '');
+      const listFilesPublicly = bool(args, '--list-files-publicly') || boolean('TABULARIUS_LIST_FILES_PUBLICLY');
       const appConnections = bool(args, '--allow-app-connections');
       // Webhooks set up in the admin console send nothing until this is given.
       const webhooks = bool(args, '--allow-webhooks');
@@ -1293,7 +1338,7 @@ function main(argv: string[]): number {
       }
       if (acme && tlsCert) throw new Error('serve: --https gets its own certificate; leave out --tls-cert and --tls-key');
       // Plain HTTP beyond this computer sends passwords and session tokens in the clear: refused unless said to be wanted.
-      const allowPlainHttp = bool(args, '--allow-plain-http') || /^(1|true|yes|on)$/i.test(process.env.TABULARIUS_ALLOW_PLAIN_HTTP ?? '');
+      const allowPlainHttp = bool(args, '--allow-plain-http') || boolean('TABULARIUS_ALLOW_PLAIN_HTTP');
       const plainRefusal = plainHttpRefusal({ host: hostname, secure: !!tlsCert || !!acme, allowed: allowPlainHttp });
       if (plainRefusal) throw new Error(`serve: ${plainRefusal}`);
       const mcpAllowedOrigins = mcpOriginsFrom(args);
@@ -1317,11 +1362,9 @@ function main(argv: string[]): number {
       const every = flag(args, '--backup-every') ?? process.env.TABULARIUS_BACKUP_EVERY ?? settings.backupEvery ?? '1d';
       const keepFlag = flag(args, '--keep');
       const keepText = keepFlag ?? process.env.TABULARIUS_BACKUP_KEEP ?? settings.keep ?? 7;
+      const keepSource = keepFlag !== undefined ? '--keep' : process.env.TABULARIUS_BACKUP_KEEP !== undefined ? 'TABULARIUS_BACKUP_KEEP' : 'keep in .openhbam-settings.json';
+      if (!/^\d+$/.test(String(keepText).trim()) || Number(keepText) < 1) throw new Error(`serve: ${keepSource} is the number of backups to keep, a whole number of 1 or more, not "${keepText}"`);
       const keep = Number(keepText);
-      if (!Number.isFinite(keep) || keep < 1) {
-        const from = keepFlag !== undefined ? '--keep' : process.env.TABULARIUS_BACKUP_KEEP !== undefined ? 'TABULARIUS_BACKUP_KEEP' : `"keep" in ${join(path, '.openhbam-settings.json')}`;
-        throw new Error(`serve: ${from} is the number of backups to keep, a whole number of 1 or more, not "${keepText}"`);
-      }
       const dest = flag(args, '--backup-dir') ?? process.env.TABULARIUS_BACKUP_DIR ?? settings.backupDir;
       const backups = bool(args, '--no-backups') || every === 'off' ? undefined : { every: parseInterval(every), keep, dest };
       // Off-site: the backups folder mirrored to S3-compatible storage.
@@ -1335,13 +1378,13 @@ function main(argv: string[]): number {
       const progressiveEvery = flag(args, '--progressive') ?? process.env.TABULARIUS_PROGRESSIVE;
       const progressive = progressiveEvery && progressiveEvery !== 'off' ? { every: parseInterval(progressiveEvery) } : undefined;
       // PostgreSQL clients: BI tools and ODBC/JDBC drivers, read-only unless --sql-writes.
-      const sqlPortText = flag(args, '--sql-port') ?? process.env.TABULARIUS_SQL_PORT;
-      const sqlPort = sqlPortText ? Number(sqlPortText) : undefined;
-      if (sqlPort !== undefined && !(Number.isInteger(sqlPort) && sqlPort >= 0 && sqlPort < 65536)) throw new Error('serve: --sql-port must be a port number');
-      const sqlWrites = bool(args, '--sql-writes') || /^(1|true|yes|on)$/i.test(process.env.TABULARIUS_SQL_WRITES ?? '');
+      const sqlPortFlag = flag(args, '--sql-port');
+      const sqlPortText = sqlPortFlag ?? process.env.TABULARIUS_SQL_PORT;
+      const sqlPort = sqlPortText === undefined ? undefined : positiveWholeNumber(sqlPortFlag !== undefined ? '--sql-port' : 'TABULARIUS_SQL_PORT', sqlPortText, 0, { min: 0, max: 65535 });
+      const sqlWrites = bool(args, '--sql-writes') || boolean('TABULARIUS_SQL_WRITES');
       if (sqlWrites && sqlPort === undefined) throw new Error('serve: --sql-writes lets the SQL port write, so it needs --sql-port (or TABULARIUS_SQL_PORT)');
       // Standby servers follow this one's changes, signing in with this token.
-      const { value: replicationToken, file: replicationTokenFile } = tokenOption(args, '--replication-token', '--replication-token-file', process.env.TABULARIUS_REPLICATION_TOKEN, process.env.TABULARIUS_REPLICATION_TOKEN_FILE, 'serve');
+      const { value: replicationToken, file: replicationTokenFile } = tokenOption(args, '--replication-token', '--replication-token-file', secret('TABULARIUS_REPLICATION_TOKEN'), process.env.TABULARIUS_REPLICATION_TOKEN_FILE, 'serve');
       if (replicationToken !== undefined && replicationToken.length < 16) throw new Error('serve: --replication-token must be at least 16 characters');
       // A folder that was a standby's has its API tokens ended at takeover, as it may hold ones the main server had revoked.
       const keepApiTokensOnTakeover = bool(args, '--keep-api-tokens-on-takeover');
@@ -1353,9 +1396,9 @@ function main(argv: string[]): number {
       const single = issuer && clientId ? {
         issuer, clientId,
         name: flag(args, '--oidc-name') ?? process.env.TABULARIUS_OIDC_NAME ?? new URL(issuer).hostname,
-        clientSecret: process.env.TABULARIUS_OIDC_CLIENT_SECRET,
+        clientSecret: secret('TABULARIUS_OIDC_CLIENT_SECRET'),
         groupsClaim: flag(args, '--oidc-groups-claim') ?? process.env.TABULARIUS_OIDC_GROUPS_CLAIM,
-        ...(args.includes('--oidc-trust-email') || /^(?:1|true|yes)$/i.test(process.env.TABULARIUS_OIDC_TRUST_EMAIL ?? '') ? { trustEmail: true } : {}),
+        ...(args.includes('--oidc-trust-email') || boolean('TABULARIUS_OIDC_TRUST_EMAIL', { words: 'strict' }) ? { trustEmail: true } : {}),
         // Data API apps (getoauthurl) people may be sent back to after signing in, besides this server and this computer.
         ...((returns) => returns ? { dataApiReturnUrls: returns.split(',').map((u) => u.trim()).filter(Boolean) } : {})(flag(args, '--oidc-data-api-return-urls') ?? process.env.TABULARIUS_OIDC_DATA_API_RETURN_URLS),
       } : undefined;
@@ -1377,7 +1420,7 @@ function main(argv: string[]): number {
         name: flag(args, '--ldap-name') ?? process.env.TABULARIUS_LDAP_NAME ?? new URL(ldapUrl).hostname,
         bindDnTemplate: flag(args, '--ldap-bind-dn-template') ?? process.env.TABULARIUS_LDAP_BIND_DN_TEMPLATE,
         searchDn: flag(args, '--ldap-search-dn') ?? process.env.TABULARIUS_LDAP_SEARCH_DN,
-        searchPassword: process.env.TABULARIUS_LDAP_SEARCH_PASSWORD,
+        searchPassword: secret('TABULARIUS_LDAP_SEARCH_PASSWORD'),
         baseDn: flag(args, '--ldap-base-dn') ?? process.env.TABULARIUS_LDAP_BASE_DN,
         userAttribute: flag(args, '--ldap-user-attribute') ?? process.env.TABULARIUS_LDAP_USER_ATTRIBUTE,
         emailAttribute: flag(args, '--ldap-email-attribute') ?? process.env.TABULARIUS_LDAP_EMAIL_ATTRIBUTE,
@@ -1386,18 +1429,22 @@ function main(argv: string[]): number {
       if (ldap && !ldap.bindDnTemplate && !ldap.baseDn) throw new Error('serve: --ldap-url needs either --ldap-bind-dn-template or --ldap-base-dn');
       // The AI assistant sends questions and what its tools read to the model provider: only when asked.
       const embedOptions = (a: string[]): { embedUrl?: string; embedModel?: string; embedKey?: string; imageEmbed?: { provider: string; model: string; key: string } } => {
-        const img = resolveImageEmbed(flag(a, '--ai-image-embed') ?? process.env.TABULARIUS_AI_IMAGE_EMBED, flag(a, '--ai-image-embed-model') ?? process.env.TABULARIUS_AI_IMAGE_EMBED_MODEL, process.env.TABULARIUS_AI_IMAGE_EMBED_KEY);
+        const img = resolveImageEmbed(flag(a, '--ai-image-embed') ?? process.env.TABULARIUS_AI_IMAGE_EMBED, flag(a, '--ai-image-embed-model') ?? process.env.TABULARIUS_AI_IMAGE_EMBED_MODEL, secret('TABULARIUS_AI_IMAGE_EMBED_KEY'));
         const imageEmbed = img ? { imageEmbed: { provider: img.provider.id, model: img.model, key: img.key } } : {};
-        const e = resolveEmbedEndpoint(flag(a, '--ai-embed-url') ?? process.env.TABULARIUS_AI_EMBED_URL, flag(a, '--ai-embed-model') ?? process.env.TABULARIUS_AI_EMBED_MODEL, process.env.TABULARIUS_AI_EMBED_KEY);
+        const e = resolveEmbedEndpoint(flag(a, '--ai-embed-url') ?? process.env.TABULARIUS_AI_EMBED_URL, flag(a, '--ai-embed-model') ?? process.env.TABULARIUS_AI_EMBED_MODEL, secret('TABULARIUS_AI_EMBED_KEY'));
         return e ? { embedUrl: e.url, embedModel: e.model, ...(e.key ? { embedKey: e.key } : {}), ...imageEmbed } : imageEmbed;
       };
-      let ai: { apiKey: string; keySource?: 'environment' | 'file'; keyFile?: string; workspaceId?: string; workspaceFile?: string; model?: string; fastModel?: string; embedUrl?: string; embedModel?: string; embedKey?: string; imageEmbed?: { provider: string; model: string; key: string }; dailyTokens?: number; accountDailyTokens?: number; monthlyBudgetUsd?: number } | undefined;
+      let ai: { apiKey: string; keySource?: 'environment' | 'file'; keyFile?: string; workspaceId?: string; workspaceFile?: string; model?: string; fastModel?: string; embedUrl?: string; embedModel?: string; embedKey?: string; imageEmbed?: { provider: string; model: string; key: string }; dailyTokens?: number; accountDailyTokens?: number; runTokens?: number; monthlyBudgetUsd?: number } | undefined;
       if (bool(args, '--ai')) {
         const { apiKey, source: keySource, keyFile, workspaceId, workspaceFile } = resolveAiKey(process.env, flag(args, '--ai-key-file') ?? process.env.TABULARIUS_AI_KEY_FILE, flag(args, '--ai-workspace-id') ?? process.env.TABULARIUS_AI_WORKSPACE_ID);
-        const daily = flag(args, '--ai-daily-tokens') ?? process.env.TABULARIUS_AI_DAILY_TOKENS;
-        if (daily !== undefined && !(Number(daily) > 0)) throw new Error('serve: --ai-daily-tokens needs a number of tokens, like 2000000');
-        const perAccount = flag(args, '--ai-account-daily-tokens') ?? process.env.TABULARIUS_AI_ACCOUNT_DAILY_TOKENS;
-        if (perAccount !== undefined && !(Number(perAccount) > 0)) throw new Error('serve: --ai-account-daily-tokens needs a number of tokens, like 200000');
+        const dailyFlag = flag(args, '--ai-daily-tokens');
+        const daily = dailyFlag ?? process.env.TABULARIUS_AI_DAILY_TOKENS;
+        const dailyTokens = daily === undefined ? undefined : positiveWholeNumber(dailyFlag !== undefined ? '--ai-daily-tokens' : 'TABULARIUS_AI_DAILY_TOKENS', daily, 2_000_000);
+        const accountFlag = flag(args, '--ai-account-daily-tokens');
+        const perAccount = accountFlag ?? process.env.TABULARIUS_AI_ACCOUNT_DAILY_TOKENS;
+        const accountDailyTokens = perAccount === undefined ? undefined : positiveWholeNumber(accountFlag !== undefined ? '--ai-account-daily-tokens' : 'TABULARIUS_AI_ACCOUNT_DAILY_TOKENS', perAccount, 200_000);
+        const perRun = flag(args, '--ai-run-tokens') ?? process.env.TABULARIUS_AI_RUN_TOKENS;
+        if (perRun !== undefined && parseRunTokens(perRun) === undefined) throw new Error(`serve: --ai-run-tokens needs a whole number of tokens from 1 to ${MAX_RUN_TOKENS.toLocaleString('en-US')}, like 300000`);
         const budget = flag(args, '--ai-monthly-budget') ?? process.env.TABULARIUS_AI_MONTHLY_BUDGET;
         if (budget !== undefined && !(Number(budget.replace(/^\$/, '')) > 0)) throw new Error('serve: --ai-monthly-budget needs US dollars, like 150');
         const fastModel = flag(args, '--ai-fast-model') ?? process.env.TABULARIUS_AI_FAST_MODEL;
@@ -1405,7 +1452,8 @@ function main(argv: string[]): number {
           ...embedOptions(args),
           apiKey, keySource, keyFile, workspaceId, workspaceFile, model: flag(args, '--ai-model') ?? process.env.TABULARIUS_AI_MODEL,
           ...(fastModel ? { fastModel } : {}), ...(budget !== undefined ? { monthlyBudgetUsd: Number(budget.replace(/^\$/, '')) } : {}),
-          ...(daily !== undefined ? { dailyTokens: Number(daily) } : {}), ...(perAccount !== undefined ? { accountDailyTokens: Number(perAccount) } : {}),
+          ...(dailyTokens !== undefined ? { dailyTokens } : {}), ...(accountDailyTokens !== undefined ? { accountDailyTokens } : {}),
+          ...(perRun !== undefined ? { runTokens: parseRunTokens(perRun) } : {}),
         };
       } else {
         // An embedding model on its own (a local Ollama or LM Studio) needs no Anthropic key: the embedding and RAG
@@ -1417,13 +1465,12 @@ function main(argv: string[]): number {
       const aiExclude = aiExcludeFrom(args);
       // Accounts the file left without a password (FileMaker's default Admin) work from this computer only, unless allowed.
       if (bool(args, '--allow-blank-passwords')) PASSWORD_POLICY.blankFromNetwork = true;
-      // Encryption at rest: stores kept encrypted on disk, unlocked with this key while running.
-      const encryptionKey = process.env.TABULARIUS_ENCRYPTION_KEY || undefined;
       // Reachable from other computers without HTTPS: passwords and session tokens cross the network in the clear.
       const exposedPlain = !isLoopbackHost(hostname) && !tlsCert && !acme && !/^https:/i.test(publicUrl ?? '');
       // Several processes, so a busy server uses every core.
-      const workersText = flag(args, '--workers') ?? process.env.TABULARIUS_WORKERS;
-      const workers = workersText === 'auto' ? availableParallelism() : Number(workersText ?? 1);
+      const workersFlag = flag(args, '--workers');
+      const workersText = workersFlag ?? process.env.TABULARIUS_WORKERS;
+      const workers = workersText === 'auto' ? availableParallelism() : positiveWholeNumber(workersFlag !== undefined ? '--workers' : 'TABULARIUS_WORKERS', workersText, 1, { max: 64 });
       if (!(Number.isInteger(workers) && workers >= 1 && workers <= 64)) throw new Error('serve: --workers takes a number of processes (1 to 64) or auto');
       if (workers > 1) {
         serveCluster({ dir: path, port, hostname, mcpToken, scriptNetwork, scriptNetworkAllow, listFilesPublicly, appConnections, webhooks, inboundHooks, testOutbound, ...(sendMail ? { sendMail } : {}), tlsCert, tlsKey, publicUrl, mcpAllowedOrigins, proxyHeader, trustedProxies, edgeLimits, acme, backups, offsite, progressive, statsInterval, logLimit, replicationToken, acceptPartialStandbyFiles, sqlPort, sqlWrites, ai, aiExclude, oidc, ldap, encryptionKey, background: true }, workers, PASSWORD_POLICY.blankFromNetwork).then(({ url, close }) => {
@@ -1437,7 +1484,7 @@ function main(argv: string[]): number {
           console.log(`hosting ${path} with ${workers} worker processes`);
           console.log(`Web client: ${url}/app/   Admin: ${url}/admin/   Data API: ${url}/fmi/data/vLatest   MCP: ${url}/mcp`);
           if (!mcpToken) console.log(`  AI apps need a token at /mcp: run  tabularius mcp-token ${path}  to print the administrator's, or make one for an account in the admin console (Connect an AI app)`);
-          if (ai) console.log(`AI assistant on (${ai.model ?? DEFAULT_MODEL}): questions and what it reads go to Anthropic`);
+          if (ai) console.log(`AI assistant on (${ai.model ?? DEFAULT_MODEL}): questions and what it reads go to Anthropic; one question may use up to ${(ai.runTokens ?? DEFAULT_RUN_TOKENS).toLocaleString('en-US')} tokens`);
           console.log(backups ? `backups every ${every} to ${dest ?? defaultBackupDir(path)}, keeping ${keep}${process.env.TABULARIUS_BACKUP_KEY ? ', encrypted' : ''}` : 'backups off');
         }, (e) => {
           process.stderr.write(`error: ${plainError(e)}\n`);
@@ -1447,8 +1494,9 @@ function main(argv: string[]): number {
       }
       // Stopping lets requests that are running finish for this long, then closes them (a service manager's own stop timeout is 60 s).
       const graceText = process.env.TABULARIUS_DRAIN_SECONDS;
-      const drainMs = graceText === undefined || graceText === '' ? undefined : Number(graceText) * 1000;
-      if (drainMs !== undefined && !(Number.isFinite(drainMs) && drainMs >= 1000 && drainMs <= 86_400_000)) throw new Error('serve: TABULARIUS_DRAIN_SECONDS is a number of seconds (1 to 86400)');
+      const graceNumber = graceText === undefined || graceText === '' ? undefined : Number(graceText) * 1000;
+      if (graceNumber !== undefined && !(Number.isFinite(graceNumber) && graceNumber >= 1000 && graceNumber <= 86_400_000)) throw new Error('serve: TABULARIUS_DRAIN_SECONDS is a number of seconds (1 to 86400)');
+      const drainMs = graceText === undefined ? undefined : positiveWholeNumber('TABULARIUS_DRAIN_SECONDS', graceText, 20, { max: 86400 }) * 1000;
       serve({ dir: path, drainMs, port, hostname, serviceInstalled: () => installed()?.folder === resolve(path), mcpToken, scriptNetwork, scriptNetworkAllow, listFilesPublicly, appConnections, webhooks, inboundHooks, testOutbound, ...(sendMail ? { sendMail } : {}), tlsCert, tlsKey, publicUrl, mcpAllowedOrigins, proxyHeader, trustedProxies, edgeLimits, acme, backups, offsite, progressive, statsInterval, logLimit, replicationToken, keepApiTokensOnTakeover, acceptPartialStandbyFiles, sqlPort, sqlWrites, ai, aiExclude, oidc, ldap, encryptionKey, background: true }).then(({ url, host, server, offsite: offsiteSchedule }) => {
         // Ready for a stop before anything is printed: whoever sees the first line may signal at once. The last changes go
         // off-site before the process ends. A first signal stops cleanly (running requests finish, the files are saved and
@@ -1489,7 +1537,7 @@ function main(argv: string[]): number {
         }
         console.log(`Web client: ${url}/app/   Admin: ${url}/admin/   Data API: ${url}/fmi/data/vLatest   MCP: ${url}/mcp`);
         if (!mcpToken) console.log(`  AI apps need a token at /mcp: run  tabularius mcp-token ${path}  to print the administrator's, or make one for an account in the admin console (Connect an AI app)`);
-        if (ai) console.log(`AI assistant on (${ai.model ?? DEFAULT_MODEL}): questions and what it reads go to Anthropic`);
+        if (ai) console.log(`AI assistant on (${ai.model ?? DEFAULT_MODEL}): questions and what it reads go to Anthropic; one question may use up to ${(ai.runTokens ?? DEFAULT_RUN_TOKENS).toLocaleString('en-US')} tokens`);
         console.log(backups ? `backups every ${every} to ${dest ?? defaultBackupDir(path)}, keeping ${keep}${process.env.TABULARIUS_BACKUP_KEY ? ', encrypted' : ''}` : 'backups off');
         if (openPage) openBrowser(`${url}/admin/#welcome`);
         if (offsite) console.log(`backups copied off-site to ${offsite.url}${process.env.TABULARIUS_BACKUP_KEY ? ' (encrypted)' : ''}`);
@@ -1682,7 +1730,7 @@ function main(argv: string[]): number {
     }
     case 'standby': {
       const primary = flag(args, '--primary') ?? process.env.TABULARIUS_PRIMARY;
-      const token = tokenOption(args, '--token', '--token-file', process.env.TABULARIUS_REPLICATION_TOKEN, process.env.TABULARIUS_REPLICATION_TOKEN_FILE, 'standby').value;
+      const token = tokenOption(args, '--token', '--token-file', secret('TABULARIUS_REPLICATION_TOKEN'), process.env.TABULARIUS_REPLICATION_TOKEN_FILE, 'standby').value;
       if (!primary || !token) throw new Error('standby: give --primary URL and --token or --token-file (the main server\'s replication token)');
       const standby = new Standby({ folder: path, primary, token, overwrite: bool(args, '--overwrite'), log: (m) => console.log(m) });
       standby.start();
@@ -1703,7 +1751,7 @@ function main(argv: string[]): number {
       // Encrypt or decrypt the hosted stores in a folder, at rest, while the
       // server is stopped. The key comes from TABULARIUS_ENCRYPTION_KEY — the
       // same one the server unlocks with.
-      const key = process.env.TABULARIUS_ENCRYPTION_KEY;
+      const key = encryptionKeyFromEnv();
       if (!key) throw new Error(`${cmd}: set TABULARIUS_ENCRYPTION_KEY to the passphrase`);
       if (!existsSync(path)) throw new Error(`${cmd}: ${path} does not exist`);
       const release = claimFolder(path, 'restore');
@@ -2248,6 +2296,33 @@ function main(argv: string[]): number {
       }
       return 0;
     }
+    case 'exit-bundle': {
+      const out = flag(args, '--out');
+      const account = flag(args, '--account');
+      const discard = bool(args, '--discard');
+      const [database] = args;
+      if (!database) throw new Error('exit-bundle: give a database');
+      if (!out) throw new Error('exit-bundle: give --out <folder> (the copy is written there; it must not exist yet)');
+      if (!account) throw new Error('exit-bundle: give --account <a Full Access account>; you are asked for its password');
+      const store = openDatabase(path, database);
+      later((async () => {
+        try {
+          const password = process.env.TABULARIUS_PASSWORD ?? await readSecret(`Password for ${account} in ${database}`);
+          if (discard) {
+            await discardExitBundle(store, out, { account, password });
+            console.log(`removed the unfinished copy ${resolve(out)}.partial`);
+            return;
+          }
+          const report = await exitBundle(store, out, { account, password });
+          console.log(`${report.tables} table${report.tables === 1 ? '' : 's'}, ${report.rows} row${report.rows === 1 ? '' : 's'}, ${report.containers} container file${report.containers === 1 ? '' : 's'}`);
+          console.log(`wrote ${report.folder}`);
+          console.log('This folder holds the whole file in plaintext, even when the server encrypts files at rest: keep it private, and delete it when you are done.');
+        } finally {
+          store.close();
+        }
+      })());
+      return 0;
+    }
     case 'layout-census': {
       const json = bool(args, '--json');
       // Layout names are the file's own words: only when asked for.
@@ -2572,7 +2647,7 @@ function main(argv: string[]): number {
           const token = store.createApiToken(account, {
             label,
             readOnly,
-            // Left out, the token lives the default (90 days, TABULARIUS_TOKEN_DEFAULT_DAYS); 0 or "never" asks for none.
+            // Left out, the token lives the default (90 days, TABULARIUS_TOKEN_DEFAULT_DAYS); every token expires.
             expires: tokenExpiry(days === undefined ? undefined : Number(days)),
             surfaces: tokenSurfaces,
             layouts: tokenLayouts,
@@ -2667,6 +2742,16 @@ function main(argv: string[]): number {
       const store = openDatabase(path, database);
       try { store.setAiPolicy(action === 'on'); console.log(`AI policy ${store.aiPolicy ? 'on' : 'off'} for ${store.name}`); }
       finally { store.close(); }
+      return 0;
+    }
+    case 'sql-privilege': {
+      const [database, action] = args;
+      if (!database || !['on', 'off'].includes(action)) throw new Error('sql-privilege: give a database and on|off');
+      const store = openDatabase(path, database);
+      try {
+        store.setSqlRequiresFmxdbc(action === 'on', { account: 'command line' });
+        console.log(`SQL through another file ${store.sqlRequiresFmxdbc ? 'now needs' : 'does not need'} the fmxdbc privilege: ${store.sqlRequiresFmxdbc ? 'on' : 'off'} for ${store.name}`);
+      } finally { store.close(); }
       return 0;
     }
     case 'ai': {
@@ -2824,6 +2909,49 @@ function main(argv: string[]): number {
       console.log(`created ${database}; set a password with: tabularius passwd ${path} ${database} Admin`);
       return 0;
     }
+    case 'compat-check': {
+      const [database, ...extra] = args;
+      if (!database || extra.length) throw new Error('compat-check: give exactly <folder> <database>');
+      const problem = databaseNameProblem(database);
+      if (problem) throw new Error(`compat-check: "${database}" is not a usable database name. ${problem}`);
+      const file = join(path, database + STORE_EXT);
+      if (!existsSync(file)) throw new Error(`compat-check: no database named "${database}" in ${path}`);
+      const safe = safeExistingPath(path, database + STORE_EXT);
+      if (!safe) throw new Error(`compat-check: ${database} is a linked file or outside the hosted folder`);
+      const findings = checkNativeCompat(safe);
+      for (const finding of findings) {
+        console.log(`${finding.table ?? '(file)'}::${finding.field ?? '(file)'}: ${finding.description}`);
+      }
+      if (!findings.length) console.log(`${database}: no native-only features found`);
+      return findings.length ? 1 : 0;
+    }
+    case 'upgrade-file': {
+      const to = flag(args, '--to');
+      const apply = bool(args, '--apply');
+      const [database, ...extra] = args;
+      if (!database || extra.length || to !== 'native') throw new Error('upgrade-file: give <folder> <database> --to native [--apply]');
+      const problem = databaseNameProblem(database);
+      if (problem) throw new Error(`upgrade-file: "${database}" is not a usable database name. ${problem}`);
+      const file = join(path, database + STORE_EXT);
+      if (!existsSync(file)) throw new Error(`upgrade-file: no database named "${database}" in ${path}`);
+      const safe = safeExistingPath(path, database + STORE_EXT);
+      if (!safe) throw new Error(`upgrade-file: ${database} is a linked file or outside the hosted folder`);
+      const plan = planNativeUpgrade(safe);
+      if (plan.alreadyNative) { console.log(`${database}: already native; there is no conversion back to compat`); return 0; }
+      if (plan.blockers.length) throw new Error(`upgrade-file: cannot upgrade:\n${plan.blockers.join('\n')}`);
+      if (!apply) {
+        console.log(`${database}: would upgrade to native and check ${plan.dateValues} stored date/timestamp values for ISO conversion; nothing changed. Run again with --apply`);
+        return 0;
+      }
+      later((async () => {
+        const release = claimFolder(path, 'restore');
+        try {
+          const result = await upgradeNativeFile(safe, async () => (await backupFolder(path, defaultBackupDir(path), 0)).dir);
+          console.log(`${database}: upgraded to native; ${result.dateValues} stored date/timestamp values checked; backup: ${result.backup}`);
+        } finally { release(); }
+      })());
+      return 0;
+    }
     case 'design-text': {
       if (path.toLowerCase().endsWith('.fmp12')) break; // a FileMaker file: below
       const [database, out] = args;
@@ -2890,7 +3018,7 @@ function main(argv: string[]): number {
     const store = openDatabase(folder, database);
     try {
       if (cmd === 'info') {
-        console.log(JSON.stringify({ tabularius: SERVER_VERSION, openhbam: SERVER_VERSION, file: basename(store.path), fileMode: store.fileMode, aiPolicy: store.aiPolicy, dateOrder: store.dateOrder, ...counts(store.schema) }, null, 2));
+        console.log(JSON.stringify({ tabularius: SERVER_VERSION, openhbam: SERVER_VERSION, file: basename(store.path), fileMode: store.fileMode, aiPolicy: store.aiPolicy, sqlRequiresFmxdbc: store.sqlRequiresFmxdbc, dateOrder: store.dateOrder, ...counts(store.schema) }, null, 2));
         return 0;
       }
       return hostedRead(cmd, store, args);

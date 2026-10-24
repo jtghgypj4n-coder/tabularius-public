@@ -17,7 +17,8 @@ test('an unexpected Admin API error gives a fixed message and logs its cause', a
     });
     assert.equal(login.status, 200);
     const { response: { token } } = await login.json();
-    const cause = new Error('SQLITE_CANTOPEN: unable to open /var/lib/secret/private.db');
+    const credential = ['sk', 'test', 'abc123'].join('-');
+    const cause = new Error(`SQLITE_CANTOPEN: api_key=${credential} unable to open /var/lib/private.db`);
     const logged = t.mock.method(console, 'error', () => {});
     const files = t.mock.method(s.host, 'files', () => { throw cause; });
     try {
@@ -27,9 +28,12 @@ test('an unexpected Admin API error gives a fixed message and logs its cause', a
       assert.equal(r.headers.get('x-content-type-options'), 'nosniff');
       assert.equal(r.headers.get('cache-control'), 'no-store');
       assert.deepEqual(JSON.parse(text), { response: {}, messages: [{ code: '-1', text: 'Internal server error' }] });
-      assert.doesNotMatch(text, /SQLITE_CANTOPEN|secret|private\.db/);
+      assert.doesNotMatch(text, /SQLITE_CANTOPEN|private\.db/);
       assert.equal(logged.mock.callCount(), 1);
-      assert.deepEqual(logged.mock.calls[0].arguments, [cause]);
+      const [diagnostic] = logged.mock.calls[0].arguments;
+      assert.equal(typeof diagnostic, 'string');
+      assert.match(diagnostic as string, /SQLITE_CANTOPEN/);
+      assert.doesNotMatch(diagnostic as string, new RegExp(credential));
     } finally {
       files.mock.restore();
       logged.mock.restore();
@@ -52,7 +56,7 @@ test('Admin API method dispatch distinguishes known paths from unknown paths', a
     const token = (await login.json()).response.token;
     const headers = { authorization: `Bearer ${token}` };
     for (const [path, method, allow] of [
-      ['/user/auth', 'GET', 'POST'],
+      ['/user/auth', 'GET', 'POST, DELETE'],
       ['/server/metadata', 'PATCH', 'GET'],
       ['/server/status', 'DELETE', 'GET, PATCH'],
       ['/databases', 'POST', 'GET, PATCH'],

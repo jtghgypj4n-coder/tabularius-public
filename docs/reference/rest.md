@@ -15487,6 +15487,8 @@ Source: `packages/server/src/admin.ts`
 | --- | --- | --- |
 | GET | [`/tabularius/admin/v1/backups`](#admin-backups-get-tabularius-admin-v1-backups) | The backup settings and the sets there are: where they go, how many are kept, the schedule, the last backup, and each set with its size, last check and last test restore (the same as status.backups). |
 | POST | [`/tabularius/admin/v1/backup`](#admin-backups-post-tabularius-admin-v1-backup) | Backs up every hosted file now, keeping as many sets as the schedule (or --backup-keep) says; the new set is checked in the background. |
+| POST | [`/tabularius/admin/v1/exit-bundle`](#admin-backups-post-tabularius-admin-v1-exit-bundle) | Writes a portable copy of a whole hosted file to <hosted folder>/Exports/<name>: every table (data.sqlite and CSV), every container file, globals, serial counters, schema, design and account names, with a manifest of SHA-256 hashes. The copy is plaintext, even when files are encrypted at rest. |
+| POST | [`/tabularius/admin/v1/exit-bundle/discard`](#admin-backups-post-tabularius-admin-v1-exit-bundle-discard) | Removes an unfinished portable copy (Exports/<name>.partial), which holds a plaintext snapshot of the whole file. |
 | POST | [`/tabularius/admin/v1/backup-folder`](#admin-backups-post-tabularius-admin-v1-backup-folder) | Sets the folder backups go to (an empty string goes back to <folder>/Backups). It is saved in the folder's settings, so the next start keeps it. |
 | POST | [`/tabularius/admin/v1/backup/stop`](#admin-backups-post-tabularius-admin-v1-backup-stop) | Stops the backups that are running or waiting (Back up now and the scheduled ones). Each ends after the file it is copying; its half-made set is removed and no old set is pruned. |
 | POST | [`/tabularius/admin/v1/backups/{set}/verify`](#admin-backups-post-tabularius-admin-v1-backups-set-verify) | Checks a backup set again now: each copy against its checksum and opened. |
@@ -15560,6 +15562,97 @@ Response `200`:
 ```
 
 Also starts an off-site copy when one is set up. The check's outcome shows in status.backups.sets[].check. A body naming a "database" is 400: a backup covers every hosted file, and restores depend on that. 409 {"error": "The backup was stopped"} when POST /backup/stop ended it.
+
+<a id="admin-backups-post-tabularius-admin-v1-exit-bundle"></a>
+
+### `POST /tabularius/admin/v1/exit-bundle`
+
+Writes a portable copy of a whole hosted file to <hosted folder>/Exports/<name>: every table (data.sqlite and CSV), every container file, globals, serial counters, schema, design and account names, with a manifest of SHA-256 hashes. The copy is plaintext, even when files are encrypted at rest.
+
+**Permissions:** Admin console: a console sign-in (the tabularius_admin cookie from POST /tabularius/admin/v1/sign-in), or the admin password by HTTP Basic (any user name), or the folder's local channel token in x-tabularius-local (Tabularius commands on the server machine). With no admin password set, only requests from this machine (loopback) are let in. Not a GET, so it also needs the header x-tabularius-admin: 1 (403 "missing x-tabularius-admin header" without it). It also needs a second sign-in in the body: an active account with [Full Access] (and its password), checked like any sign-in (lockouts, blank passwords from the network, "must change password", local-only accounts).
+
+**Parameters:**
+
+| Name | In | Type | Required | Description |
+| --- | --- | --- | --- | --- |
+| `database` | body | string | yes | The hosted file (404 "is not hosted"). |
+| `name` | body | string | yes | The folder name under Exports: a letter or digit first, then letters, digits, dots, dashes and underscores, 80 at most, not ending in .partial (400 otherwise). |
+| `account` | body | string | yes | A Full Access account of that file. |
+| `password` | body | string | yes | Its password. Never written to any log. |
+
+**Example:**
+
+```http
+POST /tabularius/admin/v1/exit-bundle
+Cookie: tabularius_admin=6b1f0c2e6b1f0c2e6b1f0c2e6b1f0c2e6b1f0c2e6b1f0c2e6b1f0c2e6b1f0c2e
+x-tabularius-admin: 1
+Content-Type: application/json
+
+{
+  "database": "Invoices",
+  "name": "invoices-2026-10-22",
+  "account": "Admin",
+  "password": "(the account's password)"
+}
+```
+
+Response `200`:
+
+```json
+{
+  "ok": true,
+  "folder": "Exports/invoices-2026-10-22",
+  "tables": 12,
+  "rows": 250000,
+  "containers": 40
+}
+```
+
+403: the account is not an active Full Access account or the password is wrong (one answer for both), the address may not sign in to that account, the password must be changed first, or the account signs in with a second factor (an export cannot ask for one; use an account without one). Every refusal is a data-export-refused security event, a finished copy a data-exported event. 404: the file is not hosted. 400: missing account or password, or a bad name. 409: the folder already exists, an export to it is already running, Exports is not a plain folder, or a stopped copy cannot be resumed. A copy that was stopped part way stays in Exports/<name>.partial (plaintext too) and the same request continues it; discard it with POST /exit-bundle/discard.
+
+<a id="admin-backups-post-tabularius-admin-v1-exit-bundle-discard"></a>
+
+### `POST /tabularius/admin/v1/exit-bundle/discard`
+
+Removes an unfinished portable copy (Exports/<name>.partial), which holds a plaintext snapshot of the whole file.
+
+**Permissions:** Admin console: a console sign-in (the tabularius_admin cookie from POST /tabularius/admin/v1/sign-in), or the admin password by HTTP Basic (any user name), or the folder's local channel token in x-tabularius-local (Tabularius commands on the server machine). With no admin password set, only requests from this machine (loopback) are let in. Not a GET, so it also needs the header x-tabularius-admin: 1 (403 "missing x-tabularius-admin header" without it). The same second sign-in as POST /exit-bundle.
+
+**Parameters:**
+
+| Name | In | Type | Required | Description |
+| --- | --- | --- | --- | --- |
+| `database` | body | string | yes | The hosted file. |
+| `name` | body | string | yes | The folder name the copy was started with. |
+| `account` | body | string | yes | A Full Access account of that file. |
+| `password` | body | string | yes | Its password. |
+
+**Example:**
+
+```http
+POST /tabularius/admin/v1/exit-bundle/discard
+Cookie: tabularius_admin=6b1f0c2e6b1f0c2e6b1f0c2e6b1f0c2e6b1f0c2e6b1f0c2e6b1f0c2e6b1f0c2e
+x-tabularius-admin: 1
+Content-Type: application/json
+
+{
+  "database": "Invoices",
+  "name": "invoices-2026-10-22",
+  "account": "Admin",
+  "password": "(the account's password)"
+}
+```
+
+Response `200`:
+
+```json
+{
+  "ok": true,
+  "discarded": "Exports/invoices-2026-10-22.partial"
+}
+```
+
+404 when there is no unfinished copy. 409 when it is not a plain folder owned by the server's user, other users can open it, or an export to that name is running. Audited as data-exported with detail discarded.
 
 <a id="admin-backups-post-tabularius-admin-v1-backup-folder"></a>
 
@@ -19783,6 +19876,8 @@ Source: `packages/server/src/admin.ts`
 | --- | --- | --- |
 | GET | [`/tabularius/admin/v1/ai-policy/{database}`](#admin-ai-get-tabularius-admin-v1-ai-policy-database) | Reads the per-file AI-visible policy. New solutions default on; imported and existing files without the setting default off. |
 | POST | [`/tabularius/admin/v1/ai-policy/{database}`](#admin-ai-post-tabularius-admin-v1-ai-policy-database) | Sets the AI-visible policy in file metadata. When on, AI refuses secret-bearing sources without explicit privilege-set exceptions and refuses uncertain read sets. |
+| GET | [`/tabularius/admin/v1/sql-privilege/{database}`](#admin-ai-get-tabularius-admin-v1-sql-privilege-database) | Whether a SQL query that reaches this file through another hosted file needs the account to have the fmxdbc extended privilege in this file too. Off by default. |
+| POST | [`/tabularius/admin/v1/sql-privilege/{database}`](#admin-ai-post-tabularius-admin-v1-sql-privilege-database) | Requires (or stops requiring) the fmxdbc extended privilege in this file for SQL that reaches it through another hosted file. Kept in the file and recorded in its security log. |
 | GET | [`/tabularius/admin/v1/ai-usage`](#admin-ai-get-tabularius-admin-v1-ai-usage) | The assistant's tokens and approximate cost: today against its limit, this month against its budget, the latest questions (never their text) and the models in use. |
 | GET | [`/tabularius/admin/v1/ai-access/{database}`](#admin-ai-get-tabularius-admin-v1-ai-access-database) | Whether AI apps and the assistant may read the file, and why not. |
 | POST | [`/tabularius/admin/v1/ai-access/{database}`](#admin-ai-post-tabularius-admin-v1-ai-access-database) | Turns AI on or off for a file; off keeps its data from AI apps, the assistant, digests' summaries and AI matching, whatever an account's privileges. Logged in the file's security events as "admin console". |
@@ -19863,6 +19958,73 @@ Response `200`:
 ```
 
 Manage Security edits aiVisible on a privilege set: {"Payroll":["Password"]} marks fields; {"Payroll":true} marks a whole base table. Ordinary privileges still apply. The AI access switch is separate.
+
+<a id="admin-ai-get-tabularius-admin-v1-sql-privilege-database"></a>
+
+### `GET /tabularius/admin/v1/sql-privilege/{database}`
+
+Whether a SQL query that reaches this file through another hosted file needs the account to have the fmxdbc extended privilege in this file too. Off by default.
+
+**Permissions:** Admin console: a console sign-in (the tabularius_admin cookie from POST /tabularius/admin/v1/sign-in), or the admin password by HTTP Basic (any user name), or the folder's local channel token in x-tabularius-local (Tabularius commands on the server machine). With no admin password set, only requests from this machine (loopback) are let in.
+
+**Parameters:**
+
+| Name | In | Type | Required | Description |
+| --- | --- | --- | --- | --- |
+| `database` | path | string | yes | Hosted file (404 "No such hosted file"). |
+
+**Example:**
+
+```http
+GET /tabularius/admin/v1/sql-privilege/Invoices
+Cookie: tabularius_admin=6b1f0c2e6b1f0c2e6b1f0c2e6b1f0c2e6b1f0c2e6b1f0c2e6b1f0c2e6b1f0c2e
+```
+
+Response `200`:
+
+```json
+{
+  "on": false
+}
+```
+
+<a id="admin-ai-post-tabularius-admin-v1-sql-privilege-database"></a>
+
+### `POST /tabularius/admin/v1/sql-privilege/{database}`
+
+Requires (or stops requiring) the fmxdbc extended privilege in this file for SQL that reaches it through another hosted file. Kept in the file and recorded in its security log.
+
+**Permissions:** Admin console: a console sign-in (the tabularius_admin cookie from POST /tabularius/admin/v1/sign-in), or the admin password by HTTP Basic (any user name), or the folder's local channel token in x-tabularius-local (Tabularius commands on the server machine). With no admin password set, only requests from this machine (loopback) are let in. Not a GET, so it also needs the header x-tabularius-admin: 1 (403 "missing x-tabularius-admin header" without it).
+
+**Parameters:**
+
+| Name | In | Type | Required | Description |
+| --- | --- | --- | --- | --- |
+| `database` | path | string | yes | Hosted file. |
+| `on` | body | boolean | yes | true or false; other values return 400. |
+
+**Example:**
+
+```http
+POST /tabularius/admin/v1/sql-privilege/Invoices
+Cookie: tabularius_admin=6b1f0c2e6b1f0c2e6b1f0c2e6b1f0c2e6b1f0c2e6b1f0c2e6b1f0c2e6b1f0c2e
+x-tabularius-admin: 1
+Content-Type: application/json
+
+{
+  "on": true
+}
+```
+
+Response `200`:
+
+```json
+{
+  "on": true
+}
+```
+
+Off, a query through a user-interface file reaches this file with the account's record and field privileges here and no check of its extended privileges. On, an account whose privilege set here lacks fmxdbc is refused (error 9 over HTTP, 42501 over the PostgreSQL port) and the HTTP table list leaves the file's tables out. A connection made directly to this file always needs fmxdbc, whatever this says.
 
 <a id="admin-ai-get-tabularius-admin-v1-ai-usage"></a>
 
@@ -21835,7 +21997,7 @@ Source: `packages/server/src/adminapi.ts`, `packages/server/src/index.ts`
 | Method | Path | What it does |
 | --- | --- | --- |
 | POST | [`/fmi/admin/api/v2/user/auth`](#admin-api-post-fmi-admin-api-v2-user-auth) | Signs in with the admin password and returns a token for the other routes. |
-| DELETE | [`/fmi/admin/api/v2/user/auth/{token}`](#admin-api-delete-fmi-admin-api-v2-user-auth-token) | Signs out: the token named in the path stops working. |
+| DELETE | [`/fmi/admin/api/v2/user/auth`](#admin-api-delete-fmi-admin-api-v2-user-auth) | Signs out the session in the Bearer header without putting its token in the URL. |
 | GET | [`/fmi/admin/api/v2/server/metadata`](#admin-api-get-fmi-admin-api-v2-server-metadata) | The server's name, id, address, Admin API version and local time. |
 | GET | [`/fmi/admin/api/v2/server/status`](#admin-api-get-fmi-admin-api-v2-server-status) | Whether the server is running or was stopped through this API. |
 | PATCH | [`/fmi/admin/api/v2/server/status`](#admin-api-patch-fmi-admin-api-v2-server-status) | STOPPED closes every open file (ending their sessions); RUNNING opens again the files it closed. |
@@ -21900,11 +22062,11 @@ Response `200`:
 
 A wrong password is 401 code 212; too many failures 429 code 214 with Retry-After. At most 100 tokens are live at once (401 code 956 beyond that).
 
-<a id="admin-api-delete-fmi-admin-api-v2-user-auth-token"></a>
+<a id="admin-api-delete-fmi-admin-api-v2-user-auth"></a>
 
-### `DELETE /fmi/admin/api/v2/user/auth/{token}`
+### `DELETE /fmi/admin/api/v2/user/auth`
 
-Signs out: the token named in the path stops working.
+Signs out the session in the Bearer header without putting its token in the URL.
 
 **Permissions:** A live Admin API token (Bearer).
 
@@ -21912,13 +22074,13 @@ Signs out: the token named in the path stops working.
 
 | Name | In | Type | Required | Description |
 | --- | --- | --- | --- | --- |
-| `token` | path | string | yes | The token to end. |
+| `Authorization` | header | string | yes | Bearer token for the session to end. |
 
 **Example:**
 
 ```http
-DELETE /fmi/admin/api/v2/user/auth/p4Xo2c9yQm1bT8sV0nKe3jLwR6uZaHfD5gC7iEqY1xM
-Authorization: Bearer p4Xo2c9yQm1bT8sV0nKe3jLwR6uZaHfD5gC7iEqY1xM
+DELETE /fmi/admin/api/v2/user/auth
+Authorization: Bearer <token>
 ```
 
 Response `200`:
@@ -21934,6 +22096,8 @@ Response `200`:
   ]
 }
 ```
+
+The token is never in the URL, where a reverse proxy may log it. This is a Tabularius extension; compatibility with FileMaker Server is unverified.
 
 <a id="admin-api-get-fmi-admin-api-v2-server-metadata"></a>
 

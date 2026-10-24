@@ -13,6 +13,7 @@ Each command page includes the current help text, options, exit codes, and a tes
 | [`calendar-feed`](calendar-feed.md) | 14 |
 | [`check-solution`](check-solution.md) | 3 |
 | [`compact`](compact.md) | 1 |
+| [`compat-check`](compat-check.md) | 0 |
 | [`corpus-scan`](corpus-scan.md) | 8 |
 | [`ddr`](ddr.md) | 0 |
 | [`decrypt`](decrypt.md) | 0 |
@@ -22,9 +23,10 @@ Each command page includes the current help text, options, exit codes, and a tes
 | [`design-diff`](design-diff.md) | 1 |
 | [`design-text`](design-text.md) | 0 |
 | [`diagnostics`](diagnostics.md) | 3 |
-| [`doctor`](doctor.md) | 5 |
+| [`doctor`](doctor.md) | 7 |
 | [`dump`](dump.md) | 2 |
 | [`encrypt`](encrypt.md) | 0 |
+| [`exit-bundle`](exit-bundle.md) | 3 |
 | [`export`](export.md) | 0 |
 | [`export-sql`](export-sql.md) | 3 |
 | [`fidelity`](fidelity.md) | 3 |
@@ -48,8 +50,9 @@ Each command page includes the current help text, options, exit codes, and a tes
 | [`restore`](restore.md) | 6 |
 | [`schema`](schema.md) | 1 |
 | [`script-tests`](script-tests.md) | 2 |
-| [`serve`](serve.md) | 77 |
+| [`serve`](serve.md) | 78 |
 | [`service`](service.md) | 3 |
+| [`sql-privilege`](sql-privilege.md) | 0 |
 | [`stale-calcs`](stale-calcs.md) | 3 |
 | [`standby`](standby.md) | 7 |
 | [`style-census`](style-census.md) | 1 |
@@ -60,6 +63,7 @@ Each command page includes the current help text, options, exit codes, and a tes
 | [`token`](token.md) | 5 |
 | [`totp`](totp.md) | 0 |
 | [`upgrade`](upgrade.md) | 3 |
+| [`upgrade-file`](upgrade-file.md) | 2 |
 | [`verify-backup`](verify-backup.md) | 2 |
 | [`version`](version.md) | 1 |
 | [`write-back`](write-back.md) | 1 |

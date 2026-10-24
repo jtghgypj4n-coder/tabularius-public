@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { csvField, formulaGuard, parseDelimited, stripFormulaGuard } from '../src/index.ts';
+import { csvField, formulaGuard, parseDelimited, stripFormulaGuard, visibleControls } from '../src/index.ts';
 import { createStore, Store } from '../src/index.ts';
 
 test('CSV fields neutralize formula prefixes after whitespace and controls', () => {
@@ -11,7 +11,7 @@ test('CSV fields neutralize formula prefixes after whitespace and controls', () 
   for (const prefix of ['\t', '\r', '\n', '\v', ' \t', '\u0001', '\u007f', '\u0085']) {
     const text = `${prefix}=1+1`;
     const parsed = parseDelimited(csvField(text), ',')[0][0];
-    assert.equal(parsed, `'${text}`);
+    assert.equal(parsed, `'${visibleControls(text)}`);
   }
   for (const prefix of [' ', '\u00a0', '\ufeff']) assert.equal(csvField(`${prefix}=1`), `'${prefix}=1`);
 });
@@ -51,7 +51,7 @@ test('a legitimate negative time, date or timestamp keeps its minus sign, and an
 test('CSV fields preserve cell text and quote after neutralization', () => {
   for (const text of ['', 'café', "'already", '-42', '\t=1,"x"\n']) {
     const parsed = text === '' ? '' : parseDelimited(csvField(text), ',')[0][0];
-    assert.equal(parsed, /^[\t\r\n\v\u0000-\u001f\u007f-\u009f]|^[-=+@]/u.test(text) ? `'${text}` : text);
+    assert.equal(parsed, /^[\t\r\n\v\u0000-\u001f\u007f-\u009f]|^[-=+@]/u.test(text) ? `'${visibleControls(text)}` : text);
   }
 });
 
@@ -73,4 +73,27 @@ test('the apostrophe an export put in front of a formula-like value is taken off
   assert.equal(stripFormulaGuard(7, 'number'), 7);
   assert.equal(formulaGuard('@SUM(A1)'), "'@SUM(A1)");
   assert.equal(formulaGuard('plain'), 'plain');
+});
+
+test('control characters are written as visible \\uXXXX escapes, never dropped; line breaks stay and a literal backslash is left alone', () => {
+  assert.equal(visibleControls('a\tb\u0007c\u0000d\u007fe\u0085f'), 'a\\u0009b\\u0007c\\u0000d\\u007fe\\u0085f');
+  assert.equal(visibleControls('plain, with "quotes"\r\nand C:\\path'), 'plain, with "quotes"\r\nand C:\\path');
+  assert.equal(csvField('x\u0007y'), 'x\\u0007y');
+  assert.equal(csvField('C\tD', { quoteAll: true }), '"C\\u0009D"');
+  assert.equal(csvField('\t=1+1'), "'\\u0009=1+1");
+  assert.equal(csvField('a\r\nb\tc'), '"a\r\nb\\u0009c"');
+  // An export that writes a return as a vertical tab asks for it; the vertical tab it writes is not escaped.
+  assert.equal(csvField('a\r\nb\u000bc', { quoteAll: true, lineBreak: '\v' }), '"a\vb\\u000bc"');
+});
+
+test('the apostrophe is still taken off a number, date or time that began with a control character, though the export wrote it as \\uXXXX', () => {
+  for (const [text, type] of [['\t-5', 'number'], ['\u0001-12:30', 'time'], ['\u0007-0044-01-01', 'date'], ['\v=1', 'integer']] as const) {
+    const exported = csvField(text, { type });
+    assert.equal(exported.startsWith("'\\u"), true, exported);
+    assert.equal(stripFormulaGuard(parseDelimited(exported, ',')[0][0], type), text);
+  }
+  // A text field keeps what the export wrote: the escape is display-only there.
+  assert.equal(stripFormulaGuard("'\\u0009-5", 'text'), "'\\u0009-5");
+  // Only the control-character escapes are read, and only to find out whether the guard was needed.
+  assert.equal(stripFormulaGuard("'\\u0041-5", 'number'), "'\\u0041-5");
 });

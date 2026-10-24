@@ -40,14 +40,14 @@ These hold for every route below unless its row says otherwise.
 - Body: `readBoundedJson` (as above) for `POST` and `PATCH`; `DELETE` bodies are not read. Request paths longer than 2,048 characters answer `400` before sign-in.
 - Answers: `{response, messages: [{code, text}]}`. A `500` is `Internal server error`, code `-1`; the cause goes to the server console. A bad `%` escape is `400`. A wrong method on a known path is `405` with `Allow` (to a signed-in caller). An unknown path is `404`, code 3.
 - Headers: every answer carries `Cache-Control: no-store` and `nosniff`; `401` adds `WWW-Authenticate: Bearer`.
-- Token in the path: `DELETE /user/auth/{token}` carries the token in the URL, as the reference product's own calls do. Its metrics label is the fixed `adminapi`, so the token is not in a metric. A reverse proxy in front may log the path, so see [Open findings](#open-findings).
+- Token in the path: removed. `DELETE /user/auth/{token}` carried the token in the URL, where a reverse proxy may log it; it now answers `404`. Sign out with `DELETE /user/auth` and the session token in the `Authorization` header. See [Open findings](#open-findings).
 
 ## Admin API routes
 
 | Method and path | Parameters and bounds | Notes |
 | --- | --- | --- |
 | `POST /user/auth` | Basic header; body drained (small). `Sec-Fetch-Site` must be absent, `same-origin` or `none`; an `Origin` must be this server's. | Open. Wrong password `401` code 212 (the same text whatever the user name); locked `429` code 214 with `Retry-After`; no password set `401` with the command to set one (the console's open `sign-in-info` says the same); token table full `401` code 956. A password changed while the check ran gives `401`. |
-| `DELETE /user/auth/{token}` | token: one path segment. | Signed in. Always `200`, whether or not the token existed, so it tells nothing about other tokens. |
+| `DELETE /user/auth` | The session token in the `Authorization` header; no path token (`DELETE /user/auth/{token}` is removed and answers `404`). | Signed in. Ends that session; `200`. |
 | `GET /server/metadata` | none | Signed in. Shows the host name, an id derived from the folder path and the first non-internal IPv4 address. |
 | `GET`, `PATCH /server/status` | PATCH: `status` string `RUNNING` or `STOPPED`, `messageText` string of at most 200 characters. | Wrong type `960`; wrong value `960`. |
 | `GET`, `PATCH /databases` | PATCH: `status` `OPENED`, `CLOSED`, `PAUSED` or `RESUMED` (missing `958`, other `960`), `messageText` as above. | Acts on every hosted file. |
@@ -119,7 +119,7 @@ Suggested fix, if a limit is wanted before Node adds an interrupt: run HTTP SQL 
 | --- | --- | --- | --- |
 | 1 | No per-statement SQL time limit (above). | Medium: an account with SQL access can hold the main thread with one statement. | A child-process pool as described above, or wait for an interrupt in `node:sqlite`. |
 | 2 | Five `console.error(e)` calls (`admin.ts`, `adminapi.ts`) write the raw error to the server console on a `500`, where other routes go through `logFaultFor`, which redacts credential-shaped text. Nothing reaches the caller. `adminapi-errors.test.ts` asserts the raw call today. | Low | Move the five to `logFaultFor` and update that test to expect the redacted entry. |
-| 3 | `DELETE /user/auth/{token}` puts the token in the URL. The metrics label hides it, but a reverse proxy in front may log the path. | Low | Document it in `docs/admin-api-coverage.md` and let the call also take the token from the `Authorization` header, as a second spelling. |
+| 3 | `DELETE /user/auth/{token}` put the token in the URL. The metrics label hid it, but a reverse proxy in front may log the path. | Low | Resolved: the path route is removed; `DELETE /user/auth` with the `Authorization` header signs out. |
 | 4 | The Admin API login answers `Set an admin password before using the Admin API` when none is set, while the open `sign-in-info` says the same, so this is not new information; it is listed because it is an anonymous state answer. | Informational | None; it is deliberate (the message tells the owner what to do). |
 | 5 | `GET sync/{database}/log` treats a malformed `limit` as the default instead of refusing it, unlike every other console `limit`. `resource-limits.test.ts` asserts it. | Informational | Decide whether to keep the lenient reading; if not, use `queryInteger` and change that test. |
 | 6 | A wrong admin password (console or Admin API) counts toward the lockout, but neither the failure nor the lockout is written to the server log or the event log; the Data API records both for file accounts. An owner cannot see a guessing attempt on the admin password. | Low | Write an event log line for a lockout, and a count for failures, without the address of a trusted proxy's clients being exposed. |

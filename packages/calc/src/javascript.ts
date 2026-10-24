@@ -669,7 +669,7 @@ export async function stopJavaScript(): Promise<void> {
   await Promise.all([...[...sandboxes.values()].map(stopSandbox), ...[...contexts].map(context => context.close())]);
 }
 
-/** A server-wide bound as well as the smaller per-account and registry per-session bounds. Allocation is lazy. */
+/** A server-wide bound as well as the smaller per-account and registry per-session bounds. Allocation is lazy. A full pool drops the requester's own least recently used handle, or refuses a requester with none. */
 export const JS_CONTEXT_LIMIT = 32;
 /**
  * The account key is [store.path, account], not a person across files: one person with accounts on four files
@@ -712,7 +712,17 @@ export class JavaScriptContext {
     if (account !== undefined && [...contexts].filter(context => context.account === account).length >= JS_CONTEXT_ACCOUNT_LIMIT) {
       throw new CalcError(ERR.calculation, `JavaScript context limit reached for this account (${JS_CONTEXT_ACCOUNT_LIMIT})`);
     }
-    if (contexts.size >= JS_CONTEXT_LIMIT) throw new CalcError(ERR.calculation, `JavaScript context limit reached for this server (${JS_CONTEXT_LIMIT})`);
+    // A full pool makes room by dropping the requesting account's own least recently used handle (the earliest idle deadline;
+    // the oldest when they tie). An account that holds none, and a caller with no account, is refused: JS.Release is open to
+    // every script, so letting such a caller drop someone else's handle would let it clear the whole pool by asking again. A
+    // call runs to its end before any other starts, so every handle is idle here. The dropped handle's references stop
+    // working like an expired one's, and its owner makes a new one. The per-account limit above is a refusal too.
+    if (contexts.size >= JS_CONTEXT_LIMIT) {
+      let oldest: JavaScriptContext | undefined;
+      if (account !== undefined) for (const context of contexts) if (context.account === account && (!oldest || context.expiresAt < oldest.expiresAt)) oldest = context;
+      if (!oldest) throw new CalcError(ERR.calculation, `JavaScript context limit reached for this server (${JS_CONTEXT_LIMIT})`);
+      void oldest.close();
+    }
     this.renewIdle();
     contexts.add(this);
   }

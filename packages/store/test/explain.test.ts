@@ -162,6 +162,20 @@ test('privilege-aware: a reference that crosses into another hosted file is chec
   }
 });
 
+test('empty-rule lint ignores function names in comments and strings, but respects real calls', () => {
+  const store = shop();
+  try {
+    const occurrence = store.calc.occurrence('Orders')!.id;
+    const field = store.schema.tables.find((t) => t.name === 'Orders')!.fields.find((f) => f.name === 'NoNote')!;
+    const codes = (formula: string) => lintFormula(store, formula, { occurrence, field }).map((w) => w.code);
+    assert.ok(codes('IsEmpty ( Note ) // GetField ( "Note" )').includes('empty-rule'));
+    assert.ok(codes('IsEmpty ( Note ) & "GetField ( Note )"').includes('empty-rule'));
+    for (const formula of ['IsEmpty ( Note ) & GetField ( "Note" )', 'Lookup ( Note )', 'LookupNext ( Note ; 1 )']) {
+      assert.ok(!codes(formula).includes('empty-rule'), formula);
+    }
+  } finally { store.close(); }
+});
+
 test('lint: what FileMaker accepts silently but may surprise', () => {
   const store = shop();
   const to = store.calc.occurrence('Orders')!.id;

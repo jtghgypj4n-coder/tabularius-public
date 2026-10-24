@@ -33,6 +33,7 @@ import { q } from './import.ts';
 import type { FieldType } from '../../fmp12/src/index.ts';
 import { StoreError, type Store } from './store.ts';
 import { writer } from './activity.ts';
+import { sameSecret } from './same-secret.ts';
 import {
   DEFAULT_CONFLICT_POLICY, ensureSyncTables, readLocalRecords, sameValue, settleClash, syncPlanDetailed, tableKey,
   type ConflictPolicy, type DetailedPlan, type FieldClash, type LocalRecord, type PlanItem, type SyncLocal, type PlanConflict, type RemoteFile, type RemoteRecord, type RemoteSource, type SyncMapEntry, type TablePlan, type TableSyncConfig,
@@ -284,7 +285,7 @@ function resolveConflicts(store: SyncLocal, details: DetailedPlan[], list: Resol
     const i = d ? d.plan.conflicts.findIndex((c) => c.uuid === r.uuid) : -1;
     const reviewed = d?.locals.find((l) => l.uuid === r.uuid);
     const local = d && current.get(d)!.find((l) => l.uuid === r.uuid);
-    if (!d || i < 0 || !r.reviewToken || r.reviewToken !== d.plan.conflicts[i].reviewToken
+    if (!d || i < 0 || !r.reviewToken || !sameSecret(r.reviewToken, d.plan.conflicts[i].reviewToken)
       || local?.recordId !== reviewed?.recordId || local?.modId !== reviewed?.modId) {
       stale.push(`${r.table} ${r.uuid}`);
       continue;

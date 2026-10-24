@@ -6,7 +6,7 @@ import { ownKeyed } from './own-keys.ts';
 import { checkStoredWebViewerHosts, normalizeWebViewerHosts } from './web-viewer-hosts.ts';
 import { isCredentialName } from '../../scripts/src/credentials.ts';
 import { cleanSql, sqlName, sqlTokens } from './sql-tokens.ts';
-import { SignInFailures, LOCKOUT, noAddressBudget, sharedSource, addressBucket, accountsSharingLockout, lockoutName } from './sign-in-failures.ts';
+import { SignInFailures, LOCKOUT, SIGN_IN_FAILURE_AUDIT_FLOOR, signInFailureAuditShare, noAddressBudget, sharedSource, addressBucket, accountsSharingLockout, lockoutName } from './sign-in-failures.ts';
 import { expiryClock } from './clock.ts';
 import { crashPoint } from './crash-point.ts';
 import { atomicWrite, syncPath } from './durable.ts';
@@ -57,6 +57,7 @@ import { cleanScriptTest, SCRIPT_TEST_LIMIT, type ScriptTest } from './script-te
 import { ensureTextStyles, repetitionText, TextStyles } from './text-styles.ts';
 import { checkFormat, storedFormat } from './store-format.ts';
 import { UuidV7 } from './uuid-v7.ts';
+import { sameSecret } from './same-secret.ts';
 export { StoreError, PendingApprovalError };
 
 /** Name equality used by the existing case-insensitive account and privilege-set rules. */
@@ -329,7 +330,7 @@ const USAGE_COUNTED_BEFORE = new Set(['rest', 'web']);
 /** Layouts opened and scripts run, by account and day (Store.recordObjectUse). */
 const OBJECT_USAGE = '_fm_object_usage';
 
-export { LOCKOUT, addressBucket } from './sign-in-failures.ts';
+export { LOCKOUT, addressBucket, SIGN_IN_FAILURE_AUDIT_FLOOR, signInFailureAuditShare } from './sign-in-failures.ts';
 
 /**
  * A file's password policy, matching FileMaker's account options: how short a
@@ -706,6 +707,13 @@ export function generateTempPassword(minLength = 0): string {
  */
 export const PASSWORD_POLICY = { blankFromNetwork: false };
 
+/** The most API tokens an account may hold that still work (expired ones do not count), and the most proposals one approval-gated agent may have waiting. */
+export const MAX_API_TOKENS_PER_ACCOUNT = 1000;
+export const MAX_PENDING_PER_AGENT = 500;
+
+/** How long record audit entries are kept when a file's audit settings do not say (days). A saved 0 keeps every entry. */
+export const AUDIT_RETENTION_DEFAULT_DAYS = 400;
+
 const LOCAL = new Set(['', 'mcp', '127.0.0.1', '::1', '::ffff:127.0.0.1']);
 
 const PASSKEY_REFUSED = 'That passkey was not accepted; try again';
@@ -728,6 +736,9 @@ const WRITE_SHARE_MS = 5_000;
  * admin token.
  */
 const TOKEN_SURFACES = new Set(['fmrest', 'fmodata', 'fmxdbc', 'fmmcp']);
+/** Days an API token lives when its maker names no date, and the most it may be given; the server's TABULARIUS_TOKEN_DEFAULT_DAYS and the longest a person can ask for follow these. */
+export const API_TOKEN_DEFAULT_DAYS = 90;
+export const API_TOKEN_MAX_DAYS = 3650;
 /**
  * A record-access rule whose value changes with the wall clock, not with the
  * data: it is never cached, since no write would mark a stale set dirty. Covers
@@ -800,6 +811,26 @@ function passwordHashParts(stored: string): { salt: Buffer; want: Buffer } | und
 /** The cost of checking one wrong password, spent when a request is refused before any file's accounts are looked at (see Store.spendsScrypt). */
 export async function spendPasswordCheck(password: string): Promise<void> {
   await checkPasswordAsync(password, DUMMY_HASH);
+}
+
+/** How many recovery codes a set holds; a check is padded to this many hashes (see Store.unusedRecoveryHashes). */
+const RECOVERY_CODE_SET = 10;
+
+/** A recovery code as it is hashed: groups, spaces and case do not matter. */
+function recoveryCodeText(code: string): string {
+  return code.replace(/[\s-]/g, '').toLowerCase();
+}
+
+/** Whether a stored hash from an earlier version (a bare SHA-256 in hex, no salt) is this code's. */
+function legacyRecoveryMatch(text: string, stored: string | undefined): boolean {
+  if (stored === undefined || !/^[0-9a-f]{64}$/.test(stored)) return false;
+  return timingSafeEqual(Buffer.from(stored, 'hex'), createHash('sha256').update(text).digest());
+}
+
+/** The cost of checking one recovery code against a full set of them, spent when a request is refused before any file's accounts are looked at. */
+export async function spendRecoveryCodeCheck(code: string): Promise<void> {
+  const text = recoveryCodeText(code);
+  await Promise.all(Array.from({ length: RECOVERY_CODE_SET }, () => checkPasswordAsync(text, DUMMY_HASH)));
 }
 
 /** checkPassword off the main thread, so a burst of logins doesn't stall everyone else's requests. */
@@ -936,6 +967,8 @@ export class Store {
   /** Diagnostics: how many limited-rule id scans have run (a cache miss costs one full table scan). */
   allowedScans = 0;
   private designCache = new PreparedCache<LayoutDesigns | undefined>(undefined);
+  private layoutDesignCache = new PreparedCache(new Map<number, LayoutDesign>(), (value) => new Map(value));
+  private themesCache = new PreparedCache<LayoutDesigns['themes'] | undefined>(undefined);
   /** Finds another hosted file by name, for layouts whose table lives there (set by the host). */
   resolveFile: (name: string) => Store | undefined = () => undefined;
 
@@ -1432,7 +1465,7 @@ export class Store {
           // name may since have been taken by a file of another database that shares the folder.
           if (!named.get(rel) && full && typeof dev === 'string' && typeof ino === 'string') {
             const now = lstatSync(full, { bigint: true });
-            if (String(now.dev) === dev && String(now.ino) === ino) cleanupPath(full)();
+            if (String(now.dev) === dev && String(now.ino) === ino) cleanupPath(full)({ throwOnError: true });
           }
           rmSync(marker);
         } catch (error) {
@@ -1824,10 +1857,11 @@ export class Store {
     const counter = shared ? '_fm_data_version' : '_fm_cache_version';
     const prefix = shared ? '_fm_dv_' : '_fm_cv_';
     // Nothing is written when all is in place already: another process may be in the middle of a write.
+    const pending: string[] = [];
     const present = (this.sql.prepare("SELECT count(*) AS n FROM sqlite_master WHERE type = 'table' AND name = ?").get(counter) as { n: number }).n > 0;
     if (!present) {
-      this.sql.exec(`CREATE TABLE IF NOT EXISTS ${counter} (id INTEGER PRIMARY KEY CHECK (id = 1), n INTEGER NOT NULL)`);
-      this.sql.exec(`INSERT OR IGNORE INTO ${counter} (id, n) VALUES (1, 0)`);
+      pending.push(`CREATE TABLE IF NOT EXISTS ${counter} (id INTEGER PRIMARY KEY CHECK (id = 1), n INTEGER NOT NULL);`);
+      pending.push(`INSERT OR IGNORE INTO ${counter} (id, n) VALUES (1, 0);`);
     }
     const existing = new Map((this.sql.prepare("SELECT name, tbl_name FROM sqlite_master WHERE type = 'trigger' AND name GLOB ?").all(`${prefix}*`) as { name: string; tbl_name: string }[]).map((r) => [r.name, r.tbl_name]));
     const tables = new Set((this.sql.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as { name: string }[]).map((r) => r.name));
@@ -1839,9 +1873,21 @@ export class Store {
         if (on === t.name) continue;
         // A table id given again (a new table created with the id of a trashed one) finds the old table's trigger under its name:
         // that one stays with the trashed table, and this table needs its own.
-        if (on !== undefined) this.sql.exec(`DROP TRIGGER IF EXISTS ${q(name)}`);
-        this.sql.exec(`CREATE TRIGGER IF NOT EXISTS ${q(name)} AFTER ${event} ON ${q(t.name)} BEGIN UPDATE ${counter} SET n = n + 1; END`);
+        if (on !== undefined) pending.push(`DROP TRIGGER IF EXISTS ${q(name)};`);
+        pending.push(`CREATE TRIGGER IF NOT EXISTS ${q(name)} AFTER ${event} ON ${q(t.name)} BEGIN UPDATE ${counter} SET n = n + 1; END;`);
       }
+    }
+    if (!pending.length) return;
+    // A wide file needs hundreds of triggers on first hosting. One batch avoids
+    // an autocommit per trigger; a savepoint also makes failure atomic inside
+    // a caller's transaction (shareResults may catch the error).
+    this.sql.exec('SAVEPOINT tabularius_version_triggers');
+    try {
+      this.sql.exec(pending.join('\n'));
+      this.sql.exec('RELEASE tabularius_version_triggers');
+    } catch (error) {
+      this.sql.exec('ROLLBACK TO tabularius_version_triggers; RELEASE tabularius_version_triggers');
+      throw error;
     }
   }
 
@@ -1985,6 +2031,8 @@ export class Store {
     // A remote design may first be observed inside preparation that later fails.
     // Forget published entries too, so that failure cannot revive the old design.
     this.designCache = new PreparedCache<LayoutDesigns | undefined>(undefined);
+    this.layoutDesignCache = new PreparedCache(new Map<number, LayoutDesign>(), (value) => new Map(value));
+    this.themesCache = new PreparedCache<LayoutDesigns['themes'] | undefined>(undefined);
     this.repeating = ownKeyed(this.meta('repeating'));
     this.layoutCache.invalidate((cache) => cache.clear());
     this.externalNamed.invalidate((cache) => cache.clear());
@@ -2353,7 +2401,9 @@ export class Store {
         redactSensitive: stored?.redactSensitive === true,
         excludeFields: Object.fromEntries(Object.entries(stored?.excludeFields ?? {}).map(([t, fs]) => [t, [...new Set((fs ?? []).map(String))]])),
         logReads: stored?.logReads === true,
-        retentionDays: Number.isFinite(stored?.retentionDays) && stored!.retentionDays! > 0 ? Math.floor(stored!.retentionDays!) : 0,
+        // No saved choice: the default. A saved 0 is the choice to keep every entry.
+        retentionDays: stored?.retentionDays === undefined || stored.retentionDays === null ? AUDIT_RETENTION_DEFAULT_DAYS
+          : Number.isFinite(stored.retentionDays) && stored.retentionDays > 0 ? Math.floor(stored.retentionDays) : 0,
       } };
     }
     return this.auditConfig.value;
@@ -2623,6 +2673,36 @@ export class Store {
     return result;
   }
 
+  /** How many security rows and how many of them are failed sign-ins, as of `at` (then counted on from the rows this process writes). */
+  private failureAudit = { at: -Infinity, failures: 0, total: 0 };
+  /** How long a count of the audit is trusted before it is made again (rows written by other processes show up then, so several processes can overshoot the share by what they write in that time). A test sets 0. */
+  failureAuditRecountMs = 60_000;
+
+  /**
+   * Whether one more failed sign-in row may be written: the first SIGN_IN_FAILURE_AUDIT_FLOOR always may, then they
+   * may be at most signInFailureAuditShare() of the security rows, so a flood of wrong passwords cannot fill the audit or hide
+   * the rows that matter, and cannot make a sign-in or a security change refuse for want of room. Nothing is removed.
+   */
+  private failureAuditRoom(): boolean {
+    const share = signInFailureAuditShare();
+    if (share >= 1) return true;
+    const counts = this.failureAudit;
+    const now = performance.now();
+    if (now - counts.at >= this.failureAuditRecountMs) {
+      try {
+        const r = this.sql.prepare(`SELECT COUNT(*) AS total, COALESCE(SUM(kind = 'sign-in-failed'), 0) AS failures FROM _fm_audit WHERE security = 1`).get() as { total: number; failures: number };
+        this.failureAudit = { at: now, failures: Number(r.failures), total: Number(r.total) };
+      } catch {
+        // The count could not be made now (a busy file): keep the last one, which still limits what this process writes.
+      }
+    }
+    const { failures, total } = this.failureAudit;
+    if (failures + 1 > Math.max(SIGN_IN_FAILURE_AUDIT_FLOOR, share * (total + 1))) return false;
+    this.failureAudit.failures++;
+    this.failureAudit.total++;
+    return true;
+  }
+
   /**
    * Records a security or authentication event in the audit log, so the trail
    * covers who signed in (and who failed), who was locked out, and every change
@@ -2630,6 +2710,8 @@ export class Store {
    * schema — not only record edits. `target` names the object acted on.
    */
   private logSecurity(kind: SecurityEventKind, opts: { account?: string | null; target?: string; from?: string; detail?: Record<string, unknown> } = {}): void {
+    // A failed sign-in that would take the audit past its share for them is not written. A lockout always is: there is one per lock, not per attempt.
+    if (kind === 'sign-in-failed' && !this.failureAuditRoom()) return;
     const payload: Record<string, unknown> = { ...(opts.detail ?? {}) };
     if (opts.target !== undefined) payload.target = opts.target;
     if (opts.from) payload.from = opts.from;
@@ -2647,6 +2729,19 @@ export class Store {
    */
   auditSignIn(account: string, from: string, ok: boolean, factor?: 'two-factor' | 'passkey' | 'recovery-code'): void {
     this.logSecurity(ok ? 'sign-in' : 'sign-in-failed', { account, from, ...(factor ? { detail: { factor } } : {}) });
+  }
+
+  /**
+   * Records a full-file export (the portable copy): the account that asked, where the request came from and, in `detail`,
+   * the folder or the reason it was refused. Never a password or a field value.
+   */
+  auditExitBundle(account: string, from: string, ok: boolean, detail: Record<string, unknown> = {}): void {
+    this.logSecurity(ok ? 'data-exported' : 'data-export-refused', { account: account.slice(0, 200), from, detail });
+  }
+
+  /** Whether an account is active and holds the [Full Access] privilege set (the only kind that may take a full copy of the file). */
+  isFullAccessAccount(account: string): boolean {
+    return !this.accountInactive(account) && this.accountIsFull(this.accountPrivilegeSet(account));
   }
 
   /** Records an administrator clearing an actual sign-in block. */
@@ -3203,6 +3298,8 @@ export class Store {
       })) as FieldData;
     }
     const id = this.securityChange(() => {
+      const waiting = (this.sql.prepare('SELECT COUNT(*) AS n FROM _fm_pending WHERE agent = ? COLLATE NOCASE').get(account) as { n: number }).n;
+      if (waiting >= MAX_PENDING_PER_AGENT) throw new StoreError(812, `"${account}" already has ${MAX_PENDING_PER_AGENT.toLocaleString('en')} changes waiting for approval, the most one agent can have. Approve or reject some of them (Manage Security, Pending changes), then the agent can propose more`);
       const r = this.sql.prepare('INSERT INTO _fm_pending (at, agent, kind, layout, tbl, record_id, data, mod_id, summary) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
         .run(new Date().toISOString(), account, kind, info.name, info.table, recordId ?? null, data ? JSON.stringify(data) : null, modId ?? null, summary);
       this.logSecurity('agent-change-proposed', { account, target: info.name, detail: { id: Number(r.lastInsertRowid), kind, ...(recordId !== undefined ? { recordId } : {}) } });
@@ -3569,6 +3666,22 @@ export class Store {
       if (!added.length && !removed.length) return;
       this.sql.prepare(`INSERT INTO _fm_meta VALUES ('webViewerHosts', ?) ON CONFLICT(key) DO UPDATE SET json = excluded.json`).run(JSON.stringify(next));
       this.logSecurity('web-viewer-hosts-changed', { account: opts.account ?? null, detail: { added, removed, count: next.length } });
+    });
+  }
+
+  /**
+   * Whether a query that reaches this file's tables through another hosted file (a user-interface file over this data
+   * file) needs the account to have the SQL extended privilege (fmxdbc) in this file too. Off unless turned on: an
+   * account that reads every record here may be queried through the other file whatever its set here says.
+   */
+  get sqlRequiresFmxdbc(): boolean { return this.meta('sqlRequiresFmxdbc') === true; }
+
+  setSqlRequiresFmxdbc(on: boolean, opts: { account?: string } = {}): void {
+    if (typeof on !== 'boolean') throw new StoreError(960, 'The SQL privilege switch must be true or false');
+    this.securityChange(() => {
+      if (on === this.sqlRequiresFmxdbc) return;
+      this.sql.prepare(`INSERT INTO _fm_meta VALUES ('sqlRequiresFmxdbc', ?) ON CONFLICT(key) DO UPDATE SET json = excluded.json`).run(JSON.stringify(on));
+      this.logSecurity(on ? 'sql-privilege-required' : 'sql-privilege-not-required', { account: opts.account ?? null });
     });
   }
 
@@ -4233,7 +4346,7 @@ export class Store {
    */
   changePassword(account: string, oldPassword: string, newPassword: string, from = ''): void {
     if (!this.verify(account, oldPassword, from)) throw new StoreError(212, 'The current password is wrong');
-    if (newPassword === oldPassword) throw new StoreError(960, 'The new password must be different from the current one');
+    if (sameSecret(newPassword, oldPassword)) throw new StoreError(960, 'The new password must be different from the current one');
     // Honour the set's "allow the account to change its own password" option —
     // but never when a change is currently owed (must-change or expired), since
     // refusing then would lock the account out of a sign-in it can't complete.
@@ -4365,7 +4478,7 @@ export class Store {
         const digest = importDigest(input);
         const receipt = this.sql.prepare('SELECT actor, digest, result FROM _fm_account_import_receipts WHERE key = ?').get(idempotencyKey) as { actor: string; digest: string; result: string } | undefined;
         if (receipt) {
-          if (receipt.actor !== actor || receipt.digest !== digest) throw new AccountImportError('idempotency-conflict', 409);
+          if (receipt.actor !== actor || !sameSecret(receipt.digest, digest)) throw new AccountImportError('idempotency-conflict', 409);
           return JSON.parse(receipt.result) as AccountImportResult;
         }
         if (previewToken.length > 4096) throw new AccountImportError('invalid-preview', 409);
@@ -4374,7 +4487,7 @@ export class Store {
         let binding: { actor: string; via?: string; database: string; digest: string; snapshot: string; expires: number };
         try { binding = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')); }
         catch { throw new AccountImportError('invalid-preview', 409); }
-        if (binding.actor !== actor || binding.via !== via || binding.database !== this.name || binding.digest !== digest || !Number.isFinite(binding.expires) || binding.expires <= expiryClock.now() || binding.snapshot !== this.importSnapshot()) {
+        if (binding.actor !== actor || binding.via !== via || binding.database !== this.name || !sameSecret(binding.digest, digest) || !Number.isFinite(binding.expires) || binding.expires <= expiryClock.now() || binding.snapshot !== this.importSnapshot()) {
           throw new AccountImportError('stale-or-changed-preview', 409);
         }
         const plan = planAccountImport(input, this.importAccounts(), this.privilegeSets(), actor, via, this.schema.accounts.filter((a) => a.external).map((a) => a.name), this.requireTotpForFullAccess());
@@ -4747,6 +4860,14 @@ export class Store {
         }
         if (surfaces && !surfaces.includes('fmrest') && !surfaces.includes('fmmcp')) throw new StoreError(960, 'A layout-scoped token must allow the Data API (fmrest) or AI apps (fmmcp)');
       }
+      // A token that expired over 30 days ago is of no use and goes; the rest count toward the cap, which refuses rather than drops, so nothing that works stops.
+      const now = expiryClock.now();
+      this.sql.prepare('DELETE FROM _fm_api_tokens WHERE account = ? COLLATE NOCASE AND expires IS NOT NULL AND expires < ?').run(account, new Date(now - 30 * 86_400_000).toISOString());
+      const working = (this.sql.prepare('SELECT COUNT(*) AS n FROM _fm_api_tokens WHERE account = ? COLLATE NOCASE AND (expires IS NULL OR expires > ?)').get(account, new Date(now).toISOString()) as { n: number }).n;
+      if (working >= MAX_API_TOKENS_PER_ACCOUNT) throw new StoreError(812, `"${account}" already has ${MAX_API_TOKENS_PER_ACCOUNT.toLocaleString('en')} API tokens that work, the most one account can have. Revoke tokens that are no longer used (Manage Security, API tokens), then try again`);
+      // A token always expires: one made without a date lives the default, and none lives past the longest a person can ask for.
+      const expires = opts.expires ?? new Date(expiryClock.now() + API_TOKEN_DEFAULT_DAYS * 86_400_000);
+      if (!Number.isFinite(expires.getTime()) || expires.getTime() > expiryClock.now() + API_TOKEN_MAX_DAYS * 86_400_000 + 60_000) throw new StoreError(960, `A token lives at most ${API_TOKEN_MAX_DAYS} days`);
       const id = randomBytes(6).toString('hex');
       const secret = randomBytes(24).toString('base64url');
       const token = `ohbt_${id}.${secret}`;
@@ -4755,7 +4876,7 @@ export class Store {
       this.sql.prepare(`INSERT INTO _fm_api_tokens (id, label, account, token_hash, read_only, created, expires, surfaces, layouts, identity, provenance)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
         id, opts.label ?? null, account, createHash('sha256').update(token).digest('hex'),
-        opts.readOnly ? 1 : 0, new Date().toISOString(), opts.expires ? opts.expires.toISOString() : null,
+        opts.readOnly ? 1 : 0, new Date().toISOString(), expires.toISOString(),
         surfaces ? JSON.stringify(surfaces) : null, layouts ? JSON.stringify(layouts) : null, opts.identity ? JSON.stringify(opts.identity) : null, provenance);
       this.logSecurity('api-token-issued', { target: account, detail: { id, ...(opts.label ? { label: opts.label } : {}), readOnly: !!opts.readOnly, ...(surfaces ? { surfaces } : {}), ...(layouts ? { layouts } : {}) } });
       return token;
@@ -4913,11 +5034,11 @@ export class Store {
   }
 
   /** API tokens for this file, newest first; the secret is never shown again. */
-  apiTokens(): { id: string; label?: string; account: string; readOnly: boolean; created: string; expires?: string; lastUsed?: string; surfaces?: string[]; layouts?: string[] }[] {
+  apiTokens(): { id: string; label?: string; account: string; readOnly: boolean; created: string; expires?: string; needsReissue?: true; lastUsed?: string; surfaces?: string[]; layouts?: string[] }[] {
     return (this.sql.prepare('SELECT id, label, account, read_only, created, expires, last_used, surfaces, layouts FROM _fm_api_tokens ORDER BY created DESC, rowid DESC').all() as
       { id: string; label: string | null; account: string; read_only: number; created: string; expires: string | null; last_used: string | null; surfaces: string | null; layouts: string | null }[])
       .map((r) => ({ id: r.id, account: r.account, readOnly: !!r.read_only, created: r.created,
-        ...(r.label ? { label: r.label } : {}), ...(r.expires ? { expires: r.expires } : {}), ...(r.last_used ? { lastUsed: r.last_used } : {}),
+        ...(r.label ? { label: r.label } : {}), ...(r.expires ? { expires: r.expires } : { needsReissue: true as const }), ...(r.last_used ? { lastUsed: r.last_used } : {}),
         ...(r.surfaces ? { surfaces: JSON.parse(r.surfaces) as string[] } : {}), ...(r.layouts ? { layouts: JSON.parse(r.layouts) as string[] } : {}) }));
   }
 
@@ -4944,7 +5065,8 @@ export class Store {
     const want = Buffer.from(row.token_hash, 'hex');
     const got = createHash('sha256').update(token).digest();
     if (want.length !== got.length || !timingSafeEqual(want, got)) return undefined;
-    if (row.expires && !(Date.parse(row.expires) > expiryClock.now())) return undefined;
+    // A token made before every token had to expire has no date: it is refused until it is made again (listed with needsReissue).
+    if (!row.expires || !(Date.parse(row.expires) > expiryClock.now())) return undefined;
     if (this.accountInactive(row.account) || this.mustChangePassword(row.account)) return undefined;
     const identity = row.identity ? JSON.parse(row.identity) as { issuer: string; sub: string; person?: string; mapping: string } : undefined;
     if (this.isExternal(row.account) && row.provenance !== 'service' && (!identity || identity.mapping.toLowerCase() !== row.account.toLowerCase())) return undefined;
@@ -5213,16 +5335,50 @@ export class Store {
 
   // --- recovery codes -------------------------------------------------------
 
-  private hashRecoveryCode(code: string): string {
-    return createHash('sha256').update(code.replace(/[\s-]/g, '').toLowerCase()).digest('hex');
+  /**
+   * The hashes of an account's unused recovery codes, padded with empty slots up to a full set, so that checking a
+   * code costs the same for a name with no codes, an account that has used some up and an account with all of them.
+   */
+  private unusedRecoveryHashes(account: string): (string | undefined)[] {
+    const rows = this.sql.prepare('SELECT code_hash FROM _fm_recovery_codes WHERE account = ? COLLATE NOCASE AND used IS NULL').all(account) as { code_hash: string }[];
+    const hashes: (string | undefined)[] = rows.map((r) => r.code_hash);
+    while (hashes.length < RECOVERY_CODE_SET) hashes.push(undefined);
+    return hashes;
+  }
+
+  /**
+   * Which of the hashes a code matches, if any. Every slot costs one scrypt (a throwaway one for an empty slot or a
+   * code kept by an earlier version), so neither where a match sits nor how many codes an account has shows in the
+   * time taken. A code an earlier version kept as an unsalted SHA-256 is still accepted, once; nothing is rewritten.
+   */
+  private matchRecoveryCode(code: string, hashes: (string | undefined)[]): string | undefined {
+    const text = recoveryCodeText(code);
+    let matched: string | undefined;
+    for (const stored of hashes) {
+      const salted = stored !== undefined && stored.startsWith('scrypt$');
+      const slow = checkPassword(text, salted ? stored : DUMMY_HASH);
+      if ((salted && slow) || legacyRecoveryMatch(text, stored)) matched ??= stored;
+    }
+    return matched;
+  }
+
+  /** matchRecoveryCode off the main thread, so a burst of wrong codes doesn't stall everyone else's requests. */
+  private async matchRecoveryCodeAsync(code: string, hashes: (string | undefined)[]): Promise<string | undefined> {
+    const text = recoveryCodeText(code);
+    const found = await Promise.all(hashes.map(async (stored) => {
+      const salted = stored !== undefined && stored.startsWith('scrypt$');
+      const slow = await checkPasswordAsync(text, salted ? stored : DUMMY_HASH);
+      return (salted && slow) || legacyRecoveryMatch(text, stored) ? stored : undefined;
+    }));
+    return found.find((hash) => hash !== undefined);
   }
 
   /**
    * Makes a fresh set of one-time recovery codes for an account (replacing any
-   * it had), stores only their hashes, and returns the codes once to show the
+   * it had), stores only their salted scrypt hashes, and returns the codes once to show the
    * person. A fallback for when a passkey or authenticator is lost.
    */
-  generateRecoveryCodes(account: string, count = 10): string[] {
+  generateRecoveryCodes(account: string, count = RECOVERY_CODE_SET): string[] {
     return this.securityChange(() => {
       if (!this.accounts().some((a) => a.name.toLowerCase() === account.toLowerCase())) throw new StoreError(960, `No account "${account}"`);
       this.sql.prepare('DELETE FROM _fm_recovery_codes WHERE account = ? COLLATE NOCASE').run(account);
@@ -5234,7 +5390,7 @@ export class Store {
         const raw = randomBytes(6).toString('hex');
         const code = `${raw.slice(0, 4)}-${raw.slice(4, 8)}-${raw.slice(8, 12)}`;
         codes.push(code);
-        insert.run(account, this.hashRecoveryCode(code), now);
+        insert.run(account, hashPassword(recoveryCodeText(code)), now);
       }
       this.logSecurity('recovery-codes-generated', { target: account, detail: { count } });
       return codes;
@@ -5248,15 +5404,49 @@ export class Store {
 
   /** Consumes one of an account's recovery codes; returns whether it matched an unused one. */
   useRecoveryCode(account: string, code: string, from = ''): boolean {
+    const key = `${this.bucketKey(account, from)}\u0000recovery`;
+    if (this.recoveryRefused(account, key, from)) return this.recoveryFailed(account, key, from);
+    return this.consumeRecoveryCode(account, key, from, this.matchRecoveryCode(code, this.unusedRecoveryHashes(account)));
+  }
+
+  /**
+   * useRecoveryCode with the scrypt work off the main thread. The attempt is counted as a failure before the first
+   * wait, so a burst sent at once cannot start more hashing than the lockout allows; a match then settles it as a success.
+   */
+  async useRecoveryCodeAsync(account: string, code: string, from = ''): Promise<boolean> {
+    const key = `${this.bucketKey(account, from)}\u0000recovery`;
+    if (this.recoveryRefused(account, key, from)) return this.recoveryFailed(account, key, from);
+    this.recoveryFailed(account, key, from);
+    return this.consumeRecoveryCode(account, key, from, await this.matchRecoveryCodeAsync(code, this.unusedRecoveryHashes(account)), true);
+  }
+
+  /** Whether a place is locked out or the account is inactive: answered at once, before any hashing, so a lockout stays cheap. */
+  private recoveryRefused(account: string, key: string, from: string): boolean {
+    return !!this.failures.lockedOut(key, from, this.knownSharedAccount(account, from)) || this.accountInactive(account);
+  }
+
+  private recoveryFailed(account: string, key: string, from: string): boolean {
+    return this.securityChange(() => this.failures.record(key, from, false, this.knownSharedAccount(account, from)));
+  }
+
+  /**
+   * Counts the attempt and, for a match that is still unused, spends it. The state is read again here: another request
+   * may have used the code or locked the place while the hashes were checked. `counted` says the attempt was already
+   * counted as a failure before the wait (see useRecoveryCodeAsync): a miss adds nothing, and a match clears the
+   * account's count as a success does, even if the burst it came in has since locked the place, because it was admitted first.
+   */
+  private consumeRecoveryCode(account: string, key: string, from: string, matched: string | undefined, counted = false): boolean {
     return this.securityChange(() => {
-      const key = `${this.bucketKey(account, from)}\u0000recovery`;
       const known = this.knownSharedAccount(account, from);
-      if (this.failures.lockedOut(key, from, known) || this.accountInactive(account)) return this.failures.record(key, from, false, known);
-      const hash = this.hashRecoveryCode(code);
-      const match = this.sql.prepare('SELECT 1 FROM _fm_recovery_codes WHERE account = ? COLLATE NOCASE AND code_hash = ? AND used IS NULL').get(account, hash);
-      if (!this.failures.record(key, from, !!match, known)) return false;
-      this.sql.prepare('UPDATE _fm_recovery_codes SET used = ? WHERE account = ? COLLATE NOCASE AND code_hash = ? AND used IS NULL')
-        .run(new Date().toISOString(), account, hash);
+      if (!counted) {
+        if (this.failures.lockedOut(key, from, known) || this.accountInactive(account)) return this.failures.record(key, from, false, known);
+        if (!this.failures.record(key, from, matched !== undefined, known)) return false;
+      } else if (this.accountInactive(account)) return false;
+      if (matched === undefined) return false;
+      const spent = this.sql.prepare('UPDATE _fm_recovery_codes SET used = ? WHERE account = ? COLLATE NOCASE AND code_hash = ? AND used IS NULL')
+        .run(new Date().toISOString(), account, matched);
+      if (!spent.changes) return false;
+      if (counted) this.failures.delete(key);
       this.logSecurity('recovery-code-used', { target: account });
       return true;
     });
@@ -5476,8 +5666,8 @@ export class Store {
   }
 
   /** Records a provisioning token being issued or revoked (the token lives in the SCIM directory; see scim.ts). */
-  logProvisioningToken(issued: boolean, by?: string): void {
-    this.logSecurity(issued ? 'scim-token-issued' : 'scim-token-revoked', { account: by });
+  logProvisioningToken(issued: boolean, by?: string, expires?: string): void {
+    this.logSecurity(issued ? 'scim-token-issued' : 'scim-token-revoked', { account: by, ...(expires ? { detail: { expires } } : {}) });
   }
 
   /**
@@ -6096,12 +6286,61 @@ export class Store {
   /** Layout designs (parts, objects, styles) and themes, as imported. */
   designs(): LayoutDesigns {
     this.refreshDesign();
-    return (this.designCache.value ??= this.meta('designs') ?? { layouts: [], themes: [] });
+    if (!this.designCache.value) {
+      const all: LayoutDesigns = this.meta('designs') ?? { layouts: [], themes: [] };
+      // Preserve the object identity callers already received from a lazy read.
+      all.layouts = all.layouts.map((layout) => this.layoutDesignCache.value.get(layout.id) ?? layout);
+      all.themes = this.themesCache.value ?? all.themes;
+      this.designCache.value = all;
+    }
+    return this.designCache.value;
   }
 
   design(layout: string | number): LayoutDesign | undefined {
+    this.refreshDesign();
     const id = typeof layout === 'number' ? layout : this.schema.layouts.find((l) => l.name === layout)?.id;
-    return this.designs().layouts.find((l) => l.id === id);
+    if (this.designCache.value) return this.designCache.value.layouts.find((l) => l.id === id);
+    if (id === undefined) return undefined;
+    const cached = this.layoutDesignCache.value.get(id);
+    if (cached) return cached;
+    // Once callers browse multiple layouts, materialize the shared blob once
+    // rather than walk it again for every new layout. The first-page cache is
+    // bounded to one layout, even for arbitrary numeric ids.
+    if (this.layoutDesignCache.value.size) return this.designs().layouts.find((l) => l.id === id);
+    // SQLite walks the saved JSON, but only this layout becomes JS objects.
+    // A first record page need not allocate every other layout in a wide file.
+    let row: { value: string; themes: string | null } | undefined;
+    try {
+      row = this.prepared(`SELECT j.value, json_extract(m.json, '$.themes') AS themes
+        FROM _fm_meta AS m, json_each(m.json, '$.layouts') AS j
+        WHERE m.key = 'designs' AND json_extract(j.value, '$.id') = ? LIMIT 1`).get(id) as typeof row;
+    } catch (error) {
+      // SQLite's JSON nesting limit is lower than JSON.parse's. Preserve the
+      // original reader for valid deeply nested designs, without hiding SQL errors.
+      if (!(error instanceof Error) || error.message !== 'malformed JSON') throw error;
+      return this.designs().layouts.find((l) => l.id === id);
+    }
+    if (!row) return undefined; // Do not retain arbitrary missing ids.
+    const design = JSON.parse(row.value) as LayoutDesign;
+    this.themesCache.value ??= row.themes ? JSON.parse(row.themes) : [];
+    this.layoutDesignCache.value.set(id, design);
+    return design;
+  }
+
+  /** Themes without allocating every layout; invalidated with the other design caches. */
+  themes(): LayoutDesigns['themes'] {
+    this.refreshDesign();
+    if (this.designCache.value) return this.designCache.value.themes;
+    if (!this.themesCache.value) {
+      try {
+        const row = this.prepared("SELECT json_extract(json, '$.themes') AS value FROM _fm_meta WHERE key = 'designs'").get() as { value: string | null } | undefined;
+        this.themesCache.value = row?.value ? JSON.parse(row.value) : [];
+      } catch (error) {
+        if (!(error instanceof Error) || error.message !== 'malformed JSON') throw error;
+        return this.designs().themes;
+      }
+    }
+    return this.themesCache.value!;
   }
 
   /** An image from the file's image library (graphics and button icons on layouts). */
@@ -7537,14 +7776,14 @@ export class Store {
     }
     const removeFile = cleanupPath(full);
     // The file goes first and its marker with it; a file that can't be removed keeps its marker for recovery.
-    const cleanup = marker ? () => { removeFile(); rmSync(marker, { force: true }); } : removeFile;
+    const cleanup = marker ? () => { removeFile({ throwOnError: true }); rmSync(marker, { force: true }); } : removeFile;
     if (marker) {
       // The note now says which file it made (device and inode), so recovery after a crash removes that one and no other.
       try {
         const made = fstatSync(fd, { bigint: true });
         atomicWrite(marker, JSON.stringify({ root, rel, dev: String(made.dev), ino: String(made.ino) }));
       } catch (error) {
-        try { closeSync(fd); } finally { cleanup(); }
+        try { closeSync(fd); } finally { try { cleanup(); } catch { /* the error that made the cleanup necessary stays the one reported */ } }
         throw error;
       }
     }
@@ -9320,12 +9559,12 @@ export class Store {
    */
   restoreDeletedRow(table: string, row: Record<string, SqlValue>, opts: WriteOptions = {}): void {
     this.joinTransaction();
-    // The parent check and the insert share one file lock, as in create.
-    this.withWriteTransaction(() => this.restoreDeletedRowLocked(table, row, opts));
+    this.withWriteTransaction(() => this.keyStep(() => this.restoreDeletedRowLocked(table, row, opts)));
   }
 
   private restoreDeletedRowLocked(table: string, row: Record<string, SqlValue>, opts: WriteOptions): void {
-    if (!this.schema.tables.some((t) => t.name === table)) throw new StoreError(106, `Table "${table}" is missing`);
+    const definition = this.schema.tables.find((t) => t.name === table);
+    if (!definition) throw new StoreError(106, `Table "${table}" is missing`);
     const pv = this.local(opts.privileges);
     if (pv && pv.table(table).create !== true) throw new StoreError(200, 'Record access is denied', pv.recordDenial(table, 'create', 'create'));
     const id = Number(row._fm_record_id);
@@ -9334,7 +9573,17 @@ export class Store {
     const columns = new Set((this.sql.prepare(`PRAGMA table_info(${q(table)})`).all() as { name: string }[]).map((c) => c.name));
     const kept = this.fileMode === 'native' && (!row._fm_uuid || row._fm_uuid === '') ? { ...row, _fm_uuid: this.uuid.next() } : row;
     const names = Object.keys(kept).filter((k) => columns.has(k));
-    this.checkChildKeys(this.schema.tables.find((t) => t.name === table)!, kept as Row);
+    if (this.fileMode === 'native' && columns.has('_fm_uuid') && kept._fm_uuid &&
+      this.sql.prepare(`SELECT 1 FROM ${q(table)} WHERE _fm_uuid = ?`).get(kept._fm_uuid)) {
+      throw new StoreError(504, `Record ${id} of ${table} can't be put back: _fm_uuid is already used by another record`);
+    }
+    this.checkChildKeys(definition, kept as Row);
+    for (const field of definition.fields) {
+      if (!field.options?.validation?.unique || !columns.has(field.name)) continue;
+      if (this.calc.uniqueCollision({ store: this, table: definition, row: kept as Row }, field)) {
+        throw new StoreError(504, `Record ${id} of ${table} can't be put back: ${table}::${field.name} ${JSON.stringify(kept[field.name])} is already used by another record`);
+      }
+    }
     this.sql.prepare(`INSERT INTO ${q(table)} (${names.map(q).join(', ')}) VALUES (${names.map(() => '?').join(', ')})`).run(...names.map((n) => kept[n]));
     this.audit('create', table, id, Object.fromEntries(names.filter((n) => !n.startsWith('_fm_') && row[n] !== null).map((n) => [n, row[n]])), opts);
     this.notify('create', table, id, Number(row._fm_mod_id ?? 0));
@@ -10171,6 +10420,21 @@ export class Store {
   private describeCurrent(sqlText: string): { names: string[]; types: (string | null)[] } {
     const columns = this.readOnly(sqlText).columns();
     return { names: columns.map((c) => c.name), types: columns.map((c) => c.type) };
+  }
+
+  /** Declared SQL types plus schema field types for columns read straight through, without running the query. */
+  describeTyped(sqlText: string): { names: string[]; types: (string | null)[]; fieldTypes: (FieldType | null)[] } {
+    return this.withDesignRead(() => {
+      const columns = this.readOnly(sqlText).columns();
+      const tables = new Map(this.schema.tables.map((t) => [t.name, new Map(t.fields.map((f) => [f.name, f.type]))]));
+      return {
+        names: columns.map((c) => c.name),
+        types: columns.map((c) => c.type),
+        // SQLite retains the original table/column through aliases and joins; expressions have no origin.
+        fieldTypes: columns.map((c) => c.database === 'main' && c.table && c.column
+          ? tables.get(c.table)?.get(c.column) ?? null : null),
+      };
+    });
   }
 
   /** SQL for analysis (used by the MCP server), on a read-only connection. */

@@ -8,7 +8,7 @@ import { layoutObjectsFromSnippet } from '../../packages/store/src/layout-snippe
 import { uuidsFromSaveAsXml } from '../../packages/store/src/save-as-xml.ts';
 import { parseScriptText } from '../../packages/store/src/script-text.ts';
 import { DesignError } from '../../packages/store/src/design.ts';
-import { readCalendar } from '../../packages/store/src/calendar.ts';
+import { CalendarReadError, readCalendar } from '../../packages/store/src/calendar.ts';
 import { parseDelimited, parseDelimitedRows } from '../../packages/store/src/delimited.ts';
 import { fileMakerSqlSyntax, oneStatement } from '../../packages/store/src/sql-dates.ts';
 import { anyAllToIn, fetchToLimit, blanked } from '../../packages/store/src/sql-grammar.ts';
@@ -39,13 +39,13 @@ function request(data: Buffer): IncomingMessage {
 export function expected(target: Target, e: unknown): boolean {
   if (!(e instanceof Error)) return false;
   if (e instanceof TypeError || e instanceof RangeError) return false;
-  if (e instanceof DesignError || e instanceof CalcError || e instanceof FmpError || e instanceof XPathError || e instanceof ScriptError || e instanceof ApiError || e instanceof MultipartLimitError || e instanceof BatchError || e instanceof MissingSheetError || e instanceof SheetLimitError) return true;
+  if (e instanceof DesignError || e instanceof CalcError || e instanceof FmpError || e instanceof XPathError || e instanceof ScriptError || e instanceof ApiError || e instanceof MultipartLimitError || e instanceof BatchError || e instanceof MissingSheetError || e instanceof SheetLimitError || e instanceof CalendarReadError) return true;
   if (target === 'pgwire-binary') return e instanceof BinaryFormatError;
   if (['json', 'data-api'].includes(target) && e instanceof SyntaxError) return true;
   if (target === 'odata-filter' && e.constructor.name === 'ODataError') return true;
   if (e.constructor !== Error) return false;
   if (['csv', 'tsv', 'merge'].includes(target)) return /^(Malformed CSV quoting|Unclosed CSV quote)$/.test(e.message);
-  if (target === 'xlsx') return /^(not a zip file|bad zip (directory|entry)|the zip file expands to more than|the workbook has no sheet)/.test(e.message);
+  if (target === 'xlsx') return /^(not a zip file|bad zip (directory|entry)|the zip file expands to more than|the workbook has no sheet|the archive holds \d+ entries)|^\S+ (unpacks to \d+ bytes from \d+, more than \d+ times its size|is nested more than \d+ levels deep|has a closing tag with nothing open)/.test(e.message);
   if (target === 'zip') return /^(not a zip archive|multi-disk zip is unsupported|Zip64 is unsupported|damaged zip (directory|entry)|zip is over )| (is encrypted|is over the zip entry byte limit|uses an unsupported compression method|has an incorrect uncompressed size( \(damaged zip entry\))?|has a damaged zip entry( checksum)?)$/.test(e.message);
   if (target === 'ohplugin') return /^(not a plug-in package:|the package (holds|is over|has no)|plugin.json(:| in the package is not JSON)|signature.json (is not JSON|needs publisherKey and sig)|the package's signature does not match)/.test(e.message);
   return false;

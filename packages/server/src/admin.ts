@@ -38,7 +38,7 @@ import { auditCsvField } from '../../store/src/audit-output.ts';
 //   GET  /tabularius/admin/v1/sso-mapping             which privilege set an SSO group/email/domain gets: ?database=
 //   POST /tabularius/admin/v1/sso-mapping             add or change one: { database, name, privilegeSet }
 //   DELETE /tabularius/admin/v1/sso-mapping/{name}    remove one: ?database=
-//   GET|POST|DELETE /tabularius/admin/v1/scim[/token|/settings]   provisioning from an identity provider (SCIM): see scim.ts
+//   GET|POST|DELETE /tabularius/admin/v1/scim[/token|/settings]   provisioning from an identity provider (SCIM): see scim.ts (a token takes { days }, 90 unless 1 to 3650 is asked for)
 //   GET  /tabularius/admin/v1/sso-mapping/test        which mapping an email/groups would resolve to, and what it can do:
 //                                                    ?database=&email=&groups=a,b,c
 //   GET  /tabularius/admin/v1/field-access            a privilege set's per-field access on a table: ?database=&privilegeSet=&table=
@@ -53,6 +53,10 @@ import { auditCsvField } from '../../store/src/audit-output.ts';
 //   POST /tabularius/admin/v1/accounts/set-password     { database, account, password, mustChange? }: a password for any account, no Terminal needed
 //   POST /tabularius/admin/v1/accounts/unlock            { database, account } or { database, address }: lifts a sign-in lockout
 //                                                     on an account, or on an address blocked for too many failures
+//   POST /tabularius/admin/v1/exit-bundle              { database, name, account, password }: a portable copy of the whole file (tables as SQLite
+//                                                    and CSV, container files, globals, serials, design, accounts without secrets) written to
+//                                                    <hosted folder>/Exports/<name>; only a Full Access account that signs in again may ask
+//   POST /tabularius/admin/v1/exit-bundle/discard      { database, name, account, password }: removes an unfinished copy (<name>.partial)
 //   POST /tabularius/admin/v1/accounts/migrate-all       { database }: a one-time temporary password (forced change) for
 //                                                     every account still stuck on its FileMaker password — blank or not
 //   GET|POST /tabularius/admin/v1/accounts/blank-password-lan   ?database= / { database, on }: per-file opt-in to let an
@@ -83,6 +87,7 @@ import { auditCsvField } from '../../store/src/audit-output.ts';
 //   (reconvert and reconvert-preview take {passphrase} too, for such a file)
 //   GET|POST /tabularius/admin/v1/ai-access/{name}      whether AI may read the file; {"on": false} keeps it from AI
 //   GET|POST /tabularius/admin/v1/web-viewer-hosts/{name} the https web hosts the file's web viewers may load (none until listed); {"hosts": [...]} replaces the list
+//   GET|POST /tabularius/admin/v1/sql-privilege/{name}   whether SQL reaching the file through another file needs the fmxdbc privilege here too; {"on": true} requires it (off by default)
 //   GET|POST /tabularius/admin/v1/script-network/{name}  whether the file's scripts may reach the network; {"on": true} lets them (off for a new or converted file)
 //   POST /tabularius/admin/v1/solutions/plan          {name, description}: the assistant plans a new file (solution-builder.ts; creates nothing)
 //   POST /tabularius/admin/v1/solutions               {name, changes, password?}: create it from the plan, all or nothing
@@ -130,9 +135,9 @@ import { isIP } from 'node:net';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { BoundedMap } from './bounded-map.ts';
 import { createHash, randomBytes } from 'node:crypto';
-import { copyFileSync, existsSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, extname, join, resolve, sep } from 'node:path';
-import { webViewerEntryCovers, hashPassword, defaultMinPasswordLength, checkPassword, addressBucket, StoreError, findStaleCalcs, refreshStaleCalcs, undoStaleRefresh, staleRefreshHistory, StaleCalcError, SECURITY_EVENT_CATEGORIES, isFullAccess, type AuditEntry, type FieldLevel, type SecurityEvent, type Store } from '../../store/src/index.ts';
+import { discardExitBundle, exitBundle, ExitBundleError, webViewerEntryCovers, hashPassword, defaultMinPasswordLength, checkPassword, addressBucket, StoreError, findStaleCalcs, refreshStaleCalcs, undoStaleRefresh, staleRefreshHistory, StaleCalcError, SECURITY_EVENT_CATEGORIES, isFullAccess, type AuditEntry, type FieldLevel, type SecurityEvent, type Store } from '../../store/src/index.ts';
 import { loadAsset, sendAsset } from './static-cache.ts';
 import { inlineScriptSources } from './csp.ts';
 import type { DataApi } from './dataapi.ts';
@@ -154,6 +159,7 @@ import { BUILTIN_PACKS, pluginStatus, setPluginEnabled, setPluginSecret } from '
 import type { Host } from './host.ts';
 import { requestHostName } from './public-origin.ts';
 import { secureConnection } from './exposure-headers.ts';
+import { sameSecret } from './secrets.ts';
 import { PassphraseNeeded, STORE_EXT } from './host.ts';
 import { BackupStopped, backupFolder, backupKey, backupRunning, stopBackups, backupSets, defaultBackupDir, parseTime, checkRestorePoint, restorePoint, restorePointTo, restoreRange, type BackupSchedule, type ProgressiveSchedule } from './backup.ts';
 import { ENCRYPTED_EXT } from './encrypt.ts';
@@ -193,6 +199,11 @@ import { said } from './said.ts';
 const PASSWORD_FILE = '.openhbam-admin';
 
 /** Only errors deliberately written for an administrator may cross this API boundary. */
+/** Whole seconds left of a wait given in milliseconds; the clock has fractions, so a sum like (now + 900000) - now can come out a hair over 900000. */
+function secondsLeft(ms: number): number {
+  return Math.ceil(Math.round(ms) / 1000);
+}
+
 function adminErrorText(e: unknown, scope: object): string {
   if (e instanceof StoreError || e instanceof ApiError || e instanceof RangeError || e instanceof SyntaxError || e instanceof URIError ||
       e instanceof CertificateError || e instanceof BackupFolderError || e instanceof BackupStopped || e instanceof PassphraseNeeded ||
@@ -244,7 +255,7 @@ function consoleMethods(path: string): string | undefined {
     'backup-folder', 'backup', 'backup/stop', 'relax-unverified', 'reconvert-all',
     'solutions/plan', 'solutions', 'indexes', 'script-tests/run', 'records/restore',
     'health/revoke-token', 'health/fix-account', 'accounts/set-password', 'accounts/unlock',
-    'accounts/migrate-all', 'sessions/end', 'message',
+    'accounts/migrate-all', 'sessions/end', 'message', 'exit-bundle', 'exit-bundle/discard',
   ]);
   if (get.has(name)) return 'GET';
   if (post.has(name)) return 'POST';
@@ -274,7 +285,7 @@ function consoleMethods(path: string): string | undefined {
   if (/^connections\/[0-9a-f]+$/.test(name)) return 'GET, PATCH, DELETE';
   if (/^connections\/[0-9a-f]+\/(approve|test)$/.test(name)) return 'POST';
   if (/^connections\/[0-9a-f]+\/secrets\/[A-Za-z][A-Za-z0-9]*$/.test(name)) return 'PUT, DELETE';
-  if (/^script-network\/[^/]+$/.test(name) || /^web-viewer-hosts\/[^/]+$/.test(name) || /^ai-access\/[^/]+$/.test(name) || /^pii\/[^/]+$/.test(name) || /^conversion-guide\/[^/]+$/.test(name)) return 'GET, POST';
+  if (/^script-network\/[^/]+$/.test(name) || /^sql-privilege\/[^/]+$/.test(name) || /^web-viewer-hosts\/[^/]+$/.test(name) || /^ai-access\/[^/]+$/.test(name) || /^pii\/[^/]+$/.test(name) || /^conversion-guide\/[^/]+$/.test(name)) return 'GET, POST';
   if (/^pii\/[^/]+\/field$/.test(name) || /^digests\/[^/]+\/[0-9a-f]{12}\/run$/.test(name)) return 'POST';
   if (name === 'digests') return 'GET';
   if (/^optimization\/[^/]+$/.test(name)) return 'GET';
@@ -546,7 +557,7 @@ export class Admin {
     const ip = clientAddress(req);
     const locked = this.failures.get(addressBucket(ip));
     if (Math.max(locked?.until ?? 0, this.failureOverflowUntil) > now) {
-      const secs = Math.ceil((Math.max(locked?.until ?? 0, this.failureOverflowUntil) - now) / 1000);
+      const secs = secondsLeft(Math.max(locked?.until ?? 0, this.failureOverflowUntil) - now);
       return { status: 429, message: `Too many failed attempts. Try again in ${secs} seconds.`, retryAfter: secs };
     }
     const basic = /^Basic\s+(.+)$/i.exec(req.headers.authorization ?? '')?.[1];
@@ -602,6 +613,9 @@ export class Admin {
     }
     if (this.failures.size > 5000) {
       this.failures.delete(ip);
+      if (this.failureOverflowUntil <= now && rec.until > now) {
+        this.host.logs?.write('Event', 'Warning', '', `Admin password — too many locked addresses; new sign-ins are locked for ${this.LOCK_MS / 60_000} minutes`);
+      }
       this.failureOverflowUntil = Math.max(this.failureOverflowUntil, rec.until);
     }
   }
@@ -612,17 +626,23 @@ export class Admin {
     const ip = addressBucket(from);
     const locked = this.failures.get(ip);
     if (Math.max(locked?.until ?? 0, this.failureOverflowUntil) > now) {
-      const secs = Math.ceil((Math.max(locked?.until ?? 0, this.failureOverflowUntil) - now) / 1000);
+      const secs = secondsLeft(Math.max(locked?.until ?? 0, this.failureOverflowUntil) - now);
       return { status: 429, message: `Too many failed attempts. Try again in ${secs} seconds.`, retryAfter: secs };
     }
     if (!checkPassword(password, hash)) {
       // Count the miss; a burst of them within the window triggers the cooldown.
       const rec = locked && now - locked.first < this.LOCK_MS ? locked : { count: 0, first: now, until: 0 };
       rec.count++;
-      if (rec.count >= this.MAX_FAILS) rec.until = now + this.LOCK_MS;
+      // Avoid a "password:" label: diagnostic redaction would hide the count as a credential value.
+      if (rec.count >= this.MAX_FAILS) {
+        rec.until = now + this.LOCK_MS;
+        this.host.logs?.write('Event', 'Warning', ip, `Admin password — too many wrong attempts; sign-in from ${ip} is locked for ${this.LOCK_MS / 60_000} minutes`);
+      } else if (rec.count === 3) {
+        this.host.logs?.write('Event', 'Warning', ip, `Admin password — 3 wrong attempts from ${ip}`);
+      }
       this.noteMiss(ip, rec);
       if (rec.until > now) {
-        const secs = Math.ceil((rec.until - now) / 1000);
+        const secs = secondsLeft(rec.until - now);
         return { status: 429, message: `Too many failed attempts. Try again in ${secs} seconds.`, retryAfter: secs };
       }
       return { status: 401, message: 'Wrong admin password' };
@@ -760,7 +780,7 @@ export class Admin {
       const denied = this.tryPassword(clientAddress(req), said(body.password), hash);
       if (denied) return json(denied.status, { error: denied.message }, denied.retryAfter ? { 'retry-after': String(denied.retryAfter) } : {}), true;
       // The password may have been changed while this one was being checked: it was the old one that was right.
-      if (this.passwordHash() !== hash) return json(401, { error: 'The admin password was just changed: sign in again' }), true;
+      if (!sameSecret(this.passwordHash(), hash)) return json(401, { error: 'The admin password was just changed: sign in again' }), true;
       const id = randomBytes(32).toString('hex');
       this.endOldSignIns();
       this.signedIn.set(id, performance.now() + SIGN_IN_MS);
@@ -796,7 +816,7 @@ export class Admin {
       const ip = addressBucket(clientAddress(req));
       const locked = this.failures.get(ip);
       if (Math.max(locked?.until ?? 0, this.failureOverflowUntil) > performance.now()) {
-        const secs = Math.ceil((Math.max(locked?.until ?? 0, this.failureOverflowUntil) - performance.now()) / 1000);
+        const secs = secondsLeft(Math.max(locked?.until ?? 0, this.failureOverflowUntil) - performance.now());
         return json(429, { error: `Too many failed attempts. Try again in ${secs} seconds.` }, { 'retry-after': String(secs) }), true;
       }
       const r = body.response as { credentialId: string; clientDataJSON: string; authenticatorData: string; signature: string; challenge: string };
@@ -1173,7 +1193,7 @@ export class Admin {
           try {
             send(200, await plan.call(this.assistant, solutionName(this.host, body.name), body.description));
           } catch (e) {
-            if (!(e instanceof SolutionError)) console.error(e);
+            if (!(e instanceof SolutionError)) logFaultFor(this.host)(e);
             send(e instanceof SolutionError ? 400 : 502, { error: e instanceof SolutionError ? e.message : 'Internal server error' });
           }
         }
@@ -1183,7 +1203,7 @@ export class Admin {
           this.log(`New solution ${made.database} created from a plan (${made.changes} changes)`);
           send(201, made);
         } catch (e) {
-          if (!(e instanceof SolutionError)) console.error(e);
+          if (!(e instanceof SolutionError)) logFaultFor(this.host)(e);
           send(e instanceof SolutionError ? 400 : 500, { error: e instanceof SolutionError ? e.message : 'Internal server error' });
         }
       } else if (path === '/tabularius/admin/v1/ai-usage' && req.method === 'GET') {
@@ -1196,6 +1216,22 @@ export class Admin {
           const body = await readJson(req) as { on?: unknown };
           if (typeof body.on !== 'boolean') send(400, { error: 'Send {"on": true} or {"on": false}' });
           else { store.setAiPolicy(body.on); send(200, { on: store.aiPolicy }); }
+        } else send(405, { error: 'method not allowed' });
+      } else if (path.startsWith('/tabularius/admin/v1/sql-privilege/')) {
+        // GET: whether a query that reaches this file through another file needs the fmxdbc privilege here too; POST {"on": true}: require it (kept in the file; off for every file).
+        const store = this.host.get(decodeURIComponent(path.slice('/tabularius/admin/v1/sql-privilege/'.length)));
+        if (!store) send(404, { error: 'No such hosted file' });
+        else if (req.method === 'GET') send(200, { on: store.sqlRequiresFmxdbc });
+        else if (req.method === 'POST') {
+          const body = await readJson(req) as { on?: unknown };
+          if (typeof body.on !== 'boolean') send(400, { error: 'Send {"on": true} or {"on": false}' });
+          else {
+            if (body.on !== store.sqlRequiresFmxdbc) {
+              store.setSqlRequiresFmxdbc(body.on, { account: 'admin console' });
+              this.log(`SQL through another file ${body.on ? 'now needs' : 'no longer needs'} the fmxdbc privilege in ${store.name} (admin console)`);
+            }
+            send(200, { on: store.sqlRequiresFmxdbc });
+          }
         } else send(405, { error: 'method not allowed' });
       } else if (path.startsWith('/tabularius/admin/v1/script-network/')) {
         // GET: whether this file's scripts may reach the network; POST {"on": true}: let them (kept in the file; off for every new or converted file).
@@ -1665,6 +1701,47 @@ export class Admin {
           this.log(`${store.name}: lockout ${cleared ? 'cleared' : 'not found'} for ${account} from the admin console`);
           send(200, { ok: true, cleared });
         }
+      } else if ((path === '/tabularius/admin/v1/exit-bundle' || path === '/tabularius/admin/v1/exit-bundle/discard') && req.method === 'POST') {
+        // The portable copy of a whole file: plaintext, so a Full Access account signs in again here and every refusal is audited
+        // (store/exit-bundle.ts). It is written under <hosted folder>/Exports/<name>, which the scan for hosted files never reads.
+        const body = await readJson(req) as { database?: unknown; name?: unknown; account?: unknown; password?: unknown };
+        const wanted = said(body.database);
+        const host = this.host.names().find((n) => n.toLowerCase() === wanted.toLowerCase());
+        const store = host ? this.host.get(host) : undefined;
+        const folderName = said(body.name);
+        if (!store) send(404, { error: `"${wanted}" is not hosted` });
+        else if (typeof body.account !== 'string' || !body.account || typeof body.password !== 'string' || !body.password) send(400, { error: 'Give the name and password of a Full Access account' });
+        else if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/.test(folderName) || folderName.endsWith('.partial')) send(400, { error: 'The folder name starts with a letter or digit and uses only letters, digits, dots, dashes and underscores (80 at most)' });
+        else {
+          const exports = join(this.host.dir, 'Exports');
+          let problem: string | undefined;
+          try {
+            const there = lstatSync(exports, { throwIfNoEntry: false });
+            if (!there) mkdirSync(exports, { mode: 0o700 });
+            else if (there.isSymbolicLink() || !there.isDirectory()) problem = `${exports} is not a plain folder, so nothing was written; remove or rename it`;
+          } catch (e) {
+            problem = `${exports} could not be made: ${(e as Error).message}`;
+          }
+          if (problem) send(409, { error: problem });
+          else {
+            const credentials = { account: body.account, password: body.password, from: clientAddress(req) || UNKNOWN_CLIENT };
+            const folder = join(exports, folderName);
+            try {
+              if (path.endsWith('/discard')) {
+                await discardExitBundle(store, folder, credentials);
+                this.log(`${store.name}: an unfinished full-file copy was discarded from the admin console`);
+                send(200, { ok: true, discarded: `Exports/${folderName}.partial` });
+              } else {
+                const report = await exitBundle(store, folder, credentials);
+                this.log(`${store.name}: a full copy of the file was written to Exports/${folderName} from the admin console`);
+                send(200, { ok: true, folder: `Exports/${folderName}`, tables: report.tables, rows: report.rows, containers: report.containers });
+              }
+            } catch (e) {
+              if (!(e instanceof ExitBundleError)) throw e;
+              send(e.status, { error: e.message });
+            }
+          }
+        }
       } else if (path === '/tabularius/admin/v1/accounts/migrate-all' && req.method === 'POST') {
         // A temporary password, forced to change at next sign-in, for every account still stuck on its FileMaker
         // password (Store.unmigratedAccounts — blank ones and the non-blank, unverifiable ones alike), in one go.
@@ -1779,13 +1856,13 @@ export class Admin {
               const wanted = String(body.agent ? body.agent.name : body.account ?? '').trim().toLowerCase();
               const account = store.accounts().find((a) => a.name.toLowerCase() === wanted && !a.inactive);
               if (!account) throw new StoreError(960, `${store.name} has no account named ${JSON.stringify(said(body.account))}`);
-              // Left out, the token takes the default lifetime; 0 days is "never", asked for on purpose.
+              // Left out, the token takes the default lifetime; every token expires.
               const days = body.days === undefined || body.days === null || (body.days as unknown) === '' ? undefined : body.days;
-              if (days !== undefined && !(typeof days === 'number' && Number.isInteger(days) && days >= 0 && days <= 3650)) throw new StoreError(960, 'Days should be from 1 to 3650, or 0 for a token that never expires');
+              if (days !== undefined && !(typeof days === 'number' && Number.isInteger(days) && days >= 1 && days <= 3650)) throw new StoreError(960, 'Days should be from 1 to 3650; a token always expires');
               const expires = tokenExpiry(days);
               const label = said(body.label).trim().slice(0, 200) || `AI app: ${account.name} in ${store.name}`;
               const token = store.createApiToken(account.name, {
-                label, surfaces: ['fmmcp'], readOnly: body.readOnly === true, ...(expires ? { expires } : {}),
+                label, surfaces: ['fmmcp'], readOnly: body.readOnly === true, expires,
                 ...(Array.isArray(body.layouts) && body.layouts.length ? { layouts: body.layouts.map(String) } : {}),
                 provenance: 'service',
               });
@@ -1831,7 +1908,7 @@ export class Admin {
       }
     } catch (e) {
       const status = e instanceof SyncConsoleError || e instanceof ApiError ? e.status : e instanceof URIError || e instanceof ScheduleError || e instanceof WebhookError || e instanceof HookError || e instanceof StaleCalcError ? 400 : e instanceof StoreError ? (e.code === 301 ? 409 : 400) : e instanceof UploadError || e instanceof RestoreError ? e.status : 500;
-      if (status === 500) console.error(e);
+      if (status === 500) logFaultFor(this.host)(e);
       send(status, { error: status === 500 ? 'Internal server error' : adminErrorText(e, this.host) });
     } finally { done(); }
     return true;
@@ -1931,7 +2008,7 @@ export class Admin {
       if (req.method === 'DELETE') return send(c.remove(id) ? 200 : 404, {});
       return send(405, { error: 'method not allowed' });
     } catch (e) {
-      if (!(e instanceof ConnectionError)) console.error(e);
+      if (!(e instanceof ConnectionError)) logFaultFor(this.host)(e);
       return send(e instanceof ConnectionError ? (/no connection/i.test(e.message) ? 404 : 400) : 500, { error: e instanceof ConnectionError ? e.message : 'Internal server error' });
     }
   }
@@ -2627,6 +2704,7 @@ export class Admin {
         // Whether AI apps and the assistant may read the file, and why not.
         ai: aiStatus(store),
         aiPolicy: store.aiPolicy,
+        sqlRequiresFmxdbc: store.sqlRequiresFmxdbc,
         // Whether this file's scripts may reach the network: its own switch, or the server-wide flag.
         scriptNetwork: { on: this.host.scriptNetworkOn(name), own: store.scriptNetwork },
         // The web hosts its web viewers may load (none until an administrator lists some).

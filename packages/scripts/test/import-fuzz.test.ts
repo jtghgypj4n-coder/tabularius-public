@@ -233,17 +233,19 @@ function stress(target: Target): Case[] {
     add('huge row: "<c><v>1</v></c>".repeat(2e5)', { bytes: book('<row>' + '<c><v>1</v></c>'.repeat(2e5) + '</row>') });
     add('huge field: inline string of 4e6 "x"', { bytes: book('<row><c t="inlineStr"><is><t>' + 'x'.repeat(4e6) + '</t></is></c></row>') });
     add('deep nesting: "<is>".repeat(1e5)', { bytes: book('<row><c t="inlineStr">' + '<is>'.repeat(1e5) + '<t>x</t></c></row>') });
-    // One 96 MB stream of zeros (96 KB packed) behind the sheet, shared strings and styles a 1904 workbook reads: 288 MB,
-    // past the 256 MB the parts read may expand to.
-    const zeros = new Uint8Array(96 * 1024 * 1024);
+    // One 96 MB stream of a repeating run of letters behind the sheet, shared strings and styles a 1904 workbook reads: 288 MB,
+    // past the 256 MB the parts read may expand to. A run of zeros would pack past the 1000 to 1 an entry may expand to, and
+    // be refused for that before the budget is reached; the letters pack to about 100 to 1 and read as text, with no tags.
+    const filler = (mb: number) => { const a = new Uint8Array(mb * 1024 * 1024); for (let i = 0; i < a.length; i++) a[i] = 97 + (i % 26); return a; };
+    const zeros = filler(96);
     const expands = /^the zip file expands to more than 256 MB$/;
     add('F4 fan-out bomb: one 96 MB stream behind the three parts a sheet reads', { bytes: zip([{ name: 'xl/workbook.xml', data: enc('<workbook><workbookPr date1904="1"/></workbook>') }, { name: 'xl/worksheets/sheet1.xml', data: zeros }], [{ of: 1, name: 'xl/sharedStrings.xml' }, { of: 1, name: 'xl/styles.xml' }]), rejects: expands });
     // Of entries with one name only the last is inflated. The directory's declared total stays under its 4x guard.
-    add('F4 duplicate-name fan-out: 1000 entries named sheet1.xml for one 1 MB stream', { bytes: zip([{ name: 'xl/worksheets/sheet1.xml', data: new Uint8Array(1024 * 1024) }], Array.from({ length: 999 }, () => ({ of: 0, name: 'xl/worksheets/sheet1.xml' }))), reads: true });
+    add('F4 duplicate-name fan-out: 1000 entries named sheet1.xml for one 1 MB stream', { bytes: zip([{ name: 'xl/worksheets/sheet1.xml', data: filler(1) }], Array.from({ length: 999 }, () => ({ of: 0, name: 'xl/worksheets/sheet1.xml' }))), reads: true });
     // Parts no sheet reads (pivot caches, pictures) are never inflated, however big.
     add('big unused parts: a one-cell sheet beside 288 MB of pivot cache and media', { bytes: zip([{ name: 'xl/worksheets/sheet1.xml', data: enc('<worksheet><sheetData><row r="1"><c r="A1"><v>1</v></c></row></sheetData></worksheet>') }, { name: 'xl/pivotCache/pivotCacheRecords1.xml', data: zeros }], [{ of: 1, name: 'xl/pivotCache/pivotCacheRecords2.xml' }, { of: 1, name: 'xl/media/image1.png' }]), want: [[1]] });
-    add('bomb within budget: a 32 MB sheet of zeros', { bytes: zip([{ name: 'xl/worksheets/sheet1.xml', data: new Uint8Array(32 * 1024 * 1024) }]) });
-    add('F5 directory past the end: 65534 entries declared, none there', { bytes: (() => { const z = Buffer.from(book('<row/>')); z.writeUInt16LE(0xfffe, z.length - 14); z.writeUInt16LE(0xfffe, z.length - 12); z.writeUInt32LE(0xfffffff0, z.length - 6); return new Uint8Array(z); })(), rejects: /^bad zip directory$/ });
+    add('bomb within budget: a 32 MB sheet of a repeating pattern', { bytes: zip([{ name: 'xl/worksheets/sheet1.xml', data: filler(32) }]) });
+    add('F5 directory past the end: 65534 entries declared, none there', { bytes: (() => { const z = Buffer.from(book('<row/>')); z.writeUInt16LE(0xfffe, z.length - 14); z.writeUInt16LE(0xfffe, z.length - 12); z.writeUInt32LE(0xfffffff0, z.length - 6); return new Uint8Array(z); })(), rejects: /^the archive holds 65534 entries; more than 4096 are not read$/ });
   }
   if (target === 'import') {
     add(`F1 unclosed ROW: "<ROW>".repeat(${N})`, { bytes: enc('<FMPXMLRESULT>' + '<ROW>'.repeat(N)), name: 'a.xml' });
@@ -287,7 +289,7 @@ async function checker(target: Target): Promise<(c: Case) => boolean> {
   }
   if (target === 'xlsx') {
     const { readXlsx, xlsxSheetNames, MissingSheetError, SheetLimitError } = await import('../src/xlsx.ts');
-    const DOMAIN = /^(not a zip file|bad zip directory|bad zip entry |the zip file expands to more than |the workbook has no sheet|The workbook has \d+ sheets; more than \d+ are not read)/;
+    const DOMAIN = /^(not a zip file|bad zip directory|bad zip entry |the zip file expands to more than |the workbook has no sheet|The workbook has \d+ sheets; more than \d+ are not read|\S+ is nested more than \d+ levels deep|\S+ unpacks to \d+ bytes from \d+, more than \d+ times its size|the archive holds \d+ entries; more than \d+ are not read)/;
     return (c) => {
       let rows: unknown;
       try {

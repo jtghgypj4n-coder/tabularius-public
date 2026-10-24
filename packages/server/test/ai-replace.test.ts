@@ -70,7 +70,9 @@ const signIn = async () => (await (await fetch(`${base}/fmi/data/vLatest/databas
   method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Basic ' + btoa('Admin:Admin-pw-123456') }, body: '{}',
 })).json()).response.token as string;
 after(async () => {
-  await new Promise<void>((resolve) => (server ? server.close(() => resolve()) : resolve()));
+  // A connection fetch kept open must not hold the file up: drop every connection, then close.
+  await new Promise<void>((resolve) => { if (!server) return resolve(); server.close(() => resolve()); server.closeAllConnections(); });
+  model?.closeAllConnections();
   model?.close();
   if (dir) rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
 });

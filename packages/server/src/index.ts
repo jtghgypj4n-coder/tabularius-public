@@ -149,7 +149,7 @@ export { applyFix as applyOptimizationFix, previewFix as previewOptimizationFix,
 export { explainScriptFailure, type ScriptFailure } from './script-failure.ts';
 export { fetchFmsExport, migrateFms, describeMigration, copySize, nativePath, readSettings, SETTINGS_FILE, FmsMigrationError, type FmsExport, type FolderSettings, type MigrationReport } from './fms-migrate.ts';
 export { dataApiSource, dataApiClient, checkSyncAllowed, describeApply, describePlan, verifySync, describeSyncVerification, parseSyncConfig, remoteRecord, CONTAINER_PULL_MAX_BYTES, FmsSyncError, type DataApiSource, type DataApiClient, type DataApiSourceOptions, type SyncConfigFile, type SyncVerificationTable } from './fms-sync.ts';
-export { Assistant, DEFAULT_MODEL, type AssistantOptions, type AiState } from './assistant.ts';
+export { Assistant, DEFAULT_MODEL, DEFAULT_RUN_TOKENS, MAX_RUN_TOKENS, parseRunTokens, runBudgetOf, type AssistantOptions, type AiState } from './assistant.ts';
 export { DigestRunner, Digests, type Digest, type DigestRun } from './digests.ts';
 
 export interface ServeOptions {
@@ -360,6 +360,7 @@ export async function serve(opts: ServeOptions): Promise<{ server: Server; host:
     host.acmeDomains = opts.acme ? [...opts.acme.domains] : [];
     host.mcpAllowedOrigins = mcpOrigins;
     const api = new DataApi(host);
+    host.userCountForFile = (name) => api.sessionCountForFile(name);
     const web = new WebClient(host, api);
     disposers.push(() => web.stop());
     const live = new Live(host, api);
@@ -381,7 +382,7 @@ export async function serve(opts: ServeOptions): Promise<{ server: Server; host:
     admin.log = log;
     const metrics = new Metrics();
     disposers.push(() => metrics.stop());
-    const requestGate = new RequestGate(opts.requestLimit ?? Number(process.env.TABULARIUS_REQUEST_LIMIT ?? 32), opts.requestQueue ?? Number(process.env.TABULARIUS_REQUEST_QUEUE ?? 64));
+    const requestGate = new RequestGate(opts.requestLimit, opts.requestQueue ?? Number(process.env.TABULARIUS_REQUEST_QUEUE ?? 64));
     metrics.requestGate = requestGate;
     admin.metrics = metrics;
     admin.uploads = new Uploads(host, log);
@@ -417,6 +418,15 @@ export async function serve(opts: ServeOptions): Promise<{ server: Server; host:
     if (was) {
       const unfinished = unfinishedStandbyFiles(was);
       log(`taking over from ${was.primary}: this folder was its standby${unfinished.length ? `; ${unfinished.join(', ')} had not caught up to a whole state and may need restoring from a backup; accepted with --accept-partial-standby` : ''}`);
+      for (const [file, state] of Object.entries(was.files)) {
+        // Saved state may be malformed; reporting its time must not prevent takeover cleanup.
+        const time = state?.taken !== undefined ? state.taken : state?.at;
+        const when = typeof time === 'number' && Number.isFinite(time) && Math.abs(time) <= 8.64e15
+          ? new Date(time).toISOString() : 'an unknown time';
+        log(state?.taken !== undefined
+          ? `${file}: last change applied was taken at ${when} (run ${state.run}, change ${state.seq})`
+          : `${file}: copied whole at ${when} (no later change applied)`);
+      }
       // The copy is as the primary was some moments before it failed, or longer if the link was down: a token revoked there since
       // is alive here, and nothing says which. They are ended unless the operator knows the standby had caught up. This comes first and
       // does not depend on the standby's note, and the note is removed only at the end, so a failure part way is met again at the next start.

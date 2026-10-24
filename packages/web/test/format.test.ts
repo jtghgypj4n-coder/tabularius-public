@@ -40,6 +40,21 @@ test('time and timestamp formats', () => {
   assert.equal(text('12/25/2014 17:05:09', 'timestamp', { time: t }), '12/25/2014 5:05 PM');
 });
 
+test('server timestamp text keeps the file date order on DST days in every browser zone', () => {
+  const prior = process.env.TZ;
+  const format: DataFormat = { date: { style: 1, elements: [1, 4, 8], separators: ['', '/', '/', ''], monthPad: '0', dayPad: '0', separator: '/' } };
+  try {
+    for (const zone of ['America/New_York', 'Europe/London', 'Asia/Kolkata']) {
+      process.env.TZ = zone;
+      assert.equal(text('03/08/2026 02:30:00', 'timestamp', format), '08/03/2026 02:30:00');
+      assert.equal(text('11/01/2026 01:30:00', 'timestamp', format), '01/11/2026 01:30:00');
+      assert.equal(text('02/29/2024 23:30:00', 'timestamp', format), '29/02/2024 23:30:00');
+    }
+  } finally {
+    if (prior === undefined) delete process.env.TZ; else process.env.TZ = prior;
+  }
+});
+
 test('numbers are rounded by their decimal digits and never written with an exponent', () => {
   const fixed = (decimals: number) => ({ number: { decimalPoint: '.', decimals } }) as DataFormat;
   const loose = { number: { decimalPoint: '.' } } as DataFormat;

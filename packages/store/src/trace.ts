@@ -1,4 +1,4 @@
-// TABULARIUS_TRACE_SQL=1: each SQL statement a store runs is logged to stderr
+// TABULARIUS_TRACE_SQL=1 (or true, yes, on): each SQL statement a store runs is logged to stderr
 // with its shape, the rows it returned and how long it took, so a slow or
 // memory-hungry request on a real file can be pinned to one statement without
 // showing any of the file's data. The shape keeps SQL keywords and
@@ -20,6 +20,7 @@
 //   [field]  3801.2 ms  calc t12.f40 related 3 sql 1 cf 0 agg 2 stable  412 statements
 
 import type { DatabaseSync, StatementSync } from 'node:sqlite';
+import { boolean } from './settings.ts';
 
 const KEYWORDS = new Set(`
   select from where and or not in is null as on join cross left inner outer distinct order by group having limit offset
@@ -45,10 +46,17 @@ function minMs(): number {
   return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
-/** Whether statements are traced (TABULARIUS_TRACE_SQL set to anything but "" or "0"). */
+let tracedFor: string | undefined;
+let traced = false;
+
+/** Whether statements are traced (TABULARIUS_TRACE_SQL is 1, true, yes or on; false, off, no, 0 and empty turn it off, anything else is an error). */
 export function tracing(): boolean {
   const v = process.env.TABULARIUS_TRACE_SQL;
-  return !!v && v !== '0';
+  if (v !== tracedFor) {
+    traced = boolean('TABULARIUS_TRACE_SQL');
+    tracedFor = v;
+  }
+  return traced;
 }
 
 /** The nearest functions of Tabularius's code on the stack, innermost first. */

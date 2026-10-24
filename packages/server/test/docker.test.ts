@@ -19,7 +19,7 @@ test('docker: the image drops root, and the compose files layer the hardening an
   assert.ok(docker.indexOf('\nCMD') > user, 'the server starts as that user');
   assert.match(docker, /^COPY docs \.\/docs$/m, 'the image includes the guides and REST reference');
   assert.match(docker, /^COPY LICENSE NOTICE \.\/$/m, 'the image includes the project licence and notices');
-  const stopWait = Number(/TABULARIUS_STOP_GRACE_MS\) \|\| (\d+)_000/.exec(read('packages/cli/src/service.ts'))?.[1]);
+  const stopWait = Number(/TABULARIUS_STOP_GRACE_MS, (\d+)_000\)/.exec(read('packages/cli/src/service.ts'))?.[1]);
   assert.ok(stopWait > 0, 'the shutdown save wait is defined in service.ts');
   for (const file of ['compose.yaml', 'compose.hardened.yaml', 'compose.https.yaml']) {
     const compose = read(file);

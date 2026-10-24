@@ -1,0 +1,6 @@
+{
+  "target": "ics",
+  "finding": "a calendar that ends inside an event is refused with the calendar refusal class, not a plain Error",
+  "signature": "Error | readCalendar@packages/store/src/calendar.ts",
+  "input": "QkVHSU46VkVWRU5U"
+}

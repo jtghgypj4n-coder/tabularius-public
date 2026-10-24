@@ -43,10 +43,13 @@ import type { Host } from './host.ts';
 import { BoundedMap } from './bounded-map.ts';
 import { said } from './said.ts';
 import { ReadAudit } from './read-audit.ts';
+import { sameSecret } from './secrets.ts';
 
 const IDLE_MS = 10 * 60_000;
 /** Files larger than this aren't copied for a scratch run (the copy takes a while and the disk). */
 export const SCRATCH_MAX_BYTES = 1024 * 1024 * 1024;
+/** The most runs and recordings one session can have going at once; each may hold a copy of a file of up to 1 GB. */
+export const MAX_RUNS_PER_SESSION = 3;
 const COMMANDS = new Set(['into', 'over', 'out', 'continue', 'halt']);
 
 interface Run {
@@ -97,8 +100,8 @@ function copySession(from: ScriptSession): ScriptSession {
 }
 
 /** Scratch execution receives only capabilities belonging to its temporary directory. */
-function scratchOptions(copy: { dir: string }): { network: false; networkOff: () => string; documents: string } {
-  return { network: false, networkOff: () => OFFLINE_RUN_NOTICE, documents: join(copy.dir, 'Documents') };
+function scratchOptions(copy: { dir: string }): { network: false; networkOff: () => string; documents: string; scratch: true } {
+  return { network: false, networkOff: () => OFFLINE_RUN_NOTICE, documents: join(copy.dir, 'Documents'), scratch: true };
 }
 
 /** Closes a scratch copy and deletes its folder. */
@@ -233,6 +236,8 @@ export class DebugApi {
   private readonly api: DataApi;
   private readonly runs = new BoundedMap<string, Run>(128, (run) => this.end(run));
   private readonly sweep: NodeJS.Timeout;
+  /** Runs and recordings a session is starting or recording, which are not in `runs` (yet). */
+  private readonly claimed = new Map<string, number>();
   /** The largest file a scratch run copies. */
   scratchMaxBytes = SCRATCH_MAX_BYTES;
 
@@ -240,7 +245,7 @@ export class DebugApi {
     this.host = host;
     this.api = api;
     api.endListeners.add((token) => {
-      for (const [id, run] of this.runs) if (run.token === token) { this.runs.delete(id); this.end(run); }
+      for (const [id, run] of this.runs) if (sameSecret(run.token, token)) { this.runs.delete(id); this.end(run); }
     });
     this.sweep = setInterval(() => this.expire(), 60_000);
     this.sweep.unref();
@@ -259,6 +264,26 @@ export class DebugApi {
       this.end(r);
       this.runs.delete(id);
     }
+  }
+
+  /**
+   * Takes one of a session's places for a run or recording, before anything is copied, so simultaneous requests cannot pass the
+   * limit; the caller gives it back with the returned function. A run that has finished makes room by being let go.
+   */
+  private claim(token: string): () => void {
+    const held = () => (this.claimed.get(token) ?? 0) + [...this.runs.values()].filter((r) => sameSecret(r.token, token)).length;
+    if (held() >= MAX_RUNS_PER_SESSION) {
+      for (const [id, r] of this.runs) if (sameSecret(r.token, token) && !r.debugger.running) { this.runs.delete(id); void this.end(r); }
+      if (held() >= MAX_RUNS_PER_SESSION) throw new ApiError(812, `This session already has ${MAX_RUNS_PER_SESSION} debugger runs going, the most it can have. Stop one (halt it) or wait for one to finish, then start again`, 503);
+    }
+    this.claimed.set(token, (this.claimed.get(token) ?? 0) + 1);
+    let given = false;
+    return () => {
+      if (given) return;
+      given = true;
+      const left = (this.claimed.get(token) ?? 1) - 1;
+      if (left > 0) this.claimed.set(token, left); else this.claimed.delete(token);
+    };
   }
 
   /** Halts a run and throws its scratch copy away. */
@@ -373,7 +398,10 @@ export class DebugApi {
       if (kind === 'recordings') {
         if (req.method !== 'POST' || id) throw new ApiError(3, 'Command is unavailable', 405);
         const body = await readJson(req);
-        const copy = await scratchCopy(store, this.scratchMaxBytes);
+        const release = this.claim(session.token);
+        let copy: Awaited<ReturnType<typeof scratchCopy>>;
+        try { copy = await scratchCopy(store, this.scratchMaxBytes); }
+        catch (e) { release(); throw e; }
         const scripts = copySession(session.scripts);
         try {
           const ids = Array.isArray(body.foundSet) ? body.foundSet.map(Number).filter(Number.isInteger) : undefined;
@@ -391,11 +419,12 @@ export class DebugApi {
         } finally {
           scripts.close();
           dropScratch(copy);
+          release();
         }
       }
 
       if (!id && req.method === 'GET') {
-        const mine = [...this.runs.values()].filter((r) => r.token === session.token && r.db === store.name);
+        const mine = [...this.runs.values()].filter((r) => sameSecret(r.token, session.token) && r.db === store.name);
         return send(200, { runs: mine.map((r) => this.view(r, r.debugger.state())) }), true;
       }
       if (!id) {
@@ -407,8 +436,13 @@ export class DebugApi {
           debugger: new ScriptDebugger({ pauseAtStart: body.pauseAtStart !== false, pauseOnError: body.pauseOnError === true, breakpoints: breakpoints(body.breakpoints) }),
           touched: performance.now(), profile: new RunProfile(), stop: new AbortController(),
         };
-        if (body.scratch !== false) run.scratch = await scratchCopy(store, this.scratchMaxBytes);
-        this.runs.set(run.id, run);
+        const release = this.claim(session.token);
+        try {
+          if (body.scratch !== false) run.scratch = await scratchCopy(store, this.scratchMaxBytes);
+          this.runs.set(run.id, run);
+        } finally {
+          release();
+        }
         const ids = Array.isArray(body.foundSet) ? body.foundSet.map(Number).filter(Number.isInteger) : undefined;
         const state = await run.debugger.start(run.scratch?.store ?? store, script, {
           ...(body.parameter !== undefined ? { parameter: String(body.parameter) } : {}),
@@ -425,7 +459,7 @@ export class DebugApi {
       }
 
       const run = this.runs.get(id);
-      if (!run || run.token !== session.token || run.db !== store.name) throw new ApiError(101, 'No such debugging run', 404);
+      if (!run || !sameSecret(run.token, session.token) || run.db !== store.name) throw new ApiError(101, 'No such debugging run', 404);
       run.touched = performance.now();
       if (!action && req.method === 'GET') return send(200, this.view(run, run.debugger.state())), true;
       if (action === 'current' && req.method === 'GET') {

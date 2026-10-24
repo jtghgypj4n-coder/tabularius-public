@@ -15,6 +15,7 @@ import type { Env } from './evaluate.ts';
 import { compare } from './evaluate.ts';
 import { knownJavaScript } from './bejs.ts';
 import { mbsHashFunctions } from './mbs-hash.ts';
+import { mbsSystemFunctions } from './mbs-system.ts';
 import { replayMbsCall } from './mbs-replay.ts';
 import { evaluateXPath, parseXmlDocument, xpathText, xpathValues, xpathXml, type XNode } from './xpath.ts';
 import { canonicalXml, stripInvalidUtf16, tidyXml } from './xmltools.ts';
@@ -24,7 +25,7 @@ import { JqError, runJq } from './jq.ts';
 import { compareKeys, isSortLanguageName, sortKey, sortLanguage } from './collation.ts';
 import { DAYS_J, hiragana, kanaHankaku, kanaZenkaku, kanjiNumeral, katakana, romanHankaku, romanZenkaku } from './japanese.ts';
 import { imageInfo, isImageHeader, type ImageInfo } from './image-info.ts';
-import { unzip, zip, type ZipEntry } from './zip.ts';
+import { ARCHIVE_MAX_ENTRIES, ARCHIVE_MAX_RATIO, unzip, zip, type ZipEntry } from './zip.ts';
 import { MBS_TEXT, MbsError } from './mbs-text.ts';
 import { MBS_REGEX } from './mbs-regex.ts';
 import { assertPatternNesting, guardedExec, guardedMatches, guardedReplace, guardedSplit, RegexTimeout, withRegexBudget } from './regex-guard.ts';
@@ -1394,6 +1395,7 @@ for (const [name, f] of Object.entries(MBS_JS)) {
 // Client-only progress windows have nothing to show on a server.
 for (const n of ['Hide', 'Reset', 'SetBottomText', 'SetTitle', 'SetTopText', 'SetButtonCaption', 'SetProgress', 'Show'])
   MBS['progressdialog.' + n.toLowerCase()] = () => text('OK');
+Object.assign(MBS, mbsSystemFunctions());
 Object.assign(MBS, mbsHashFunctions((env, message) => {
   mbsErrors.set(env.ctx.pluginSession ?? env.ctx, true);
   return text(`[MBS] ERROR: ${message}`);
@@ -1688,7 +1690,8 @@ eager('BE_Zip', 1, 2, (v, env) => {
 });
 // BE_Unzip ( archive | container {; folder } ): extracts every file, replacing any already there, into folder (by
 // default the archive's own folder) and gives their paths, one per line in name order. BE_Unzip_Deprecated, the
-// older function, gives 0 instead.
+// older function, gives 0 instead. An archive with a name that climbs out of the folder, or holds a colon or a
+// backslash, is refused whole.
 const beUnzip = (paths: boolean) => (v: Value[], env: Env): Value => {
   const files = env.ctx.files;
   const container = v[0].type === 'container' && v[0].data ? v[0].data : undefined;
@@ -1699,13 +1702,20 @@ const beUnzip = (paths: boolean) => (v: Value[], env: Env): Value => {
   if (!bytes || !folder) return beResult(env, BE_NO_FILE, text('?'));
   let entries: ZipEntry[];
   try {
-    entries = unzip(bytes, { maxTotalBytes: 20 * 1024 * 1024 });
+    entries = unzip(bytes, { maxTotalBytes: 20 * 1024 * 1024, maxEntries: ARCHIVE_MAX_ENTRIES, maxRatio: ARCHIVE_MAX_RATIO });
   } catch (e) {
     beErrors.set(env.ctx, (e as Error).message);
     return beResult(env, BE_ZIP_ERROR, text('?'));
   }
   // No entry may climb out of the folder.
   if (entries.some((e) => e.name.startsWith('/') || e.name.split(/[/\\]/).some((x) => x === '..'))) return beResult(env, BE_ZIP_ERROR, text('?'));
+  // A colon is a drive letter or an alternate data stream on Windows, and a backslash a folder separator there: a name
+  // with either is refused, whatever the platform, so the same archive does the same thing everywhere.
+  const odd = entries.find((e) => /[:\\]/.test(e.name));
+  if (odd) {
+    beErrors.set(env.ctx, `the archive holds ${JSON.stringify(odd.name)}, and a file name with a colon or a backslash is not unpacked; nothing was written`);
+    return beResult(env, BE_ZIP_ERROR, text('?'));
+  }
   const base = folder.replace(/[/\\]+$/, '') + '/';
   const done: string[] = [];
   for (const e of entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))) {

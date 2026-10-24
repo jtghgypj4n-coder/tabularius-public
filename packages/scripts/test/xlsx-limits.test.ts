@@ -1,4 +1,6 @@
 import { test } from 'node:test';
+import zlib from 'node:zlib';
+import { syncBuiltinESMExports } from 'node:module';
 import assert from 'node:assert/strict';
 import { zip } from '../../calc/src/zip.ts';
 import { MAX_XLSX_BYTES, openXlsx, readXlsx, SheetLimitError, xlsx, xlsxSheetNames } from '../src/xlsx.ts';
@@ -112,4 +114,60 @@ test('an opened workbook reads each sheet as readXlsx does', () => {
   const wb = openXlsx(bytes);
   assert.deepEqual(wb.read('B'), readXlsx(bytes, 'B'));
   assert.deepEqual(wb.read(), readXlsx(bytes));
+});
+
+test('an archive of more than 4096 entries is refused, with the count and the limit', () => {
+  const many = (n: number) => Buffer.from(zip(Array.from({ length: n }, (_, i) => ({ name: `xl/junk/${i}.xml`, data: Buffer.from('<a/>') }))));
+  for (const read of [readXlsx, xlsxSheetNames]) {
+    assert.throws(() => read(many(4097)), /the archive holds 4097 entries; more than 4096 are not read/);
+  }
+  assert.doesNotThrow(() => xlsxSheetNames(many(4096)));
+});
+
+test('an entry that unpacks to more than 1000 times its compressed size is refused by name', () => {
+  const bomb = Buffer.from(zip([
+    { name: 'xl/worksheets/sheet1.xml', data: Buffer.from('<worksheet><sheetData/></worksheet>') },
+    { name: 'xl/media/padding.bin', data: Buffer.alloc(2 * 1024 * 1024) },
+  ]));
+  for (const read of [readXlsx, xlsxSheetNames]) {
+    assert.throws(() => read(bomb), /xl\/media\/padding\.bin unpacks to 2097152 bytes from \d+, more than 1000 times its size/);
+  }
+});
+
+test('an XML part nested more than 64 levels deep is refused, and 64 is fine', () => {
+  const deep = (levels: number) => `<worksheet><sheetData>${'<x>'.repeat(levels - 2)}${'</x>'.repeat(levels - 2)}</sheetData></worksheet>`;
+  const sheet = (xml: string) => Buffer.from(zip([{ name: 'xl/worksheets/sheet1.xml', data: Buffer.from(xml) }]));
+  assert.deepEqual(readXlsx(sheet(deep(64))), []);
+  assert.throws(() => readXlsx(sheet(deep(65))), /xl\/worksheets\/sheet1\.xml is nested more than 64 levels deep/);
+  // A tag never closed, a comment, CDATA and a ">" inside an attribute value do not fool the count.
+  const odd = `<worksheet><sheetData><!-- ${'<a>'.repeat(100)} --><row><c t="inlineStr"><is><t><![CDATA[${'<b>'.repeat(100)}]]></t></is></c><c a="x>y"/></row></sheetData></worksheet>`;
+  assert.equal(readXlsx(sheet(odd)).length, 1);
+  assert.throws(() => readXlsx(sheet(`<worksheet>${'<x>'.repeat(5000)}`)), /nested more than 64 levels deep/);
+});
+
+test('a closing tag with nothing open is refused, so it cannot buy extra nesting depth', () => {
+  const sheet = (xml: string) => Buffer.from(zip([{ name: 'xl/worksheets/sheet1.xml', data: Buffer.from(xml) }]));
+  const lead = '</x>'.repeat(100);
+  assert.throws(() => readXlsx(sheet(`${lead}<worksheet>${'<x>'.repeat(150)}</worksheet>`)), /xl\/worksheets\/sheet1\.xml has a closing tag with nothing open/);
+  assert.throws(() => readXlsx(sheet('<worksheet></worksheet></worksheet>')), /closing tag with nothing open/);
+});
+
+test('a part is inflated no further than its declared size, even when the budget is far larger', (t) => {
+  const real = zlib.inflateRawSync;
+  const caps: number[] = [];
+  t.mock.method(zlib, 'inflateRawSync', ((buffer: Uint8Array, options: { maxOutputLength: number }) => {
+    caps.push(options.maxOutputLength);
+    return real(buffer, options);
+  }) as typeof real);
+  syncBuiltinESMExports();
+  t.after(() => syncBuiltinESMExports());
+  // 3 MiB of zeros inside, with the declared size (central and local) cut down to the packed size.
+  const honest = Buffer.from(zip([{ name: 'xl/worksheets/sheet1.xml', data: Buffer.alloc(3 * 1024 * 1024) }]));
+  const centralAt = honest.readUInt32LE(honest.length - 6);
+  const packed = honest.readUInt32LE(centralAt + 20);
+  const lying = Buffer.from(honest);
+  lying.writeUInt32LE(packed, centralAt + 24);
+  lying.writeUInt32LE(packed, lying.readUInt32LE(centralAt + 42) + 22);
+  assert.throws(() => readXlsx(lying), /incorrect uncompressed size/);
+  assert.deepEqual(caps, [packed], 'inflation was capped at the declared size, not at the 256 MiB budget');
 });

@@ -8,6 +8,6 @@ An S3-compatible service's address, for other providers than Amazon.
 | Accepted values | S3-compatible endpoint URL |
 | Restart needed | Yes for a running server. |
 | Explained in | [docs/environment-variables.md](../../../environment-variables.md) |
-| Code | [packages/server/src/s3.ts:59](../../../../packages/server/src/s3.ts#L59) |
+| Code | [packages/server/src/s3.ts:60](../../../../packages/server/src/s3.ts#L60) |
 
 [All environment variables](../../../environment-variables.md)

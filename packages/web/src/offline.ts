@@ -5,7 +5,8 @@
 // encrypted (AES-GCM) with a key made from the account's password (PBKDF2), so the copy opens only with that
 // password. Entries are named by an HMAC of what was asked (a find's criteria, a record id), so their names give
 // nothing away either, and each is bound to its name, so entries can't be swapped. Only the file's and account's
-// names are readable, to list the copies on the sign-in page. Removing the copy deletes it all.
+// names are readable, to list the copies on the sign-in page. Removing the copy deletes it all. A response not read
+// from the server for 30 days (KEEP_DAYS) is not shown and is deleted; changes waiting to be sent never expire.
 
 /** Where the copy lives: IndexedDB in the browser, a map in tests. */
 export interface Shelf {
@@ -40,12 +41,17 @@ export interface QueuedEdit {
 export interface CopyKey { enc: CryptoKey; mac: CryptoKey }
 
 interface Sealed { iv: Uint8Array; data: ArrayBuffer }
-interface FileEntry { db: string; account: string; salt: Uint8Array; check: Sealed; at: number }
+interface FileEntry { db: string; account: string; salt: Uint8Array; check: Sealed; at: number; /** When expired responses were last swept out (at most once a day). */ swept?: number }
 
 const CHECK = 'openhbam offline copy';
 const ITERATIONS = 210_000;
 /** Responses kept per file; the oldest go first. */
 export const KEEP_LIMIT = 2000;
+/** A response kept longer ago than this is not shown and is deleted; keeping it again (reading it online) starts the days again. Waiting changes never expire. */
+export const KEEP_DAYS = 30;
+const DAY_MS = 86_400_000;
+/** Whether a response kept at this time has gone stale. An entry with no time (none is written without one) counts as stale. */
+const stale = (at: number | undefined): boolean => !(typeof at === 'number' && Date.now() - at <= KEEP_DAYS * DAY_MS);
 
 const text = new TextEncoder();
 const fileId = (db: string, account: string): string => `${db}\u0000${account.toLowerCase()}`;
@@ -233,10 +239,12 @@ export class OfflineCopy {
   async moveTo(salt: Uint8Array, key: CopyKey): Promise<OfflineCopy> {
     return exclusive(this.id, async () => {
       await this.intact();
-      const responses: [string, unknown][] = [];
+      // Each response keeps the age it had: a move to a new password does not start its days again, and one already stale is not carried over.
+      const responses: [string, unknown, number][] = [];
       for (const k of await this.shelf.keys('responses', `${this.id}\u0000`)) {
-        const v = await unseal(this.key, k, await this.shelf.get('responses', k) as Sealed | undefined) as { request: string; value: unknown } | undefined;
-        if (v) responses.push([v.request, v.value]);
+        const stored = await this.shelf.get('responses', k) as (Sealed & { at?: number }) | undefined;
+        const v = stale(stored?.at) ? undefined : await unseal(this.key, k, stored) as { request: string; value: unknown } | undefined;
+        if (v) responses.push([v.request, v.value, stored!.at!]);
       }
       const waiting = await this.pending();
       const next = new OfflineCopy(this.shelf, this.db, this.account, salt, key);
@@ -247,9 +255,9 @@ export class OfflineCopy {
           await this.shelf.put('queue', name, await seal(key, name, e));
           written.push({ store: 'queue', name });
         }
-        for (const [request, value] of responses) {
+        for (const [request, value, at] of responses) {
           const name = await next.responseName(request);
-          await this.shelf.put('responses', name, { at: Date.now(), ...await seal(key, name, { request, value }) });
+          await this.shelf.put('responses', name, { at, ...await seal(key, name, { request, value }) });
           written.push({ store: 'responses', name });
         }
         const entry: FileEntry = { db: this.db, account: this.account, salt, check: await seal(key, `${this.id}\u0000check`, CHECK), at: Date.now() };
@@ -297,8 +305,31 @@ export class OfflineCopy {
   /** A kept response, or undefined. */
   async recall(request: string): Promise<unknown> {
     const name = await this.responseName(request);
-    const v = await unseal(this.key, name, await this.shelf.get('responses', name) as Sealed | undefined) as { request: string; value: unknown } | undefined;
+    const stored = await this.shelf.get('responses', name) as (Sealed & { at?: number }) | undefined;
+    if (stale(stored?.at)) return undefined;
+    const v = await unseal(this.key, name, stored) as { request: string; value: unknown } | undefined;
     return v?.request === request ? v.value : undefined;
+  }
+
+  /**
+   * Deletes the responses kept more than KEEP_DAYS ago (`recall` does not show them either way). Looks at most once a
+   * day, the day being kept with the copy, and never touches the changes waiting to be sent.
+   */
+  async sweepExpired(): Promise<void> {
+    await exclusive(this.id, async () => {
+      const f = await this.shelf.get('files', this.id) as FileEntry | undefined;
+      if (this.removed || !f || (f.swept !== undefined && Date.now() - f.swept < DAY_MS)) return;
+      try {
+        await this.intact();
+      } catch (e) {
+        if (e instanceof CopyMoved) return;
+        throw e;
+      }
+      for (const k of await this.shelf.keys('responses', `${this.id}\u0000`)) {
+        if (stale(((await this.shelf.get('responses', k)) as { at?: number } | undefined)?.at)) await this.shelf.delete('responses', k);
+      }
+      await this.shelf.put('files', this.id, { ...f, swept: Date.now() });
+    });
   }
 
   private async prune(): Promise<void> {

@@ -31,6 +31,7 @@ To read these pages offline with search, build the site: `npm run docs:build` wr
 - [Writing a plug-in](writing-a-plugin.md) — Add calculation functions in JavaScript or WebAssembly.
 - [Native field types](native-field-types.md) — Use boolean, integer, decimal, JSON and UUID fields in native files.
 - [Native foreign keys](native-foreign-keys.md) — Declare a relationship as a named foreign key with an ON DELETE choice in native files.
+- [Native compatibility check and upgrade](native-compat.md) — Check native-only features and preview a one-way compat-to-native upgrade.
 - [Checking a solution](check-solution.md) — Find missing references, unavailable steps and empty privilege sets before they fail.
 - [Calendar feeds](calendar-feeds.md) — Subscribe to a layout's dates in a calendar app, and import events from an .ics file.
 
@@ -46,6 +47,7 @@ To read these pages offline with search, build the site: `npm run docs:build` wr
 - [Plug-in compatibility](plugin-compatibility.md) — Check built-in replacements for FileMaker plug-in functions.
 - [DynaPDF stage 2](dynapdf-stage2.md) — See what the offline import and copy of existing PDF pages supports, and its limits.
 - [Solution patterns](solution-patterns.md) — Check which common FileMaker patterns (separation model, portals, summary reports, card windows) work here.
+- [Get ( ) functions](get-functions.md) — See what Get ( ) answers here, including version strings and unknown names.
 - [Script step support](script-steps-support.md) — Check script steps that are partial, unavailable or do nothing.
 - [Script step reference](reference/script-steps/index.md) — Browse every registered step, grouped by task, with support status and an offline example.
 - [Script error codes](error-codes.md) — Look up script failures and how their codes compare with FileMaker.

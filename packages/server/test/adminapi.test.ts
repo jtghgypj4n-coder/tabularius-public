@@ -89,7 +89,7 @@ test('sign in with the admin password; tokens open the rest, nothing else does',
   assert.equal(Date.parse(meta.body.response.serverHostTimeISO) - Date.parse(meta.body.response.serverHostTime + 'Z'), new Date(meta.body.response.serverHostTimeISO).getTimezoneOffset() * 60_000);
   assert.equal((await call('/server/status', { headers: auth })).body.response.status, 'RUNNING');
 
-  const out = await call(`/user/auth/${auth.authorization.slice(7)}`, { method: 'DELETE', headers: auth });
+  const out = await call('/user/auth', { method: 'DELETE', headers: auth });
   assert.equal(code(out), '0');
   assert.equal((await call('/databases', { headers: auth })).status, 401, 'a logged-out token is refused');
 });

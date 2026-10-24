@@ -5,9 +5,9 @@ How long a stopping server lets requests that are already running finish before 
 | Setting | Value |
 | --- | --- |
 | Default | 20 seconds |
-| Accepted values | 1 to 86400 |
+| Accepted values | Whole seconds from 1 to 86400, decimal digits only |
 | Restart needed | Yes for a running server. |
 | Explained in | [docs/upgrading.md](../../../upgrading.md) |
-| Code | [packages/cli/src/main.ts:1449](../../../../packages/cli/src/main.ts#L1449) |
+| Code | [packages/cli/src/main.ts:1496](../../../../packages/cli/src/main.ts#L1496) |
 
 [All environment variables](../../../environment-variables.md)

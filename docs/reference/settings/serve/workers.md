@@ -5,10 +5,10 @@
 | Setting | Value |
 | --- | --- |
 | Default | One process |
-| Accepted values | Whole number from 1 to 64, or auto |
+| Accepted values | Whole number from 1 to 64, or auto; decimal digits only for numbers, within the safe integer range |
 | Restart needed | Yes; serve flags are read when the server starts. |
-| Environment | [`TABULARIUS_WORKERS`](../environment/tabularius_workers.md) |
+| Environment | No direct environment equivalent |
 | Explained in | [README.md](../../../../README.md) |
-| Code | [packages/cli/src/main.ts:1425](../../../../packages/cli/src/main.ts#L1425) |
+| Code | [packages/cli/src/main.ts:1471](../../../../packages/cli/src/main.ts#L1471) |
 
 [All serve flags](../serve-flags.md)

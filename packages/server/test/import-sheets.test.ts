@@ -1,7 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { randomBytes } from 'node:crypto';
 import { deflateRawSync } from 'node:zlib';
 import { ImportSheetsError, MAX_ZIP_PAGES, MAX_ZIP_SHEETS, MAX_ZIP_UNPACKED_BYTES, sheetsFromFile, zipAllowance } from '../src/import-sheets.ts';
+
+/** `n` bytes that deflate cannot shrink to under a 1000th: a random block longer than the 32 KiB window, repeated. */
+function filler(n: number): Buffer {
+  const block = randomBytes(40_000);
+  return Buffer.concat(Array.from({ length: Math.ceil(n / block.length) }, () => block)).subarray(0, n);
+}
 
 /** A ZIP of the files; a Buffer value is stored deflated, so a large one of repeating bytes stays small. */
 function zip(files: Record<string, string | Buffer>): Uint8Array {
@@ -76,14 +83,24 @@ test('a ZIP may hold exactly the CSV files and Markdown pages a request may, and
   for (let i = 0; i < MAX_ZIP_SHEETS; i++) csvs[`t${i}.csv`] = 'x\n1\n';
   assert.equal(sheetsFromFile('Many.zip', zip(csvs)).length, MAX_ZIP_SHEETS);
   assert.throws(() => sheetsFromFile('Many.zip', zip({ ...csvs, 'one more.csv': 'x\n1\n' })), new RegExp(`more than ${MAX_ZIP_SHEETS} CSV`));
+  // The page allowance is checked with a small one: a ZIP itself may hold at most 4096 entries.
   const pages: Record<string, string> = {};
-  for (let i = 0; i < MAX_ZIP_PAGES; i++) pages[`p${i}.md`] = '# P\n';
-  assert.equal(sheetsFromFile('Many.zip', zip(pages))[0].rows.length, MAX_ZIP_PAGES + 1);
-  assert.throws(() => sheetsFromFile('Many.zip', zip({ ...pages, 'one more.md': '# P\n' })), new RegExp(`more than ${MAX_ZIP_PAGES} Markdown`));
+  for (let i = 0; i < 10; i++) pages[`p${i}.md`] = '# P\n';
+  const ten = () => ({ ...zipAllowance(), pages: 10 });
+  assert.equal(sheetsFromFile('Many.zip', zip(pages), ten())[0].rows.length, 11);
+  assert.throws(() => sheetsFromFile('Many.zip', zip({ ...pages, 'one more.md': '# P\n' }), ten()), new RegExp(`more than ${MAX_ZIP_PAGES} Markdown`));
+});
+
+test('a ZIP of more than 4096 entries, or with an entry that unpacks to over 1000 times its size, is refused', () => {
+  const many: Record<string, string> = {};
+  for (let i = 0; i < 4097; i++) many[`p${i}.md`] = '# P\n';
+  assert.throws(() => sheetsFromFile('Many.zip', zip(many)), (e: Error) => e instanceof ImportSheetsError && /the archive holds 4097 entries; more than 4096 are not read/.test(e.message));
+  assert.throws(() => sheetsFromFile('Bomb.zip', zip({ 'Projects.csv': 'Name\nAlpha\n', 'cover.png': Buffer.alloc(4 * 1024 * 1024) })),
+    (e: Error) => e instanceof ImportSheetsError && /cover\.png unpacks to 4194304 bytes from \d+, more than 1000 times its size/.test(e.message));
 });
 
 test('the limits are shared by the ZIPs of one request', () => {
-  const half = Buffer.alloc(MAX_ZIP_UNPACKED_BYTES * 0.6, 'a');
+  const half = filler(MAX_ZIP_UNPACKED_BYTES * 0.6);
   const allowance = zipAllowance();
   assert.equal(sheetsFromFile('One.zip', zip({ 'A.csv': half }), allowance).length, 1);
   assert.throws(() => sheetsFromFile('Two.zip', zip({ 'B.csv': half }), allowance), (e: Error) => e instanceof ImportSheetsError && /expands to more than/.test(e.message));
@@ -95,7 +112,7 @@ test('the limits are shared by the ZIPs of one request', () => {
 });
 
 test('pictures beside the exports are not unpacked, but a CSV that unpacks past the limit is refused', () => {
-  const big = Buffer.alloc(MAX_ZIP_UNPACKED_BYTES + 1024 * 1024, 'a');
+  const big = filler(MAX_ZIP_UNPACKED_BYTES + 1024 * 1024);
   const withImage = zip({ 'Projects.csv': 'Name\nAlpha\n', 'cover.png': big });
   assert.deepEqual(sheetsFromFile('Export.zip', withImage).map((s) => s.name), ['Projects']);
   assert.throws(() => sheetsFromFile('Export.zip', zip({ 'Huge.csv': big })), (e: Error) => e instanceof ImportSheetsError && /expands to more than 50 MB/.test(e.message));
@@ -103,7 +120,7 @@ test('pictures beside the exports are not unpacked, but a CSV that unpacks past 
 
 test('a request with several ZIPs shares one limit between them', async () => {
   const { readImportTablesRequest } = await import('../src/import-tables-route.ts');
-  const half = Buffer.alloc(MAX_ZIP_UNPACKED_BYTES * 0.6, 'a');
+  const half = filler(MAX_ZIP_UNPACKED_BYTES * 0.6);
   const part = (file: string, data: Uint8Array) => Buffer.concat([
     Buffer.from(`--b\r\ncontent-disposition: form-data; name="file"; filename="${file}"\r\ncontent-type: application/zip\r\n\r\n`), data, Buffer.from('\r\n')]);
   const body = (...zips: [string, Uint8Array][]) => Buffer.concat([...zips.map(([f, d]) => part(f, d)), Buffer.from('--b--\r\n')]);

@@ -159,16 +159,54 @@ test('MBS JS account cool-down registry evicts only its oldest entry at the boun
   assert.match(session(key(MBS_JS_COOL_DOWN_LIMIT + 1)).mbs('JS.New'), /^\[MBS\] ERROR:.*recently/);
 });
 
-test('MBS JS global cap reports server capacity and a refused allocation leaves no handle behind', () => {
-  const { owners, refs } = fillPool();
-  const next = session();
-  assert.equal(owners[0].mbs('JS.Evaluate', refs[0][0], 'var saved = 42; saved'), '42');
-  assert.equal(next.mbs('JS.New', 'retry'), '[MBS] ERROR: JavaScript context limit reached for this server (32)');
-  assert.equal(next.mbs('IsError'), '1');
-  assert.equal(owners[0].mbs('JS.Evaluate', refs[0][0], 'saved'), '42');
-  assert.equal(owners[1].mbs('JS.Release', refs[1][0]), 'OK');
-  assert.equal(next.make('retry'), 'retry');
-  assert.equal(next.mbs('JS.Release', 'retry'), 'OK');
+const SERVER_FULL = '[MBS] ERROR: JavaScript context limit reached for this server (32)';
+
+/** b, c and d hold eight handles each and e holds `8 - spare`, all made first, so they are the oldest in the pool. */
+function fillWithOthers(spare: number) {
+  const holders = ['b', 'c', 'd', 'e'].map(name => ({ name, s: session(name), refs: [] as string[] }));
+  for (const h of holders) for (let i = 0; i < (h.name === 'e' ? 8 - spare : 8); i++) h.refs.push(h.s.make());
+  return holders;
+}
+const untouched = (holders: ReturnType<typeof fillWithOthers>) => {
+  for (const h of holders) for (const ref of h.refs) assert.equal(h.s.mbs('JS.Evaluate', ref, '1'), '1', `${h.name}'s handles are untouched`);
+};
+
+test('MBS JS a full pool drops the requesting account\'s own least recently used handle, never another account\'s', () => {
+  const holders = fillWithOthers(2);
+  const a = session('a');
+  const mine = [a.make(), a.make()];
+  assert.equal(JS_CONTEXT_LIMIT, 32);
+  for (let round = 0; round < 5; round++) {
+    const fresh = a.make();
+    assert.match(a.mbs('JS.Evaluate', mine[0], '1'), /^\[MBS\] ERROR:/, 'its own least recently used handle was dropped');
+    mine.shift();
+    mine.push(fresh);
+  }
+  assert.equal(a.mbs('JS.Evaluate', mine[0], 'var saved = 42; saved'), '42', 'a handle in use keeps its state');
+  untouched(holders);
+});
+
+test('MBS JS an account holding none is refused by a full pool, and nothing is dropped', () => {
+  const holders = fillWithOthers(0);
+  const newcomer = session('f');
+  assert.equal(newcomer.mbs('JS.New'), SERVER_FULL);
+  assert.equal(newcomer.mbs('IsError'), '1');
+  untouched(holders);
+  // The attacker's loop: nothing to release, nothing gained.
+  for (let i = 0; i < 40; i++) assert.equal(newcomer.mbs('JS.New'), SERVER_FULL);
+  untouched(holders);
+  // A caller with no account never drops anyone's handle either.
+  const anonymous = session();
+  assert.equal(anonymous.mbs('JS.New'), SERVER_FULL);
+  untouched(holders);
+  // Room appears only when a handle is released.
+  assert.equal(holders[0].s.mbs('JS.Release', holders[0].refs.shift()!), 'OK');
+  assert.match(newcomer.make(), /^\d+$/);
+});
+
+test('MBS JS a session at its own handle limit is still refused', () => {
+  const { owners } = fillPool();
+  assert.match(owners[0].mbs('JS.New', 'ninth'), /^\[MBS\] ERROR:.*session/);
 });
 
 test('MBS JS idle handles expire across retained sessions without another request', t => {

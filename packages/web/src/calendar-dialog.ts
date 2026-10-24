@@ -23,8 +23,8 @@ export function feedRequest(form: { layout: string; start: string; end: string; 
   const out: Record<string, unknown> = { layout: form.layout, start: form.start };
   for (const k of ['end', 'title', 'description', 'location', 'zone', 'label'] as const) if (form[k].trim()) out[k] = form[k].trim();
   const days = Number(form.expiresDays);
-  // Blank leaves the address its default lifetime (a year); 0 asks for one that never expires.
-  if (form.expiresDays.trim() && days >= 0) out.expiresDays = days;
+  // Blank leaves the address its default lifetime (a year); every address expires.
+  if (form.expiresDays.trim() && days > 0) out.expiresDays = days;
   return out;
 }
 
@@ -33,7 +33,8 @@ export function importSummary(r: { imported: number; skipped: number; notes: str
   return `Imported ${r.imported} event${r.imported === 1 ? '' : 's'}${r.skipped ? `, skipped ${r.skipped}` : ''}.${r.notes.length ? ` ${r.notes.join(' ')}` : ''}`;
 }
 
-const when = (iso?: string) => (iso ? new Date(iso).toLocaleString() : '');
+/** Feed metadata is an instant; show the zone so a repeated local hour is unambiguous. */
+export const calendarWhen = (iso?: string, locale?: string) => (iso ? new Date(iso).toLocaleString(locale, { timeZoneName: 'short' }) : '');
 
 export async function calendarDialog(api: Api, mode: 'feeds' | 'import', current?: string): Promise<void> {
   if (document.querySelector('dialog.calendar-dialog')) return;
@@ -97,13 +98,13 @@ export async function calendarDialog(api: Api, mode: 'feeds' | 'import', current
 
   if (mode === 'feeds') {
     const label = h('input', { id: 'calendar-label', type: 'text', maxlength: '60', placeholder: 'Team calendar', autocomplete: 'off' }) as HTMLInputElement;
-    const days = h('input', { id: 'calendar-days', type: 'number', min: '0', max: '3650', placeholder: 'days (blank: 365; 0: never)', inputmode: 'numeric' }) as HTMLInputElement;
+    const days = h('input', { id: 'calendar-days', type: 'number', min: '1', max: '3650', placeholder: 'days (blank: 365)', inputmode: 'numeric' }) as HTMLInputElement;
     const draw = (feeds: CalendarFeed[]) => {
       list.replaceChildren(feeds.length
         ? h('table', { class: 'calendar-feeds' },
           h('thead', {}, h('tr', {}, ...['Name', 'Layout', 'Shows records as', 'Made', 'Last opened', ''].map((t) => h('th', { scope: 'col' }, t)))),
           h('tbody', {}, ...feeds.map((f) => h('tr', {},
-            h('td', {}, f.label || '(no name)'), h('td', {}, f.layout), h('td', {}, f.account), h('td', {}, when(f.created)), h('td', {}, f.lastUsed ? when(f.lastUsed) : 'never'),
+            h('td', {}, f.label || '(no name)'), h('td', {}, f.layout), h('td', {}, f.account), h('td', {}, calendarWhen(f.created)), h('td', {}, f.lastUsed ? calendarWhen(f.lastUsed) : 'never'),
             h('td', {}, button('Revoke', () => void revoke(f), { 'aria-label': `Revoke ${f.label || 'feed'} on ${f.layout}` }))))))
         : h('p', { class: 'calendar-none' }, 'No calendar feeds yet.'));
     };

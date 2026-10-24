@@ -2,6 +2,7 @@
 // field's folder beside the hosted file), as the optimization report suggests, and putting them back. The store does
 // the moving (all or nothing); this adds the design change that opens the field's external storage when it isn't,
 // a preview that says what will happen, and a short history in the file that makes the move undoable.
+import { encryptionKeyFromEnv } from './setting-values.ts';
 import type { Store } from '../../store/src/store.ts';
 
 /** What a move did, kept in the file so it can be undone. */
@@ -86,7 +87,7 @@ export function planContainerMove(store: Store, table: string, field: string): C
     'All or nothing: if any file can\'t be written, nothing is changed. The records keep pointing at the same files.',
     'Back up that folder with the file from now on. The file is then rewritten to give the space back to the disk, which takes a moment on a large file.',
   ];
-  if (process.env.TABULARIUS_ENCRYPTION_KEY) preview.push('Warning: TABULARIUS_ENCRYPTION_KEY encrypts only the database. These external container files will be stored as plaintext, including while the server is stopped.');
+  if (encryptionKeyFromEnv()) preview.push('Warning: TABULARIUS_ENCRYPTION_KEY encrypts only the database. These external container files will be stored as plaintext, including while the server is stopped.');
   return { table, field, files, bytes, folder, setsStorage: !open, preview };
 }
 
