@@ -21,7 +21,7 @@ const locked = `Admin password — too many wrong attempts; sign-in from ${bucke
 const miss = { status: 401, message: 'Wrong admin password' };
 const blocked = { status: 429, message: 'Too many failed attempts. Try again in 900 seconds.', retryAfter: 900 };
 
-function setup(t: TestContext) {
+function setup(t: TestContext, start = performance.now()) {
   const dir = mkdtempSync(join(tmpdir(), 'tabularius-admin-failed-login-'));
   const host = new Host(dir);
   const logs = host.logs = new ServerLogs(dir);
@@ -32,7 +32,7 @@ function setup(t: TestContext) {
     failures: Map<string, { count: number; first: number; until: number }>;
     failureOverflowUntil: number;
   };
-  let now = performance.now();
+  let now = start;
   t.mock.method(performance, 'now', () => now);
   t.after(async () => { logs.close(); await host.close(); rmSync(dir, { recursive: true, force: true }); });
   const entries = async () => {
@@ -93,6 +93,15 @@ test('expired windows start a new count and wall-clock edits do not reset it', a
   advance();
   assert.equal(admin.tryPassword(address, password, hash), null);
 });
+
+// The clock has fractions of a millisecond, and (now + 900000) - now is not always 900000 in floating point (here 900000.0000000001, which rounded up to 901 seconds).
+for (const start of [569149.101657342, 209252.77112952, 707896.6334366117]) {
+  test(`the wait a locked address is told is 900 seconds whatever fraction the clock is at (${start})`, (t) => {
+    const { admin } = setup(t, start);
+    for (let i = 1; i <= 5; i++) assert.deepEqual(admin.tryPassword(address, wrong, hash), i < 5 ? miss : blocked);
+    assert.deepEqual(admin.tryPassword(address, wrong, hash), blocked);
+  });
+}
 
 test('a saturated lock table logs once per overflow cooldown and stays bounded', async (t) => {
   const { admin, entries, now, advance } = setup(t);

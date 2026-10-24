@@ -193,6 +193,11 @@ import { said } from './said.ts';
 const PASSWORD_FILE = '.openhbam-admin';
 
 /** Only errors deliberately written for an administrator may cross this API boundary. */
+/** Whole seconds left of a wait given in milliseconds; the clock has fractions, so a sum like (now + 900000) - now can come out a hair over 900000. */
+function secondsLeft(ms: number): number {
+  return Math.ceil(Math.round(ms) / 1000);
+}
+
 function adminErrorText(e: unknown, scope: object): string {
   if (e instanceof StoreError || e instanceof ApiError || e instanceof RangeError || e instanceof SyntaxError || e instanceof URIError ||
       e instanceof CertificateError || e instanceof BackupFolderError || e instanceof BackupStopped || e instanceof PassphraseNeeded ||
@@ -546,7 +551,7 @@ export class Admin {
     const ip = clientAddress(req);
     const locked = this.failures.get(addressBucket(ip));
     if (Math.max(locked?.until ?? 0, this.failureOverflowUntil) > now) {
-      const secs = Math.ceil((Math.max(locked?.until ?? 0, this.failureOverflowUntil) - now) / 1000);
+      const secs = secondsLeft(Math.max(locked?.until ?? 0, this.failureOverflowUntil) - now);
       return { status: 429, message: `Too many failed attempts. Try again in ${secs} seconds.`, retryAfter: secs };
     }
     const basic = /^Basic\s+(.+)$/i.exec(req.headers.authorization ?? '')?.[1];
@@ -615,7 +620,7 @@ export class Admin {
     const ip = addressBucket(from);
     const locked = this.failures.get(ip);
     if (Math.max(locked?.until ?? 0, this.failureOverflowUntil) > now) {
-      const secs = Math.ceil((Math.max(locked?.until ?? 0, this.failureOverflowUntil) - now) / 1000);
+      const secs = secondsLeft(Math.max(locked?.until ?? 0, this.failureOverflowUntil) - now);
       return { status: 429, message: `Too many failed attempts. Try again in ${secs} seconds.`, retryAfter: secs };
     }
     if (!checkPassword(password, hash)) {
@@ -631,7 +636,7 @@ export class Admin {
       }
       this.noteMiss(ip, rec);
       if (rec.until > now) {
-        const secs = Math.ceil((rec.until - now) / 1000);
+        const secs = secondsLeft(rec.until - now);
         return { status: 429, message: `Too many failed attempts. Try again in ${secs} seconds.`, retryAfter: secs };
       }
       return { status: 401, message: 'Wrong admin password' };
@@ -805,7 +810,7 @@ export class Admin {
       const ip = addressBucket(clientAddress(req));
       const locked = this.failures.get(ip);
       if (Math.max(locked?.until ?? 0, this.failureOverflowUntil) > performance.now()) {
-        const secs = Math.ceil((Math.max(locked?.until ?? 0, this.failureOverflowUntil) - performance.now()) / 1000);
+        const secs = secondsLeft(Math.max(locked?.until ?? 0, this.failureOverflowUntil) - performance.now());
         return json(429, { error: `Too many failed attempts. Try again in ${secs} seconds.` }, { 'retry-after': String(secs) }), true;
       }
       const r = body.response as { credentialId: string; clientDataJSON: string; authenticatorData: string; signature: string; challenge: string };

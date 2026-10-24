@@ -216,10 +216,10 @@ The following reasons apply to the exact enumerated expressions in each named fu
 | [packages/scripts/src/testrun.ts:270](../../packages/scripts/src/testrun.ts#L270) `testScript` | `Store.findIds` (270) | DESIGN |
 | [packages/scripts/src/testrun.ts:306](../../packages/scripts/src/testrun.ts#L306) `recordWith` | `Store.evaluateEach` (306) | DESIGN |
 | [packages/scripts/src/testrun.ts:338](../../packages/scripts/src/testrun.ts#L338) `testRun` | `Store.evaluateEach` (338) | DESIGN |
-| [packages/server/src/admin.ts:1029](../../packages/server/src/admin.ts#L1029) `Admin/handle` | `Store.externalContainerReport` (1029); `Store.orphanContainerReport` (1034, 1038) | ADMIN |
-| [packages/server/src/admin.ts:2204](../../packages/server/src/admin.ts#L2204) `Admin/audit` | `Store.auditLog` (2204) | ADMIN |
-| [packages/server/src/admin.ts:2287](../../packages/server/src/admin.ts#L2287) `Admin/viewAs` | `Store.find` (2287) | ADMIN |
-| [packages/server/src/admin.ts:2635](../../packages/server/src/admin.ts#L2635) `Admin/status` | `Store.externalContainerCount` (2635) | ADMIN |
+| [packages/server/src/admin.ts:1034](../../packages/server/src/admin.ts#L1034) `Admin/handle` | `Store.externalContainerReport` (1034); `Store.orphanContainerReport` (1039, 1043) | ADMIN |
+| [packages/server/src/admin.ts:2209](../../packages/server/src/admin.ts#L2209) `Admin/audit` | `Store.auditLog` (2209) | ADMIN |
+| [packages/server/src/admin.ts:2292](../../packages/server/src/admin.ts#L2292) `Admin/viewAs` | `Store.find` (2292) | ADMIN |
+| [packages/server/src/admin.ts:2640](../../packages/server/src/admin.ts#L2640) `Admin/status` | `Store.externalContainerCount` (2640) | ADMIN |
 | [packages/server/src/agent.ts:154](../../packages/server/src/agent.ts#L154) `runStep/visible` | `Store.findIds` (154) | DESIGN |
 | [packages/server/src/agent.ts:162](../../packages/server/src/agent.ts#L162) `runStep` | `Store.findIds` (162); `Store.auditLog` (221); `Store.canViewRecord` (233) | DESIGN |
 | [packages/server/src/agent.ts:307](../../packages/server/src/agent.ts#L307) `dryRunPlan` | `Store.findIds` (307) | DESIGN |
