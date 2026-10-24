@@ -52,7 +52,7 @@ test('the answer names the table the query used, not another name that is in the
         ['SELECT i.Value FROM Items i JOIN ExternalOther o ON o.Key = i.Key WHERE i.Value <> \'ExternalItems\'', 'ExternalOther'],
       ]) {
         const refused = (await query(sql)).error;
-        assert.deepEqual(refused, { code: '42000', message: `no such table: ${name}` }, sql);
+        assert.deepEqual(refused, { code: '42P01', message: `no such table: ${name}` }, sql);
       }
     }
   } finally { c.close(); }
