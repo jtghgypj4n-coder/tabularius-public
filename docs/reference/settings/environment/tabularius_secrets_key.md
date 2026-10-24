@@ -8,6 +8,6 @@ Passphrase used to seal outside-connection secrets.
 | Accepted values | Nonempty passphrase; an empty value stops `serve` |
 | Restart needed | Yes for a running server. |
 | Explained in | [README.md](../../../../README.md) |
-| Code | [packages/server/src/connections.ts:721](../../../../packages/server/src/connections.ts#L721) |
+| Code | [packages/server/src/connections.ts:8](../../../../packages/server/src/connections.ts#L8) |
 
 [All environment variables](../../../environment-variables.md)

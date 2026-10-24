@@ -24,6 +24,7 @@
 //   POST   /tabularius/admin/v1/connections/{id}/test             asks the service something harmless (lists one object)
 //   DELETE /tabularius/admin/v1/connections/{id}
 
+import { secret } from '../../store/src/settings.ts';
 import { encryptionKeyFromEnv } from './setting-values.ts';
 import { createCipheriv, createDecipheriv, createHash, randomBytes, scryptSync } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
@@ -717,8 +718,8 @@ class Vault {
   }
 
   private passphrase(): string | undefined {
-    const encryptionKey = encryptionKeyFromEnv();
-    return process.env.TABULARIUS_SECRETS_KEY || encryptionKey;
+    // Either key set but empty or blank is refused: an empty value must never mean "none", or fall back to the key file.
+    return secret('TABULARIUS_SECRETS_KEY') ?? encryptionKeyFromEnv();
   }
 
   private seal(ref: string, value: string): string {
