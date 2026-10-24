@@ -17,7 +17,7 @@ Open Find/Replace is a fields and values script step. This page describes how th
 ## What the engine does
 
 The engine accepts this step but does not perform its named action.
-Return successfully without opening their corresponding client flows.
+Returns successfully without opening its client flow.
 
 FileMaker comparisons in this note are inferred unless a Claris help page is linked. See the [full support notes](../../script-steps-support.md) for surrounding conditions.
 

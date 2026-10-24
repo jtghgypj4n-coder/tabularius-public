@@ -17,7 +17,7 @@ Print is a other steps script step. This page describes how the offline Tabulari
 ## What the engine does
 
 The engine handles this step with the limits described in the support notes.
-Requests client printing; Print Setup does not apply per-step print settings. Save Records as PDF uses the stored file paper size, orientation and fixed margins, but ignores Page Setup scale.
+Requests client printing. Save Records as PDF uses the stored file paper size, orientation and fixed margins, but ignores Page Setup scale.
 
 FileMaker comparisons in this note are inferred unless a Claris help page is linked. See the [full support notes](../../script-steps-support.md) for surrounding conditions.
 

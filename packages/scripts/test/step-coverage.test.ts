@@ -86,6 +86,18 @@ test('steps only FileMaker Pro can do give error 3 and say why; screen-only step
   assert.match(r.trace!.find((t) => t.error)?.message ?? '', /only in FileMaker Pro on a Mac/);
 });
 
+test('client-only steps set LastError to 3, trace the reason, and continue with error capture on or off', async () => {
+  const names = ['Print Setup', 'Open Hosts', 'Open Upload to Host', 'Open Favorites', 'Open File Options', 'Open Sharing', 'Open Settings'];
+  for (const name of names) {
+    for (const capture of ['On', 'Off']) {
+      const r = await runScript(store, script(`Set Error Capture [ ${capture} ]\n${name}\nExit Script [ Text Result: Get ( LastError ) ]`), { layout: 'Customers', trace: true });
+      assert.equal(r.error, 3, `${name}, error capture ${capture}: LastError remains the final run error`);
+      assert.equal(r.result, '3', `${name}, error capture ${capture}: LastError`);
+      assert.ok(r.trace?.some((entry) => entry.index === 1 && entry.error === 3), `${name}: trace records error 3`);
+    }
+  }
+});
+
 test('Core ML is not on the server, and RAG steps offline: error 3, saying why', async () => {
   for (const [stepId, name, reason] of [[202, 'Configure Machine Learning Model', /Core ML/], [219, 'Perform RAG Action', /run offline/]] as const) {
     const r = await runScript(store, { id: 9000 + stepId, name: 'x', steps: [{ stepId, name, enabled: true }] } as never, { layout: 'Customers', trace: true });
