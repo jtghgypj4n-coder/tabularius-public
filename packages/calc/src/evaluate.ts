@@ -409,12 +409,17 @@ export class Env {
     }
   }
 
+  // Kept out of node(), which a long chain of terms recurses through: a bigger frame there overflows the stack sooner.
+  private numberLiteral(n: Extract<Node, { k: 'num' }>): Value {
+    return this.decimalPlaces !== undefined ? (n.raw === 'Pi' ? Decimal.pi(this.decimalPlaces)
+      : Decimal.parse(n.raw ?? String(n.value), this.decimalPlaces)).value()
+      : n.raw !== undefined && isOverlongWholeText(n.raw) ? num(NaN)
+        : n.exact !== undefined ? { type: 'number', value: n.value, exact: n.exact } : num(n.value);
+  }
+
   private node(n: Node): Value {
     switch (n.k) {
-      case 'num': return this.decimalPlaces !== undefined ? (n.raw === 'Pi' ? Decimal.pi(this.decimalPlaces)
-        : Decimal.parse(n.raw ?? String(n.value), this.decimalPlaces)).value()
-        : n.raw !== undefined && isOverlongWholeText(n.raw) ? num(NaN)
-          : n.exact !== undefined ? { type: 'number', value: n.value, exact: n.exact } : num(n.value);
+      case 'num': return this.numberLiteral(n);
       case 'str': return text(n.value);
       case 'field': return this.field(n);
       case 'var': return this.variable(n);
@@ -790,8 +795,8 @@ export class Env {
 
   private binary(op: string, an: Node, bn: Node): Value {
     // and / or stop as soon as the answer is known.
-    if (op === 'and') return bool(this.bool(an) && this.bool(bn));
-    if (op === 'or') return bool(this.bool(an) || this.bool(bn));
+    if (op === 'and') return bool(asBoolean(this.v(an)) && asBoolean(this.v(bn)));
+    if (op === 'or') return bool(asBoolean(this.v(an)) || asBoolean(this.v(bn)));
     const a = this.v(an);
     const b = this.v(bn);
     if (this.decimalPlaces !== undefined && ['+', '-', '*', '/', '^'].includes(op)) {
