@@ -19,6 +19,6 @@ test('encryption key validation preserves passphrases exactly and only unset dis
   assert.equal(encryptionKeyFromEnv({}), undefined);
   assert.equal(encryptionKeyFromEnv({ TABULARIUS_ENCRYPTION_KEY: '  synthetic passphrase  ' }), '  synthetic passphrase  ');
   for (const value of ['', ' ', '\t\n']) {
-    assert.throws(() => encryptionKeyFromEnv({ TABULARIUS_ENCRYPTION_KEY: value }), /^Error: TABULARIUS_ENCRYPTION_KEY.*unset.*passphrase$/);
+    assert.throws(() => encryptionKeyFromEnv({ TABULARIUS_ENCRYPTION_KEY: value }), /^Error: TABULARIUS_ENCRYPTION_KEY is set but empty: set a key, or unset the variable to run without encryption$/);
   }
 });
