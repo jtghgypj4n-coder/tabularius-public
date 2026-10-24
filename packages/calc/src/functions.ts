@@ -625,6 +625,7 @@ const roundTo = (n: number, places: number, round: boolean) => {
 const roundValue = (v: Value[], round: boolean): Value => {
   const n = asNumberOrEmpty(v[0]);
   if (n === undefined) return EMPTY;
+  if (v.some((value) => value.type === 'text' && isOverlongWholeText(value.value))) return num(NaN);
   const places = Math.trunc(asNumber(v[1]));
   const exact = exactOf(v[0]);
   if (exact !== undefined && Number.isFinite(places)) {

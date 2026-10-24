@@ -67,6 +67,11 @@ test('whole-number functions retain digits through 400 digits', () => {
     `Average ( ${n401} ; 1 )`, `${n401} ^ 2`, `${n401} / 7`,
     `${n401} ^ 0`, `"${n401}" ^ 0`, `0 ^ ${n401}`,
   ]) assert.equal(run(formula), '?', formula.slice(0, 30));
+  for (const name of ['Round', 'Truncate']) {
+    assert.equal(run(`${name} ( "${n401}" ; -1 )`), '?', name);
+    assert.equal(run(`${name} ( "${n401}" ; 0 )`), '?', name);
+    assert.equal(run(`${name} ( "${'0'.repeat(401)}5" ; 0 )`), '?', name);
+  }
   assert.equal(run(`Round ( "" ; "${n401}" )`), '');
   assert.equal(run(`GetAsNumber ( "+${operands[1]}" )`), b(operands[1]));
 });
