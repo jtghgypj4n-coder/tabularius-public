@@ -6198,7 +6198,7 @@ export class Store {
       // Hashing yields: another worker may replace the identity, change its password, or disable it.
       // Revalidate both the identity and the usable verifier before accepting the proof.
       const current = this.passwordState(account, from);
-      valid = !!proof?.identity && current?.hash === hash && current?.identity === proof.identity;
+      valid = !!proof?.identity && hash !== undefined && current?.hash !== undefined && sameSecret(current.hash, hash) && current?.identity === proof.identity;
     }
     if (!valid && fallback && !this.lockedOut(account, from)) {
       const key = this.bucketKey(account, from);
