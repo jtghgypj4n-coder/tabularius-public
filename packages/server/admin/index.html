@@ -402,6 +402,7 @@
     <div id="clients"></div>
     <p class="note" id="broadcast-row" hidden><button id="broadcast">Message everyone</button> shows a message to every connected web client.</p>
     <form class="note" id="session-form"><label>Data API sessions end after <input id="session-minutes" type="number" min="1" max="1440" step="1" required style="width:5em"> minutes idle</label>, <label>web client sessions after <input id="web-session-minutes" type="number" min="1" max="1440" step="1" style="width:5em"></label> <button id="session-set" type="submit">Set</button> <span id="session-note">(15 by default; leave the web box empty to follow the Data API's.)</span></form>
+    <form class="note" id="device-storage-form"><label><input id="stop-keeping-record-data" type="checkbox" aria-describedby="device-storage-note"> Stop keeping record data on devices</label> <button type="submit">Set</button> <span id="device-storage-note">Off by default. When on, expired or revoked web sessions ask the browser to clear cache and storage, and web sessions end 30 days after sign-in even while active. Partial: browser storage writes still continue until clearing.</span></form>
     <form class="note" id="stack-form"><label>Web client windows narrower than <input id="stack-below" type="number" min="0" max="10000" step="1" required style="width:5em"> points show a layout in one column, unless the layout sets its own width</label> <button id="stack-set" type="submit">Set</button> <span id="stack-note">(640 by default; 0 stacks nothing the layout doesn't ask for.)</span></form>
     <p class="note"><label>Email errors to <input id="notify-to" type="email" placeholder="admin@example.com" style="width:16em"></label> <label><select id="notify-level" aria-label="Which problems to email"><option value="Error">errors only</option><option value="Warning">errors and warnings</option></select></label> <button id="notify-set" type="button">Save</button> <button id="notify-test" type="button">Send a test</button> <span id="notify-note"></span></p>
     <p class="note"><button id="block-new" type="button" aria-pressed="false">Block new users</button> <span id="block-new-note">stops new sign-ins (web client, Data API, AI apps, SQL) while those already connected carry on, as before maintenance.</span></p>
@@ -1924,6 +1925,7 @@ async function refresh() {
   // What each box held when it was drawn: Set sends only what was changed, so setting one does not fix the other.
   const idle = s.server.sessionIdleMinutes ?? 15;
   const webOwn = !!s.server.webSessionIdleOwn;
+  if (document.activeElement !== $('stop-keeping-record-data')) $('stop-keeping-record-data').checked = !!s.server.stopKeepingRecordData;
   $('web-session-minutes').placeholder = `same (${idle})`;
   if (document.activeElement !== $('session-minutes')) { $('session-minutes').value = idle; $('session-minutes').dataset.loaded = String(idle); }
   if (document.activeElement !== $('web-session-minutes')) { const own = webOwn ? String(s.server.webSessionIdleMinutes) : ''; $('web-session-minutes').value = own; $('web-session-minutes').dataset.loaded = own; }
@@ -3692,6 +3694,11 @@ $('session-form').addEventListener('submit', async (e) => {
   if (web.value !== web.dataset.loaded) body.webMinutes = web.value === '' ? null : Number(web.value);
   if (!Object.keys(body).length) return;
   await call('POST', '/tabularius/admin/v1/session-timeout', body).catch((err) => say(plainMessage(err)));
+  refresh();
+});
+$('device-storage-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  await call('POST', '/tabularius/admin/v1/device-storage', { on: $('stop-keeping-record-data').checked }).catch((err) => say(plainMessage(err)));
   refresh();
 });
 $('stack-form').addEventListener('submit', async (e) => {

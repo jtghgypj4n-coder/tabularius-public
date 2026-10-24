@@ -32,6 +32,7 @@ export const groups: RestGroup[] = [
     sources: ['webclient.ts'],
     intro: 'The browser app is served under /app/, and it reads layout designs and runs buttons through a JSON API under /tabularius/app/v1/databases/{database}. The API takes the same session token as the Data API (records themselves are read and written through /fmi/data/…), and everything runs with the account\'s privilege set. Terminal script privilege errors optionally include denial (operation, permission, safe explanation) alongside the existing error code; handled errors produce no retrospective error toast. Interactive runs audit their first tagged refusal only after terminal cleanup, including abandonment after a dialog or pause timeout. Errors answer {"error":{"code":N,"message":"…"}}: 401 code 952 for a missing or expired token, 404 code 802 for a file that isn\'t hosted, 405 code 3 for a sub-route called with anything but POST (the …/prefs routes take GET and PUT), and HTTP 400 for store and privilege errors (105 for a layout the account can\'t use).',
     anchors: [
+      String.raw`/^\/tabularius\/app\/v1\/databases\/([^/]+)\/(sign-out|forget-device)$/.exec(`,
       `path === '/'`,
       `path === '/favicon.ico'`,
       `path === '/app'`,
@@ -47,6 +48,24 @@ export const groups: RestGroup[] = [
       String.raw`/^\/tabularius\/app\/v1\/databases\/([^/]+)\/layouts(?:\/([^/]+)(?:\/(view|records|foundset|groups|charts|menus|button|index|position|export|import|undo-import|ai-replace|explain|history|revert|refresh|value-list))?)?$/.exec(`,
     ],
     routes: [
+      {
+        method: 'POST',
+        path: '/tabularius/app/v1/databases/{database}/sign-out',
+        summary: 'Ends this web session and asks the browser to forget this origin’s cache and storage.',
+        permissions: 'A live web client session for this file (Bearer or X-FM-Data-Access-Token). Missing or expired sessions answer 401; Data API sessions and scoped API tokens answer 403.',
+        params: [dbParam, { ...authHeader, description: 'Bearer {token}: a signed-in web client session' }],
+        example: { request: 'POST /tabularius/app/v1/databases/Example/sign-out\nAuthorization: Bearer {token}', status: 204, response: '(empty body)', skipReason: 'Requires a live web client session for the example file.' },
+        notes: 'Clear-Site-Data: "cache", "storage"; never cookies. Only this token ends. Clearing is origin-wide and depends on browser support in a secure context; it can discard unsent offline changes. The Data API DELETE sessions/{token} endpoint does not send this header. With stopKeepingRecordData enabled, authenticated web data calls that answer 401 also request clearing, and active web sessions expire 30 days after sign-in. Partial: browser storage writes are unchanged.',
+      },
+      {
+        method: 'POST',
+        path: '/tabularius/app/v1/databases/{database}/forget-device',
+        summary: 'Ends this web session and asks the browser to forget this origin’s cache and storage.',
+        permissions: 'A live web client session for this file (Bearer or X-FM-Data-Access-Token). Missing or expired sessions answer 401; Data API sessions and scoped API tokens answer 403.',
+        params: [dbParam, { ...authHeader, description: 'Bearer {token}: a signed-in web client session' }],
+        example: { request: 'POST /tabularius/app/v1/databases/Example/forget-device\nAuthorization: Bearer {token}', status: 204, response: '(empty body)', skipReason: 'Requires a live web client session for the example file.' },
+        notes: 'Clear-Site-Data: "cache", "storage"; never cookies. Only this token ends. Clearing is origin-wide and depends on browser support in a secure context; it can discard unsent offline changes. The Data API DELETE sessions/{token} endpoint does not send this header. With stopKeepingRecordData enabled, authenticated web data calls that answer 401 also request clearing, and active web sessions expire 30 days after sign-in. Partial: browser storage writes are unchanged.',
+      },
       {
         method: 'GET, HEAD',
         path: '/favicon.ico',

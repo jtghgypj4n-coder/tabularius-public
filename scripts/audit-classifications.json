@@ -666,5 +666,8 @@
   "route GET /tabularius/design/v1/databases/{database}/pending": "record-partial",
   "route POST /tabularius/design/v1/databases/{database}/pending": "record-partial",
   "route POST /tabularius/design/v1/databases/{database}/pending/apply": "record-partial",
-  "route POST /tabularius/design/v1/databases/{database}/pending/discard": "record-partial"
+  "route POST /tabularius/design/v1/databases/{database}/pending/discard": "record-partial",
+  "route POST /tabularius/app/v1/databases/{database}/sign-out": "security-partial",
+  "route POST /tabularius/app/v1/databases/{database}/forget-device": "security-partial",
+  "route POST /tabularius/admin/v1/device-storage": "admin-gap"
 }

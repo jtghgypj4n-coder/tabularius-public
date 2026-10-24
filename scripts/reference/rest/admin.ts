@@ -1611,6 +1611,7 @@ export const groups: RestGroup[] = [
       `path === '/tabularius/admin/v1/message'`,
       `path === '/tabularius/admin/v1/block-new-users'`,
       `path === '/tabularius/admin/v1/session-timeout'`,
+      `path === '/tabularius/admin/v1/device-storage'`,
       `path === '/tabularius/admin/v1/responsive'`,
       `path === '/tabularius/admin/v1/notifications'`,
       `path === '/tabularius/admin/v1/notifications/test'`,
@@ -1696,6 +1697,15 @@ export const groups: RestGroup[] = [
           response: j({ blockNewUsers: true }),
         },
         notes: 'The same setting as the Admin API\'s /server/config/blocknewusers.',
+      },
+      {
+        method: 'POST',
+        path: '/tabularius/admin/v1/device-storage',
+        summary: 'Sets Stop keeping record data on devices (server.stopKeepingRecordData in status), off by default.',
+        permissions: WRITE,
+        params: [{ name: 'on', in: 'body', type: 'boolean', required: true, description: 'true enables the policy; false restores existing session lifetimes (400 for other values).' }],
+        example: { request: `POST /tabularius/admin/v1/device-storage\n${COOKIE}\n${W}\n${CT}\n\n${j({ on: true })}`, status: 200, response: j({ stopKeepingRecordData: true }) },
+        notes: 'Saved in .openhbam-settings.json. When on, expired/revoked web data calls answering 401 send Clear-Site-Data: "cache", "storage", and web sessions expire 30 days after sign-in despite activity. Takes effect for existing sessions on their next check. Partial: browser storage writes continue. No environment variable or CLI flag.',
       },
       {
         method: 'POST',

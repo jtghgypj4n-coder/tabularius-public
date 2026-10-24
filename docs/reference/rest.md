@@ -1959,6 +1959,8 @@ Source: `packages/server/src/webclient.ts`
 
 | Method | Path | What it does |
 | --- | --- | --- |
+| POST | [`/tabularius/app/v1/databases/{database}/sign-out`](#web-client-post-tabularius-app-v1-databases-database-sign-out) | Ends this web session and asks the browser to forget this origin’s cache and storage. |
+| POST | [`/tabularius/app/v1/databases/{database}/forget-device`](#web-client-post-tabularius-app-v1-databases-database-forget-device) | Ends this web session and asks the browser to forget this origin’s cache and storage. |
 | GET, HEAD | [`/favicon.ico`](#web-client-get-head-favicon-ico) | Redirects to the app's icon, /app/favicon.svg, which browsers ask for on their own. |
 | GET, HEAD | [`/fmi/webd/{database}`](#web-client-get-head-fmi-webd-database) | A WebDirect-style link: redirects to the web client on that file, carrying the script to run once the person has signed in. |
 | GET | [`/app`](#web-client-get-app) | Redirects to /app/. |
@@ -1991,6 +1993,66 @@ Source: `packages/server/src/webclient.ts`
 | GET | [`/tabularius/app/v1/databases/{database}/runs/progress`](#web-client-get-tabularius-app-v1-databases-database-runs-progress) | Counts for this session's active bulk operations. |
 | GET | [`/tabularius/app/v1/databases/{database}/prefs`](#web-client-get-tabularius-app-v1-databases-database-prefs) | The signed-in account's own saved finds, saved sorts and recent records in this file. |
 | PUT | [`/tabularius/app/v1/databases/{database}/prefs/{key}`](#web-client-put-tabularius-app-v1-databases-database-prefs-key) | Keeps one of the account's saved finds, saved sorts or recent records, replacing it; a null or missing value clears it. |
+
+<a id="web-client-post-tabularius-app-v1-databases-database-sign-out"></a>
+
+### `POST /tabularius/app/v1/databases/{database}/sign-out`
+
+Ends this web session and asks the browser to forget this origin’s cache and storage.
+
+**Permissions:** A live web client session for this file (Bearer or X-FM-Data-Access-Token). Missing or expired sessions answer 401; Data API sessions and scoped API tokens answer 403.
+
+**Parameters:**
+
+| Name | In | Type | Required | Description |
+| --- | --- | --- | --- | --- |
+| `database` | path | string | yes | Hosted file name |
+| `Authorization` | header | string | yes | Bearer {token}: a signed-in web client session |
+
+**Example:**
+
+```http
+POST /tabularius/app/v1/databases/Example/sign-out
+Authorization: Bearer {token}
+```
+
+Response `204`:
+
+```text
+(empty body)
+```
+
+Clear-Site-Data: "cache", "storage"; never cookies. Only this token ends. Clearing is origin-wide and depends on browser support in a secure context; it can discard unsent offline changes. The Data API DELETE sessions/{token} endpoint does not send this header. With stopKeepingRecordData enabled, authenticated web data calls that answer 401 also request clearing, and active web sessions expire 30 days after sign-in. Partial: browser storage writes are unchanged.
+
+<a id="web-client-post-tabularius-app-v1-databases-database-forget-device"></a>
+
+### `POST /tabularius/app/v1/databases/{database}/forget-device`
+
+Ends this web session and asks the browser to forget this origin’s cache and storage.
+
+**Permissions:** A live web client session for this file (Bearer or X-FM-Data-Access-Token). Missing or expired sessions answer 401; Data API sessions and scoped API tokens answer 403.
+
+**Parameters:**
+
+| Name | In | Type | Required | Description |
+| --- | --- | --- | --- | --- |
+| `database` | path | string | yes | Hosted file name |
+| `Authorization` | header | string | yes | Bearer {token}: a signed-in web client session |
+
+**Example:**
+
+```http
+POST /tabularius/app/v1/databases/Example/forget-device
+Authorization: Bearer {token}
+```
+
+Response `204`:
+
+```text
+(empty body)
+```
+
+Clear-Site-Data: "cache", "storage"; never cookies. Only this token ends. Clearing is origin-wide and depends on browser support in a secure context; it can discard unsent offline changes. The Data API DELETE sessions/{token} endpoint does not send this header. With stopKeepingRecordData enabled, authenticated web data calls that answer 401 also request clearing, and active web sessions expire 30 days after sign-in. Partial: browser storage writes are unchanged.
 
 <a id="web-client-get-head-favicon-ico"></a>
 
@@ -17753,6 +17815,7 @@ Source: `packages/server/src/admin.ts`
 | POST | [`/tabularius/admin/v1/clients/{id}/message`](#admin-sessions-post-tabularius-admin-v1-clients-id-message) | Shows a message to one connected web client. |
 | POST | [`/tabularius/admin/v1/message`](#admin-sessions-post-tabularius-admin-v1-message) | Shows a message to every connected web client. |
 | POST | [`/tabularius/admin/v1/block-new-users`](#admin-sessions-post-tabularius-admin-v1-block-new-users) | Blocks new users, or lets them in again: no new session starts while those already open carry on. The status's server.blockNewUsers says which. |
+| POST | [`/tabularius/admin/v1/device-storage`](#admin-sessions-post-tabularius-admin-v1-device-storage) | Sets Stop keeping record data on devices (server.stopKeepingRecordData in status), off by default. |
 | POST | [`/tabularius/admin/v1/session-timeout`](#admin-sessions-post-tabularius-admin-v1-session-timeout) | Sets how many minutes a Data API session, and separately a web client session, may sit idle before it ends. The status's server.sessionIdleMinutes (the Data API, 15 by default) and server.webSessionIdleMinutes (the web client, which follows the Data API's value until it is given its own) say what they are now. |
 | POST | [`/tabularius/admin/v1/responsive`](#admin-sessions-post-tabularius-admin-v1-responsive) | Sets the window width, in points, below which the web client shows a layout in one column when the layout has no breakpoint of its own. 640 by default; 0 stacks only layouts that ask to. The status's server.responsiveStackBelow says what it is now. |
 | POST | [`/tabularius/admin/v1/notifications`](#admin-sessions-post-tabularius-admin-v1-notifications) | Emails the errors the server logs (and warnings too, when asked) to one address as a digest at most every five minutes. Off by default; an empty "to" turns it off. The status's server.notifications says what is set and whether mail can be sent. |
@@ -17979,6 +18042,43 @@ Response `200`:
 ```
 
 The same setting as the Admin API's /server/config/blocknewusers.
+
+<a id="admin-sessions-post-tabularius-admin-v1-device-storage"></a>
+
+### `POST /tabularius/admin/v1/device-storage`
+
+Sets Stop keeping record data on devices (server.stopKeepingRecordData in status), off by default.
+
+**Permissions:** Admin console: a console sign-in (the tabularius_admin cookie from POST /tabularius/admin/v1/sign-in), or the admin password by HTTP Basic (any user name), or the folder's local channel token in x-tabularius-local (Tabularius commands on the server machine). With no admin password set, only requests from this machine (loopback) are let in. Not a GET, so it also needs the header x-tabularius-admin: 1 (403 "missing x-tabularius-admin header" without it).
+
+**Parameters:**
+
+| Name | In | Type | Required | Description |
+| --- | --- | --- | --- | --- |
+| `on` | body | boolean | yes | true enables the policy; false restores existing session lifetimes (400 for other values). |
+
+**Example:**
+
+```http
+POST /tabularius/admin/v1/device-storage
+Cookie: tabularius_admin=6b1f0c2e6b1f0c2e6b1f0c2e6b1f0c2e6b1f0c2e6b1f0c2e6b1f0c2e6b1f0c2e
+x-tabularius-admin: 1
+Content-Type: application/json
+
+{
+  "on": true
+}
+```
+
+Response `200`:
+
+```json
+{
+  "stopKeepingRecordData": true
+}
+```
+
+Saved in .openhbam-settings.json. When on, expired/revoked web data calls answering 401 send Clear-Site-Data: "cache", "storage", and web sessions expire 30 days after sign-in despite activity. Takes effect for existing sessions on their next check. Partial: browser storage writes continue. No environment variable or CLI flag.
 
 <a id="admin-sessions-post-tabularius-admin-v1-session-timeout"></a>
 

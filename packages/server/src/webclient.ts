@@ -364,6 +364,22 @@ export class WebClient {
       res.end(image.data);
       return true;
     }
+    const device = /^\/tabularius\/app\/v1\/databases\/([^/]+)\/(sign-out|forget-device)$/.exec(path);
+    if (device) {
+      try {
+        if (req.method !== 'POST') throw new ApiError(3, 'Command is unavailable', 405);
+        const session = this.api.authorize(req, decodeURIComponent(device[1]), true);
+        if (session.client !== 'web') throw new ApiError(9, 'A signed-in web client session is required', 403);
+        this.api.end(session.token);
+        res.writeHead(204, { 'Clear-Site-Data': '"cache", "storage"', 'cache-control': 'no-store' }).end();
+      } catch (e) {
+        if (!(e instanceof ApiError)) throw e;
+        this.api.clearDeviceOnExpiry(req, res, e.status, true);
+        res.writeHead(e.status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' })
+          .end(JSON.stringify({ error: { code: e.code, message: e.message } }));
+      }
+      return true;
+    }
     const stop = /^\/tabularius\/app\/v1\/databases\/([^/]+)\/runs\/stop$/.exec(path);
     if (stop) {
       this.stopRuns(req, res, decodeURIComponent(stop[1]));
@@ -387,6 +403,7 @@ export class WebClient {
     const m = /^\/tabularius\/app\/v1\/databases\/([^/]+)\/layouts(?:\/([^/]+)(?:\/(view|records|foundset|groups|charts|menus|button|index|position|export|import|undo-import|ai-replace|explain|history|revert|refresh|value-list))?)?$/.exec(path);
     if (!m) return false;
     const send = (status: number, body: unknown) => {
+      this.api.clearDeviceOnExpiry(req, res, status, true);
       res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
       res.end(JSON.stringify(body));
     };
@@ -558,6 +575,7 @@ export class WebClient {
   /** A person's own saved finds, saved sorts and recent records in a file, kept with their account. */
   private async prefs(req: IncomingMessage, res: ServerResponse, db: string, key: string | undefined): Promise<void> {
     const send = (status: number, body: unknown) => {
+      this.api.clearDeviceOnExpiry(req, res, status, true);
       res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
       res.end(JSON.stringify(body));
     };
@@ -2128,6 +2146,7 @@ export class WebClient {
    */
   private stopRuns(req: IncomingMessage, res: ServerResponse, db: string): void {
     const send = (status: number, body: unknown) => {
+      this.api.clearDeviceOnExpiry(req, res, status, true);
       res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
       res.end(JSON.stringify(body));
     };
@@ -2161,6 +2180,7 @@ export class WebClient {
       res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }).end(JSON.stringify({ runs }));
     } catch (e) {
       const err = e instanceof ApiError ? e : e instanceof URIError ? badPathError() : e instanceof StoreError || e instanceof PrivilegeError ? new ApiError(e.code, e.message, 400, e.denial) : unknownError(e);
+      this.api.clearDeviceOnExpiry(req, res, err.status, true);
       res.writeHead(err.status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }).end(JSON.stringify({ error: { code: err.code, message: err.message } }));
     }
   }
@@ -2168,6 +2188,7 @@ export class WebClient {
   /** The client's answer to a script waiting for a file: the file, or a cancel. */
   private async answerFile(req: IncomingMessage, res: ServerResponse, db: string, id: string): Promise<void> {
     const send = (status: number, body: unknown) => {
+      this.api.clearDeviceOnExpiry(req, res, status, true);
       res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
       res.end(JSON.stringify(body));
     };

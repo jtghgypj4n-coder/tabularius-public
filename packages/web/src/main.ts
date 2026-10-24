@@ -602,7 +602,7 @@ async function showLogin(message?: string): Promise<void> {
     let previous: OfflineCopy | undefined;
     if (api.passwordChangeRequired) {
       if (currentPassword === undefined) {
-        await api.logout().catch(() => {});
+        await api.endSession().catch(() => {});
         throw new ApiError(212, 'This account must change its password. Sign in with your password to set a new one.');
       }
       // A copy made with the old password moves to the new one, with any changes still waiting in it.

@@ -1098,6 +1098,17 @@ folder's settings give the certificate (not with `--https` or `--tls-cert`).
 
 [fmcsadmin and the Admin API](docs/fmcsadmin-parity.md) lists each fmcsadmin command and what it does here; [which Admin API calls Tabularius answers](docs/admin-api-coverage.md) lists Claris's calls by name against the routes here.
 
+The admin console’s **Connected** section also has **Stop keeping record data on
+devices**, off by default. It is an Admin-only setting: `POST /tabularius/admin/v1/device-storage` with `{"on":true}` (or `false`), saved as
+`stopKeepingRecordData` in `.openhbam-settings.json` and reported in
+`status.server.stopKeepingRecordData`. There is no environment variable or CLI
+flag. When on, web data calls that return 401 after session expiry or revocation
+send `Clear-Site-Data: "cache", "storage"`. Web sessions also expire 30 days after
+sign-in, even while active; changing the setting applies to existing sessions on
+their next check. Data API session lifetimes are unchanged. **Partial:** browser
+storage writes continue until clearing. See [browser storage](docs/web-client.md#browser-storage-and-forgetting-a-device)
+for clearing limits and offline data loss.
+
 ## Monitoring
 
 A backup that would not fit in the free space of its folder (the files' size plus a tenth) is refused before anything is written, with how much it needs and how much is free, so it cannot fill the disk the files are on.
