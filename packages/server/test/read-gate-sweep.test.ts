@@ -18,7 +18,10 @@ import { createMcpServer } from '../src/mcp.ts';
 const KEYS = ['fmrest', 'fmodata', 'fmmcp', 'fmxdbc', 'fmapp', 'fmwebdirect', 'fmxml', 'fmurlscript'];
 const HIDDEN_RECORDS = 1371, VISIBLE_RECORDS = 3, VAULT_RECORDS = 2113;
 /** What must never reach the restricted account: values (SENTINEL-*, Boss) and the counts only a wider view could give. */
-const LEAK = new RegExp(`SENTINEL-|\\bBoss\\b|\\b(${HIDDEN_RECORDS}|${HIDDEN_RECORDS + VISIBLE_RECORDS}|${VAULT_RECORDS}|${HIDDEN_RECORDS + VAULT_RECORDS})\\b`, 'g');
+// A count is a whole number: not part of a longer word or of a hyphenated id. A UUIDv7's second group is the low 16 bits of the
+// millisecond clock, so a record created in the one millisecond in 65,536 where those bits read 3484 (or 1371, 1374, 2113) has
+// an id that holds a seeded count between hyphens. That is what failed the sweep once in CI, on the response to a create.
+const LEAK = new RegExp(`SENTINEL-|\\bBoss\\b|(?<![\\w-])(${HIDDEN_RECORDS}|${HIDDEN_RECORDS + VISIBLE_RECORDS}|${VAULT_RECORDS}|${HIDDEN_RECORDS + VAULT_RECORDS})(?![\\w-])`, 'g');
 
 let dir = '';
 let s: Awaited<ReturnType<typeof serve>>;
@@ -171,6 +174,17 @@ async function sweep(authorization: string, token: string, stopAfter = Infinity)
   }
   return { found, reached };
 }
+
+test('the leak pattern finds counts and values, and does not take a UUID that happens to hold one for a leak', () => {
+  const found = (text: string) => [...new Set(text.match(LEAK) ?? [])];
+  assert.deepEqual(found('{"foundCount":1374,"totalRecordCount":3484}'), ['1374', '3484']);
+  assert.deepEqual(found('1371 records found; 2113 in the vault'), ['1371', '2113']);
+  assert.deepEqual(found('{"values":[1371,2113]}'), ['1371', '2113']);
+  assert.deepEqual(found('SENTINEL-NAME-1 and Boss'), ['SENTINEL-', 'Boss']);
+  for (const count of [1371, 1374, 2113, 3484]) {
+    assert.deepEqual(found(`{"id":"01a16dc9-${count}-7d60-b4ce-f3ea06624ff2","recordId":"1390"}`), [], `a UUID with ${count} in its second group`);
+  }
+});
 
 test('control: the sweep sees the values when the account is let to see them', async () => {
   const { found, reached } = await sweep(admin, adminToken);
