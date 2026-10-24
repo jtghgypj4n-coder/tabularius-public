@@ -8,6 +8,6 @@ Maximum record locks held by one session in a file.
 | Accepted values | Positive safe integer |
 | Restart needed | Yes for a running server. |
 | Explained in | [ADMIN.md](../../../../ADMIN.md) |
-| Code | [packages/store/src/activity.ts:219](../../../../packages/store/src/activity.ts#L219) |
+| Code | [packages/store/src/activity.ts:226](../../../../packages/store/src/activity.ts#L226) |
 
 [All environment variables](../../../environment-variables.md)

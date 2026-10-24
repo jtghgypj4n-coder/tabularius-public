@@ -8,6 +8,6 @@ Total bound parameter bytes that one SQL connection's portals may hold.
 | Accepted values | Positive whole number of bytes; 0 or an invalid value keeps the default |
 | Restart needed | No; read at each Bind. |
 | Explained in | [docs/pgwire-results.md](../../../pgwire-results.md) |
-| Code | [packages/server/src/pgwire.ts:1053](../../../../packages/server/src/pgwire.ts#L1053) |
+| Code | [packages/server/src/pgwire.ts:1055](../../../../packages/server/src/pgwire.ts#L1055) |
 
 [All environment variables](../../../environment-variables.md)

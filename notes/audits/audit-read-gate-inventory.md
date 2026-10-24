@@ -330,7 +330,6 @@ The following reasons apply to the exact enumerated expressions in each named fu
 | [packages/server/src/insight.ts:1201](../../packages/server/src/insight.ts#L1201) `solutionOverview/counts` | `Store.query` (1201) | DESIGN |
 | [packages/server/src/insight.ts:396](../../packages/server/src/insight.ts#L396) `webViewerScripts` | `Store.query` (396) | DESIGN |
 | [packages/server/src/live.ts:206](../../packages/server/src/live.ts#L206) `Live/handle` | `Store.canView` (206) | LIVE |
-| [packages/server/src/live.ts:?](../../packages/server/src/live.ts#L1) `Live/stream/listener` |  | LIVE |
 | [packages/server/src/live.ts:280](../../packages/server/src/live.ts#L280) `Live/visibleRecord` | `Store.canViewRecord` (280) | LIVE |
 | [packages/server/src/logs.ts:77](../../packages/server/src/logs.ts#L77) `LogShipper/follow` | `SQLite.get` (77); `SQLite.prepare` (77); `Store.sql` (77, 78, 79, 80) | ADMIN |
 | [packages/server/src/logs.ts:89](../../packages/server/src/logs.ts#L89) `LogShipper/releaseIfIdle` | `Store.sql` (89) | ADMIN |
@@ -787,7 +786,6 @@ The following reasons apply to the exact enumerated expressions in each named fu
 | [packages/store/src/store.ts:5267](../../packages/store/src/store.ts#L5267) `Store/passkeyIds` | `SQLite.all` (5267); `SQLite.prepare` (5267); `Store.sql` (5267) | CORE |
 | [packages/store/src/store.ts:5255](../../packages/store/src/store.ts#L5255) `Store/passkeys` | `SQLite.all` (5255); `SQLite.prepare` (5255); `Store.sql` (5255) | CORE |
 | [packages/store/src/store.ts:4374](../../packages/store/src/store.ts#L4374) `Store/passwordDaysRemaining` | `SQLite.get` (4374); `SQLite.prepare` (4374); `Store.sql` (4374) | CORE |
-| [packages/store/src/store.ts:?](../../packages/store/src/store.ts#L1) `Store/passwordHash` |  | CORE |
 | [packages/store/src/store.ts:3329](../../packages/store/src/store.ts#L3329) `Store/pendingChanges` | `SQLite.all` (3329); `SQLite.prepare` (3329); `Store.sql` (3329) | CORE |
 | [packages/store/src/store.ts:1332](../../packages/store/src/store.ts#L1332) `Store/persistentData` | `SQLite.get` (1332) | CORE |
 | [packages/store/src/store.ts:1341](../../packages/store/src/store.ts#L1341) `Store/persistentDataIds` | `SQLite.all` (1341) | CORE |
@@ -896,7 +894,6 @@ The following reasons apply to the exact enumerated expressions in each named fu
 | [packages/store/src/store.ts:8193](../../packages/store/src/store.ts#L8193) `Store/userPrefs` | `SQLite.all` (8193); `SQLite.prepare` (8193); `Store.sql` (8193) | CORE |
 | [packages/store/src/store.ts:7103](../../packages/store/src/store.ts#L7103) `Store/valueListItemsCurrent` | `Store.valueListItems` (7103); `Store.get` (7117); `relatedRows` (7118); `Store.row` (7118); `SQLite.iterate` (7120); `SQLite.prepare` (7120); `Store.sql` (7120); `Calculations.related` (7130); `Calculations.value` (7134, 7135) | GATED-STORE |
 | [packages/store/src/store.ts:9610](../../packages/store/src/store.ts#L9610) `Store/vaultHeld` | `SQLite.get` (9610); `SQLite.prepare` (9610); `Store.sql` (9610) | CORE |
-| [packages/store/src/store.ts:?](../../packages/store/src/store.ts#L1) `Store/verifyPasskeyAssertion` |  | CORE |
 | [packages/store/src/store.ts:5160](../../packages/store/src/store.ts#L5160) `Store/verifyTotp` | `SQLite.get` (5160); `SQLite.prepare` (5160, 5166); `Store.sql` (5160, 5166) | CORE |
 | [packages/store/src/store.ts:1907](../../packages/store/src/store.ts#L1907) `Store/versionNumber` | `SQLite.get` (1907); `SQLite.prepare` (1907); `Store.sql` (1907) | CORE |
 | [packages/store/src/store.ts:1863](../../packages/store/src/store.ts#L1863) `Store/versionTriggers` | `SQLite.get` (1863); `SQLite.prepare` (1863, 1868, 1869); `Store.sql` (1863, 1868, 1869, 1886, 1888, 1889, 1891); `SQLite.all` (1868, 1869) | CORE |

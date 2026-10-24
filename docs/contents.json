@@ -532,6 +532,7 @@
         "docs/reference/settings/environment/tabularius_sync_hosts.md",
         "docs/reference/settings/environment/tabularius_sync_secrets.md",
         "docs/reference/settings/environment/tabularius_test_child_marker.md",
+        "docs/reference/settings/environment/tabularius_test_command_marker.md",
         "docs/reference/settings/environment/tabularius_test_smtp.md",
         "docs/reference/settings/environment/tabularius_test_smtp_file.md",
         "docs/reference/settings/environment/tabularius_thumbnails.md",

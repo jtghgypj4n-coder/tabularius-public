@@ -806,6 +806,13 @@
       "accepted": "Positive whole number of bytes; 0 or an invalid value keeps the default",
       "restart": "No; read at each Bind.",
       "explainedBy": "docs/pgwire-results.md"
+    },
+    "TABULARIUS_TEST_COMMAND_MARKER": {
+      "description": "Internal to `scripts/test-auth-review-round2.ts`: the runner sets a temporary marker path for its forbidden-command stubs (`launchctl`, `systemctl`, `sc`, `git`, `npm`, `curl`, `sudo`). A stub writes the marker if invoked, causing the audit to fail. No manual setting is needed.",
+      "default": "Unset",
+      "accepted": "Temporary marker file path",
+      "restart": "No server restart; a new command reads it on invocation.",
+      "explainedBy": "docs/environment-variables.md"
     }
   },
   "serveFlags": {
