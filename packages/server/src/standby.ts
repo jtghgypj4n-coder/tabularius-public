@@ -10,22 +10,45 @@
 // carries on where it stopped. A file changed by anything else since (it was
 // served after a takeover, say) is never overwritten unless asked.
 
-import { createWriteStream, existsSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { createWriteStream, existsSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { readJsonStateSync, updateJsonStateSync } from '../../store/src/durable.ts';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { DatabaseSync } from 'node:sqlite';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { refuseNewer } from '../../store/src/store-format.ts';
 import { STORE_EXT } from './host.ts';
 import { guardedFetch } from '../../scripts/src/net-guard.ts';
 import { claimFolder } from './backup.ts';
+import { sameSecret } from './secrets.ts';
 import { applyLog, decodeRecords } from './logs.ts';
 
 import { writeDurable } from '../../store/src/durable.ts';
 
 export const STANDBY_STATE = '.openhbam-standby.json';
+
+/** The longest hosted file name taken from the main server, in bytes: with the extension it must fit in a file name. */
+const MAX_NAME = 200;
+
+const VISIBLE = /^[\p{L}\p{N}\p{M}\p{S}\p{P}]+(?: [\p{L}\p{N}\p{M}\p{S}\p{P}]+)*$/u;
+
+/** A name or other text from the main server, fit for one line of the log: as it is when it holds only visible characters, otherwise quoted with every other character escaped. Cut at `max` characters. */
+function shown(text: string, max = 200): string {
+  const cut = text.length > max ? `${text.slice(0, max)}…` : text;
+  return VISIBLE.test(cut) ? cut : JSON.stringify(cut).replace(/[^\x20-\x7e]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
+}
+
+/** A file as it stood: its size and time, or null for no file. */
+export type Seen = { size: number; mtimeMs: number } | null;
+
+/** What this is doing to a file: saved before the file is touched, and gone once it is done. */
+export interface StandbyPending {
+  /** The states the file may be in as far as this is concerned: before, and after a copy (a change applied leaves it somewhere only the next note knows). */
+  states: Seen[];
+  /** The hash of the log this left beside the file, which is the only log there is that is not a local change. */
+  log?: string;
+}
 
 export interface StandbyFile {
   run: string;
@@ -33,9 +56,11 @@ export interface StandbyFile {
   seq: number;
   /** The copy is whole once this change is applied. */
   wholeAfter: number;
-  /** The file as this left it, to notice anything else changing it. */
+  /** The file as this left it, to notice anything else changing it. Both -1 while `pending` is set (and in notes from before it existed, where they mean the same). */
   size: number;
   mtimeMs: number;
+  /** Set while a copy or a change is being done; the file is copied again, and is this's own while it is in one of these states. */
+  pending?: StandbyPending;
   /** When the last change was applied (epoch ms). */
   at: number;
   /** When the primary took the last applied change (epoch ms); absent after a whole-file copy or in older state. */
@@ -88,6 +113,11 @@ export class Standby {
   private readonly abort = new AbortController();
   private readonly clientId = randomBytes(8).toString('hex');
   private readonly following = new Map<string, { stop: AbortController; done: Promise<void> }>();
+  private readonly resync = new Set<string>();
+  /** Files whose unfinished notes have been said, so that a copy tried again does not say it again. */
+  private readonly warned = new Set<string>();
+  /** Names the main server listed that are not file names, as reported, so that each is said once. */
+  private readonly badNames = new Set<string>();
   private release?: () => void;
   private lister?: Promise<void>;
   private flushTimer?: NodeJS.Timeout;
@@ -98,7 +128,12 @@ export class Standby {
     this.opts = { ...opts, primary: opts.primary.replace(/\/+$/, '') };
     this.log = opts.log ?? console.warn;
     const old = standbyState(opts.folder, this.log);
-    this.state = old?.primary === this.opts.primary ? old : { primary: this.opts.primary, files: {} };
+    // No prototype: a file named __proto__ or toString is a name like any other, not the object's own.
+    const files: Record<string, StandbyFile> = Object.create(null);
+    if (old?.primary === this.opts.primary) {
+      for (const [name, f] of Object.entries(old.files)) Object.defineProperty(files, name, { value: f, enumerable: true, writable: true, configurable: true });
+    }
+    this.state = { primary: this.opts.primary, files };
   }
 
   /** Starts following the main server; throws when the folder holds files this standby didn't make. */
@@ -106,6 +141,9 @@ export class Standby {
     const theirs = readdirSync(this.opts.folder).filter((f) => f.endsWith(STORE_EXT) && !(f.slice(0, -STORE_EXT.length) in this.state.files));
     if (theirs.length && !this.opts.overwrite) {
       throw new Error(`${this.opts.folder} already has files this standby didn't copy (${theirs.join(', ')}): use an empty folder, or --overwrite to replace them`);
+    }
+    if (!this.opts.overwrite) {
+      for (const name of Object.keys(this.state.files)) this.assertCopyAllowed(name);
     }
     this.release = claimFolder(this.opts.folder);
     this.save();
@@ -173,6 +211,16 @@ export class Standby {
     if (signal.aborted) throw new Stop();
   }
 
+  /** Says once, per name, that the main server listed something that is not a file name; what is said is cut short. */
+  private refuseName(name: unknown): void {
+    const what = `the main server listed a name that is not a file name: ${shown(typeof name === 'string' ? name : JSON.stringify(name) ?? String(name), 80)}`;
+    if (!this.badNames.has(what) && this.badNames.size < 100) {
+      this.badNames.add(what);
+      this.log(what);
+    }
+    this.problem = what;
+  }
+
   private trouble(what: string): void {
     if (this.problem !== what) this.log(what);
     this.problem = what;
@@ -188,7 +236,13 @@ export class Standby {
         if (!res.ok) throw new Error(`the main server answered ${res.status}`);
         const { files } = await res.json() as { files: { name: string }[] };
         if (this.abort.signal.aborted) return;
-        const names = new Set(files.map((f) => f.name));
+        const valid: string[] = [];
+        for (const { name } of files) {
+          // A name from the main server becomes a path in this folder: it must be a file name and nothing else.
+          if (typeof name !== 'string' || !name || name === '.' || name === '..' || /[\\/\0]/.test(name) || Buffer.byteLength(name) > MAX_NAME) this.refuseName(name);
+          else valid.push(name);
+        }
+        const names = new Set(valid);
         const removed: Promise<void>[] = [];
         for (const [name, task] of this.following) if (!names.has(name)) {
           task.stop.abort();
@@ -196,7 +250,7 @@ export class Standby {
           removed.push(task.done);
         }
         await Promise.all(removed);
-        for (const { name } of files) {
+        for (const name of names) {
           if (this.following.has(name)) continue;
           if (this.following.size >= 1024) break;
           const task = { stop: new AbortController(), done: Promise.resolve() };
@@ -225,33 +279,104 @@ export class Standby {
     return join(this.opts.folder, name + STORE_EXT);
   }
 
-  /** Whether the file is as this left it. */
-  private untouched(name: string): boolean {
-    const f = this.state.files[name];
-    if (!f || !existsSync(this.path(name))) return false;
-    const s = statSync(this.path(name));
-    return s.size === f.size && s.mtimeMs === f.mtimeMs && !existsSync(this.path(name) + '-wal');
+  private seenAt(path: string): Seen {
+    try {
+      const s = statSync(path);
+      return { size: s.size, mtimeMs: s.mtimeMs };
+    } catch { return null; }
   }
 
-  private mark(name: string, f: StandbyFile): void {
+  private seen(name: string): Seen {
+    return this.seenAt(this.path(name));
+  }
+
+  /** The hash of the write-ahead log beside the file, if it holds anything. */
+  private logHash(name: string): string | undefined {
+    try {
+      const log = readFileSync(this.path(name) + '-wal');
+      return log.length ? createHash('sha256').update(log).digest('hex') : undefined;
+    } catch { return undefined; }
+  }
+
+  /**
+   * Whether a sidecar of the file holds something that is not this's own: a rollback journal, or a write-ahead log, that
+   * is not empty is a local change that is not in the file itself, unless it is the log this left (`ours`, a hash). An
+   * empty one, or a shared-memory index (which holds nothing that is not in the log), is only what opening the file leaves.
+   */
+  private sidecarHolds(name: string, ours?: string): boolean {
+    try { if (statSync(this.path(name) + '-journal').size > 0) return true; } catch { /* none */ }
+    try { if (statSync(this.path(name) + '-wal').size > 0) return ours === undefined || !sameSecret(this.logHash(name), ours); } catch { /* none */ }
+    return false;
+  }
+
+  /** Whether the file is as this left it, whole and with nothing noted as being done to it. */
+  private untouched(name: string): boolean {
+    const f = this.state.files[name];
+    if (!f || f.pending || f.size < 0 || !existsSync(this.path(name))) return false;
     const s = statSync(this.path(name));
-    this.state.files[name] = { ...f, size: s.size, mtimeMs: s.mtimeMs };
-    this.scheduleSave();
+    return s.size === f.size && s.mtimeMs === f.mtimeMs && !this.sidecarHolds(name);
+  }
+
+  /**
+   * Whether something other than this standby changed the file, or left changes beside it, since it was last updated.
+   * While a copy or a batch of changes is being done, the notes (saved before the file is touched) say what states the
+   * file may be in, and the log this left beside it; the file in one of those states, with that log or none, is this's
+   * own, and anything else is not. Notes from before that was kept have only a size of -1, which means the file in
+   * any state. A file that is gone has nothing to lose, unless a log or journal is left that might.
+   */
+  private changedHere(name: string): boolean {
+    const f = this.state.files[name];
+    if (f?.pending) {
+      const now = this.seen(name);
+      const ours = f.pending.states.some((s) => s === null ? now === null : now !== null && s.size === now.size && s.mtimeMs === now.mtimeMs);
+      return !ours || this.sidecarHolds(name, f.pending.log);
+    }
+    if (f && f.size < 0) return false;
+    if (!existsSync(this.path(name))) return this.sidecarHolds(name);
+    return !this.untouched(name);
+  }
+
+  /** Check again after network I/O, before a copy can replace local bytes or sidecars. */
+  private assertCopyAllowed(name: string): void {
+    if (this.opts.overwrite) return;
+    if (this.changedHere(name)) throw new Error(`${shown(name)} changed here since it was last updated: use --overwrite to replace it`);
+  }
+
+  /** Notes what is about to be done to the file, and saves at once: the file is not touched until it is on disk. */
+  private begin(name: string, f: StandbyFile, pending: StandbyPending): void {
+    this.state.files[name] = { ...f, size: -1, mtimeMs: -1, pending };
+    this.save();
+  }
+
+  /** After a failure, or when stopping, with a copy or changes half done: the file as it is now is this's own, and is copied again. */
+  private settle(name: string): void {
+    const f = this.state.files[name];
+    if (!f?.pending) return;
+    this.state.files[name] = { ...f, pending: { states: [this.seen(name)], log: this.logHash(name) } };
+    try { this.save(); } catch { this.scheduleSave(); }
+  }
+
+  private mark(name: string, f: StandbyFile, now = false): void {
+    const s = statSync(this.path(name));
+    const whole = { ...f, size: s.size, mtimeMs: s.mtimeMs };
+    delete whole.pending;
+    this.state.files[name] = whole;
+    if (!now) return this.scheduleSave();
+    try { this.save(); } catch { this.scheduleSave(); }
   }
 
   private async follow(name: string, signal: AbortSignal): Promise<void> {
     let delay = 1000;
     while (!signal.aborted) {
       try {
-        if (!this.untouched(name)) {
-          if (this.state.files[name]) this.log(`${name} changed here since it was last updated: copying it again`);
+        if (this.resync.has(name) || !this.untouched(name)) {
           await this.copy(name, signal);
         }
         await this.catchUp(name, signal);
         delay = 1000;
       } catch (e) {
         if (e instanceof Stop) return;
-        this.trouble(`following ${name}: ${(e as Error).message}`);
+        this.trouble(`following ${shown(name)}: ${(e as Error).message}`);
         try {
           await this.pause(delay, signal);
         } catch {
@@ -263,6 +388,12 @@ export class Standby {
   }
 
   private async copy(name: string, signal: AbortSignal): Promise<void> {
+    this.assertCopyAllowed(name);
+    const noted = this.state.files[name];
+    if (noted && (noted.pending || noted.size < 0) && !this.warned.has(name)) {
+      this.warned.add(name);
+      this.log(`${shown(name)}: its notes say a copy or a change did not finish; copying it again${noted.pending ? '' : ' (notes from an older version cannot tell this from a local write, so local writes to it are lost)'}`);
+    }
     const res = await this.get(`/tabularius/replication/v1/files/${encodeURIComponent(name)}/copy`, 3600, signal);
     if (!res.ok || !res.body) throw new Error(`copying it: the main server answered ${res.status}`);
     // Each position must be present and plain digits: a missing or blank one would read as zero, and "0x10" or "1e3" as other numbers.
@@ -286,20 +417,26 @@ export class Standby {
       } finally {
         db.close();
       }
-      for (const x of ['-wal', '-shm']) rmSync(partial + x, { force: true });
-      for (const x of ['-wal', '-shm']) rmSync(target + x, { force: true });
-      // Noted before the file appears, and saved now rather than in a moment: a crash between the two must not leave a
-      // file in the folder that the next start takes for someone else's (a size and time that match nothing make it copy
-      // this one again, as for any copy the note of which is older than the file).
-      this.state.files[name] = { run, seq, wholeAfter: Math.max(wholeAfter, seq + 1), size: -1, mtimeMs: -1, at: 0 };
-      this.save();
+      this.assertCopyAllowed(name);
+      for (const x of ['-wal', '-shm', '-journal']) rmSync(partial + x, { force: true });
+      // Noted before the file is touched, and saved now rather than in a moment: a crash between the two must not leave a
+      // file in the folder that the next start takes for someone else's. The old file and the new one are the two states
+      // it is in (the new one's size and time are those of the partial file, which the rename keeps), and the log beside
+      // the old one, which was allowed to be there, is the only one that may be.
+      this.begin(name, { run, seq, wholeAfter: Math.max(wholeAfter, seq + 1), size: -1, mtimeMs: -1, at: 0 }, { states: [this.seen(name), this.seenAt(partial)], log: this.logHash(name) });
+      // Checked once more against what was just noted, so that only the instants from here to the rename are open to a
+      // write by another program. A journal left beside the old file would be rolled back into the new one when it is opened.
+      this.assertCopyAllowed(name);
+      for (const x of ['-wal', '-shm', '-journal']) rmSync(target + x, { force: true });
       writeDurable(partial, target);
     } catch (e) {
       rmSync(partial, { force: true });
       throw e;
     }
     this.mark(name, { run, seq, wholeAfter, size: 0, mtimeMs: 0, at: Date.now() });
-    this.log(`copied ${name}`);
+    this.resync.delete(name);
+    this.warned.delete(name);
+    this.log(`copied ${shown(name)}`);
   }
 
   /** Applies changes as they come, until the copy has to be made again. */
@@ -310,25 +447,37 @@ export class Standby {
       const res = await this.get(`/tabularius/replication/v1/files/${encodeURIComponent(name)}/changes?run=${f.run}&after=${f.seq}&wait=${wait}`, wait + 30, signal);
       if (res.status === 409 || res.status === 410) {
         // The main server restarted, or this fell too far behind: start again from a fresh copy.
-        this.log(`${name}: ${((await res.json()) as { error: string }).error}`);
-        this.state.files[name] = { ...f, size: -1 };
+        this.log(`${shown(name)}: ${shown(String(((await res.json()) as { error: unknown }).error))}`);
+        this.resync.add(name);
         return;
       }
       if (!res.ok) throw new Error(`the main server answered ${res.status}`);
       const records = decodeRecords(Buffer.from(await res.arrayBuffer())).filter((r) => r.seq > f.seq);
       if (!this.untouched(name)) return;
       let seq = f.seq;
-      if (records.length) {
-        this.state.files[name] = { ...f, wholeAfter: Math.max(f.wholeAfter, records.at(-1)!.seq + 1), size: -1 };
-        this.save();
-      }
       for (const r of records) {
-        if (r.seq !== seq + 1) throw new Error(`change ${seq + 1} is missing`);
-        applyLog(this.path(name), r.data);
-        seq = r.seq;
+        if (r.seq !== ++seq) {
+          // Nothing is applied, and the file is copied again rather than waiting for a change the main server may not have.
+          this.resync.add(name);
+          throw new Error(`change ${seq} is missing`);
+        }
       }
-      if (records.length) this.mark(name, { ...f, seq, at: Date.now(), taken: records.at(-1)!.at });
-      if (this.problem?.startsWith(`following ${name}:`)) this.problem = undefined;
+      seq = f.seq;
+      if (records.length) {
+        try {
+          for (const r of records) {
+            // Each change is noted before it is applied, with the file as it is and the log it will leave beside it.
+            this.begin(name, { ...f, seq, wholeAfter: Math.max(f.wholeAfter, records.at(-1)!.seq + 1) }, { states: [this.seen(name)], log: createHash('sha256').update(r.data).digest('hex') });
+            applyLog(this.path(name), r.data);
+            seq = r.seq;
+          }
+        } catch (e) {
+          this.settle(name);
+          throw e;
+        }
+        this.mark(name, { ...f, seq, at: Date.now(), taken: records.at(-1)!.at }, true);
+      }
+      if (this.problem?.startsWith(`following ${shown(name)}:`)) this.problem = undefined;
     }
   }
 }

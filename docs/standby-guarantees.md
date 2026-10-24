@@ -112,6 +112,26 @@ the writes you keep to the one that does not; it never merges two histories and 
   writes were taken on the old side, because it does not compare contents.
 - **`--overwrite` is the decision to keep the other side.** The folder's files are replaced by copies and what they held that
   the other side did not is gone; nothing records what it was. Keep the old folder (copy it aside) first if you may need it.
+- **A file changed here is never replaced without `--overwrite`**, at start, after the main server restarts, and again
+  just before a copy replaces anything. A file counts as changed here when its size or time differs from what the standby
+  wrote down, or a write-ahead log or rollback journal that holds something is left beside it. A file that is missing is
+  copied again unless such a log is left, an empty log or a shared-memory index left by opening the file read-only is not a
+  change, and a rollback journal is removed with the old file so that it cannot be rolled back into the new copy.
+  Before it touches a file the standby saves in its notes what it is about to do and the states the file may be in: for a copy,
+  the file as it is (or no file) and the new file as it will be, with no log beside it; for each change it applies, the file
+  as it is and the hash of the log it leaves beside it for that change. A size of -1 in the notes marks this. After a crash
+  of the standby, a file in one of those states with that log or none is its own, and is copied again; a file in any other
+  state, or with another log beside it, is a change made here and is refused. If a change fails to apply, or the copy cannot
+  be finished, while the standby runs, it notes the file as it is then, so a stop and a long outage of the main server leave
+  the notes true. The model test "a standby does not silently discard writes made on its own folder" holds this.
+- What is left open: a crash of the standby while one change is being applied to the file (a checkpoint partway through), or
+  in the milliseconds between a change being applied and its note being saved, leaves the file in a state the notes do not
+  list. That is refused, not copied over, so after an unclean stop the first start can say a file "changed here" when nothing was written; the cost is an `--overwrite` you may not have needed, which only copies the file again. A write made by another
+  process in the few microseconds between the last check and the file being replaced is not seen (that second check, just
+  before the rename, is a race that no test covers): the folder lock keeps
+  other standbys out, not other programs. Notes written before this (a size of -1 and nothing else) cannot say which states
+  are the standby's own, so for such a file whatever is in the folder is taken as its own once, and is copied again; a line in the log says so, and that local writes to it are lost. The same line, without that warning, is logged when notes of this version say a copy or a change did not finish.
+- A file name in the main server's list that is not a file name (empty, `.` or `..`, holding a slash, a backslash or a NUL, or longer than 200 bytes) is reported and skipped, so that a main server cannot make the standby write outside its folder; a file named `__proto__` or `toString` is a file like any other.
 - The same rule means a standby whose `--primary` address changed (a new name, a new port) treats its own folder as foreign
   and refuses, because the note of what it copied is for the address it followed.
 - After `--overwrite` the old primary's folder is a standby of the promoted server and follows it exactly (the model
@@ -138,7 +158,7 @@ other in-memory state start empty.
 
 ## Not specified
 
-These are listed rather than guessed. Each is behaviour the code has today, with no promise behind it and no test that holds it.
+These are listed rather than guessed. Each is behaviour the code has today, with no promise behind it; where a test holds one, the row says so.
 
 | What | What happens today |
 | --- | --- |
@@ -151,5 +171,5 @@ These are listed rather than guessed. Each is behaviour the code has today, with
 | Encryption at rest with a standby | Not offered ([ADMIN.md](../ADMIN.md)); `serve` does not refuse the combination and no test runs it |
 | Standby disk full, or a copy cut off | The error is logged and retried with a growing delay; the half copy is a `.standby-partial` file that the next `serve` on the folder sweeps |
 | How long a takeover takes, how many seconds behind a standby may be | No fixed bound: lag is reported in changes and in seconds by `tabularius_standby_lag_seconds`; asynchronous replication means a takeover can lose up to that many seconds of acknowledged writes. A copy of a large file takes as long as the copy |
-| A standby's own edits to its file (a command line change such as `passwd` while the standby is stopped) | The standby copies the file again over them and logs one line; this is the audit's first finding |
+| A standby's own edits to its file (a command line change such as `passwd` while the standby is stopped) | The standby refuses to start or to follow the file, names it and points to `--overwrite`; see Failback above (held by tests) |
 | What FileMaker Server does in any of these cases | Unverified: no FileMaker behaviour was consulted <!-- known-difference: Standby servers ;; Which of the standby behaviours listed on this page match FileMaker Server's own failover or cluster features is unverified; the feature is Tabularius's own ;; Someone expecting FileMaker's behaviour in a failover may see a different one ;; A FileMaker Server run or a Claris page on its failover --> |

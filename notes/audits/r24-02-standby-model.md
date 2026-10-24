@@ -42,12 +42,19 @@ is what it found.
    comment and the test that keeps it so: "a standby that crashed right after its first copy ...". Making the save a delayed one
    again fails that test. The model found the problem on its second seed, against the code before the fix.
 
-## Not fixed: three findings, each with a `todo` test that fails today
+## Findings 2 and 3 are not fixed, each with a `todo` test that fails today; finding 1 is fixed
 
-These tests run, report their failure as expected (`# TODO` in the output) and become ordinary tests the day they pass. None is
-skipped.
+The `todo` tests run, report their failure as expected (`# TODO` in the output) and become ordinary tests the day they pass.
+None is skipped.
 
-### 1. A standby silently discards writes made to its own folder
+### 1. A standby silently discards writes made to its own folder (fixed)
+
+Fixed: the standby refuses at start, after a restart of the main server and just before a copy, for a file whose size or time
+differs from its notes or that has a log or journal with content beside it, and says to use `--overwrite`. The notes are saved
+with a size of -1 and the states the file may be in (and the hash of the log left beside it, for a change) before a copy or a
+change touches the file; a file in one of those states is the standby's own after a crash and is copied again, and anything
+else is a change made here. A failed apply, or a copy that cannot finish, notes the file as it is then, so a stop and an outage
+of the main server leave the notes true (a bare -1 had let a write made in that time be copied over). The test is no longer `todo`. What follows is the finding as it was.
 
 The header of `standby.ts` says a file changed by anything else "is never overwritten unless asked". The code does the
 opposite for a file it is following: if the file's size or time differs from what the standby wrote down, it logs
@@ -60,7 +67,8 @@ Why it is not fixed here: the same difference, a file that is not as its notes s
 are saved a quarter second after a change is applied), and copying again is the right recovery for that. Telling the two
 apart needs something the notes do not hold, for example a hash of the file as the standby left it, or the notes saved before
 each apply. Refusing in both cases would make every standby crash need `--overwrite`. Decision for the owner: keep the
-recovery and add the hash, or save the notes before each apply and refuse on any difference.
+recovery and add the hash, or save the notes before each apply and refuse on any difference. The second was taken: the notes
+already carried the marker before each apply and each copy, so only a difference with no marker is refused.
 
 ### 2. Containers stored outside the file are not copied
 
