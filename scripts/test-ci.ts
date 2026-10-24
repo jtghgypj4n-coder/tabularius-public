@@ -29,8 +29,10 @@ if (flag('list')) {
   process.exit(0);
 }
 const concurrency = Number(process.env.TEST_CI_CONCURRENCY) || Math.max(2, Math.min(4, availableParallelism()));
+// A file gets ten minutes: docs-run.test.ts runs the hand-written pages'
+// examples (131 s here on a many-core machine, over 300 s on a two-core runner twice running) and asks for 600 s itself.
 const result = spawnSync(process.execPath, [
-  '--test', `--test-concurrency=${concurrency}`, '--test-timeout=300000', '--test-reporter=spec', ...files,
+  '--test', `--test-concurrency=${concurrency}`, '--test-timeout=600000', '--test-reporter=spec', ...files,
 ], { cwd: ROOT, stdio: 'inherit' });
 if (result.error) throw result.error;
 process.exitCode = result.status ?? 1;
