@@ -23,9 +23,9 @@ test('compat-check exit codes and upgrade-file preview, backup, refusal and one-
       chmodSync(stub, 0o755);
     }
     const cli = (...args: string[]) => {
-      const result = spawnSync(process.execPath, ['--no-warnings', main, ...args], {
-        encoding: 'utf8', env: { ...process.env, PATH: stubDir, TABULARIUS_BACKUP_KEY: '' }, timeout: 20000,
-      });
+      const env = { ...process.env, PATH: stubDir };
+      delete env.TABULARIUS_BACKUP_KEY;
+      const result = spawnSync(process.execPath, ['--no-warnings', main, ...args], { encoding: 'utf8', env, timeout: 20000 });
       assert.equal(existsSync(marker), false, 'a forbidden child command was run');
       return result;
     };
