@@ -897,6 +897,8 @@ export class Store {
   set onDiskTrouble(fn: ((trouble: DiskTrouble) => void) | undefined) { this.damageWatch.onDiskTrouble = fn; }
   readonly path: string;
   readonly name: string;
+  readonly fileId: string;
+  held?: { reason: string; since: string };
   private readOnlySql?: DatabaseSync;
   private decimalSqlViewVersion = -1;
   private readonly queryFunctions = new Map<string, QueryFunction>();
@@ -1080,6 +1082,20 @@ export class Store {
       try { this.sql.close(); } catch { /* the file is not usable either way */ }
       throw e;
     }
+    // Older stores gain an identity on their first writable open. A read-only
+    // or damaged store keeps its existing open behaviour; an ephemeral id cannot
+    // match an approval until the identity can be saved.
+    let fileId: string | undefined;
+    try {
+      const row = this.sql.prepare("SELECT json FROM _fm_meta WHERE key = 'fileId'").get() as { json: string } | undefined;
+      if (row) fileId = JSON.parse(row.json) as string;
+      else {
+        const next = randomUUID();
+        this.sql.prepare("INSERT INTO _fm_meta (key, json) VALUES ('fileId', ?)").run(JSON.stringify(next));
+        fileId = next;
+      }
+    } catch { /* no new failure for a read-only or damaged older file */ }
+    this.fileId = fileId ?? randomUUID();
     // WAL: readers (finds, MCP SQL, backups, other processes) don't wait on writers.
     // synchronous NORMAL syncs the log at checkpoints rather than on every save: the
     // file can't be corrupted, but a power cut may lose the last moments of edits

@@ -2174,7 +2174,7 @@ export class Admin {
           throw new RestoreError(409, `A file named ${copy} is already hosted`);
         }
         try { await restorePointTo(point, target, undefined, file.path); } catch (e) { throw refused(e, 500); }
-        this.host.add(target);
+        this.host.add(target, 'trusted', 'restore');
         await this.host.openFileEverywhere(copy);
         return { database: copy, time: new Date(point.time).toISOString(), mode };
       }
@@ -2692,6 +2692,7 @@ export class Admin {
       const file = join(this.host.dir, name + STORE_EXT);
       return {
         name,
+        ...(store.held ? { held: store.held } : {}),
         bytes: size(file) + size(file + '-wal'),
         tables: store.schema.tables.length,
         layouts: store.schema.layouts.length,

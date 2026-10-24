@@ -7,7 +7,7 @@ missing from it. `npm run docs:known-differences` rewrites it, and a test fails 
 marker (`<!-- known-difference: area ;; what ;; how it shows ;; what would settle it -->`). Internal working notes are not
 part of it.
 
-**157 entries in 22 areas.** Waiting on: 22 on a sample file, 84 on a FileMaker run or Design Report, 14 on a Claris answer, 17 on a decision by the owner (an entry can wait on more than one).
+**158 entries in 22 areas.** Waiting on: 22 on a sample file, 84 on a FileMaker run or Design Report, 14 on a Claris answer, 17 on a decision by the owner (an entry can wait on more than one).
 
 ## Data API
 
@@ -164,6 +164,7 @@ part of it.
 | Source-side snapshot consistency across Data API requests is unverified | A sync that reads while the source changes may not be a consistent snapshot | A test that changes the source during a sync run | [docs/guides/running/sync.md › References and differences](guides/running/sync.md) — “…snapshot consistency across Data API requests is unverified; the runbook explains the stop conditions and…” |
 | The portable copy checks a file stored outside the database for size only, and anything outside the stored schema is not checked | Such a file is copied and its size is compared; its contents and anything outside the schema are not verified | A comparison of a copy and its source for a solution that stores containers outside the database | [docs/moving-a-solution.md › A portable copy of the whole file](moving-a-solution.md) — “…size, but anything outside the stored schema is unverified .” |
 | FileMaker Server's own checkpoint and vacuum behaviour is unverified, so no parity is claimed with Reclaim space | A reclaim pass may free more or less space, or take longer or shorter, than FileMaker Server's | A FileMaker Server run of its own compaction on a comparable file | [docs/runbook.md › Reclaiming space](runbook.md) — “…Server's own checkpoint and vacuum behavior is unverified, so no parity is claimed.” |
+| Whether another host approves discovered files by name and identity is unverified; Tabularius marks them held | A file may be treated differently when it arrives in a hosted folder | A host run with a newly dropped file and a replacement under an existing name | [docs/security-defaults.md › A file that arrives in the hosted folder](security-defaults.md) — “…inbound hooks and outbound connections are not yet gated by the held flag. Those gates arrive in the next…” |
 | Whether Claris Server trusts forwarding headers, how it treats malformed ones and how it groups IPv6 addresses is unverified; Tabularius applies its own strict profile | Address attribution, limits and lockouts behind a proxy may differ from FileMaker Server | A Claris Server run behind a proxy with valid, malformed and IPv6 forwarding headers | [docs/security-defaults.md › KNOWN](security-defaults.md) — “…malformed-header behavior, and IPv6 grouping \| Unverified; no Claris behavior is claimed documented or…” |
 | Encryption at rest across several worker processes is not yet combined with point-in-time backups or standbys | The combination is not offered | An owner decision | [README.md › Hosting for a team](../README.md) — “go. Not yet combined with point-in-time backups or standbys. The admin” |
 
