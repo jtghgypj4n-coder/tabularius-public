@@ -8,6 +8,6 @@ The attribute listing the person's groups.
 | Accepted values | LDAP distinguished name, template, attribute, or password as named by the variable |
 | Restart needed | Yes for a running server. |
 | Explained in | [docs/environment-variables.md](../../../environment-variables.md) |
-| Code | [packages/cli/src/main.ts:1427](../../../../packages/cli/src/main.ts#L1427) |
+| Code | [packages/cli/src/main.ts:1432](../../../../packages/cli/src/main.ts#L1432) |
 
 [All environment variables](../../../environment-variables.md)

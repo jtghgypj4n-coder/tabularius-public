@@ -14,7 +14,7 @@ Usage:
                                              are scanned once (--dedupe-only: just count them,
                                              comparing same-size files only; --all: also walk
                                              Library, System and Applications folders; --list: scan
-                                             the .fmp12 paths in FILE, one per line, instead
+                                             the .fmp12 paths in FILE, one per line (spaces are preserved), instead
                                              of walking a folder). Writes corpus-report.json and
                                              .md: counts and masked formula shapes only, no
                                              file names, record data or names

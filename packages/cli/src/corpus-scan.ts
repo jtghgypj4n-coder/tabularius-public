@@ -626,8 +626,8 @@ export function reportMarkdown(r: CorpusReport): string {
 export function listedFiles(listFile: string): { paths: string[]; unreadable: number } {
   const paths = new Set<string>();
   let unreadable = 0;
-  for (const line of readFileSync(listFile, 'utf8').split(/\r?\n/)) {
-    const p = line.trim();
+  for (const line of readFileSync(listFile, 'utf8').split('\n')) {
+    const p = line.replace(/\r$/, '');
     if (!p) continue;
     if (!/\.fmp12$/i.test(p)) continue;
     try {
@@ -646,6 +646,7 @@ export async function corpusScan(dir: string, opts: { out: string; entry: string
   if (!Number.isInteger(jobs) || jobs < 1) throw new Error('corpus-scan --jobs needs a whole number of 1 or more');
   const timeoutSeconds = opts.timeoutSeconds ?? 300;
   if (!Number.isFinite(timeoutSeconds) || timeoutSeconds <= 0) throw new Error('corpus-scan --timeout needs a positive number of seconds');
+  if (timeoutSeconds > 2147483) throw new Error('corpus-scan --timeout must be at most 2147483 seconds');
   const log = opts.log ?? (() => {});
   const { paths, unreadable } = opts.list ? listedFiles(opts.list) : findFiles(dir, { all: opts.all });
   if (unreadable) log(`${unreadable} folders or files couldn't be read and were skipped`);
