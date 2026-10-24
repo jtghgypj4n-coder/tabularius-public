@@ -4,7 +4,7 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { callerText } from './fault-log.ts';
 import { z } from 'zod';
-import type { DesignOp, Privileges, SnippetPick, Store, Privileges } from '../../store/src/index.ts';
+import type { DesignOp, Privileges, SnippetPick, Store } from '../../store/src/index.ts';
 import { checkStoreFormula, speedPlan, lintLayout, lintScript, fixLayout, storeStats, type LintIssue, isLayoutSnippet, layoutObjectsFromSnippet, snippetChanges } from '../../store/src/index.ts';
 import type { LayoutObject } from '../../fmp12/src/index.ts';
 import { designOf, formulaContext, layoutTheme, styleNames } from './design.ts';
