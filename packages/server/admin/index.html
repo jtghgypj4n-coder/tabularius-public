@@ -447,19 +447,6 @@
       <p id="restore-result" role="status"></p>
     </details>
   </section>
-  <section id="exit-section">
-    <h2>Take a portable copy</h2>
-    <p class="meta">Write the whole file to a folder anyone can read with standard tools: every table (SQLite and CSV), every container file, globals, serial numbers, the design and the account names, with a manifest of SHA-256 hashes. Only a Full Access account that signs in again here may ask, and every attempt is written to the security events. <strong>The copy is plaintext</strong>, even when the server encrypts files at rest, and is written to the <code>Exports</code> folder beside the hosted files. An unfinished copy (a name ending in <code>.partial</code>) is just as sensitive: finish it by running this again, or discard it.</p>
-    <div class="controls">
-      <label>File <select id="exit-db"></select></label>
-      <label>Folder name <input id="exit-name" placeholder="shop-2026-10-22" maxlength="80" autocomplete="off"></label>
-      <label>Full Access account <input id="exit-account" autocomplete="off"></label>
-      <label>Its password <input id="exit-password" type="password" autocomplete="off"></label>
-      <button id="exit-go" class="primary">Write the copy</button>
-      <button id="exit-discard">Discard an unfinished copy</button>
-    </div>
-    <p class="meta" id="exit-status" role="status"></p>
-  </section>
   <section id="sync-section" hidden>
     <h2>Sync with FileMaker Server <span class="count" id="sync-count"></span></h2>
     <p class="meta">Keeps a hosted file in step with its copy on a FileMaker Server, through the server&rsquo;s Data API. A check only reads: it lists what would be sent, what would be brought in, and the records changed on both sides. Nothing is sent or changed until you ask for it below, and only if the setup allows it. Files marked capture-only never sync.</p>
@@ -737,6 +724,19 @@
       <div id="audit-settings-body"></div>
     </details>
     <div id="audit"></div>
+  </section>
+  <section id="exit-section">
+    <h2>Take a portable copy</h2>
+    <p class="meta">Write the whole file to a folder anyone can read with standard tools: every table (SQLite and CSV), every container file, globals, serial numbers, the design and the account names, with a manifest of SHA-256 hashes. Only a Full Access account that signs in again here may ask, and every attempt is written to the security events. <strong>The copy is plaintext</strong>, even when the server encrypts files at rest, and is written to the <code>Exports</code> folder beside the hosted files. An unfinished copy (a name ending in <code>.partial</code>) is just as sensitive: finish it by running this again, or discard it.</p>
+    <div class="controls">
+      <label>File <select id="exit-db"></select></label>
+      <label>Folder name <input id="exit-name" placeholder="shop-2026-10-22" maxlength="80" autocomplete="off"></label>
+      <label>Full Access account <input id="exit-account" autocomplete="off"></label>
+      <label>Its password <input id="exit-password" type="password" autocomplete="off"></label>
+      <button id="exit-go" class="primary">Write the copy</button>
+      <button id="exit-discard">Discard an unfinished copy</button>
+    </div>
+    <p class="meta" id="exit-status" role="status"></p>
   </section>
   <section id="viewas-section">
     <h2>View as a privilege set <span class="count" id="viewas-count"></span></h2>
