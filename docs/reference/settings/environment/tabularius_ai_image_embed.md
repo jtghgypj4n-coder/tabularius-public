@@ -8,6 +8,6 @@
 | Accepted values | voyage or jina |
 | Restart needed | Yes for a running server. |
 | Explained in | [docs/local-embeddings.md](../../../local-embeddings.md) |
-| Code | [packages/cli/src/main.ts:1424](../../../../packages/cli/src/main.ts#L1424) |
+| Code | [packages/cli/src/main.ts:1432](../../../../packages/cli/src/main.ts#L1432) |
 
 [All environment variables](../../../environment-variables.md)

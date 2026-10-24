@@ -257,7 +257,7 @@ async function fixture(withReplication = false) {
     return (await r.json() as { response: { token: string } }).response.token;
   };
   const closeAdminToken = async (t: string) => {
-    await fetch(`${hosted.url}/fmi/admin/api/v2/user/auth/${t}`, { method: 'DELETE', headers: { authorization: `Bearer ${t}` } });
+    await fetch(`${hosted.url}/fmi/admin/api/v2/user/auth`, { method: 'DELETE', headers: { authorization: `Bearer ${t}` } });
   };
   const newScimToken = async () => {
     const r = await fetch(`${hosted.url}/tabularius/admin/v1/scim/token`, { method: 'POST', headers: { cookie: adminCookie, 'content-type': 'application/json', 'x-tabularius-admin': '1' }, body: JSON.stringify({ database: 'Invoices', defaultPrivilegeSet: 'Readers' }) });

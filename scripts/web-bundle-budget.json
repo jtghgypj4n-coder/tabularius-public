@@ -236,6 +236,10 @@
     "packages/web/src/ime.ts": {
       "raw": 651,
       "gzip": 389
+    },
+    "packages/web/src/import-result.ts": {
+      "raw": 3266,
+      "gzip": 1162
     }
   },
   "largest": [

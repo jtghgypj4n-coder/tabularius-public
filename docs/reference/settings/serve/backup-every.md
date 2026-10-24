@@ -9,6 +9,6 @@
 | Restart needed | Yes; serve flags are read when the server starts. |
 | Environment | [`TABULARIUS_BACKUP_EVERY`](../environment/tabularius_backup_every.md) |
 | Explained in | [README.md](../../../../README.md) |
-| Code | [packages/cli/src/main.ts:1354](../../../../packages/cli/src/main.ts#L1354) |
+| Code | [packages/cli/src/main.ts:1362](../../../../packages/cli/src/main.ts#L1362) |
 
 [All serve flags](../serve-flags.md)
