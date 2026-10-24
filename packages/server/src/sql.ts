@@ -100,7 +100,7 @@ export class SqlEndpoint {
       if (format !== 'json' && format !== 'csv') throw new ApiError(960, 'format must be json or csv', 400);
 
       // A table of another file the account may not read answers as one that isn't there, so the answer does not name the file.
-      const { sql: text, target } = store.calc.translateSQL(sql, undefined, undefined, (file) => p.in(file).readsEverything, p, undefined, true);
+      const { sql: text, target } = store.calc.translateSQL(sql, p, undefined, (file) => p.in(file).readsEverything, true);
       this.checkReadsEverything(p.in(target), target);
       const refused = secondFileSqlRefusal(p, target, store);
       if (refused) throw new ApiError(9, refused, 403);
