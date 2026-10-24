@@ -37,6 +37,7 @@ import { Notifier } from './notifications.ts';
 import { compactInWorker, compactionDue, fileBytes, type CompactionReport } from './compaction.ts';
 import { BoundedMap } from './bounded-map.ts';
 import { serverLanguage } from './get-language.ts';
+import { approveInRecord, firstStartRecord, loadHostedRecord, vet, HOSTED_RECORD_FILE, type ApprovalHow } from './hosted-record.ts';
 
 export const STORE_EXT = '.openhbam.sqlite';
 
@@ -54,6 +55,10 @@ const LINK_SKEW_MS = 60_000;
 
 export class Host {
   readonly dir: string;
+  readonly onApprove = new Set<(store: Store) => void>();
+  private readonly follower: boolean;
+  private starting = false;
+  private damagedRecordLogged = false;
   private readonly stores = new Map<string, Store>();
   // Container URLs are signed so they work in <img src> without a token,
   // like FileMaker's streaming URLs. The key lasts as long as the process.
@@ -391,6 +396,7 @@ export class Host {
 
   constructor(dir: string, log: (msg: string) => void = () => {}, opts: { background?: boolean; encryptionKey?: string; urlKey?: Buffer; locks?: (store: Store) => RecordLocks; follower?: boolean; shareResults?: boolean; warmSettleMs?: number; compactionWorker?: (path: string, convert?: boolean, checkpoint?: boolean) => Promise<CompactionReport> } = {}) {
     this.dir = dir;
+    this.follower = !!opts.follower;
     this.log = log;
     this.compactionWorker = opts.compactionWorker ?? compactInWorker;
     this.mayCompact = !opts.follower;
@@ -435,6 +441,9 @@ export class Host {
         }
       }
     }
+    // Only stores present before this startup's conversions receive the
+    // first-start grant. A newly converted .fmp12 is a discovered file.
+    const firstStartFiles = new Set(readdirSync(dir).filter((f) => f.endsWith(STORE_EXT)));
     for (const f of readdirSync(dir)) {
       if (extname(f).toLowerCase() !== '.fmp12') continue;
       const store = join(dir, basename(f, extname(f)) + STORE_EXT);
@@ -490,9 +499,16 @@ export class Host {
         crashPoint('host-conversion:after-cleanup');
       }
     }
+    this.starting = true;
     for (const f of readdirSync(dir)) {
       if (f.endsWith(STORE_EXT)) this.addIfOpens(join(dir, f), log);
     }
+    this.starting = false;
+    if (!this.follower && loadHostedRecord(dir) === undefined) {
+      try { firstStartRecord(dir, [...this.stores.values()].filter((s) => firstStartFiles.has(basename(s.path))).map((s) => ({ name: s.name, id: s.fileId }))); }
+      catch (e) { log(`${HOSTED_RECORD_FILE} could not be written: ${(e as Error).message}`); }
+    }
+    for (const store of this.stores.values()) this.vetFile(store, 'found');
   }
 
   /** At startup, one store that won't open is left out and named; the rest are still hosted. */
@@ -515,7 +531,7 @@ export class Host {
    * Files dropped into the folder that use Encryption at Rest, by file name:
    * shown as "Needs passphrase" until someone enters it (see unlock).
    */
-  readonly locked = new BoundedMap<string, { size: number; hint?: string; error?: string; uploaded?: boolean }>(1024);
+  readonly locked = new BoundedMap<string, { size: number; hint?: string; error?: string; uploaded?: boolean; by?: string }>(1024);
   /** Files whose conversion failed, by name and size; tried again only when the file changes. */
   private readonly failed = new BoundedMap<string, number>(1024);
   /** Why each failed file failed, for the admin status. */
@@ -681,13 +697,13 @@ export class Host {
    * folder as `<name>.fmp12`, to wait there for its passphrase like a file
    * dropped in (see unlock).
    */
-  parkLocked(src: string, name: string, hint?: string, uploaded = false): void {
+  parkLocked(src: string, name: string, hint?: string, uploaded = false, by?: string): void {
     this.assertOpen();
     const store = join(this.dir, name + STORE_EXT);
     const dest = join(this.dir, name + '.fmp12');
     if (this.get(name) || existsSync(store) || existsSync(store + ENCRYPTED_EXT) || existsSync(dest)) throw new Error(`A file named ${name} is already hosted`);
     renameSync(src, dest);
-    this.locked.set(name + '.fmp12', { size: statSync(dest).size, hint, uploaded });
+    this.locked.set(name + '.fmp12', { size: statSync(dest).size, hint, uploaded, by });
   }
 
   /**
@@ -719,7 +735,7 @@ export class Host {
         if (!publishConversion(temp, store)) throw new Error(`A file named ${name} is already hosted`);
         crashPoint('host-conversion:after-publish');
         this.locked.delete(file);
-        this.add(store);
+        this.add(store, info.uploaded ? 'trusted' : 'found', 'upload', info.by);
         await this.peers?.sync(name, 'open');
         log(`converted ${file}: ${r.tables} tables, ${r.records} records; now hosting ${name}`);
         return { name, ...r };
@@ -764,7 +780,7 @@ export class Host {
    * keeping the file next to its store as `<name>.fmp12`, as if it had been
    * dropped into the folder. One conversion runs at a time.
    */
-  async hostUpload(src: string, name: string, onProgress?: (p: ImportProgress) => void, signal?: AbortSignal): Promise<{ tables: number; records: number }> {
+  async hostUpload(src: string, name: string, onProgress?: (p: ImportProgress) => void, signal?: AbortSignal, by?: string): Promise<{ tables: number; records: number }> {
     return this.conversionTask(async () => {
       const store = join(this.dir, name + STORE_EXT);
       signal?.throwIfAborted();
@@ -787,7 +803,7 @@ export class Host {
         completeConversionSource(temp, store);
         rmSync(src);
         crashPoint('host-upload:after-source-rename');
-        this.add(store);
+        this.add(store, 'trusted', 'upload', by);
         return r;
       } finally {
         this.converting = false;
@@ -881,10 +897,10 @@ export class Host {
   fileGeneration(store: Store): number { return this.fileGenerations.get(store) ?? 0; }
 
   /** Every file in the folder that can be hosted, with whether it's open, paused or closed. */
-  files(): { name: string; status: 'open' | 'paused' | 'closed'; path: string; fileMode: Store['fileMode']; damaged?: string }[] {
+  files(): { name: string; status: 'open' | 'paused' | 'closed'; path: string; fileMode: Store['fileMode']; damaged?: string; held?: Store['held'] }[] {
     return [
-      ...[...this.stores.values()].map((s) => ({ name: s.name, status: 'open' as const, path: s.path, fileMode: s.fileMode })),
-      ...[...this.paused.values()].map((s) => ({ name: s.name, status: 'paused' as const, path: s.path, fileMode: s.fileMode })),
+      ...[...this.stores.values()].map((s) => ({ name: s.name, status: 'open' as const, path: s.path, fileMode: s.fileMode, ...(s.held ? { held: s.held } : {}) })),
+      ...[...this.paused.values()].map((s) => ({ name: s.name, status: 'paused' as const, path: s.path, fileMode: s.fileMode, ...(s.held ? { held: s.held } : {}) })),
       ...[...this.closed.entries()].map(([name, { path, fileMode, damaged }]) => ({ name, status: 'closed' as const, path, fileMode, ...(damaged ? { damaged } : {}) })),
     ].sort((a, b) => a.name.localeCompare(b.name));
   }
@@ -1185,9 +1201,47 @@ export class Host {
     return [...this.stores.values(), ...this.paused.values()];
   }
 
-  add(path: string): Store {
+  /** The record remembers the name as well as the identity. A copied store under a new name is new. */
+  vetFile(store: Store, origin: 'found' | 'trusted', how: ApprovalHow = 'create', by = 'server'): void {
+    if (this.starting) return;
+    let writeFailed = false;
+    if (origin === 'trusted' && !this.follower) {
+      try { approveInRecord(this.dir, store.name, store.fileId, by, how); store.held = undefined; return; }
+      catch (e) { writeFailed = true; this.log(`${store.name}: approval could not be saved: ${(e as Error).message}`); }
+    }
+    const record = loadHostedRecord(this.dir);
+    const result = writeFailed && record !== null ? 'held' : vet(record, store.name, store.fileId);
+    if (result === 'approved') { store.held = undefined; return; }
+    const reason = result === 'unknown-record' ? 'the approval record is damaged'
+      : record && Object.hasOwn(record.files, store.name.toLowerCase()) ? 'a different file than the one approved' : 'not seen before';
+    if (result === 'unknown-record' && !this.damagedRecordLogged) {
+      this.log(`${HOSTED_RECORD_FILE} is damaged; move it aside to start fresh`);
+      this.damagedRecordLogged = true;
+    }
+    if (!store.held || store.held.reason !== reason) this.log(`${store.name} is new to this server and is held until an administrator turns it on`);
+    store.held = { reason, since: store.held?.since ?? new Date().toISOString() };
+  }
+
+  isHeld(name: string): boolean { return !!this.get(name)?.held; }
+
+  heldFiles(): { name: string; id: string; reason: string; since: string }[] {
+    return this.openStores().flatMap((s) => s.held ? [{ name: s.name, id: s.fileId, ...s.held }] : []);
+  }
+
+  approve(name: string, by: string): void {
+    if (this.follower) throw new Error('a follower cannot approve hosted files');
+    const store = this.get(name);
+    if (!store) throw new Error(`No hosted file named ${name}`);
+    try { approveInRecord(this.dir, store.name, store.fileId, by, 'admin'); }
+    catch (e) { this.log(`${store.name}: approval could not be saved: ${(e as Error).message}`); throw e; }
+    store.held = undefined;
+    for (const listener of this.onApprove) listener(store);
+  }
+
+  add(path: string, origin: 'found' | 'trusted' = 'found', how: ApprovalHow = 'create', by?: string): Store {
     this.assertOpen();
     const store = new Store(path, basename(path).slice(0, -STORE_EXT.length));
+    this.vetFile(store, origin, how, by);
     // A copy made before migrating the file is as sensitive as the file: with encryption at rest it is kept encrypted too.
     for (const backup of store.migrationBackups) this.lock(backup);
     this.stores.set(store.name.toLowerCase(), store);
@@ -1239,7 +1293,7 @@ export class Host {
     const path = join(this.dir, clean + STORE_EXT);
     if (existsSync(path)) throw new Error(`${path} already exists`);
     createStore(path);
-    return this.add(path);
+    return this.add(path, 'trusted', 'create');
   }
 
   /** Base URL the server is reachable at; container fields become download URLs under it. */

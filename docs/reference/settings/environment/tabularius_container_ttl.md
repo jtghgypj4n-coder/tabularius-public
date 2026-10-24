@@ -8,6 +8,6 @@ Lifetime of a signed container URL.
 | Accepted values | Positive seconds up to 3600, which is also what any other value (0, negative, not a number, longer) gives; a link signed for more than an hour ahead is refused |
 | Restart needed | Yes for a running server. |
 | Explained in | [README.md](../../../../README.md) |
-| Code | [packages/server/src/host.ts:66](../../../../packages/server/src/host.ts#L66) |
+| Code | [packages/server/src/host.ts:71](../../../../packages/server/src/host.ts#L71) |
 
 [All environment variables](../../../environment-variables.md)

@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { serve } from '../src/index.ts';
 import { solutionName } from '../src/solution-builder.ts';
+import { loadHostedRecord } from '../src/hosted-record.ts';
 import type { Host } from '../src/host.ts';
 
 let dir: string;
@@ -78,6 +79,7 @@ test('a solution is planned on a scratch file, mistakes sent back to fix, and no
   const made = await admin('solutions', { name: 'Sales CRM', changes: plan.body.changes, password: 'pw' });
   assert.equal(made.status, 201, JSON.stringify(made.body));
   const store = host.get('Sales CRM')!;
+  assert.equal(loadHostedRecord(dir)?.files['sales crm'].by, 'admin console');
   assert.deepEqual(store.schema.tables.map((t) => t.name).sort(), ['Companies', 'Deals']);
   assert.ok(store.schema.scripts.some((x) => x.name === 'Show Pipeline'));
   const login = await fetch(`${base}/fmi/data/vLatest/databases/Sales%20CRM/sessions`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Basic ' + btoa('Admin:pw') }, body: '{}' });

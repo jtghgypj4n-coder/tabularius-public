@@ -9,7 +9,7 @@ import { asText, dayNumber, parseDateText, parseTimestampText } from '../../calc
 import { parseDate, parseTimestamp } from '../../fmp12/src/index.ts';
 import { applyOps, createStore, NATIVE_REFUSAL, reconvert, reconvertCheck, Store } from '../src/index.ts';
 
-test('new stores add AI policy; compat metadata otherwise stays the same and native adds ISO dates', () => {
+test('new stores add AI policy and file identity; compat metadata otherwise stays the same and native adds ISO dates', () => {
   const dir = mkdtempSync(join(tmpdir(), 'tabularius-native-meta-'));
   try {
     const compat = join(dir, 'compat.sqlite');
@@ -25,7 +25,8 @@ test('new stores add AI policy; compat metadata otherwise stays the same and nat
     };
     assert.equal(rows(compat).find((r) => r.key === 'aiPolicy')?.json, 'true');
     assert.equal(rows(native).find((r) => r.key === 'aiPolicy')?.json, 'true');
-    const before = rows(compat).filter((r) => r.key !== 'aiPolicy').map(({ key, json }) => [key, key === 'source' ? json.replace(/"createdAt":"[^"]+"/, '"createdAt":"<timestamp>"') : json]);
+    for (const path of [compat, explicitCompat, native]) assert.match(JSON.parse(rows(path).find((r) => r.key === 'fileId')!.json) as string, /^[0-9a-f-]{36}$/);
+    const before = rows(compat).filter((r) => r.key !== 'aiPolicy' && r.key !== 'fileId').map(({ key, json }) => [key, key === 'source' ? json.replace(/"createdAt":"[^"]+"/, '"createdAt":"<timestamp>"') : json]);
     assert.equal(createHash('sha256').update(JSON.stringify(before)).digest('hex'), '65fba82d3e76824a8820a6b47f3ae8d2c238ff9720afa7201e2a347d1d7acf6c');
     assert.equal(rows(compat).some((r) => r.key === 'fileMode'), false);
     assert.equal(rows(explicitCompat).find((r) => r.key === 'fileMode')?.json, '"compat"');

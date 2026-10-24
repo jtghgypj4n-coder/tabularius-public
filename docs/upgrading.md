@@ -28,6 +28,8 @@ the backup the upgrade took, not by pointing an old version at files a newer one
 
 ## Upgrading
 
+On the first start with file approval memory, the server creates `.openhbam-hosted.json` in the hosted folder and approves the stores already there. A later file with a new name or a different identity at an approved name is marked held in the admin file list. The record is local to the hosted folder and is excluded from backups; restoring a store adds its approval to the current record. In this release the held mark is informational while execution gates are being added.
+
 `tabularius upgrade` fetches the new version, **backs up the hosted folder**, restarts the service, waits for it to answer,
 and puts the old version back if it does not start (ADMIN.md, "Upgrade"). Two things to know:
 

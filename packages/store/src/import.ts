@@ -6,7 +6,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { ensureCacheVersions } from './cache-versions.ts';
 import { basename } from 'node:path';
 import { closeSync, existsSync, openSync, readSync, rmSync, statSync } from 'node:fs';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { FmpDatabase, containerBlobs, containerRefId, readImageLibrary, readLayoutDesigns, type FieldType, type LayoutDesigns, type Schema } from '../../fmp12/src/index.ts';
 import { applyOps, emptySchema, type DesignOp } from './design.ts';
 import { ensurePrivilegeTables } from './privileges.ts';
@@ -203,6 +203,7 @@ export function createStore(outPath: string, options: { mode?: 'native' | 'compa
     sql.exec(`CREATE TABLE IF NOT EXISTS _fm_images (id INTEGER PRIMARY KEY, filename TEXT, mime TEXT NOT NULL, data BLOB NOT NULL)`);
     ensureDesignLog(sql);
     const meta = sql.prepare('INSERT INTO _fm_meta VALUES (?, ?)');
+    meta.run('fileId', JSON.stringify(randomUUID()));
     meta.run('source', JSON.stringify({ file: null, createdAt: new Date().toISOString() }));
     if (options.mode) meta.run('fileMode', JSON.stringify(options.mode));
     meta.run('aiPolicy', 'true');
@@ -332,6 +333,7 @@ export function importFmp12(src: string | FmpDatabase, outPath: string, onProgre
       sql.exec(STORE_TABLES);
       sql.exec(`CREATE TABLE ${STATE} (key TEXT PRIMARY KEY, json TEXT NOT NULL)`);
       const meta = sql.prepare('INSERT INTO _fm_meta VALUES (?, ?)');
+      meta.run('fileId', JSON.stringify(randomUUID()));
       meta.run('source', JSON.stringify({
         file: typeof src === 'string' ? basename(src) : null,
         importedAt: new Date().toISOString(),
@@ -458,6 +460,9 @@ export function importFmp12(src: string | FmpDatabase, outPath: string, onProgre
       progress(t.name, total);
     }
     sql.exec('BEGIN');
+    // A conversion resumed from an older partial workspace also needs an id
+    // before the caller publishes it as a hosted store.
+    sql.prepare("INSERT OR IGNORE INTO _fm_meta (key, json) VALUES ('fileId', ?)").run(JSON.stringify(randomUUID()));
     sql.prepare('INSERT INTO _fm_meta VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET json = excluded.json').run('repeating', JSON.stringify(state.repeating));
     sql.prepare('INSERT INTO _fm_meta VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET json = excluded.json').run('converterVersion', JSON.stringify(CONVERTER_VERSION));
     sql.exec(`DROP TABLE ${STATE}`);

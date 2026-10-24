@@ -58,6 +58,7 @@ send them elsewhere, backups:
 | `.openhbam-schedules.json` | Script schedules |
 | `.openhbam-schedule-runs.json` | Last run of each scheduled script |
 | `.openhbam-settings.json` | Backup, log size and certificate settings (written by `migrate-fms`; flags win over it) |
+| `.openhbam-hosted.json` | Local approval record for hosted files; keep private; excluded from backups |
 | `.openhbam-tls/` | Certificates got with `--https` |
 | `.openhbam-admin` | Shared admin-console password hash; keep private |
 | `.openhbam-admin-passkeys` | Admin-console passkeys; keep private |

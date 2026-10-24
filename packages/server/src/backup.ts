@@ -33,6 +33,7 @@ import { checkedFile, cleanupPath, openSync, copyFileSync, readFileSync, writeFi
 import { randomUUID } from 'node:crypto';
 import { basename, dirname, join, resolve } from 'node:path';
 import { STORE_EXT } from './host.ts';
+import { approveRestoredFiles } from './hosted-record.ts';
 import type { Host } from './host.ts';
 import { decryptFile, encryptFile, ENCRYPTED_EXT } from './encrypt.ts';
 import { checksum, copyVerifiedDatabase, integrity, describeCheck, describeRestore, verifySet, recordChecksum, restoreTestDue, testRestore, verifyAfterBackup } from './backup-verify.ts';
@@ -662,6 +663,7 @@ export async function restoreBackup(folder: string, set: string, only?: string, 
       }),
       ...external.files,
     ]);
+    approveRestoredFiles(folder, names, options.log);
     return files.map(plain);
   } finally {
     try {
@@ -953,6 +955,8 @@ export interface AccountDifference { file: string; name: string; change: string 
 
 /** What a restore may be asked: `refuseAccountChanges` stops it, before anything is replaced, when accounts differ; `differences` is filled in either way. */
 export interface RestoreOptions {
+  /** Reports a damaged local approval record after the restore is committed. */
+  log?: (line: string) => void;
   refuseAccountChanges?: boolean;
   differences?: AccountDifference[];
   signal?: AbortSignal;
@@ -1355,6 +1359,7 @@ export async function restoreAt(folder: string, dest: string, at: number, only?:
     if (differences.length && options.refuseAccountChanges) throw new AccountChangesError(differences);
     options.signal?.throwIfAborted();
     commitRestore(folder, [...out.flatMap(({ file }) => restorePointFiles(join(folder, file))), ...external.flatMap((stage) => stage.files)]);
+    approveRestoredFiles(folder, out.map(({ file }) => file.slice(0, -STORE_EXT.length)), options.log);
     crashPoint('restore-at:after-commit');
   } finally {
     try {

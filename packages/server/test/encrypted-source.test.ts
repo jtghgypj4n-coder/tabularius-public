@@ -51,11 +51,12 @@ test('an encrypted file waits for its passphrase, is hosted with the right one, 
     assert.equal(host.locked.get('Flicks.fmp12')!.hint, 'the record keeper');
     assert.equal(host.get('Flicks'), undefined);
     assert.ok(logs.some((l) => /Flicks\.fmp12 uses Encryption at Rest/.test(l)));
-    // The folder watcher leaves it alone (no failed conversion, nothing written).
+    // The folder watcher leaves the encrypted source alone; only the empty
+    // first-start approval record is written.
     await host.scan();
     await host.scan();
     assert.equal(host.get('Flicks'), undefined);
-    assert.deepEqual(readdirSync(dir).filter((f) => !f.endsWith('.fmp12')), []);
+    assert.deepEqual(readdirSync(dir).filter((f) => !f.endsWith('.fmp12')), ['.openhbam-hosted.json']);
 
     assert.throws(() => host.checkPassphrase('Flicks.fmp12', 'nope'), /^Error: wrong passphrase$/);
     await assert.rejects(host.unlock('Flicks.fmp12', 'nope'), /^Error: wrong passphrase$/);

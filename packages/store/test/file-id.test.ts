@@ -1,0 +1,33 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { copyFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
+import { createStore, Store } from '../src/index.ts';
+
+test('created stores have stable identities; an older store gains one on opening', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'file-id-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const path = join(dir, 'A.openhbam.sqlite');
+  createStore(path);
+  const first = new Store(path);
+  const id = first.fileId;
+  assert.match(id, /^[0-9a-f-]{36}$/);
+  first.close();
+  const copy = join(dir, 'B.openhbam.sqlite');
+  copyFileSync(path, copy);
+  const copied = new Store(copy);
+  assert.equal(copied.fileId, id);
+  copied.close();
+  const db = new DatabaseSync(path);
+  db.prepare("DELETE FROM _fm_meta WHERE key = 'fileId'").run();
+  db.close();
+  const older = new Store(path);
+  assert.notEqual(older.fileId, id);
+  const next = older.fileId;
+  older.close();
+  const reopened = new Store(path);
+  assert.equal(reopened.fileId, next);
+  reopened.close();
+});

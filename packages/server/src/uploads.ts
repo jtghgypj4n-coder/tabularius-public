@@ -277,7 +277,7 @@ export class Uploads {
       // Encryption at Rest: it waits in the folder for its passphrase, entered in the admin console.
       const enc = sourceEncryption(this.part(u.id));
       if (enc.encrypted) {
-        this.host.parkLocked(this.part(u.id), u.name, enc.hint, true);
+        this.host.parkLocked(this.part(u.id), u.name, enc.hint, true, 'admin console');
         u.phase = 'locked';
         this.log(`uploaded ${u.name}.fmp12 uses Encryption at Rest: enter its passphrase in the admin console to host it`);
         return;
@@ -286,7 +286,7 @@ export class Uploads {
       const r = await this.host.hostUpload(this.part(u.id), u.name, (p) => {
         u.phase = 'converting';
         u.progress = p;
-      }, stop.signal);
+      }, stop.signal, 'admin console');
       u.phase = 'hosted'; // Publication is complete; later removal only forgets the upload.
       await this.host.openFileEverywhere(u.name);
       u.tables = r.tables;

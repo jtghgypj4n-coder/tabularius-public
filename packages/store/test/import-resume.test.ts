@@ -18,12 +18,18 @@ function contents(path: string): Record<string, unknown[]> {
   for (const { name } of sql.prepare(`SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name`).all() as { name: string }[]) {
     const rows = sql.prepare(`SELECT * FROM "${name.replace(/"/g, '""')}"`).all() as Record<string, unknown>[];
     out[name] = rows
-      .filter((r) => !(name === '_fm_meta' && r.key === 'source'))
+      .filter((r) => !(name === '_fm_meta' && (r.key === 'source' || r.key === 'fileId')))
       .map((r) => JSON.stringify(r, (_k, v) => (v instanceof Uint8Array ? Buffer.from(v).toString('base64') : v)))
       .sort();
   }
   sql.close();
   return out;
+}
+
+function fileId(path: string): string {
+  const sql = new DatabaseSync(path, { readOnly: true });
+  try { return JSON.parse((sql.prepare("SELECT json FROM _fm_meta WHERE key = 'fileId'").get() as { json: string }).json) as string; }
+  finally { sql.close(); }
 }
 
 for (const file of ['DEMO_drawers.fmp12', 'Charts.fmp12']) {
@@ -37,15 +43,19 @@ for (const file of ['DEMO_drawers.fmp12', 'Charts.fmp12']) {
     assert.throws(() => importFmp12(src, out, () => {
       if (++calls === 2) throw new Error('stopped');
     }), /stopped/);
+    const partialId = fileId(out);
 
     const seen: ImportProgress[] = [];
     importFmp12(src, out, (p) => seen.push(p), { resume: true });
     assert.ok(seen[0].tablesDone > 0 || seen[0].records > 0, 'it picked up, not started over');
     assert.equal(seen.at(-1)!.fraction! > 0, true);
+    assert.equal(fileId(out), partialId, 'resuming keeps the identity already assigned');
+    assert.notEqual(fileId(out), fileId(join(dir, 'straight.sqlite')), 'a separate conversion has a separate identity');
     assert.deepEqual(contents(out), contents(join(dir, 'straight.sqlite')));
 
     // Without resume, what's there is replaced.
     importFmp12(src, out);
+    assert.notEqual(fileId(out), partialId, 'starting again assigns a new identity');
     assert.deepEqual(contents(out), contents(join(dir, 'straight.sqlite')));
   });
 }
