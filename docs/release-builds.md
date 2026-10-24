@@ -125,10 +125,25 @@ who made it.
 
 1. `main` is green, and everything the launch needs has merged.
 2. Write `.github/release-notes/v<version>.md`.
-3. Run the workflow by hand with `version` `<version>-rc.1` and `publish` `prerelease`, then
+3. On a machine with network access and Docker Buildx, collect the current base image digests and save them in `image-digests.json`. For each image reference reported by `node scripts/pin-images.ts check`, run `docker buildx imagetools inspect <image> --format '{{json .Manifest.Digest}}'`; use the returned `sha256:...` value (without JSON quotes) as that image's value in the JSON object. For the current references, the commands are:
+
+   ```sh
+   docker buildx imagetools inspect node:22-slim --format '{{json .Manifest.Digest}}'
+   docker buildx imagetools inspect caddy:2 --format '{{json .Manifest.Digest}}'
+   ```
+
+   Add every `sha256:...` result to `image-digests.json`, keyed by its exact image reference, then run:
+
+   ```sh
+   node scripts/pin-images.ts write image-digests.json
+   node scripts/pin-images.ts check --require-pinned
+   ```
+
+   Do this before making the release tag. The check is deliberately not part of the normal gates, so development can keep readable tags while release builds require pinned digests. The release workflow itself does not run this check; its description here is the release instruction.
+4. Run the workflow by hand with `version` `<version>-rc.1` and `publish` `prerelease`, then
    `curl -fsSL https://github.com/sitotisai/tabularius/releases/download/v<version>-rc.1/get.sh | sh -s -- --version <version>-rc.1`
    on a clean machine, and `tabularius demo`. Delete the pre-release and its tag when done.
-4. Tag the commit: `git tag v<version> && git push origin v<version>`. Read the draft release, then publish it.
+5. Tag the commit: `git tag v<version> && git push origin v<version>`. Read the draft release, then publish it.
 
 ## Windows readiness
 
