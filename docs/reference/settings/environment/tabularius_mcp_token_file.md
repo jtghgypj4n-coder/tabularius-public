@@ -8,6 +8,6 @@ A private regular file holding the MCP access token.
 | Accepted values | File path (the file must not be readable by other users) |
 | Restart needed | Yes for a running server. |
 | Explained in | [docs/environment-variables.md](../../../environment-variables.md) |
-| Code | [packages/cli/src/main.ts:1306](../../../../packages/cli/src/main.ts#L1306) |
+| Code | [packages/cli/src/main.ts:1317](../../../../packages/cli/src/main.ts#L1317) |
 
 [All environment variables](../../../environment-variables.md)

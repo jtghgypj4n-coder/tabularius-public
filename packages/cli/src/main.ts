@@ -764,6 +764,17 @@ function optionValue(args: string[], name: string, what: string): string | undef
   return v;
 }
 
+function scriptNetworkAllowList(args: string[], command: string): string[] {
+  optionValue(args, '--allow-script-network-to', 'hosts, addresses or ranges (intranet.example,*.corp.example,10.0.0.0/8)');
+  const allow = (flag(args, '--allow-script-network-to') ?? '').split(',').map((h) => h.trim()).filter(Boolean);
+  try {
+    parseAllowList(allow);
+  } catch (e) {
+    throw new Error(`${command}: --allow-script-network-to: ${(e as Error).message}`);
+  }
+  return allow;
+}
+
 function expiryDays(args: string[], command: string): string | undefined {
   const error = () => new Error(`${command}: --expires-days takes a number of days above zero, up to 3650; a token always expires`);
   let days: string | undefined;
@@ -1307,13 +1318,7 @@ function main(argv: string[]): number {
       // Scripts stay offline unless asked: Insert from URL could reach mail, SMS or payment services.
       const scriptNetwork = bool(args, '--allow-script-network');
       // Scripts' requests never reach this machine's own network (loopback, 10/8, 192.168/16 and so on) unless listed here.
-      optionValue(args, '--allow-script-network-to', 'hosts, addresses or ranges (intranet.example,*.corp.example,10.0.0.0/8)');
-      const scriptNetworkAllow = (flag(args, '--allow-script-network-to') ?? '').split(',').map((h) => h.trim()).filter(Boolean);
-      try {
-        parseAllowList(scriptNetworkAllow);
-      } catch (e) {
-        throw new Error(`serve: --allow-script-network-to: ${(e as Error).message}`);
-      }
+      const scriptNetworkAllow = scriptNetworkAllowList(args, 'serve');
       const listFilesPublicly = bool(args, '--list-files-publicly') || boolean('TABULARIUS_LIST_FILES_PUBLICLY');
       const appConnections = bool(args, '--allow-app-connections');
       // Webhooks set up in the admin console send nothing until this is given.

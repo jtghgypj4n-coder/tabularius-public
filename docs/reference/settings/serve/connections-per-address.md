@@ -9,6 +9,6 @@
 | Restart needed | Yes; serve flags are read when the server starts. |
 | Environment | [`TABULARIUS_CONNECTIONS_PER_ADDRESS`](../environment/tabularius_connections_per_address.md) |
 | Explained in | [ADMIN.md](../../../../ADMIN.md) |
-| Code | [packages/cli/src/main.ts:1352](../../../../packages/cli/src/main.ts#L1352) |
+| Code | [packages/cli/src/main.ts:1357](../../../../packages/cli/src/main.ts#L1357) |
 
 [All serve flags](../serve-flags.md)

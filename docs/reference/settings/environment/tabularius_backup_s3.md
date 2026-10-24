@@ -8,6 +8,6 @@ A `s3://bucket/prefix` address that backups are also copied to.
 | Accepted values | s3://bucket/prefix |
 | Restart needed | Yes for a running server. |
 | Explained in | [docs/environment-variables.md](../../../environment-variables.md) |
-| Code | [packages/cli/src/main.ts:1371](../../../../packages/cli/src/main.ts#L1371) |
+| Code | [packages/cli/src/main.ts:1376](../../../../packages/cli/src/main.ts#L1376) |
 
 [All environment variables](../../../environment-variables.md)
