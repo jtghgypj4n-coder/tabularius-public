@@ -66,16 +66,16 @@ test('console and Admin API share IPv6 lockouts without disabling an existing co
   await signed.arrayBuffer();
   for (let i = 0; i < LOCKOUT.attempts; i++) {
     const response = i % 2 ? await consoleLogin('wrong', from[0]) : await fetch(`${url}/fmi/admin/api/v2/user/auth`, {
-      method: 'POST', headers: { authorization: basic('made-up', 'wrong'), cookie, 'x-forwarded-for': from[1] },
+      method: 'POST', headers: { authorization: basic('made-up', 'wrong'), cookie, 'sec-fetch-site': 'same-origin', 'x-forwarded-for': from[1] },
     });
-    assert.ok([401, 429].includes(response.status));
+    assert.ok([401, 429].includes(response.status), `status ${response.status}`);
     await response.arrayBuffer();
   }
   const blocked = await consoleLogin('console-secret', from[0]);
   assert.equal(blocked.status, 429);
   await blocked.arrayBuffer();
-  const existing = await fetch(`${url}/tabularius/admin/v1/passkeys`, { headers: { cookie, 'x-forwarded-for': from[1] } });
-  assert.equal(existing.status, 200);
+  const existing = await fetch(`${url}/tabularius/admin/v1/passkeys`, { headers: { cookie, 'sec-fetch-site': 'same-origin', 'x-forwarded-for': from[1] } });
+  assert.equal(existing.status, 200, await existing.clone().text());
   await existing.arrayBuffer();
 });
 

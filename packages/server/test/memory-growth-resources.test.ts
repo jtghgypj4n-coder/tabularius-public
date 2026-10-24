@@ -289,7 +289,8 @@ test('live presence has a file-wide cap and expires the oldest view', async (t) 
   const api = new DataApi(host);
   const token = api.open(store, 'Admin', 'web');
   const live = new Live(host, api);
-  for (let i = 0; i < 4096; i++) store.locks.view('People', 100_000 + i, token, 'Admin');
+  // A session may view at most 128 records per file, so the file's 4096 views come from 64 sessions of 64 each.
+  for (let i = 0; i < 4096; i++) store.locks.view('People', 100_000 + i, `session-${i % 64}`, 'Admin');
   const r = new Reply();
   const request = req('{}', { authorization: `Bearer ${token}` });
   await live.handle(request, response(r), new URL(`http://localhost/tabularius/live/v1/databases/Growth/layouts/People/records/${recordId}/view`));
@@ -297,7 +298,7 @@ test('live presence has a file-wide cap and expires the oldest view', async (t) 
   assert.equal(store.locks.viewers().length, 4096);
   assert.equal(store.locks.viewers().some((v) => v.recordId === 100_000), false);
   api.end(token);
-  assert.equal(store.locks.viewers().length, 0);
+  assert.equal(store.locks.viewers().length, 4095, 'ending the session removes its own view only');
 });
 
 test('late web script results cannot recreate paused runs or timers after logout', (t) => {
