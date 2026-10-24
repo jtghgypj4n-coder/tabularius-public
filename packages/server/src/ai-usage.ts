@@ -113,7 +113,8 @@ export class MemoryUsage implements UsageCounts {
       }
       this.days.set(key, (this.days.get(key) ?? 0) + tokens);
     }
-    const month = monthOf(at);
+    const month = monthOf(at), current = monthOf();
+    for (const key of this.months.keys()) if (key !== month && key !== current) this.months.delete(key);
     const m = this.months.get(month) ?? { month, tokens: 0, costUsd: 0, questions: 0, unpriced: 0 };
     this.months.set(month, { ...m, tokens: m.tokens + tokens, costUsd: m.costUsd + costUsd });
   }
