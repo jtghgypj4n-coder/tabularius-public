@@ -365,7 +365,6 @@ export class InboundHooks {
     catch { return send(503, { error: 'Replay protection is unavailable' }), true; }
     if (req.aborted || req.socket.destroyed || res.destroyed) return true;
     if (claim === 'replay') return refuse(true, 409, 'This call was already received');
-    if (this.seen.size >= 10_000) return send(429, { error: 'Too many signed calls are awaiting replay expiry; try again later' }), true;
     if (claim === 'expired') return refuse(true, 401, 'The timestamp is outside the acceptance window');
     if (claim === 'full') return send(503, { error: 'Replay protection is at capacity; try again later' }), true;
     // Signed: a call over the hook's own limit isn't a bad call from its address.
