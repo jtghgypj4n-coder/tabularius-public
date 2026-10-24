@@ -5,6 +5,7 @@ import { Readable } from 'node:stream';
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { Host } from '../src/host.ts';
 import { DataApi } from '../src/dataapi.ts';
@@ -13,7 +14,7 @@ import { Live } from '../src/live.ts';
 import { ChangeFeed } from '../src/changes.ts';
 import { Replication } from '../src/replication.ts';
 import { LogShipper } from '../src/logs.ts';
-import { InboundHooks, hookSignature } from '../src/inbound-hooks.ts';
+import { InboundHooks, hookSignature, MAX_REPLAY_CLAIMS } from '../src/inbound-hooks.ts';
 import { Uploads } from '../src/uploads.ts';
 import { ContainerFiles } from '../src/containers.ts';
 import { DebugApi } from '../src/debug.ts';
@@ -67,19 +68,25 @@ test('console cookie churn evicts the oldest sign-in', async (t) => {
   assert.equal(inside(admin).signedIn.has('0'), false);
 });
 
-test('webhook replay markers fail closed at capacity and keep prior signatures', async (t) => {
-  const hooks = new InboundHooks(hostFor(t), true);
+test('webhook replay claims fail closed at capacity and keep prior signatures', async (t) => {
+  const host = hostFor(t);
+  const hooks = new InboundHooks(host, true);
   t.mock.method(inside(hooks), 'load', () => {});
-  inside(hooks).hooks = [{ id: 'hook', secret: 'secret', enabled: true, perMinute: 1, database: 'Growth', account: 'Admin' }];
-  inside(hooks).recent.set('hook', [performance.now()]);
-  const seen = inside(hooks).seen as Map<string, number>;
-  for (let i = 0; i < 10_000; i++) seen.set(String(i), performance.now());
+  inside(hooks).hooks = [{ id: 'hook', secret: 'secret', enabled: true, perMinute: 100, database: 'Growth', account: 'Admin' }];
   const stamp = String(Math.floor(Date.now() / 1000));
-  const r = new Reply();
-  await hooks.handle(req('{}', { 'x-tabularius-timestamp': stamp, 'x-tabularius-signature': hookSignature('secret', stamp, Buffer.from('{}')) }), response(r), new URL('http://localhost/tabularius/hooks/v1/hook'));
-  assert.equal(r.statusCode, 429);
-  assert.equal(seen.size, 10_000);
-  assert.ok(seen.has('0'));
+  const send = async (body: string) => {
+    const r = new Reply();
+    await hooks.handle(req(body, { 'x-tabularius-timestamp': stamp, 'x-tabularius-signature': hookSignature('secret', stamp, Buffer.from(body)) }), response(r), new URL('http://localhost/tabularius/hooks/v1/hook'));
+    return r.statusCode;
+  };
+  await send('{}');
+  const db = new DatabaseSync(join(host.dir, 'inbound-hook-replays.sqlite'));
+  t.after(() => db.close());
+  db.exec(`WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i < ${MAX_REPLAY_CLAIMS - 1})
+    INSERT INTO claims SELECT 'seed', CAST(i AS TEXT), ${Date.now() + 3_600_000} FROM n`);
+  assert.equal(await send('{"new":1}'), 503);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM claims').get()!.n, MAX_REPLAY_CLAIMS);
+  assert.equal(await send('{}'), 409);
 });
 
 test('SSE streams have a total cap and session end removes listeners immediately', (t) => {
