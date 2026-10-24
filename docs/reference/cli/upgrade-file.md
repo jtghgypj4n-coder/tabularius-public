@@ -22,7 +22,7 @@ Usage:
 ## Tested CLI example
 
 ```sh
-tabularius upgrade-file ./data Invoices --to native
+tabularius upgrade-file --help
 ```
 
 This example is executed by the CLI reference test.

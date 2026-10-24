@@ -22,7 +22,7 @@ No command options are listed.
 ## Tested CLI example
 
 ```sh
-tabularius compat-check ./data Invoices
+tabularius compat-check --help
 ```
 
 This example is executed by the CLI reference test.
