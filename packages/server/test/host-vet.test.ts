@@ -7,7 +7,7 @@ import { createStore } from '../../store/src/index.ts';
 import { Admin } from '../src/admin.ts';
 import type { DataApi } from '../src/dataapi.ts';
 import { Host, STORE_EXT } from '../src/host.ts';
-import { HOSTED_RECORD_FILE, loadHostedRecord } from '../src/hosted-record.ts';
+import { approveInRecord, HOSTED_RECORD_FILE, loadHostedRecord } from '../src/hosted-record.ts';
 
 function folder(t: { after(fn: () => void): void }): string {
   const dir = mkdtempSync(join(tmpdir(), 'host-vet-'));
@@ -36,6 +36,19 @@ test('first start approves existing files, later discoveries and renamed copies 
   const status = new Admin(host, { list: () => [] } as unknown as DataApi).status();
   assert.equal(status.databases.find((f) => f.name === 'B')?.held?.reason, 'not seen before');
   await host.close();
+});
+
+test('a follower with stores and no record does not grant first-start approval', async (t) => {
+  const dir = folder(t);
+  createStore(join(dir, 'A' + STORE_EXT));
+  const follower = new Host(dir, () => {}, { follower: true });
+  assert.equal(follower.isHeld('A'), true);
+  assert.equal(loadHostedRecord(dir), undefined);
+  const store = follower.get('A')!;
+  approveInRecord(dir, 'A', store.fileId, 'operator', 'admin');
+  follower.vetFile(store, 'found');
+  assert.equal(follower.isHeld('A'), false);
+  await follower.close();
 });
 
 test('swapped identity is held; reopen and approval use the saved record', async (t) => {
@@ -101,9 +114,12 @@ test('trusted upload and restore-copy origins are saved with their source', asyn
   for (const [name, how] of [['Upload', 'upload'], ['Restored', 'restore']] as const) {
     const path = join(dir, name + STORE_EXT);
     createStore(path);
-    const store = host.add(path, 'trusted', how);
+    const store = host.add(path, 'trusted', how, 'admin console');
     assert.equal(store.held, undefined);
     assert.equal(loadHostedRecord(dir)?.files[name.toLowerCase()].how, how);
+    assert.equal(loadHostedRecord(dir)?.files[name.toLowerCase()].by, 'admin console');
   }
+  host.create('MadeByServer');
+  assert.equal(loadHostedRecord(dir)?.files.madebyserver.by, 'server');
   await host.close();
 });

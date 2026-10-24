@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createStore } from '../../store/src/index.ts';
 import { backupFolder, restoreAt, restoreBackup } from '../src/backup.ts';
+import { Host } from '../src/host.ts';
 import { approveInRecord, approveRestoredFiles, firstStartRecord, HOSTED_RECORD_FILE, loadHostedRecord, vet } from '../src/hosted-record.ts';
 
 function folder(t: { after(fn: () => void): void }): string {
@@ -38,6 +39,16 @@ test('record is strict, atomic, and a damaged copy cannot be overwritten', (t) =
   }
 });
 
+test('an abandoned record temp does not block an approval', (t) => {
+  const dir = folder(t);
+  const temp = join(dir, HOSTED_RECORD_FILE + '.tmp');
+  writeFileSync(temp, 'interrupted write');
+  approveInRecord(dir, 'A', 'one', 'operator', 'admin');
+  assert.equal(loadHostedRecord(dir)?.files.a.by, 'operator');
+  assert.equal(vet(loadHostedRecord(dir), 'A', 'one'), 'approved');
+  assert.equal(existsSync(temp), false);
+});
+
 test('restore approvals merge and backups omit the local record', async (t) => {
   const root = folder(t);
   const live = join(root, 'live'); const dest = join(root, 'backups');
@@ -58,4 +69,31 @@ test('restore approvals merge and backups omit the local record', async (t) => {
   approveInRecord(live, 'A', 'replaced', 'admin', 'admin');
   await restoreAt(live, dest, Date.now() + 1000, 'A', '');
   assert.equal(loadHostedRecord(live)?.files.a.how, 'restore');
+});
+
+test('a damaged record does not turn a committed restore into an error', async (t) => {
+  const root = folder(t);
+  const live = join(root, 'live'); const dest = join(root, 'backups');
+  mkdirSync(live); mkdirSync(dest);
+  createStore(join(live, 'A.openhbam.sqlite'));
+  const backup = await backupFolder(live, dest, 0, '');
+  rmSync(join(live, 'A.openhbam.sqlite'));
+  writeFileSync(join(live, HOSTED_RECORD_FILE), '{');
+  const lines: string[] = [];
+  assert.deepEqual(await restoreBackup(live, backup.dir, 'A', '', { log: (line) => lines.push(line) }), ['A.openhbam.sqlite']);
+  assert.equal(existsSync(join(live, 'A.openhbam.sqlite')), true);
+  assert.equal(readFileSync(join(live, HOSTED_RECORD_FILE), 'utf8'), '{');
+  assert.equal(vet(loadHostedRecord(live), 'A', 'anything'), 'unknown-record');
+  assert.ok(lines.some((line) => /damaged.*held/i.test(line)));
+  const host = new Host(live);
+  assert.equal(host.isHeld('A'), true);
+  await host.close();
+  rmSync(join(live, 'A.openhbam.sqlite'));
+  lines.length = 0;
+  assert.equal((await restoreAt(live, dest, Date.now() + 1000, 'A', '', { log: (line) => lines.push(line) })).length, 1);
+  assert.equal(readFileSync(join(live, HOSTED_RECORD_FILE), 'utf8'), '{');
+  assert.ok(lines.some((line) => /damaged.*held/i.test(line)));
+  const afterPointRestore = new Host(live);
+  assert.equal(afterPointRestore.isHeld('A'), true);
+  await afterPointRestore.close();
 });

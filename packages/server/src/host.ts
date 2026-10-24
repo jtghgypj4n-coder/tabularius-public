@@ -504,7 +504,7 @@ export class Host {
       if (f.endsWith(STORE_EXT)) this.addIfOpens(join(dir, f), log);
     }
     this.starting = false;
-    if (loadHostedRecord(dir) === undefined) {
+    if (!this.follower && loadHostedRecord(dir) === undefined) {
       try { firstStartRecord(dir, [...this.stores.values()].filter((s) => firstStartFiles.has(basename(s.path))).map((s) => ({ name: s.name, id: s.fileId }))); }
       catch (e) { log(`${HOSTED_RECORD_FILE} could not be written: ${(e as Error).message}`); }
     }
@@ -531,7 +531,7 @@ export class Host {
    * Files dropped into the folder that use Encryption at Rest, by file name:
    * shown as "Needs passphrase" until someone enters it (see unlock).
    */
-  readonly locked = new BoundedMap<string, { size: number; hint?: string; error?: string; uploaded?: boolean }>(1024);
+  readonly locked = new BoundedMap<string, { size: number; hint?: string; error?: string; uploaded?: boolean; by?: string }>(1024);
   /** Files whose conversion failed, by name and size; tried again only when the file changes. */
   private readonly failed = new BoundedMap<string, number>(1024);
   /** Why each failed file failed, for the admin status. */
@@ -697,13 +697,13 @@ export class Host {
    * folder as `<name>.fmp12`, to wait there for its passphrase like a file
    * dropped in (see unlock).
    */
-  parkLocked(src: string, name: string, hint?: string, uploaded = false): void {
+  parkLocked(src: string, name: string, hint?: string, uploaded = false, by?: string): void {
     this.assertOpen();
     const store = join(this.dir, name + STORE_EXT);
     const dest = join(this.dir, name + '.fmp12');
     if (this.get(name) || existsSync(store) || existsSync(store + ENCRYPTED_EXT) || existsSync(dest)) throw new Error(`A file named ${name} is already hosted`);
     renameSync(src, dest);
-    this.locked.set(name + '.fmp12', { size: statSync(dest).size, hint, uploaded });
+    this.locked.set(name + '.fmp12', { size: statSync(dest).size, hint, uploaded, by });
   }
 
   /**
@@ -735,7 +735,7 @@ export class Host {
         if (!publishConversion(temp, store)) throw new Error(`A file named ${name} is already hosted`);
         crashPoint('host-conversion:after-publish');
         this.locked.delete(file);
-        this.add(store, info.uploaded ? 'trusted' : 'found', 'upload');
+        this.add(store, info.uploaded ? 'trusted' : 'found', 'upload', info.by);
         await this.peers?.sync(name, 'open');
         log(`converted ${file}: ${r.tables} tables, ${r.records} records; now hosting ${name}`);
         return { name, ...r };
@@ -780,7 +780,7 @@ export class Host {
    * keeping the file next to its store as `<name>.fmp12`, as if it had been
    * dropped into the folder. One conversion runs at a time.
    */
-  async hostUpload(src: string, name: string, onProgress?: (p: ImportProgress) => void, signal?: AbortSignal): Promise<{ tables: number; records: number }> {
+  async hostUpload(src: string, name: string, onProgress?: (p: ImportProgress) => void, signal?: AbortSignal, by?: string): Promise<{ tables: number; records: number }> {
     return this.conversionTask(async () => {
       const store = join(this.dir, name + STORE_EXT);
       signal?.throwIfAborted();
@@ -803,7 +803,7 @@ export class Host {
         completeConversionSource(temp, store);
         rmSync(src);
         crashPoint('host-upload:after-source-rename');
-        this.add(store, 'trusted', 'upload');
+        this.add(store, 'trusted', 'upload', by);
         return r;
       } finally {
         this.converting = false;
@@ -1202,11 +1202,11 @@ export class Host {
   }
 
   /** The record remembers the name as well as the identity. A copied store under a new name is new. */
-  vetFile(store: Store, origin: 'found' | 'trusted', how: ApprovalHow = 'create'): void {
+  vetFile(store: Store, origin: 'found' | 'trusted', how: ApprovalHow = 'create', by = 'server'): void {
     if (this.starting) return;
     let writeFailed = false;
     if (origin === 'trusted' && !this.follower) {
-      try { approveInRecord(this.dir, store.name, store.fileId, 'server', how); store.held = undefined; return; }
+      try { approveInRecord(this.dir, store.name, store.fileId, by, how); store.held = undefined; return; }
       catch (e) { writeFailed = true; this.log(`${store.name}: approval could not be saved: ${(e as Error).message}`); }
     }
     const record = loadHostedRecord(this.dir);
@@ -1238,10 +1238,10 @@ export class Host {
     for (const listener of this.onApprove) listener(store);
   }
 
-  add(path: string, origin: 'found' | 'trusted' = 'found', how: ApprovalHow = 'create'): Store {
+  add(path: string, origin: 'found' | 'trusted' = 'found', how: ApprovalHow = 'create', by?: string): Store {
     this.assertOpen();
     const store = new Store(path, basename(path).slice(0, -STORE_EXT.length));
-    this.vetFile(store, origin, how);
+    this.vetFile(store, origin, how, by);
     // A copy made before migrating the file is as sensitive as the file: with encryption at rest it is kept encrypted too.
     for (const backup of store.migrationBackups) this.lock(backup);
     this.stores.set(store.name.toLowerCase(), store);

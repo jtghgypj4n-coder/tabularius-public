@@ -55,6 +55,7 @@ function writeRecord(dir: string, record: HostedRecord): void {
   let fd: number | undefined;
   let created = false;
   try {
+    rmSync(temp, { force: true });
     fd = openSync(temp, 'wx', 0o600);
     created = true;
     writeSync(fd, JSON.stringify(record) + '\n');
@@ -87,9 +88,12 @@ export function firstStartRecord(dir: string, files: { name: string; id: string 
 }
 
 /** Merge restored stores in one publication, preserving all other approvals. */
-export function approveRestoredFiles(dir: string, names: string[]): void {
+export function approveRestoredFiles(dir: string, names: string[], log: (line: string) => void = console.error): void {
   const record = loadHostedRecord(dir);
-  if (record === null) throw new Error(`${HOSTED_RECORD_FILE} is damaged; move it aside to start fresh`);
+  if (record === null) {
+    log(`${HOSTED_RECORD_FILE} is damaged; restored files are held until an administrator moves it aside and starts fresh`);
+    return;
+  }
   const files: HostedRecord['files'] = Object.assign(Object.create(null) as HostedRecord['files'], record?.files);
   for (const name of names) {
     const sql = new DatabaseSync(join(dir, name + '.openhbam.sqlite'));

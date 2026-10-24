@@ -2174,7 +2174,7 @@ export class Admin {
           throw new RestoreError(409, `A file named ${copy} is already hosted`);
         }
         try { await restorePointTo(point, target, undefined, file.path); } catch (e) { throw refused(e, 500); }
-        this.host.add(target, 'trusted', 'restore');
+        this.host.add(target, 'trusted', 'restore', 'admin console');
         await this.host.openFileEverywhere(copy);
         return { database: copy, time: new Date(point.time).toISOString(), mode };
       }

@@ -73,7 +73,7 @@ export async function createSolution(host: Host, body: { name?: unknown; changes
     for (const p of [path, `${path}-wal`, `${path}-shm`]) if (existsSync(p)) unlinkSync(p);
     throw new SolutionError(`The plan didn't apply, so no file was made: ${(e as Error).message}`);
   }
-  host.add(path, 'trusted', 'create');
+  host.add(path, 'trusted', 'create', 'admin console');
   await host.openFileEverywhere(name);
   return { database: name, changes: changes.length };
 }
