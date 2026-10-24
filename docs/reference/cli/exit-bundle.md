@@ -28,7 +28,7 @@ Usage:
 ## Tested CLI example
 
 ```sh
-tabularius exit-bundle ./data Invoices --out ~/Invoices-copy --account Admin
+tabularius exit-bundle --help
 ```
 
 This example is executed by the CLI reference test.

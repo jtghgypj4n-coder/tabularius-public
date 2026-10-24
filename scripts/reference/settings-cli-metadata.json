@@ -1432,7 +1432,7 @@
     },
     "exit-bundle": {
       "exitCodes": "0 on success; 1 on error.",
-      "example": "tabularius exit-bundle ./data Invoices --out ~/Invoices-copy --account Admin"
+      "example": "tabularius exit-bundle --help"
     }
   }
 }
