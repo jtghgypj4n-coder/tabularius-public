@@ -227,12 +227,12 @@ The following reasons apply to the exact enumerated expressions in each named fu
 | [packages/server/src/ai-output.ts:147](../../packages/server/src/ai-output.ts#L147) `storedSecretValues` | `Calculations.globalValue` (147); `Store.select` (152) | REDACTION |
 | [packages/server/src/ai-policy-sql.ts:49](../../packages/server/src/ai-policy-sql.ts#L49) `sqlFieldRefs` | `SQLite.all` (49, 51); `SQLite.prepare` (49, 51) | POLICY |
 | [packages/server/src/ai-policy.ts:338](../../packages/server/src/ai-policy.ts#L338) `sql` | `Store.inspectQuery` (338) | POLICY |
-| [packages/server/src/ai-usage.ts:186](../../packages/server/src/ai-usage.ts#L186) `AiUsage/add` | `SQLite.prepare` (186, 189) | AUTH |
-| [packages/server/src/ai-usage.ts:226](../../packages/server/src/ai-usage.ts#L226) `AiUsage/importOld` | `SQLite.prepare` (226, 236, 244, 248) | AUTH |
-| [packages/server/src/ai-usage.ts:171](../../packages/server/src/ai-usage.ts#L171) `AiUsage/month` | `SQLite.get` (171); `SQLite.prepare` (171) | AUTH |
-| [packages/server/src/ai-usage.ts:197](../../packages/server/src/ai-usage.ts#L197) `AiUsage/question` | `SQLite.prepare` (197, 199, 200, 202) | AUTH |
-| [packages/server/src/ai-usage.ts:178](../../packages/server/src/ai-usage.ts#L178) `AiUsage/recent` | `SQLite.all` (178); `SQLite.prepare` (178) | AUTH |
-| [packages/server/src/ai-usage.ts:164](../../packages/server/src/ai-usage.ts#L164) `AiUsage/today` | `SQLite.get` (164); `SQLite.prepare` (164) | AUTH |
+| [packages/server/src/ai-usage.ts:187](../../packages/server/src/ai-usage.ts#L187) `AiUsage/add` | `SQLite.prepare` (187, 190) | AUTH |
+| [packages/server/src/ai-usage.ts:227](../../packages/server/src/ai-usage.ts#L227) `AiUsage/importOld` | `SQLite.prepare` (227, 237, 245, 249) | AUTH |
+| [packages/server/src/ai-usage.ts:172](../../packages/server/src/ai-usage.ts#L172) `AiUsage/month` | `SQLite.get` (172); `SQLite.prepare` (172) | AUTH |
+| [packages/server/src/ai-usage.ts:198](../../packages/server/src/ai-usage.ts#L198) `AiUsage/question` | `SQLite.prepare` (198, 200, 201, 203) | AUTH |
+| [packages/server/src/ai-usage.ts:179](../../packages/server/src/ai-usage.ts#L179) `AiUsage/recent` | `SQLite.all` (179); `SQLite.prepare` (179) | AUTH |
+| [packages/server/src/ai-usage.ts:165](../../packages/server/src/ai-usage.ts#L165) `AiUsage/today` | `SQLite.get` (165); `SQLite.prepare` (165) | AUTH |
 | [packages/server/src/assistant.ts:2152](../../packages/server/src/assistant.ts#L2152) `Assistant/answer` | `Store.find` (2152) | ACCOUNT |
 | [packages/server/src/automations.ts:435](../../packages/server/src/automations.ts#L435) `AutomationRunner/changed` | `Store.auditLog` (435) | AUTOMATION |
 | [packages/server/src/automations.ts:466](../../packages/server/src/automations.ts#L466) `AutomationRunner/run` | `Store.select` (466); `Store.canViewRecord` (476); `Store.evaluateEach` (479); `Store.evaluate` (485) | AUTOMATION |
