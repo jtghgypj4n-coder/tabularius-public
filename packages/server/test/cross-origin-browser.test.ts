@@ -39,8 +39,9 @@ test('real Chromium cross-origin invariant matrix', { skip: !executablePath && '
   // Every test URL below resolves to one of the two loopback servers.
   const victim = await context.newPage();
   const evil = await context.newPage();
-  victim.setDefaultTimeout(5000);
-  evil.setDefaultTimeout(5000);
+  // A page load or a wait that takes minutes is a hang; one that takes ten seconds is a runner running a whole shard of other files beside this one (the macOS shard, seen at five seconds on main).
+  victim.setDefaultTimeout(30_000);
+  evil.setDefaultTimeout(30_000);
   const login = async (base: string) => {
     await victim.goto(`${base}/tabularius/health`);
     assert.equal(await victim.evaluate(async (base) => (await fetch(`${base}/tabularius/admin/v1/sign-in`, {
