@@ -963,9 +963,17 @@ tool can read, `tabularius exit-bundle` writes the whole file to a folder: every
 table, every container file, globals, serial counters, the design and the
 account names, with a manifest that proves the copy is complete.
 
+<!-- docs-example: placeholders {"<folder>": "~/Databases"} -->
 ```sh
 tabularius exit-bundle <folder> Invoices --out ~/Invoices-copy --account Admin
-tabularius exit-bundle <folder> Invoices --out ~/Invoices-copy --account Admin --discard   # remove an unfinished copy
+```
+
+If a copy stopped half way, the next run resumes it; to remove the unfinished
+copy instead:
+
+<!-- docs-example: illustrative -->
+```sh
+tabularius exit-bundle <folder> Invoices --out ~/Invoices-copy --account Admin --discard
 ```
 
 The password is asked for (or read from `TABULARIUS_PASSWORD`), never taken from

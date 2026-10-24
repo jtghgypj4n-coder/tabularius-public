@@ -1176,6 +1176,22 @@
   "why": "Unique/existing-value validation over all records; returns only pass/fail to the writer (documented FileMaker-compatible oracle)."
  },
  {
+  "file": "packages/store/src/exit-bundle.ts",
+  "within": "writeContainers",
+  "api": "Store.containerInfo",
+  "count": 1,
+  "gate": "full-access",
+  "why": "Only reached through exitBundle, which authorize() first limits to an active Full Access account that signs in with its password (isFullAccessAccount, verifyAsync, sign-in location, no second factor in use, password change not pending) and which audits the copy; the bundle exports every table and container in full for that account by design, and an account without Full Access is refused before any read."
+ },
+ {
+  "file": "packages/store/src/exit-bundle.ts",
+  "within": "writeContainers",
+  "api": "Store.containerRange",
+  "count": 1,
+  "gate": "full-access",
+  "why": "Only reached through exitBundle, which authorize() first limits to an active Full Access account that signs in with its password (isFullAccessAccount, verifyAsync, sign-in location, no second factor in use, password change not pending) and which audits the copy; the bundle exports every table and container in full for that account by design, and an account without Full Access is refused before any read."
+ },
+ {
   "file": "packages/store/src/explain-related.ts",
   "within": "explainCandidate",
   "api": "sql.prepare",
