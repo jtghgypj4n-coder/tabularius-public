@@ -132,6 +132,8 @@
   tbody tr:hover { background: color-mix(in srgb, var(--sunken) 70%, transparent); }
   th:first-child, td:first-child { padding-left: var(--s2); }
   td:first-child { font-weight: 500; }
+  /* The files table is wide: it scrolls inside its own box, which is positioned so the screen-reader-only text in its cells is cut off with it (an absolutely placed element would otherwise add to the page's width). */
+  #dbs { position: relative; overflow-x: auto; }
   td.wrap { white-space: normal; min-width: 10em; }
   td.wrap button { margin: 2px 0; }
   #dbs td.wrap { min-width: 7em; }
