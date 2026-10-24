@@ -1447,11 +1447,11 @@
     },
     "compat-check": {
       "exitCodes": "0 when no native feature lacks a compat path; 1 when there are findings or on error.",
-      "example": "tabularius compat-check ./data Invoices"
+      "example": "tabularius compat-check --help"
     },
     "upgrade-file": {
       "exitCodes": "0 on success; 1 on error.",
-      "example": "tabularius upgrade-file ./data Invoices --to native"
+      "example": "tabularius upgrade-file --help"
     }
   }
 }
