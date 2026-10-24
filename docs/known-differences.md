@@ -7,7 +7,7 @@ missing from it. `npm run docs:known-differences` rewrites it, and a test fails 
 marker (`<!-- known-difference: area ;; what ;; how it shows ;; what would settle it -->`). Internal working notes are not
 part of it.
 
-**128 entries in 21 areas.** Waiting on: 22 on a sample file, 66 on a FileMaker run or Design Report, 10 on a Claris answer, 17 on a decision by the owner (an entry can wait on more than one).
+**144 entries in 22 areas.** Waiting on: 22 on a sample file, 76 on a FileMaker run or Design Report, 10 on a Claris answer, 17 on a decision by the owner (an entry can wait on more than one).
 
 ## Data API
 

@@ -726,7 +726,7 @@ Handler: `packages/server/src/adminapi.ts`, `packages/server/src/index.ts`.
 | Method | Route | Credential / invariant |
 | --- | --- | --- |
 | POST | `/fmi/admin/api/v2/user/auth` | A: origin + Basic |
-| DELETE | `/fmi/admin/api/v2/user/auth` | B: explicit bearer; no cookie |
+| DELETE | `/fmi/admin/api/v2/user/auth` | A: origin + Basic |
 | GET | `/fmi/admin/api/v2/server/metadata` | B: explicit bearer; no cookie |
 | GET | `/fmi/admin/api/v2/server/status` | B: explicit bearer; no cookie |
 | PATCH | `/fmi/admin/api/v2/server/status` | B: explicit bearer; no cookie |
