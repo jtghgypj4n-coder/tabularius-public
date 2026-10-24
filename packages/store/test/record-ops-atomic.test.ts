@@ -343,6 +343,38 @@ test('an external container written in a held transaction keeps its marker until
   assert.ok(s.containerId('Items', id, 'Doc'));
 });
 
+test('failed pending-write marker removal logs one path-free warning per minute without failing the write', (t) => {
+  const { s, id, pending } = externalItems(t);
+  const warnings: unknown[][] = [];
+  t.mock.method(console, 'warn', (...args: unknown[]) => { warnings.push(args); });
+  let now = 100_000;
+  t.mock.method(performance, 'now', () => now);
+  const write = (filename: string) => {
+    const tx: Transaction = { files: new Map() };
+    const result = writer.run({ account: 'Alice', transaction: { open: tx } }, () =>
+      s.setContainer('Items', id, 'Doc', 1, { filename, mime: 'text/plain', data: Buffer.from(filename) }));
+    const marker = join(dirname(s.path), pending().find((name) => name.endsWith('.json') && statSync(join(dirname(s.path), name)).isFile())!);
+    rmSync(marker);
+    mkdirSync(marker);
+    endTransaction(tx, true);
+    assert.equal(s.get('Items', id).modId, result.modId);
+    assert.equal(Buffer.from(s.container(s.containerId('Items', id, 'Doc')!)!.data).toString(), filename);
+    return marker;
+  };
+  const first = write('first.txt');
+  assert.deepEqual(warnings, [[`could not remove the pending-write marker for a container file; crash recovery will clear it (ERR_FS_EISDIR)`]]);
+  assert.equal(warnings[0].join(' ').includes(first), false);
+  now += 1;
+  write('second.txt');
+  assert.equal(warnings.length, 1, 'another failure inside the minute is suppressed');
+  now -= 2_000;
+  write('third.txt');
+  assert.equal(warnings.length, 1, 'a clock edit does not emit another warning');
+  now = 160_000;
+  write('fourth.txt');
+  assert.equal(warnings.length, 2, 'a new minute permits one warning');
+});
+
 test('an external container file is only written inside a store write', (t) => {
   const { s, id } = externalItems(t);
   const write = (s as unknown as { writeExternalFile(info: unknown, id: number, field: string, file: unknown): unknown }).writeExternalFile.bind(s);

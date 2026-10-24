@@ -1447,6 +1447,7 @@ export class Store {
   private heldFiles: (() => void)[] = [];
   /** The journal markers of those files (see writeExternalFile): taken away when the transaction ends either way. */
   private heldExternalMarkers: string[] = [];
+  private lastMarkerCleanupWarningAt = Number.NEGATIVE_INFINITY;
 
   private externalMarkerPrefix(): string {
     return `.openhbam-container-pending-${createHash('sha256').update(resolve(this.path)).digest('hex').slice(0, 16)}-`;
@@ -1498,7 +1499,16 @@ export class Store {
   private finishExternalFiles(files: (() => void)[], markers: string[], keep: boolean): void {
     if (keep) {
       for (const marker of markers) {
-        try { rmSync(marker, { force: true }); } catch { /* recovery checks the committed reference */ }
+        try { rmSync(marker, { force: true }); } catch (error) {
+          // Recovery checks the committed reference. Report the leftover marker without exposing its path.
+          const now = performance.now();
+          if (now - this.lastMarkerCleanupWarningAt >= 60_000) {
+            this.lastMarkerCleanupWarningAt = now;
+            const candidate = error && typeof error === 'object' && 'code' in error ? error.code : undefined;
+            const code = typeof candidate === 'string' && /^[A-Z][A-Z0-9_]*$/.test(candidate) ? candidate : 'UNKNOWN';
+            console.warn(`could not remove the pending-write marker for a container file; crash recovery will clear it (${code})`);
+          }
+        }
       }
       return;
     }
