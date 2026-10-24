@@ -3,7 +3,7 @@ id: script-step-32
 title: "Open Help"
 area: script-steps
 since: unknown
-status: not-yet
+status: works
 verified: f200448e0
 ---
 
@@ -11,16 +11,12 @@ verified: f200448e0
 
 Open Help is a other steps script step. This page describes how the offline Tabularius engine handles it.
 
-- **Support:** does nothing
+- **Support:** works
 - **Registry ID:** 32
 
 ## What the engine does
 
-The engine accepts this step but does not perform its named action.
-Return successfully without opening their corresponding client flows.
-
-FileMaker comparisons in this note are inferred unless a Claris help page is linked. See the [full support notes](../../script-steps-support.md) for surrounding conditions.
-
+The engine has a handler for this step. Its effect depends on the named target and current script context.
 ## Options
 
 Use the Script Workspace or script text to supply the target and any positional options the step requires.
@@ -39,6 +35,7 @@ Use a synthetic local solution with an empty `Examples` table and a text field n
 
 ```script
 Open Help
+Exit Script [ Text Result: Get ( LastError ) ]
 ```
 
-**Expected end state:** With no target supplied, the step returns `0` and leaves the synthetic file’s records unchanged.
+**Expected end state:** The script result is `0`; a web client opens the hosted guides at `/docs` after the script, and an offline run opens nothing.

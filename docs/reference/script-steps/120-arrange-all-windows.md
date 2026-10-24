@@ -17,7 +17,7 @@ Arrange All Windows is a layouts and windows script step. This page describes ho
 ## What the engine does
 
 The engine accepts this step but does not perform its named action.
-Returns successfully without arranging windows.
+Returns successfully without arranging windows. Window-card arrangement is unverified: the engine has window state but no documented arrangement behavior or client action.
 
 FileMaker comparisons in this note are inferred unless a Claris help page is linked. See the [full support notes](../../script-steps-support.md) for surrounding conditions.
 

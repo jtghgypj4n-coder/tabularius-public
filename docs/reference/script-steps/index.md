@@ -173,7 +173,7 @@ A step marked **error 3** is unavailable; **does nothing** means it succeeds wit
 | [Insert Picture](56-insert-picture.md) | partly |
 | [Install Menu Set](142-install-menu-set.md) | works |
 | [Open Favorites](183-open-favorites.md) | does nothing |
-| [Open Help](32-open-help.md) | does nothing |
+| [Open Help](32-open-help.md) | works |
 | [Open Hosts](118-open-hosts.md) | does nothing |
 | [Open Manage Containers](156-open-manage-containers.md) | works |
 | [Open Manage Data Sources](140-open-manage-data-sources.md) | works |
