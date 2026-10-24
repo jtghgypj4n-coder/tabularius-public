@@ -262,14 +262,16 @@ for (const scenario of ['initial', 'locked', 'blocked']) test(`AR-server-auth-06
   host.listFilesPublicly = false;
   const registered = await call(oauth, '/oauth/register', 'POST', { client_name: 'Synthetic', redirect_uris: ['http://localhost/callback'], token_endpoint_auth_method: 'none' });
   assert.equal(registered.status, 201, registered.text);
-  const attempt = (database: string) => call(oauth, '/oauth/authorize', 'POST', new URLSearchParams({ client_id: registered.json().client_id, redirect_uri: 'http://localhost/callback', response_type: 'code', code_challenge: 'a'.repeat(43), code_challenge_method: 'S256', database, account: 'missing-account', password: 'wrong-password' }).toString(), { 'content-type': 'application/x-www-form-urlencoded' });
+  const attempt = (database: string) => call(oauth, '/oauth/authorize', 'POST', new URLSearchParams({ client_id: registered.json().client_id, redirect_uri: 'http://localhost/callback', response_type: 'code', code_challenge: 'a'.repeat(43), code_challenge_method: 'S256', database, account: 'missing-account', password: 'wrong-password', csrf: 'c'.repeat(43) }).toString(), { 'content-type': 'application/x-www-form-urlencoded', cookie: `tabularius_oauth_csrf=${'c'.repeat(43)}` });
   if (scenario === 'locked') for (let i = 0; i < 5; i++) await attempt('A');
   if (scenario === 'blocked') host.config.setBlockNewUsers(true);
   const present = await attempt('A');
   const absent = await attempt('Absent');
   assert.equal(present.status, 401, present.text);
   assert.equal(absent.status, present.status);
-  assert.equal(present.text.replaceAll('value="A"', 'value="FILE"'), absent.text.replaceAll('value="Absent"', 'value="FILE"'));
+  // Each page carries its own random CSRF token; everything else, the file name aside, is the same.
+  const same = (text: string, name: string) => text.replaceAll(`value="${name}"`, 'value="FILE"').replace(/name="csrf" value="[^"]*"/g, 'name="csrf" value="TOKEN"');
+  assert.equal(same(present.text, 'A'), same(absent.text, 'Absent'));
 });
 
 for (const failure of ['days', 'token', 'after-token'] as const) test(`AR-server-auth-07 ${failure}`, async (t) => {

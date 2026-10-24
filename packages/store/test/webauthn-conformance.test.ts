@@ -88,6 +88,7 @@ test('WebAuthn rejects rpId, origin, presence, counter, challenge and signature 
   assert.deepEqual(verifyAssertion(input), { signCount: 1 });
   for (const patch of [{ rpId: 'other' }, { origin: 'http://127.0.0.1:9' }, { challenge: 'other' }, { storedSignCount: 1 }, { signature: b64(Buffer.alloc(64)) }]) assert.throws(() => verifyAssertion({ ...input, ...patch }));
   assert.throws(() => verifyAssertion(assertion(4)), /presence/);
-  // UV is preferred, not required, by the existing client policy.
-  assert.deepEqual(verifyAssertion(assertion(1)), { signCount: 1 });
+  // User verification is required unless the caller asks for 'preferred'.
+  assert.throws(() => verifyAssertion(assertion(1)), /user verification/);
+  assert.deepEqual(verifyAssertion({ ...assertion(1), userVerification: 'preferred' }), { signCount: 1 });
 });
