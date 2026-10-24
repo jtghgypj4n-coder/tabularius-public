@@ -488,10 +488,10 @@ after(async () => {
 });
 
 async function dataApi(account: string, path: string, init: RequestInit = {}): Promise<{ code: string; body: any }> {
-  const t = await fetch(`${base}/fmi/data/vLatest/databases/Charts/sessions`, { method: 'POST', headers: { authorization: 'Basic ' + btoa(`${account}:pw`) } }).then((r) => r.json());
+  const t = await fetch(`${base}/fmi/data/vLatest/databases/Charts/sessions`, { method: 'POST', headers: { authorization: 'Basic ' + btoa(`${account}:pw`), connection: 'close' } }).then((r) => r.json());
   const token = t.response?.token;
   if (!token) return { code: String(t.messages?.[0]?.code), body: t };
-  const r = await fetch(`${base}/fmi/data/vLatest/databases/Charts/${path}`, { ...init, headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json', ...(init.headers ?? {}) } }).then((x) => x.json());
+  const r = await fetch(`${base}/fmi/data/vLatest/databases/Charts/${path}`, { ...init, headers: { connection: 'close', authorization: `Bearer ${token}`, 'content-type': 'application/json', ...(init.headers ?? {}) } }).then((x) => x.json());
   return { code: String(r.messages?.[0]?.code), body: r };
 }
 
@@ -523,21 +523,23 @@ test('Data API: edit and delete bits without view neither read, change nor delet
   assert.equal((store.query(`SELECT Party FROM Congress WHERE _fm_record_id = ${id}`)[0] as { Party: string }).Party, 'Q');
 });
 
+// Each request opens its own connection: the server and these requests share one busy process, and a pooled
+// connection that sat idle past the server's 5 s limit during a slow MCP answer is the likely cause of an ECONNRESET seen once in CI.
 async function bearer(account: string): Promise<string> {
-  const t = await fetch(`${base}/fmi/data/vLatest/databases/Charts/sessions`, { method: 'POST', headers: { authorization: 'Basic ' + btoa(`${account}:pw`) } }).then((r) => r.json());
+  const t = await fetch(`${base}/fmi/data/vLatest/databases/Charts/sessions`, { method: 'POST', headers: { authorization: 'Basic ' + btoa(`${account}:pw`), connection: 'close' } }).then((r) => r.json());
   return `Bearer ${t.response.token}`;
 }
 
 async function mcpFind(account: string): Promise<string> {
   return fetch(`${base}/mcp`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-protocol-version': '2025-06-18', authorization: 'Basic ' + btoa(`${account}:pw`) },
+    headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', 'mcp-protocol-version': '2025-06-18', connection: 'close', authorization: 'Basic ' + btoa(`${account}:pw`) },
     body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'find_records', arguments: { database: 'Charts', layout: 'Congress', limit: 600 } } }),
   }).then((r) => r.text());
 }
 
 test('web client and MCP refuse a set whose layout byte was not understood, as the Data API does', { skip: skipLive }, async () => {
-  const web = async (who: string) => fetch(`${base}/tabularius/app/v1/databases/Charts/layouts/Congress`, { headers: { authorization: await bearer(who) } }).then((r) => r.status);
+  const web = async (who: string) => fetch(`${base}/tabularius/app/v1/databases/Charts/layouts/Congress`, { headers: { authorization: await bearer(who), connection: 'close' } }).then((r) => r.status);
   // Controls: the same requests work for a full-access account, so the refusals below are the privilege.
   assert.equal(await web('Admin'), 200, 'web client control');
   const control = await mcpFind('Admin');
