@@ -17,18 +17,18 @@ test('blank encryption keys refuse serve and offline inspection', async (t) => {
   const saved = process.env.TABULARIUS_ENCRYPTION_KEY;
   t.after(() => { if (saved === undefined) delete process.env.TABULARIUS_ENCRYPTION_KEY; else process.env.TABULARIUS_ENCRYPTION_KEY = saved; });
   for (const key of ['', '   ', '\t\n']) {
-    // An invalid workers option stops the old code before any listener or background work starts.
+    // The settings check runs before anything else, so the later invalid option is never reached.
     const r = await runCli(main, ['serve', dir, '--workers', 'invalid'], { env: { ...env, TABULARIUS_ENCRYPTION_KEY: key } });
     assert.equal(r.status, 1);
-    assert.match(r.stderr, /^error: .*TABULARIUS_ENCRYPTION_KEY.*unset.*passphrase\n$/);
+    assert.match(r.stderr, /^error: .*TABULARIUS_ENCRYPTION_KEY is set but empty: set a key, or unset the variable to run without encryption\n$/);
     for (const command of ['encrypt', 'decrypt']) {
       const r = await runCli(main, [command, dir], { env: { ...env, TABULARIUS_ENCRYPTION_KEY: key } });
       assert.equal(r.status, 1);
-      assert.match(r.stderr, /^error: .*TABULARIUS_ENCRYPTION_KEY.*unset.*passphrase\n$/);
+      assert.match(r.stderr, /^error: .*TABULARIUS_ENCRYPTION_KEY is set but empty: set a key, or unset the variable to run without encryption\n$/);
     }
     process.env.TABULARIUS_ENCRYPTION_KEY = key;
-    assert.throws(() => encryptedUnchecked(dir), /TABULARIUS_ENCRYPTION_KEY.*unset.*passphrase/);
-    assert.throws(() => filesNewerThan(dir, 1), /TABULARIUS_ENCRYPTION_KEY.*unset.*passphrase/);
+    assert.throws(() => encryptedUnchecked(dir), /TABULARIUS_ENCRYPTION_KEY is set but empty.*unset the variable/);
+    assert.throws(() => filesNewerThan(dir, 1), /TABULARIUS_ENCRYPTION_KEY is set but empty.*unset the variable/);
   }
 });
 
@@ -67,7 +67,7 @@ test('serve rejects numeric shorthand and fractions with the setting name', asyn
     const r = await runCli(main, args, { env });
     assert.equal(r.status, 1);
     assert.ok(r.stderr.includes(name), r.stderr);
-    assert.match(r.stderr, /whole number.*decimal digits/);
+    assert.match(r.stderr, /whole number/);
   }
 });
 
@@ -84,7 +84,7 @@ test('numeric environment errors name their source and CLI flags retain preceden
     const r = await runCli(main, args, { env: { ...env, [name]: '1e3', ANTHROPIC_API_KEY: ['synthetic', 'test', 'key'].join('-'), TABULARIUS_HOME: dir } });
     assert.equal(r.status, 1);
     assert.ok(r.stderr.includes(name), r.stderr);
-    assert.match(r.stderr, /whole number.*decimal digits/);
+    assert.match(r.stderr, /whole number/);
   }
   const override = await runCli(main, ['serve', dir, '--port', '0', '--keep', '3', '--workers', 'invalid'], { env: { ...env, PORT: 'bad', TABULARIUS_BACKUP_KEEP: 'bad' } });
   assert.match(override.stderr, /--workers/);

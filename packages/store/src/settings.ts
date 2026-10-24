@@ -86,6 +86,7 @@ export const SECRET_SETTINGS: readonly string[] = [
 export const NOT_SECRET_SETTINGS: readonly string[] = [
   'TABULARIUS_AI_ACCOUNT_DAILY_TOKENS',
   'TABULARIUS_AI_DAILY_TOKENS',
+  'TABULARIUS_AI_RUN_TOKENS',
   'TABULARIUS_MIN_PASSWORD_LENGTH',
   'TABULARIUS_SYNC_SECRETS',
   'TABULARIUS_TOKEN_DEFAULT_DAYS',
@@ -139,6 +140,11 @@ export function checkServeSettings(env: Env = process.env): void {
   check(() => wholeNumber('TABULARIUS_SQL_PORT', { max: 65535, env }));
   check(() => wholeNumber('TABULARIUS_HTTP_PORT', { max: 65535, env }));
   if (env.TABULARIUS_WORKERS !== undefined && env.TABULARIUS_WORKERS.trim() !== 'auto') check(() => wholeNumber('TABULARIUS_WORKERS', { min: 1, max: 64, env }));
+  check(() => wholeNumber('TABULARIUS_MAX_UPLOAD_IN_PROGRESS', { min: 1, env }));
+  check(() => wholeNumber('TABULARIUS_REQUEST_LIMIT', { min: 4, env }));
+  check(() => wholeNumber('TABULARIUS_WARM_HEAP_MB', { min: 1, env }));
+  check(() => wholeNumber('TABULARIUS_PGWIRE_MAX_BUFFERED_ROWS', { min: 1, env }));
+  check(() => wholeNumber('TABULARIUS_DRAIN_SECONDS', { min: 1, max: 86400, env }));
   for (const name of ['TABULARIUS_SQL_WRITES', 'TABULARIUS_LIST_FILES_PUBLICLY', 'TABULARIUS_ALLOW_PLAIN_HTTP']) check(() => boolean(name, { env }));
   check(() => boolean('TABULARIUS_OIDC_TRUST_EMAIL', { env, words: 'strict' }));
   if (problems.length) throw new Error(problems.join('\n'));

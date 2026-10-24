@@ -176,9 +176,9 @@ The following reasons apply to the exact enumerated expressions in each named fu
 | [packages/cli/src/diagnostics.ts:204](../../packages/cli/src/diagnostics.ts#L204) `designCopy` | `SQLite.all` (204); `SQLite.prepare` (204, 207) | OPERATOR |
 | [packages/cli/src/diagnostics.ts:443](../../packages/cli/src/diagnostics.ts#L443) `diagnostics` | `SQLite.get` (443); `SQLite.prepare` (443, 447); `SQLite.all` (447) | OPERATOR |
 | [packages/cli/src/doctor.ts:139](../../packages/cli/src/doctor.ts#L139) `accountChecks` | `SQLite.all` (139); `SQLite.prepare` (139) | OPERATOR |
-| [packages/cli/src/main.ts:702](../../packages/cli/src/main.ts#L702) `accountsWithPasswordOff` | `SQLite.all` (702); `SQLite.prepare` (702) | OPERATOR |
-| [packages/cli/src/main.ts:731](../../packages/cli/src/main.ts#L731) `hostedRead` | `SQLite.all` (731, 734); `SQLite.prepare` (731, 734); `Store.sql` (731, 734) | OPERATOR |
-| [packages/cli/src/main.ts:2389](../../packages/cli/src/main.ts#L2389) `main` | `Store.orphanContainerReport` (2389); `Store.auditLog` (2862); `SQLite.get` (3078); `SQLite.prepare` (3078) | OPERATOR |
+| [packages/cli/src/main.ts:703](../../packages/cli/src/main.ts#L703) `accountsWithPasswordOff` | `SQLite.all` (703); `SQLite.prepare` (703) | OPERATOR |
+| [packages/cli/src/main.ts:732](../../packages/cli/src/main.ts#L732) `hostedRead` | `SQLite.all` (732, 735); `SQLite.prepare` (732, 735); `Store.sql` (732, 735) | OPERATOR |
+| [packages/cli/src/main.ts:2391](../../packages/cli/src/main.ts#L2391) `main` | `Store.orphanContainerReport` (2391); `Store.auditLog` (2864); `SQLite.get` (3080); `SQLite.prepare` (3080) | OPERATOR |
 | [packages/scripts/src/data-api-step.ts:104](../../packages/scripts/src/data-api-step.ts#L104) `respond` | `Store.get` (104, 131, 140); `Store.find` (105, 117) | SCRIPT |
 | [packages/scripts/src/engine.ts:7948](../../packages/scripts/src/engine.ts#L7948) `ScriptEngine/containerFile` | `Store.get` (7948); `Store.containerId` (7949); `Store.container` (7950) | SCRIPT |
 | [packages/scripts/src/engine.ts:5566](../../packages/scripts/src/engine.ts#L5566) `ScriptEngine/design` | `Store.valueListItems` (5566) | SCRIPT |
@@ -248,15 +248,15 @@ The following reasons apply to the exact enumerated expressions in each named fu
 | [packages/server/src/backup-verify.ts:188](../../packages/server/src/backup-verify.ts#L188) `integrity` | `SQLite.all` (188); `SQLite.prepare` (188, 192); `SQLite.get` (192) | OPERATOR |
 | [packages/server/src/backup-verify.ts:218](../../packages/server/src/backup-verify.ts#L218) `pageCheck` | `SQLite.all` (218); `SQLite.prepare` (218, 221); `SQLite.get` (221) | OPERATOR |
 | [packages/server/src/backup-verify.ts:148](../../packages/server/src/backup-verify.ts#L148) `testRestore` | `Store.recordCount` (148) | OPERATOR |
-| [packages/server/src/backup.ts:997](../../packages/server/src/backup.ts#L997) `accountDifferences/read` | `SQLite.all` (997, 999); `SQLite.prepare` (997, 999) | OPERATOR |
-| [packages/server/src/backup.ts:268](../../packages/server/src/backup.ts#L268) `backupOnceHeld` | `SQLite.get` (268); `SQLite.prepare` (268) | OPERATOR |
-| [packages/server/src/backup.ts:1070](../../packages/server/src/backup.ts#L1070) `columnInfo` | `SQLite.all` (1070); `SQLite.prepare` (1070) | OPERATOR |
-| [packages/server/src/backup.ts:1054](../../packages/server/src/backup.ts#L1054) `credentialsReadable` | `SQLite.all` (1054); `SQLite.prepare` (1054) | OPERATOR |
-| [packages/server/src/backup.ts:1024](../../packages/server/src/backup.ts#L1024) `readNames` | `SQLite.all` (1024); `SQLite.prepare` (1024) | OPERATOR |
-| [packages/server/src/backup.ts:1105](../../packages/server/src/backup.ts#L1105) `reconcileCredentials` | `SQLite.all` (1105, 1127, 1142, 1152, 1158); `SQLite.prepare` (1105, 1113, 1127, 1129, 1142, 1143, 1150, 1152, 1153, 1158, 1159, 1163, 1164, 1165); `SQLite.get` (1113, 1163) | OPERATOR |
-| [packages/server/src/backup.ts:1132](../../packages/server/src/backup.ts#L1132) `reconcileCredentials/accountColumns` | `SQLite.all` (1132); `SQLite.prepare` (1132) | OPERATOR |
-| [packages/server/src/backup.ts:1108](../../packages/server/src/backup.ts#L1108) `reconcileCredentials/has` | `SQLite.all` (1108); `SQLite.prepare` (1108) | OPERATOR |
-| [packages/server/src/backup.ts:1277](../../packages/server/src/backup.ts#L1277) `stageRestorePoint` | `SQLite.get` (1277, 1279, 1280); `SQLite.prepare` (1277, 1279, 1280) | OPERATOR |
+| [packages/server/src/backup.ts:998](../../packages/server/src/backup.ts#L998) `accountDifferences/read` | `SQLite.all` (998, 1000); `SQLite.prepare` (998, 1000) | OPERATOR |
+| [packages/server/src/backup.ts:269](../../packages/server/src/backup.ts#L269) `backupOnceHeld` | `SQLite.get` (269); `SQLite.prepare` (269) | OPERATOR |
+| [packages/server/src/backup.ts:1071](../../packages/server/src/backup.ts#L1071) `columnInfo` | `SQLite.all` (1071); `SQLite.prepare` (1071) | OPERATOR |
+| [packages/server/src/backup.ts:1055](../../packages/server/src/backup.ts#L1055) `credentialsReadable` | `SQLite.all` (1055); `SQLite.prepare` (1055) | OPERATOR |
+| [packages/server/src/backup.ts:1025](../../packages/server/src/backup.ts#L1025) `readNames` | `SQLite.all` (1025); `SQLite.prepare` (1025) | OPERATOR |
+| [packages/server/src/backup.ts:1106](../../packages/server/src/backup.ts#L1106) `reconcileCredentials` | `SQLite.all` (1106, 1128, 1143, 1153, 1159); `SQLite.prepare` (1106, 1114, 1128, 1130, 1143, 1144, 1151, 1153, 1154, 1159, 1160, 1164, 1165, 1166); `SQLite.get` (1114, 1164) | OPERATOR |
+| [packages/server/src/backup.ts:1133](../../packages/server/src/backup.ts#L1133) `reconcileCredentials/accountColumns` | `SQLite.all` (1133); `SQLite.prepare` (1133) | OPERATOR |
+| [packages/server/src/backup.ts:1109](../../packages/server/src/backup.ts#L1109) `reconcileCredentials/has` | `SQLite.all` (1109); `SQLite.prepare` (1109) | OPERATOR |
+| [packages/server/src/backup.ts:1278](../../packages/server/src/backup.ts#L1278) `stageRestorePoint` | `SQLite.get` (1278, 1280, 1281); `SQLite.prepare` (1278, 1280, 1281) | OPERATOR |
 | [packages/server/src/calendar.ts:389](../../packages/server/src/calendar.ts#L389) `CalendarFeeds/feed` | `Store.find` (389) | CALENDAR |
 | [packages/server/src/changes.ts:195](../../packages/server/src/changes.ts#L195) `ChangeFeed/visible` | `Store.canViewRecord` (195) | CHANGE |
 | [packages/server/src/cleanup.ts:1045](../../packages/server/src/cleanup.ts#L1045) `CleanupJournal/add` | `SQLite.prepare` (1045); `Store.sql` (1045) | CLEANUP |
@@ -935,7 +935,7 @@ The following reasons apply to the exact enumerated expressions in each named fu
 | [packages/store/src/text-styles.ts:94](../../packages/store/src/text-styles.ts#L94) `TextStyles/rows` | `SQLite.all` (94) | CORE |
 | [packages/store/src/text-styles.ts:73](../../packages/store/src/text-styles.ts#L73) `TextStyles/st` | `SQLite.prepare` (73) | CORE |
 | [packages/store/src/text-styles.ts:22](../../packages/store/src/text-styles.ts#L22) `ensureTextStyles` | `SQLite.all` (22, 26); `SQLite.prepare` (22, 26) | CORE |
-| [packages/store/src/trace.ts:152](../../packages/store/src/trace.ts#L152) `traceDatabase/get` | `SQLite.prepare` (152) | CORE |
+| [packages/store/src/trace.ts:150](../../packages/store/src/trace.ts#L150) `traceDatabase/get` | `SQLite.prepare` (150) | CORE |
 | [packages/store/src/words.ts:155](../../packages/store/src/words.ts#L155) `WordIndexes/dropAll` | `SQLite.all` (155); `SQLite.prepare` (155) | CORE |
 | [packages/store/src/words.ts:78](../../packages/store/src/words.ts#L78) `WordIndexes/ensure` | `SQLite.prepare` (78, 82); `SQLite.get` (81); `SQLite.all` (82) | CORE |
 | [packages/store/src/words.ts:85](../../packages/store/src/words.ts#L85) `WordIndexes/ensure/covers` | `SQLite.get` (85, 89); `SQLite.all` (86); `SQLite.prepare` (86, 89) | CORE |

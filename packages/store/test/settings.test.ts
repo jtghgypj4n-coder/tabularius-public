@@ -98,6 +98,10 @@ test('checkServeSettings refuses an empty key, a bad number or switch, and a nea
   assert.match(message({ TABULARIUS_CONVERT_MEMORY: '1e3' }), /TABULARIUS_CONVERT_MEMORY.*whole number/);
   assert.match(message({ TABULARIUS_CONVERT_TIMEOUT: '' }), /TABULARIUS_CONVERT_TIMEOUT.*whole number/);
   assert.match(message({ TABULARIUS_SQL_PORT: '1e3' }), /TABULARIUS_SQL_PORT/);
+  for (const [name, bad] of [['TABULARIUS_MAX_UPLOAD_IN_PROGRESS', '0'], ['TABULARIUS_REQUEST_LIMIT', '3'], ['TABULARIUS_WARM_HEAP_MB', '1e3'], ['TABULARIUS_PGWIRE_MAX_BUFFERED_ROWS', ''], ['TABULARIUS_DRAIN_SECONDS', '86401']]) {
+    assert.match(message({ [name]: bad }), new RegExp(`${name} .*whole number`), name);
+  }
+  assert.doesNotThrow(() => checkServeSettings({ TABULARIUS_MAX_UPLOAD_IN_PROGRESS: '512', TABULARIUS_REQUEST_LIMIT: '4', TABULARIUS_WARM_HEAP_MB: '256', TABULARIUS_PGWIRE_MAX_BUFFERED_ROWS: '10', TABULARIUS_DRAIN_SECONDS: '20' }));
   assert.match(message({ TABULARIUS_TRACE_SQL: 'sometimes' }), /TABULARIUS_TRACE_SQL/);
   assert.match(message({ TABULARIUS_OIDC_TRUST_EMAIL: 'on' }), /TABULARIUS_OIDC_TRUST_EMAIL.*"on"/);
   assert.match(message({ TABULARIUS_ENCRYPTON_KEY: 'x' }), /TABULARIUS_ENCRYPTON_KEY is not a setting/);

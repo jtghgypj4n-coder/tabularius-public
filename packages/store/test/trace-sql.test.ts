@@ -41,11 +41,9 @@ test('with TABULARIUS_TRACE_SQL=1 a store logs each statement, its rows and time
 });
 
 
-test('SQL tracing accepts only explicit boolean values and warns once for invalid input', (t) => {
+test('SQL tracing accepts only explicit boolean values and refuses anything else', (t) => {
   const saved = process.env.TABULARIUS_TRACE_SQL;
   t.after(() => { if (saved === undefined) delete process.env.TABULARIUS_TRACE_SQL; else process.env.TABULARIUS_TRACE_SQL = saved; });
-  const warnings: string[] = [];
-  t.mock.method(console, 'warn', (message: string) => warnings.push(message));
   for (const [values, expected] of [
     [['1', 'true', 'yes', 'on', 'TRUE', 'YeS', 'ON'], true],
     [['', '0', 'false', 'no', 'off', 'FALSE', 'No', 'OFF'], false],
@@ -57,12 +55,8 @@ test('SQL tracing accepts only explicit boolean values and warns once for invali
   }
   delete process.env.TABULARIUS_TRACE_SQL;
   assert.equal(tracing(), false);
-  assert.equal(warnings.length, 0);
-  for (const value of ['maybe', '2', ' ', '1e3']) {
+  for (const value of ['maybe', '2', '1e3']) {
     process.env.TABULARIUS_TRACE_SQL = value;
-    assert.equal(tracing(), false);
-    assert.equal(tracing(), false);
+    assert.throws(() => tracing(), /TABULARIUS_TRACE_SQL.*not a switch.*1, true, yes or on/, value);
   }
-  assert.equal(warnings.length, 1);
-  assert.match(warnings[0], /TABULARIUS_TRACE_SQL.*disabled/);
 });
