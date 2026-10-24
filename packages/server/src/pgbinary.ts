@@ -1,7 +1,7 @@
 // PostgreSQL's binary format for values, for clients that ask for it: asyncpg
 // and Npgsql use it for every value whose type they know, and psycopg and
 // pgjdbc can. Results come in the column types the Postgres wire server
-// describes (text, numeric, bool, bytea, int8, uuid, jsonb); parameters come in
+// describes (including date, time and timestamp); parameters come in
 // the types the client named at Parse (or a cast in the query names), and are
 // read into the value the text format gives, so a query sees the same thing
 // whichever format the client picked. Booleans are the exception: 1 or 0, as

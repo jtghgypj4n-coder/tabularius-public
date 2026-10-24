@@ -111,3 +111,10 @@ test('packages reject a compressed multi-entry bomb before any inflation', () =>
   assert.throws(() => installPackage(data, bytes, { allowUnsigned: true }), /over 20971520 bytes unpacked/);
   assert.equal(existsSync(join(data, 'plugins')), false);
 });
+
+test('packages with more than 4096 entries, or an entry that unpacks to over 1000 times its size, are refused in plain words', () => {
+  const many = zip(Array.from({ length: 4097 }, (_, i) => ({ name: `f${i}`, data: Buffer.from('x') })));
+  assert.throws(() => readPackage(many), /not a plug-in package: the archive holds 4097 entries; more than 4096 are not read/);
+  const bomb = zip([{ name: 'plugin.json', data: Buffer.from('{}') }, { name: 'main.js', data: Buffer.alloc(4 * 1024 * 1024) }]);
+  assert.throws(() => readPackage(bomb), /not a plug-in package: main\.js unpacks to 4194304 bytes from \d+, more than 1000 times its size/);
+});

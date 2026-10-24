@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { createStore, Store } from '../src/index.ts';
+import { API_TOKEN_DEFAULT_DAYS, API_TOKEN_MAX_DAYS, createStore, Store, StoreError } from '../src/index.ts';
 
 function setup(t: TestContext) {
   const dir = mkdtempSync(join(tmpdir(), 'mutation-api-token-'));
@@ -31,7 +31,7 @@ test('expiry edits and account deactivation take effect on the next token verifi
   assert.deepEqual(store.apiToken(token), { account: 'Person', readOnly: true, surfaces: ['fmrest'], provenance: 'service' });
   store.sql.prepare('UPDATE _fm_api_tokens SET expires = ? WHERE id = ?').run(new Date(now - 60_000).toISOString(), idOf(token));
   assert.equal(store.apiToken(token), undefined);
-  store.sql.prepare('UPDATE _fm_api_tokens SET expires = NULL WHERE id = ?').run(idOf(token));
+  store.sql.prepare('UPDATE _fm_api_tokens SET expires = ? WHERE id = ?').run(new Date(now + 60_000).toISOString(), idOf(token));
   assert.ok(store.apiToken(token));
   store.setAccountActive('Person', false); assert.equal(store.apiToken(token), undefined);
   // Turning the account back on does not bring back what was issued before it was turned off.
@@ -73,4 +73,23 @@ test('an identity mapping is checked independently of the token account and surv
   store.schema.accounts.push({ ...store.schema.accounts[0], name: 'Orphan', external: true });
   const orphan = store.createApiToken('Person', { identity: { ...identity, mapping: 'Orphan' } });
   assert.equal(store.apiToken(orphan), undefined, 'legacy external metadata cannot stand in for an existing account');
+});
+
+test('every API token expires: one made without a date gets the default, a date too far out is refused, and one stored without a date no longer works', (t) => {
+  const store = setup(t), day = 86_400_000;
+  const plain = store.createApiToken('Person');
+  const made = store.apiTokens().find((x) => plain.startsWith(`ohbt_${x.id}.`))!;
+  assert.ok(Math.abs((Date.parse(made.expires!) - Date.now()) / day - API_TOKEN_DEFAULT_DAYS) < 0.01, 'the default lifetime');
+  assert.equal(made.needsReissue, undefined);
+  assert.ok(store.apiToken(plain));
+  store.createApiToken('Person', { expires: new Date(Date.now() + API_TOKEN_MAX_DAYS * day - 60_000) });
+  for (const far of [new Date(Date.now() + (API_TOKEN_MAX_DAYS + 1) * day), new Date(Number.NaN)]) {
+    assert.throws(() => store.createApiToken('Person', { expires: far }), (e) => e instanceof StoreError && e.code === 960 && /at most 3650 days/.test(e.message));
+  }
+  // A token from before this rule has no date: it is refused, and listed as needing to be made again.
+  store.sql.prepare('UPDATE _fm_api_tokens SET expires = NULL WHERE id = ?').run(idOf(plain));
+  assert.equal(store.apiToken(plain), undefined);
+  const listed = store.apiTokens().find((x) => x.id === idOf(plain))!;
+  assert.equal(listed.needsReissue, true);
+  assert.equal(listed.expires, undefined);
 });

@@ -130,3 +130,46 @@ test('unzip gives a domain error for a damaged deflate stream and checksum', () 
   view.setUint32(14, 0, true);
   assert.throws(() => unzip(checksum), /a has a damaged zip entry checksum/);
 });
+
+test('BE_Unzip refuses an entry name with a colon or a backslash, before writing anything', () => {
+  for (const bad of ['notes 10:30.txt', 'C:/Windows/x.txt', 'a\\b.txt', 'dir/file.txt:stream', 'x:']) {
+    const archive = zip([{ name: 'fine.txt', data: Buffer.from('ok') }, { name: bad, data: Buffer.from('no') }]);
+    let writes = 0;
+    const ctx = { files: { read: () => archive, size: () => archive.length, write: () => { writes++; return true; }, makeFolder: () => 0 } };
+    for (const name of ['BE_Unzip', 'BE_Unzip_Deprecated']) {
+      assert.equal(evaluateText(`${name} ( "in.zip" ; "out" )`, ctx), '?', bad);
+      assert.match(evaluateText('BE_JSON_Error_Description', ctx), /colon or a backslash/, bad);
+    }
+    assert.equal(writes, 0, `nothing is written for ${bad}`);
+  }
+  const fine = zip([{ name: 'dir/', data: Buffer.alloc(0) }, { name: 'dir/a b.txt', data: Buffer.from('ok') }]);
+  const written: string[] = [];
+  const ctx = { files: { read: () => fine, size: () => fine.length, write: (path: string) => { written.push(path); return true; }, makeFolder: () => 0 } };
+  assert.equal(evaluateText('BE_Unzip ( "in.zip" ; "out" )', ctx), 'out/dir/a b.txt');
+  assert.deepEqual(written, ['out/dir/a b.txt']);
+});
+
+test('unzip can refuse an archive by its entry count and an entry by its compression ratio', () => {
+  const many = zip(Array.from({ length: 5 }, (_, i) => ({ name: `f${i}`, data: Buffer.from('x') })));
+  assert.equal(unzip(many, { maxEntries: 5 }).length, 5);
+  assert.throws(() => unzip(many, { maxEntries: 4 }), /holds 5 entries; more than 4 are not read/);
+  const zeros = zip([{ name: 'zeros.bin', data: Buffer.alloc(1024 * 1024) }]);
+  assert.equal(unzip(zeros).length, 1, 'no ratio limit unless asked for');
+  assert.throws(() => unzip(zeros, { maxRatio: 1000 }), /zeros\.bin unpacks to 1048576 bytes from \d+, more than 1000 times its size/);
+  const text = zip([{ name: 'a.txt', data: Buffer.from('hello hello hello hello '.repeat(100)) }]);
+  assert.equal(unzip(text, { maxRatio: 1000 })[0].data.length, 2400);
+});
+
+test('BE_Unzip refuses an archive of more than 4096 entries, or an entry that unpacks to over 1000 times its size, and writes nothing', () => {
+  const many = zip(Array.from({ length: 4097 }, (_, i) => ({ name: `f${i}`, data: Buffer.from('x') })));
+  const zeros = zip([{ name: 'zeros.bin', data: Buffer.alloc(4 * 1024 * 1024) }]);
+  for (const [archive, message] of [[many, /holds 4097 entries; more than 4096/], [zeros, /zeros\.bin unpacks to 4194304 bytes from \d+, more than 1000 times/]] as const) {
+    let writes = 0;
+    const ctx = { files: { read: () => archive, size: () => archive.length, write: () => { writes++; return true; }, makeFolder: () => 0 } };
+    for (const name of ['BE_Unzip', 'BE_Unzip_Deprecated']) {
+      assert.equal(evaluateText(`${name} ( "in.zip" ; "out" )`, ctx), '?');
+      assert.match(evaluateText('BE_JSON_Error_Description', ctx), message);
+    }
+    assert.equal(writes, 0);
+  }
+});

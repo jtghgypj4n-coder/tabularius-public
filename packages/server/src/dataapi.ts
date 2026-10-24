@@ -34,7 +34,7 @@ import { assertAiPolicy } from './ai-policy.ts';
 import { AUTH_BODY_LIMIT, drainSmallBody } from './request-body.ts';
 import { assertRequestJsonBounds, JsonDepthError, JsonSizeError, JsonNumberError, MAX_JSON_QUERY_BYTES, parseRequestJson } from './request-json.ts';
 import { PASSKEY_SECOND_FACTOR_REQUIRED } from '../../store/src/error-codes.ts';
-import { sharedSource } from '../../store/src/sign-in-failures.ts';
+import { SignInFailures, sharedSource } from '../../store/src/sign-in-failures.ts';
 import { publicPasswordLockout } from './password-login-policy.ts';
 import { noteSurfaceSignIn } from './surface-access.ts';
 import { requestOrigin } from './public-origin.ts';
@@ -46,7 +46,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MultipartLimits, MultipartLimitError } from './multipart-limits.ts';
-import { type ContainerFile, plainMessage, explainAccessDenial, fieldDisplayTypes, fieldMetaData, type AccessDenial, PrivilegeError, StoreError, endTransaction, spendPasswordCheck, writer, type DateFormat, type FindOptions, type PortalPaging, type SortSpec, Privileges, type Store, type StoredRecord, type Transaction } from '../../store/src/index.ts';
+import { type ContainerFile, plainMessage, explainAccessDenial, fieldDisplayTypes, fieldMetaData, type AccessDenial, PrivilegeError, StoreError, endTransaction, spendPasswordCheck, spendRecoveryCodeCheck, writer, type DateFormat, type FindOptions, type PortalPaging, type SortSpec, Privileges, type Store, type StoredRecord, type Transaction } from '../../store/src/index.ts';
 import { ScriptError, ScriptSession, runScript, scriptDenial, type ClientWindow } from '../../scripts/src/index.ts';
 import { cleanRuns, type StyleRun } from '../../calc/src/index.ts';
 import type { Field, OrderedItem } from '../../fmp12/src/schema.ts';
@@ -64,6 +64,7 @@ import { faultLog, logFaultFor, type FaultLog } from './fault-log.ts';
 import { canonicalJson, decimalNumberText } from '../../store/src/native-types.ts';
 import { openApiDocument } from './openapi.ts';
 import { SERVER_VERSION } from './version.ts';
+import { sameSecret } from './secrets.ts';
 
 /** The longest a web-client session whose set turns idle-disconnect off may sit idle: a hard cap, so none lives forever. */
 const KEEP_ALIVE_MAX_MS = 24 * 60 * 60 * 1000;
@@ -867,6 +868,8 @@ export class DataApi {
 
   private readonly host: Host;
   private readonly sessions = new Map<string, Session>();
+  /** Failed recovery-code requests for names with no file behind them: the same accounting as a file's, in a separate bounded budget. */
+  private readonly unhostedRecoveryFailures = new SignInFailures();
   /** Per-process ceiling also covers churning accounts and scoped API tokens. */
   readonly maxSessions = 2048;
   private readonly containerUploads = new ContainerUploads();
@@ -1198,6 +1201,12 @@ export class DataApi {
     this.sessions.set(session.token, session);
   }
 
+  /** Open local sessions for one hosted file, including web and Data API sessions. */
+  sessionCountForFile(name: string): number {
+    const key = name.toLowerCase();
+    return [...this.sessions.values()].filter((session) => session.db.toLowerCase() === key).length;
+  }
+
   /**
    * Ends sessions that have timed out, at most once a minute, as new ones
    * open. Clients that sign in and never sign out would otherwise leave
@@ -1268,7 +1277,7 @@ export class DataApi {
     ].some((name) => name !== undefined && name.toLowerCase() === wanted);
     let ended = 0;
     for (const s of [...this.sessions.values()]) {
-      if (s.db.toLowerCase() !== db.toLowerCase() || !matches(s) || s.token === except) continue;
+      if (s.db.toLowerCase() !== db.toLowerCase() || !matches(s) || sameSecret(s.token, except)) continue;
       this.end(s.token, 'was signed out by the administrator');
       ended++;
     }
@@ -1727,7 +1736,18 @@ export class DataApi {
       if (p[3] === 'recovery' && method === 'POST') {
         const body = await readJson(req, AUTH_BODY_LIMIT);
         if (!this.host.get(db) && !this.host.listFilesPublicly) {
-          // A hosted file checks a recovery code by its hash, with no password check: nothing to spend here either.
+          // A hosted file checks a code against a set of slow hashes: spend the same, so the time does not say which files
+          // exist. That cost is charged to the caller first and refused cheaply once its budget is gone, as a hosted file does.
+          const from = clientAddress(req);
+          const failures = this.unhostedRecoveryFailures;
+          const blocked = failures.addressLockedOut(from);
+          if (blocked) throw lockedOutError(blocked);
+          const account = typeof body.account === 'string' ? body.account : '';
+          const key = failures.accountKey(account, from, db);
+          if (failures.lockedOut(key, from) === undefined) {
+            failures.record(key, from, false);
+            if (account) await spendRecoveryCodeCheck(typeof body.code === 'string' ? body.code : '');
+          }
           throw new ApiError(212, 'That recovery code is not valid', 401);
         }
         const store = this.store(db);
@@ -1736,7 +1756,7 @@ export class DataApi {
         const from = clientAddress(req);
         const blocked = store.addressLockedOut(from);
         if (blocked) throw lockedOutError(blocked);
-        if (!account || !store.useRecoveryCode(account, code, from)) {
+        if (!account || !await store.useRecoveryCodeAsync(account, code, from)) {
           // Named failures are charged by the store before it admits a new failure key.
           if (!account) store.countAddressFailure(from);
           store.auditSignIn(account || '(no account)', from, false, 'recovery-code');

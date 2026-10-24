@@ -57,7 +57,7 @@ export interface MetricSources {
   diskFree?(): { area: string; path: string }[];
   /** How the system says what is free (statfs; replaced in tests). */
   statfs?: StatFs;
-  standbys?(): { from: string; file: string; behind: number; at: number }[];
+  standbys?(): { from: string; file: string; behind: number; lagSeconds: number; at: number }[];
 }
 
 export interface CallTotals {
@@ -271,6 +271,7 @@ export class Metrics {
       const standbys = s.standbys?.() ?? [];
       if (standbys.length) {
         metric('tabularius_standby_behind', 'gauge', 'Changes each standby has yet to copy, by standby address and file.', standbys.map((c) => [{ standby: c.from, file: c.file }, c.behind]));
+        metric('tabularius_standby_lag_seconds', 'gauge', 'Seconds since the oldest change each standby has yet to copy was taken (0 when caught up)', standbys.map((c) => [{ standby: c.from, file: c.file }, c.lagSeconds]));
         metric('tabularius_standby_last_seen_timestamp_seconds', 'gauge', 'When each standby last asked for changes (Unix time).', standbys.map((c) => [{ standby: c.from, file: c.file }, c.at / 1000]));
       }
     }

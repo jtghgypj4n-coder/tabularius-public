@@ -17,6 +17,7 @@
 
 import { readJsonStateSync, updateJsonStateSync } from '../../store/src/durable.ts';
 import { redactDiagnosticText } from '../../scripts/src/redaction.ts';
+import { secret } from '../../store/src/settings.ts';
 import { createHash, createHmac } from 'node:crypto';
 import { closeSync, constants as fsConstants, createWriteStream, existsSync, mkdirSync, openSync, readSync, readdirSync, renameSync, statSync } from 'node:fs';
 import { dirname, join, relative, sep } from 'node:path';
@@ -52,7 +53,7 @@ export interface S3Options {
 /** S3 options from the environment and an s3:// address. */
 export function s3FromEnv(url: string, endpoint?: string, region?: string): S3Options {
   const accessKey = process.env.TABULARIUS_S3_ACCESS_KEY ?? process.env.AWS_ACCESS_KEY_ID;
-  const secretKey = process.env.TABULARIUS_S3_SECRET_KEY ?? process.env.AWS_SECRET_ACCESS_KEY;
+  const secretKey = secret('TABULARIUS_S3_SECRET_KEY') ?? process.env.AWS_SECRET_ACCESS_KEY;
   if (!accessKey || !secretKey) throw new Error('S3: set TABULARIUS_S3_ACCESS_KEY and TABULARIUS_S3_SECRET_KEY');
   return {
     url, accessKey, secretKey,

@@ -66,12 +66,32 @@ function webViewers(store: Store): { layout: string; online: boolean }[] {
   const out: { layout: string; online: boolean }[] = [];
   const walk = (layout: string, objects: LayoutObject[]) => {
     for (const o of objects) {
-      if (o.kind === 'web-viewer') out.push({ layout, online: !/^\s*"data:/i.test(o.webUrl ?? '') });
+      if (o.kind === 'web-viewer') {
+        const url = o.webUrl ?? '';
+        const inlineLoadsInternet = /(?:src|href)\s*=\s*\\?["']?https?:\/\/|url\s*\(\s*\\?["']?https?:\/\//i.test(url);
+        out.push({ layout, online: !/^\s*"data:/i.test(url) || inlineLoadsInternet });
+      }
       if (o.children?.length) walk(layout, o.children);
     }
   };
   for (const l of store.designs().layouts) walk(l.name, l.objects);
   return out;
+}
+
+/** The conversion-guide entry for web viewers, split out so its classification can be tested with synthetic layouts. */
+export function webViewerGuide(store: Store): GuideItem | undefined {
+  const viewers = webViewers(store);
+  if (!viewers.length) return undefined;
+  const online = viewers.filter((v) => v.online);
+  const layouts = [...new Set(online.map((v) => v.layout))];
+  return {
+    title: 'Web viewers', severity: online.length ? 'high' : 'low', count: viewers.length, where: layouts.slice(0, WHERE).map((l) => `Layout "${l}"`),
+    what: online.length
+      ? `${plural(online.length, 'web viewer')} load an http(s) page or inline HTML that loads content from the internet, including CDN scripts. An https page loads only when its host is listed by an administrator for this file; otherwise its address shows as text. External resources in solution HTML are blocked.` +
+        (viewers.length > online.length ? ` ${plural(viewers.length - online.length, 'other')} show a page made in the file (a data: URL), which works.` : '')
+      : 'They show pages made in the file (data: URLs), which work, in a sandbox that can\'t reach the app.',
+    ...(online.length ? { instead: 'For a web page, ask an administrator to list its trusted host for this file (https only). For solution HTML, include its scripts, styles and images in the data: URL, or show the address as a link a button opens with Open URL.' } : {}),
+  };
 }
 
 const CONTAINERS = 'Container files stored outside the file';
@@ -165,6 +185,13 @@ export function conversionGuide(store: Store, hosted: string[] = [], report: Con
       instead: 'Check Get ( LastError ) after them, or ask the assistant why a script fails ("Why?" on the error) for a rewrite.',
     });
   }
+  if (r.triggers.undecoded.length) {
+    const where = places(r.triggers.undecoded);
+    breaks.push({
+      title: 'Script triggers the reader cannot name yet', severity: 'medium', count: uses(r.triggers.undecoded), where,
+      what: `${plural(uses(r.triggers.undecoded), 'trigger')} on ${plural(r.triggers.layouts, 'layout')} have an event this build cannot name and will not run; open the layout in FileMaker to see which they are, then set them again in design mode.`,
+    });
+  }
   if (r.functions.notYet.length) {
     breaks.push({
       title: 'FileMaker functions not available yet', severity: 'high', count: uses(r.functions.notYet), where: places(r.functions.notYet),
@@ -205,6 +232,20 @@ export function conversionGuide(store: Store, hosted: string[] = [], report: Con
   }
 
   // What works, but differently.
+  if (r.aiSteps.count) {
+    differs.push({
+      title: "AI steps run on this server's model", severity: 'medium', count: r.aiSteps.count, where: r.aiSteps.where.slice(0, WHERE),
+      what: "The account's endpoint, key and model named in the script are not used; this server's own model answers. Set AI Call Logging does nothing here.",
+      instead: 'The server needs --ai (and an embedding model for the embedding steps) or the steps that call a model stop with error 3. Set them in the admin console.',
+    });
+  }
+  if (r.steps.saveCopyAs.length) {
+    differs.push({
+      title: 'Save a Copy as makes Tabularius stores', severity: 'medium', count: uses(r.steps.saveCopyAs), where: places(r.steps.saveCopyAs),
+      what: 'Save a Copy as writes a Tabularius SQLite store, even when the script names a .fmp12 file. Scripts that save .fmp12 backups therefore make a Tabularius store instead, which FileMaker cannot open.',
+      instead: 'Use the server’s own backups instead: `tabularius backup <folder>` makes a backup now, and the server can schedule backups too.',
+    });
+  }
   if (r.steps.blocked.length) {
     differs.push({
       title: 'Send Mail', severity: 'medium', count: uses(r.steps.blocked), where: places(r.steps.blocked),
@@ -221,19 +262,8 @@ export function conversionGuide(store: Store, hosted: string[] = [], report: Con
       instead: 'Turn on Script network for this file in the admin console when this copy is the live one (or start the server with --allow-script-network to allow every file). The Data API and webhooks let other systems reach Tabularius instead.',
     });
   }
-  const viewers = webViewers(store);
-  const online = viewers.filter((v) => v.online);
-  if (viewers.length) {
-    const layouts = [...new Set(online.map((v) => v.layout))];
-    differs.push({
-      title: 'Web viewers', severity: online.length ? 'medium' : 'low', count: viewers.length, where: layouts.slice(0, WHERE).map((l) => `Layout "${l}"`),
-      what: online.length
-        ? `${plural(online.length, 'web viewer')} load${online.length === 1 ? 's' : ''} a page from the internet, which loads only from a host an administrator lists for this file (Hosted files, Web viewers may load); until then the web client shows the address as text.` +
-          (viewers.length > online.length ? ` ${plural(viewers.length - online.length, 'other')} show a page made in the file (a data: URL), which works.` : '')
-        : 'They show pages made in the file (data: URLs), which work, in a sandbox that can\'t reach the app.',
-      ...(online.length ? { instead: 'List the host in the admin console (Hosted files, "Web viewers may load"; https only), build the page in the file as a data: URL ("data:text/html," & a field or variable holding the HTML), or show the address as a link a button opens with Open URL.' } : {}),
-    });
-  }
+  const viewers = webViewerGuide(store);
+  if (viewers) differs.push(viewers);
   if (r.steps.dialogs.length) {
     differs.push({
       title: 'Dialogs in scripts that run without a person', severity: 'medium', count: uses(r.steps.dialogs), where: places(r.steps.dialogs),
@@ -295,6 +325,10 @@ export function conversionGuide(store: Store, hosted: string[] = [], report: Con
   if (none.length) todo.push(`Give ${none.join(', ')} a password (tabularius passwd, or Manage Security): accounts without one can't sign in.`);
   if (blank.size) todo.push(`${r.accounts.blankPassword.join(', ')} ${blank.size === 1 ? 'has' : 'have'} the file's empty password, which works only from the server's own computer: set a password.`);
   if (r.privileges.withoutSet.length) todo.push(`Give ${r.privileges.withoutSet.join(', ')} a privilege set: without one they have no access.`);
+  if ((store.schema.scripts.length || store.schema.layouts.length) && !store.schema.fileOptions?.onWindowOpen && !store.schema.fileOptions?.onWindowClose) {
+    // Whether either trigger existed in the source file is unverified: the reader does not decode them.
+    todo.push('If the original file used OnWindowOpen or OnWindowClose triggers, set them again in File options (design mode); they are not read from the file.');
+  }
 
   const rank = (x: GuideItem) => SEVERITIES.indexOf(x.severity);
   breaks.sort((a, b) => rank(a) - rank(b));

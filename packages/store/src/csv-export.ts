@@ -30,12 +30,25 @@ export function formulaGuard(text: string, type?: string): string {
 /** What an export's `formulaGuard` made of a value, undone for a field of the given type that is not text: the apostrophe goes. */
 export function stripFormulaGuard<T extends string | number>(value: T, type: string | undefined): T | string {
   if (typeof value !== 'string' || type === undefined || !NON_TEXT.has(type) || value[0] !== "'") return value;
-  const rest = value.slice(1);
+  // The export wrote a control character as \uXXXX (see `visibleControls`); read them back to see what the guard was for.
+  const rest = value.slice(1).replace(/\\u(00[01][0-9a-f]|007f|008[0-9a-f]|009[0-9a-f])/giu, (_, h: string) => String.fromCharCode(parseInt(h, 16)));
   return formulaLike(rest) ? rest : value;
 }
 
-export function csvField(text: string, options: { quoteAll?: boolean; quoteWhitespace?: boolean; type?: string } = {}): string {
-  const safe = formulaGuard(text, options.type);
+/**
+ * Control characters other than the line breaks (a tab, a bell, a delete) written as visible `\uXXXX` text, so an export
+ * neither drops them nor hands one to a spreadsheet or a delimiter-splitting reader. This is for display: a literal
+ * backslash is left as it is, so text that already reads `\u0009` cannot be told from a tab that was escaped, and an
+ * import keeps the escape as text (only `stripFormulaGuard` reads it, for a number, date or time).
+ */
+export function visibleControls(text: string): string {
+  return text.replace(/[\u0000-\u0009\u000b\u000c\u000e-\u001f\u007f-\u009f]/gu, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
+}
+
+/** `lineBreak` is what each line break in the text becomes (an export that writes a return as a vertical tab); the field is then not quoted for it. */
+export function csvField(text: string, options: { quoteAll?: boolean; quoteWhitespace?: boolean; type?: string; lineBreak?: string } = {}): string {
+  const escaped = visibleControls(formulaGuard(text, options.type));
+  const safe = options.lineBreak === undefined ? escaped : escaped.replace(/\r\n|[\r\n]/g, options.lineBreak);
   const quote = options.quoteAll || /[",\r\n]/u.test(safe) || (options.quoteWhitespace && /^\s|\s$/u.test(safe));
   return quote ? `"${safe.replace(/"/g, '""')}"` : safe;
 }

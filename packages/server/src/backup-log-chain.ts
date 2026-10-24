@@ -15,8 +15,8 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { logRecords } from './logs.ts';
 
-/** Files of logs, one started every interval, named by when it was started. */
-export const LOGS = /^\d{4}-\d{2}-\d{2}_\d{6}\.\d{3}\.log(?:\.enc)?$/;
+/** Files of logs, one started every interval: UTC names end in Z; older local names remain readable. */
+export const LOGS = /^\d{4}-\d{2}-\d{2}_\d{6}\.\d{3}Z?\.log(?:\.enc)?$/;
 /** Logs as saved by earlier versions: one log per file, named by its time. */
 export const OLD_LOG = /^\d{4}-\d{2}-\d{2}_\d{6}\.\d{3}\.wal(?:\.enc)?$/;
 

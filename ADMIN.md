@@ -119,8 +119,9 @@ it is not a total disk-usage limit.
 
 `TABULARIUS_MAX_UPLOAD` remains the per-file byte limit (default **10737418240**,
 10 GiB); **0 disables only that per-file limit**, not the aggregate quota.
-The aggregate setting must be a positive safe integer; zero, negative, fractional,
-non-finite and invalid values use the 20 GiB default. Set environment variables
+The aggregate setting must be a positive whole number written in digits; zero,
+negative, fractional, exponent-form and empty values are refused at start, naming
+the variable (unset uses the 20 GiB default). Set environment variables
 before starting the server. `TABULARIUS_UPLOAD_IDLE_HOURS` defaults to 24; 0 disables
 idle expiry but does not disable either byte limit.
 
@@ -162,6 +163,8 @@ itself: not one a proxy on it passed on (a `x-forwarded-for`, `forwarded` or
 `x-real-ip` header), and not one addressed to any name but `localhost`,
 `127.0.0.1` or `[::1]`. A signed-in console is not locked out by other
 people's wrong passwords from the same address.
+Admin password lockouts are recorded as warnings in the event log, along with
+the third wrong attempt per address bucket in a window and lock-table overflow.
 
 `admin-password` (and `passwd`) asks for the password twice in a terminal,
 without showing it. In a script, pipe it in
@@ -678,6 +681,15 @@ doesn't start, or if the service can't be restarted. A macOS LaunchDaemon
 (`--system`) is restarted by stopping its server, which launchd starts again,
 so an upgrade needs no sudo password and can run from a script or over SSH.
 
+## Script schedules
+
+A schedule runs one script of a hosted file as one of the file's accounts, every so many minutes (1 to 527,040, which is 366 days), optionally lined up with a time of day, or each time the file opens. Set them under **Script schedules** in the admin console or with the Admin API. What they do not do, so that nothing about them is a surprise:
+
+- **A run that was due while the server was off is not made up.** When the server starts it works out the next time from now on. A nightly 02:00 schedule on a server that was stopped from 01:00 to 09:00 does not run at 09:00; it runs at 02:00 the next night. Nothing is queued, replayed or reported as missed. For a schedule with no time of day, the interval starts again at each start (a schedule every 60 minutes on a server started at 14:20 next runs at 15:20). If a missed run matters, run the schedule by hand after the server is back: **Run now** in the console, or `POST /tabularius/admin/v1/schedules/{id}/run`. <!-- known-difference: Schedules ;; Whether FileMaker Server runs a schedule that was due while the server was off is unverified; Tabularius does not run it ;; A schedule due while the server was off is not run when the server comes back ;; A FileMaker Server run with a schedule due during a stop -->
+- **A run that finds the previous one still going is skipped**, not queued; the Event log says so.
+- **Schedules repeat every day, every N days, or every N minutes or hours. There is no choice of weekdays, months or a time window.** FileMaker Server's weekly schedule that runs on some days only, a run at one time only (`onceType`) and a repeat that stops at an end time are not available. The Admin API answers a weekly schedule that leaves out a day with error 21 (not supported) instead of turning it into a daily one, and it answers `onceType` the same way; a schedule that is every 60 minutes runs around the clock. A schedule migrated from FileMaker Server that skipped days is brought over turned off (see **Moving from FileMaker Server**). To run on weekdays only, make the script check `Get ( CurrentDate )` and stop early, or use cron or Task Scheduler. <!-- known-difference: Schedules ;; Schedules cannot be limited to some weekdays, months or a time window ;; The Admin API refuses a weekly schedule that skips a day with error 21 ;; An owner decision on adding them -->
+- Daily schedules follow the clock in the server's time zone, including the short and long days when the clock changes; a daily schedule runs once for each calendar day.
+
 ## The audit trail
 
 Every record created, changed, deleted or duplicated is logged automatically in
@@ -966,9 +978,11 @@ sets, over SCIM 2.0. Each file is provisioned separately.
 
 1. In the admin console, open **Provisioning (SCIM)**, pick the file and
    choose what people get when no group covers them (no access, or a set).
-2. Click **Turn on**. The console shows the base URL
-   (`https://files.example.com/tabularius/scim/v2/databases/<file>`) and a token
-   starting `ohsc_`. The token is shown once; only its hash is kept in the file.
+2. Choose how many days the token is valid (90 unless you change it; 1 to 3650)
+   and click **Turn on**. The console shows the base URL
+   (`https://files.example.com/tabularius/scim/v2/databases/<file>`), a token
+   starting `ohsc_` and the date it stops working. The token is shown once; only
+   its hash is kept in the file.
 3. In the provider's app for Tabularius, turn on provisioning: in Okta, SCIM 2.0
    with "HTTP Header" authentication; in Entra ID, "Tenant URL" and
    "Secret Token". Paste the two values there.
@@ -996,6 +1010,14 @@ What the provider can do, and what it can't:
   removed or moved by the provider. It never touches an account with a
   password, an AI agent, or an account from the `.fmp12`. Any other external
   account an admin already made for that exact email is taken over.
+
+**The token always expires.** After its date the endpoint refuses it exactly as it
+refuses a wrong token (401), and the console says the token expired. Click **Make a
+new token** before then and paste it into the provider; the old one stops working at
+once. There is no token without an expiry, and nothing renews one by itself. The
+same request through the Admin API is `POST /tabularius/admin/v1/scim/token` with
+`{ "database": "<file>", "days": 90 }`; `GET /tabularius/admin/v1/scim?database=<file>`
+returns `expires`, and `expired` or `needsReissue` when the token no longer works.
 
 Every change is in the file's security log, made by "SCIM". **Turn off** stops
 the token; the accounts it made stay. The requests the endpoint takes follow
@@ -1044,8 +1066,12 @@ A call with the console password (or the console's cookie) that carries no brows
 
 **FileMaker Server's Admin API (v2)**, at `/fmi/admin/api/v2`, for tools
 written for FileMaker Server such as fmcsadmin or Claris Connect: sign in with
-`POST /user/auth` (Basic, any user name) and send the token as `Bearer`. Files
-(list, open, close, pause, resume), clients (list, message, disconnect), the
+`POST /user/auth` (Basic, any user name) and send the token as `Bearer`.
+To sign out, use `DELETE /user/auth` with that Bearer header. It ends that
+session. A token is never sent in the URL, where a reverse proxy may log it:
+`DELETE /user/auth/{token}` answers 404.
+
+Files (list, open, close, pause, resume), clients (list, message, disconnect), the
 server's status, and FileMaker script and backup schedules work (`POST
 /schedules/backup` with `backupType: {resourceType: "ALL_DB", backupTarget,
 retainBackups}` backs up every hosted file into a new set under the target and

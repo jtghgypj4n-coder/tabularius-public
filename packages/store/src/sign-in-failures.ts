@@ -6,6 +6,20 @@ export const LOCKOUT = {
   attempts: 5, windowMs: 15 * 60_000, lockMs: 15 * 60_000, addressAttempts: 30,
   maxFailures: 40_000, sharedFailures: 1_000, directoryAccounts: 4_096, addressLocks: 6,
 };
+
+/** The first failed sign-in rows in a file's security audit are always written, however few other rows it holds. */
+export const SIGN_IN_FAILURE_AUDIT_FLOOR = 1000;
+/**
+ * The most of a file's security audit that failed sign-in rows may be, once past the floor:
+ * TABULARIUS_SIGN_IN_FAILURE_AUDIT_SHARE, a plain decimal number from 0 to 1 (1 for no limit), 0.8 when it is not set. Anything
+ * else (hex, an exponent, a sign, text, a number outside the range) keeps the limit rather than lifting it. Lockout rows are not
+ * held to it.
+ */
+export function signInFailureAuditShare(): number {
+  const text = process.env.TABULARIUS_SIGN_IN_FAILURE_AUDIT_SHARE?.trim();
+  if (!text) return 0.8;
+  return /^(?:0(?:\.\d+)?|\.\d+|1(?:\.0+)?)$/.test(text) ? Number(text) : 0.8;
+}
 const LOCAL = new Set(['', 'mcp', '127.0.0.1', '::1', '::ffff:127.0.0.1']);
 export const NO_ADDRESS_BUDGET = new Set([...LOCAL, 'unknown']);
 /** One spelling per address: `::ffff:7f00:1`, `0:0:0:0:0:0:0:1` and a scope suffix name the same place as their short forms. */

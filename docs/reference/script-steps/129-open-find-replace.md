@@ -3,7 +3,7 @@ id: script-step-129
 title: "Open Find/Replace"
 area: script-steps
 since: unknown
-status: works
+status: not-yet
 verified: f200448e0
 ---
 
@@ -11,12 +11,16 @@ verified: f200448e0
 
 Open Find/Replace is a fields and values script step. This page describes how the offline Tabularius engine handles it.
 
-- **Support:** works
+- **Support:** does nothing
 - **Registry ID:** 129
 
 ## What the engine does
 
-The engine has a handler for this step. Its effect depends on the named target and current script context.
+The engine accepts this step but does not perform its named action.
+Return successfully without opening their corresponding client flows.
+
+FileMaker comparisons in this note are inferred unless a Claris help page is linked. See the [full support notes](../../script-steps-support.md) for surrounding conditions.
+
 ## Options
 
 Use the Script Workspace or script text to supply the target and any positional options the step requires.
@@ -37,4 +41,4 @@ Use a synthetic local solution with an `Examples` table, one text field `Name`, 
 Open Find/Replace
 ```
 
-**Expected end state:** The step returns error `0`; the original record remains. No external action is attempted.
+**Expected end state:** With no target supplied, the step returns `0` and leaves the synthetic file’s records unchanged.

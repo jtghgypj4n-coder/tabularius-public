@@ -566,6 +566,10 @@ SQLite database. Tabularius can't yet write a `.fmp12` back, so a change made
 here can't be opened in FileMaker Pro. To bring a design change made in
 FileMaker into Tabularius, use `tabularius reconvert`.
 
+The **Save a Copy as** script step also writes a Tabularius SQLite store (a
+requested `.fmp12` name becomes `<name>.openhbam.sqlite`), not a file FileMaker
+can open. Use the server's `tabularius backup` command for backups.
+
 ### Scripts run on the server; network access is a switch you turn on
 
 Scripts run on the server, as FileMaker Server runs them.
@@ -664,9 +668,13 @@ calculation, the MCP `evaluate_calculation` tool, a formula preview) gets
 `[MBS] ERROR: JavaScript handles are only available in a script`, because
 nothing there would end a handle.
 Each session can hold eight handles; each server process can hold 32 across
-all sessions. At global capacity, `JS.New` returns
-`[MBS] ERROR: JavaScript context limit reached for this server (32)` without
-creating a handle. A handle expires after **60 seconds idle**, measured from
+all sessions. At global capacity, `JS.New` drops the calling account's own
+least recently used handle to make room, and that handle's reference then
+answers like an expired one (`[MBS] ERROR: Invalid JavaScript reference`) and
+its state is gone. An account that holds no handle, or a caller with no
+account, gets `[MBS] ERROR: JavaScript context limit reached for this server (32)`
+without creating a handle and without dropping anyone else's. A session that
+already holds eight is refused as before. A handle expires after **60 seconds idle**, measured from
 creation or the end of its latest sandbox call using elapsed time, unaffected
 by system-clock changes. This includes handles never evaluated. Expiry stops
 the sandbox and invalidates the reference; scripts must call `JS.New` again
@@ -726,7 +734,20 @@ four are not yet available there, nor QuickList.AddSQL. The Hash functions <!-- 
 (MD5, SHA1, SHA256 and SHA512 digests and HMACs, `Hash.Digest`, `Hash.CRC16`,
 `Hash.CRC32`) work on text, hex, base64 or container data. A few path and
 container helpers work too, along with `Version`, `IsRegistered` and progress
-dialogs. Any other MBS function, including file paths and `Hash.PBKDF2.HMAC`,
+dialogs. The following results are inferred and unverified against the vendor:
+<!-- known-difference: MBS plug-in functions ;; IsLinux, IsWindows and IsMac report the server process platform; IsServer reports whether a script runs without a person, including schedules, Perform Script on Server, Data API, MCP and CLI runs, and returns 0 in the web client ;; A script can take a different platform or server branch than with the vendor plug-in ;; A vendor run on each host and client type -->
+`IsLinux`, `IsWindows` and `IsMac` answer 1 or 0 from the server's platform;
+`IsServer` answers 1 for a script with no person and 0 in the web client.
+<!-- known-difference: MBS plug-in functions ;; Trace silently answers OK and Path.AddPathComponent joins with one separator from the input path style; empty components and trailing separators follow the simplest join rule ;; Vendor logging or path output may differ, especially at path edges ;; A vendor run with logging and empty, trailing-separator and mixed-separator paths -->
+`Trace` answers `OK` without writing a log. `Path.AddPathComponent` joins
+with `/` when the path contains `/`, otherwise with `\`, adding one separator;
+empty components and trailing separators use this simple rule.
+<!-- known-difference: MBS plug-in functions ;; CURL.SetUpdateProgressDialog answers OK and ProgressDialog.GetCancel answers 0 because a server has no progress dialog ;; A script relying on dialog cancellation or vendor side effects may behave differently ;; A vendor run of these calls in server and client scripts -->
+`CURL.SetUpdateProgressDialog` answers `OK`, and
+`ProgressDialog.GetCancel` answers 0; there is no server dialog to cancel.
+`Folders.UserDesktop` remains unavailable because it names a person's
+computer folder. <!-- known-difference: MBS plug-in functions ;; Folders.UserDesktop is unavailable because it names a person's computer folder ;; The call gives an MBS error text and IsError then answers 1 ;; A safe client-folder capability and a vendor run showing its contract -->
+Any other MBS function, including other file-path operations and `Hash.PBKDF2.HMAC`,
 returns an error text saying it isn't available in Tabularius. As in MBS,
 `MBS ( "IsError" )` tells whether the last MBS call gave an error (1) or not (0).
 MBS says it keeps that state per script; here it is kept for one script run,
@@ -955,3 +976,84 @@ Not carried: scripts, layouts, themes, privilege sets and accounts, custom
 functions, and the relationship graph beyond the keys above. With `--account`,
 the account needs the export privilege, and it gets the records and fields it
 can view, nothing else.
+
+### A portable copy of the whole file
+
+`export-sql` carries records and keys. To leave with *everything* in a form any
+tool can read, `tabularius exit-bundle` writes the whole file to a folder: every
+table, every container file, globals, serial counters, the design and the
+account names, with a manifest that proves the copy is complete.
+
+<!-- docs-example: placeholders {"<folder>": "~/Databases"} -->
+```sh
+tabularius exit-bundle <folder> Invoices --out ~/Invoices-copy --account Admin
+```
+
+If a copy stopped half way, the next run resumes it; to remove the unfinished
+copy instead:
+
+<!-- docs-example: illustrative -->
+```sh
+tabularius exit-bundle <folder> Invoices --out ~/Invoices-copy --account Admin --discard
+```
+
+The password is asked for (or read from `TABULARIUS_PASSWORD`), never taken from
+a flag. The command prints counts and the path, and the **same copy is one
+button in the admin console**, "Take a portable copy", which writes to
+`Exports/<name>` beside the hosted files. The `Exports` folder is never hosted.
+
+What the folder holds:
+
+| File | What it is |
+|---|---|
+| `data.sqlite` | One table per table of the file with the stored columns and `_fm_record_id` as the key, plus `_exit_containers` (`id`, `path`, `size`, `sha256`, `mime`) listing every container file |
+| `csv/NNN-<table>.csv` | The same rows, one CSV per table: a header row, an empty cell for NULL, binary values as base64, standard quoting |
+| `containers/<id>-<file name>` | Every container file, including those stored outside the database, checked against its size |
+| `schema.json`, `schema.sql` | The schema (without password verifiers) and the `CREATE TABLE` statements of `data.sqlite` |
+| `globals.json`, `serials.json` | The current value of every global field and the next value of every serial number |
+| `design/` | Layouts, scripts, value lists, relationships and privilege sets as text; accounts by name and privilege set only |
+| `checks.sql` | Row counts per table, a check that every container id resolves, `PRAGMA integrity_check` and `PRAGMA foreign_key_check` |
+| `NOTES.txt` | Plain statements of what is and is not represented |
+| `manifest.json` | `format: 1`, the row counts, and the SHA-256 of every other file |
+
+Check a copy with standard tools: `sqlite3 data.sqlite < checks.sql` (every
+`missing` should be 0, `integrity_check` should say `ok`), and compare each file
+with the hash in `manifest.json`.
+
+**Who may ask.** Only an active account with the Full Access privilege set,
+signing in again for the export. It follows the ordinary sign-in rules: wrong
+passwords count toward the lockout of that address, a blank password does not
+work from the network, an account that must change its password cannot export
+until it has, and an account limited to this computer cannot export from
+elsewhere. An account that signs in with a **second factor** cannot export
+through the console, because an export cannot ask for one: use an account
+without a second factor for the export. The command line on the computer that
+holds the file is exempt from that rule only, since anyone who holds the file on
+disk could read it anyway. Every attempt is a security event, refused ones
+included (`data-export-refused`, never holding a password or a value), and a
+finished copy is `data-exported`.
+
+**It is plaintext.** The folder, and an unfinished copy next to it, hold every
+record and container file in the clear, even when the server encrypts files at
+rest. Keep them where only the right people can open them, and delete them when
+you are done. Field values that a file treats as sensitive are included, because
+a Full Access account can read them. Account credentials (passwords, verifiers,
+second-factor secrets, recovery codes) and API tokens are not.
+
+**If it stops.** The copy is built in `<folder>.partial` from a snapshot of the
+file taken when it starts, so the live file keeps working and a copy that is
+stopped part way finishes from the same snapshot when you run the same command
+again; a record created meanwhile is not in it. Nothing appears under the final
+name until the copy is complete and its hashes check out. To abandon an
+unfinished copy, use `--discard` or the console's "Discard an unfinished copy",
+which remove the snapshot.
+
+**Load and secrets in scripts.** The copy is made inside the server process, so a very large file slows every user until it finishes: run it at a quiet time. Layout and script text in `design/` is written as stored, so a script that holds a pasted password or key leaves with it.
+
+**Not carried.** Summary fields and unstored calculations have no stored value.
+Layout themes, live sessions, schedules, plug-in binaries and credentials are not
+included. Files that a container field stores outside the database are copied
+and checked for size, but anything outside the stored schema is unverified <!-- known-difference: Server operation ;; The portable copy checks a file stored outside the database for size only, and anything outside the stored schema is not checked ;; Such a file is copied and its size is compared; its contents and anything outside the schema are not verified ;; A comparison of a copy and its source for a solution that stores containers outside the database -->.
+Repeating container fields keep their ids in `data.sqlite`, and `checks.sql`
+checks only the scalar ones. This is Tabularius' own format; nothing here is
+claimed to match another product's export.

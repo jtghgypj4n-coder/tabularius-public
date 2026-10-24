@@ -740,11 +740,11 @@ test('web client: Export Records downloads the found set as CSV, tab-separated t
   const csv = await download({ fields: ['Name', 'State'], format: 'csv', ids: [made[1], made[2], made[0]], fieldNames: true });
   assert.equal(csv.status, 200);
   assert.match(csv.headers.get('content-disposition')!, /filename\*=UTF-8''Congress\.csv/);
-  assert.equal(await csv.text(), '"Name","State"\r\n"Export two","C\tD"\r\n"Control","\'\t=1+1"\r\n"Export ""one""","A\vB"\r\n');
+  assert.equal(await csv.text(), '"Name","State"\r\n"Export two","C\\u0009D"\r\n"Control","\'\\u0009=1+1"\r\n"Export ""one""","A\vB"\r\n');
   const tab = await download({ fields: ['Name', 'State'], format: 'tab', ids: made, name: 'out' });
   assert.match(tab.headers.get('content-disposition')!, /''out\.tab/);
   // A value a spreadsheet would take for a formula gets an apostrophe in tab-separated text too, as in comma-separated.
-  assert.equal(await tab.text(), 'Export "one"\tA\vB\r\nExport two\tC D\r\nControl\t\' =1+1\r\n');
+  assert.equal(await tab.text(), 'Export "one"\tA\vB\r\nExport two\tC\\u0009D\r\nControl\t\'\\u0009=1+1\r\n');
   const xl = await download({ fields: ['Name'], format: 'xlsx', ids: made });
   assert.equal(xl.headers.get('content-type'), 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   assert.equal(Buffer.from(await xl.arrayBuffer()).subarray(0, 2).toString(), 'PK');

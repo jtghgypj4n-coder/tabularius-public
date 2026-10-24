@@ -18,7 +18,7 @@ This guide covers the Tabularius browser client at `/app/` and related screens. 
 
 **Cause:** The account, password, or second factor may be wrong; the account may be locked; the server may be unreachable; or the session may have expired. The client intentionally gives the same response for an unknown file and a wrong password.
 
-**Check:** Read the text below the sign-in form. For “The account name or password is wrong,” check the selected file and account with its administrator. For a lockout, wait until the displayed time or ask an administrator to unlock the account. For a connection error, open the server address in a new tab. `packages/web/test/sign-in-error.test.ts` covers the wrong-password and lockout wording; `packages/web/e2e/sign-in.e2e.ts` exercises the sign-in screen.
+**Check:** Read the text below the sign-in form. A server lists its files on the sign-in page only when it was started with `--list-files-publicly`; otherwise the page shows a **File name** box and the file's name must be typed exactly (a name that is not hosted looks like a wrong password). Only a server that gives no answer at all makes the page say it can't be reached. For “The account name or password is wrong,” check the selected or typed file and account with its administrator. For a lockout, wait until the displayed time or ask an administrator to unlock the account. For a connection error, open the server address in a new tab. `packages/web/test/sign-in-error.test.ts` covers the wrong-password and lockout wording; `packages/web/e2e/sign-in.e2e.ts` exercises the sign-in screen.
 
 **Fix:** Correct the file, account, password, or authenticator code; wait for a lockout to expire or ask the administrator to unlock it; sign in again after a session ends. If the server address cannot be reached, ask the operator to check that the server is running and reachable from your network. **Not verified automatically:** network routing and account state on a particular server.
 
@@ -51,6 +51,10 @@ This guide covers the Tabularius browser client at `/app/` and related screens. 
 **Check:** Read the error shown at the bottom of the Import Records dialog. Confirm the file is CSV, Excel, or a supported Markdown export, and that it is within the 50 MB per-import limit. Retry once after checking the connection. `packages/web/test/import-size.test.ts`, `packages/web/test/import-tables-model.test.ts`, and `packages/web/e2e/import-records.e2e.ts` cover import limits, planning, and the browser import flow.
 
 **Fix:** Choose a supported file under the limit, reduce or split a larger file, and retry. If the preview still fails, ask the server operator to check the server log and include the exact error text. **Not verified automatically:** file corruption and proxy request-size limits vary by deployment.
+
+### Fewer records came in than the file has rows
+
+The result lists skipped row numbers and reasons. Rows can be left out because the repeat checkbox was ticked, a mapped value could not be fixed, an Update row matched no record, a Replace import had more rows than records, or the account could not write a row. Blank rows add nothing, and the header row supplies column names. The preview row limit only limits what is shown before import.
 
 ## A container file will not upload
 

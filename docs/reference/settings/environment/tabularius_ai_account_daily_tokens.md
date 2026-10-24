@@ -5,9 +5,9 @@ A cap on tokens per account per day.
 | Setting | Value |
 | --- | --- |
 | Default | Unset |
-| Accepted values | Positive number of tokens |
+| Accepted values | Positive number of tokens; decimal digits only for numbers, within the safe integer range |
 | Restart needed | Yes for a running server. |
 | Explained in | [docs/environment-variables.md](../../../environment-variables.md) |
-| Code | [packages/cli/src/main.ts:1399](../../../../packages/cli/src/main.ts#L1399) |
+| Code | [packages/cli/src/main.ts:1444](../../../../packages/cli/src/main.ts#L1444) |
 
 [All environment variables](../../../environment-variables.md)

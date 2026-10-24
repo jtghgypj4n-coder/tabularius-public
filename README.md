@@ -20,10 +20,14 @@ when you press Ctrl-C. To host your own FileMaker file, see [QUICKSTART.md](QUIC
 
 - **Reader**: decodes tables, fields, table occurrences, layouts, scripts,
   value lists, custom functions, accounts, privilege sets, relationships,
-  records and embedded container files (images, PDFs) from unencrypted
-  `.fmp12` files.
+  records and embedded container files (images, PDFs) from `.fmp12` files,
+  including files using Encryption at Rest when supplied with their passphrase.
+  CLI commands that read a source file accept its passphrase through a hidden
+  terminal prompt or `TABULARIUS_SOURCE_PASSPHRASE`.
 - **Hosting**: point the server at a folder of `.fmp12` files. Each is
   converted once into its own SQLite database and hosted under its file name.
+  A file using Encryption at Rest waits for its passphrase in the admin
+  console's **Hosted files** before conversion.
 - **FileMaker Data API–compatible REST**: sessions, layouts, records, finds
   with FileMaker find syntax, create/edit/duplicate/delete, modId conflict
   checks, portals with portalDataInfo, global fields, script and layout
@@ -324,7 +328,14 @@ when you press Ctrl-C. To host your own FileMaker file, see [QUICKSTART.md](QUIC
   and each answer shows the tokens it used. `--ai-daily-tokens 2000000` caps
   what the assistant may use per day (cached input counts at a tenth); past it, questions wait until the next day (UTC).
   `--ai-account-daily-tokens 200000` does the same per account, and shows
-  each person their own usage. The count is
+  each person their own usage. One question has a
+  strict budget of its own, `--ai-run-tokens` (default 300,000 tokens, a whole number
+  up to 10,000,000, cached input at a tenth): before each model call the most it could add is
+  counted (the input so far, counted cautiously, with a margin when the
+  provider's tool search is used; a pasted picture as 5,000 tokens; and the
+  most the answer may write), and a call that could take the question past
+  the budget is not made; the answer says so and keeps what it found. There
+  is no dollar budget for one question, only the month's. The count is
   kept in `<folder>/.openhbam-ai-usage.sqlite`, shared by every worker
   (`--workers`), so the limits and the monthly budget hold for the whole
   server, and a restart doesn't reset them.
@@ -385,8 +396,12 @@ unknown, in [docs/known-differences.md](docs/known-differences.md).
 - **Passwords.** An account whose FileMaker password is empty keeps working, from the server's own computer. Every other account needs a new password set with `tabularius passwd`.
 - **Go to Related Record options are not read from a converted file.** A step that used "Match all records in current found set" goes from the current record alone, and "Show only related records" turned off is not supported; the conversion guide counts the steps and a run warns. Set the option again in the script editor.
 - **Plug-ins are never loaded.** A few BaseElements and MBS functions run as built-in code; any other plug-in call gives "?" and error 3.
+- **Web viewers are sandboxed.** Solution HTML works, but cannot load external resources. An https page loads only when an administrator lists its host for that file; otherwise the address shows as text.
 - **Scripts run on the server, and reach the network when you switch it on.** Web requests (Insert from URL, `connection://` addresses) start off for every converted file, so a copy you are testing cannot call outside services; turn on **Script network** for a file in the admin console when this copy is the live one. Mail is sent only once the server is set up to send it; steps that need a screen or a person at FileMaker Pro are skipped or give error 3.
+- **AI script steps use this server's own model;** the account, endpoint, key and model a script names are not used.
+- **The store is not the `.fmp12`.** A converted file lives in an SQLite store beside the original, which is left as it was; changes made here can't be written back into a `.fmp12`. To leave, `tabularius exit-bundle` writes the whole file (every table as SQLite and CSV, container files, globals, serials, the design) to a folder any tool can read; the copy is plaintext, so keep it private.
 - **The store is not the `.fmp12`.** A converted file lives in an SQLite store beside the original, which is left as it was; changes made here can't be written back into a `.fmp12`.
+- **Save a Copy as doesn't make a `.fmp12`.** It always writes a Tabularius SQLite store named `<name>.openhbam.sqlite`, even when a script asks for a `.fmp12` backup; FileMaker cannot open that copy. Use the server's `tabularius backup` command for backups.
 - **Some security detail is flattened.** Per-layout, per-value-list and per-script privileges come over at the privilege set's overall level; review your sets in Manage Security before people sign in.
 
 ## Try it
@@ -468,7 +483,7 @@ echo 'new-password' | npm run tabularius -- passwd ~/FileMakerFiles Contacts Adm
 curl -X POST -u Admin:new-password http://127.0.0.1:8080/fmi/data/vLatest/databases/Contacts/sessions
 ```
 
-Then open http://127.0.0.1:8080/ in a browser, type the file's name (or pick it, on a server started with `--list-files-publicly`) and log in with
+Then open http://127.0.0.1:8080/ in a browser, type the file's name in the **File name** box (the page offers a list to pick from only on a server started with `--list-files-publicly`) and log in with
 that account to use the web client.
 
 To call the Data API from your own code, follow
@@ -634,8 +649,8 @@ For integrations, mint a scoped API token instead of embedding a password. A
 token acts as one account (so it carries that account's privilege set), is used
 as a Bearer token on the Data API and SQL endpoints, and can be revoked on its
 own. `--read-only` makes it refuse every write and script. A token stops
-working after 90 days unless `--expires-days N` says otherwise (`--expires-days 0`
-makes one that never expires; `TABULARIUS_TOKEN_DEFAULT_DAYS` changes the default).
+working after 90 days unless `--expires-days N` (up to 3650) says otherwise; every
+token expires, and `TABULARIUS_TOKEN_DEFAULT_DAYS` changes the default.
 
 <!-- docs-example: illustrative -->
 ```sh
@@ -723,8 +738,10 @@ back by Undo or a revert, so this is off until chosen. The log is append-only
 and tamper-evident: each entry is linked to the one before it by a SHA-256 hash,
 and `GET /tabularius/admin/v1/audit/verify?database=` finds an entry that was
 edited, removed, added behind its back or cut off the end. `retentionDays` in
-the same settings removes entries older than that, hourly, and the chain
-records where it now starts and the removal is logged as a security event.
+the same settings removes record entries older than that, hourly (400 days
+unless set; 0 keeps every entry), and the chain records where it now starts and
+the removal is logged as a security event. Security events (sign-ins, lockouts,
+account and privilege changes) are not removed.
 Read it with `npm run tabularius -- audit ~/FileMakerFiles Contacts --table
 Invoices --record 42`, the `audit_log` AI tool, or `GET
 /tabularius/design/v1/databases/{db}/audit`; the last two need [Full Access].
@@ -1005,6 +1022,7 @@ of day (every 1440 minutes from 02:00 is nightly at 2 a.m.). A schedule runs as
 an account of the file, within its privileges, and shows its next and last run,
 its last error, and (under "Runs") its last 50 runs with how each went, kept
 across restarts in `<folder>/.openhbam-schedule-runs.json`.
+A schedule that was due while the server was off does not run when it comes back; the next run is the next time from then on. A schedule repeats every day, every N days or every N minutes; it cannot be limited to some weekdays, months or a time window. See [ADMIN.md](ADMIN.md#script-schedules).
 Scheduled scripts reach the network only when the file's Script network switch
 is on (admin console, Hosted files) and the schedule allows it too; they never
 send mail. Scripts an AI runs (the `run_script` MCP tool) are always offline. Schedules are kept in `<folder>/.openhbam-schedules.json`. Import

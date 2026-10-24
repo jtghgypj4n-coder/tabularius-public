@@ -49,7 +49,9 @@ test('an unexpected fault gives a plain 500 without its cause', { skip }, async 
     assert.doesNotMatch(text, /SQLITE|secret|T123/);
     assert.equal(JSON.parse(text).error.message, 'Unknown error');
     assert.equal(r.headers.get('x-content-type-options'), 'nosniff');
-    assert.match(String(logged[0]), /secret/); // the log keeps the cause
+    const diagnostic = String(logged[0]);
+    assert.match(diagnostic, /SQLITE_CANTOPEN: unable to open \[path\]\/Charts\.fmp12: no such table: T123/);
+    assert.doesNotMatch(diagnostic, /\/var\/lib\/secret/);
   } finally {
     host.names = names;
     console.error = error;

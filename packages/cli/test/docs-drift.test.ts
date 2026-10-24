@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { runCli } from './cli-run.ts';
+import { testCommandPath } from '../../../scripts/test-command-path.ts';
 
 const root = join(import.meta.dirname, '..', '..', '..');
 const main = join(root, 'packages', 'cli', 'src', 'main.ts');
@@ -46,11 +47,12 @@ test('every command in the usage text is named in the documentation', () => {
   assert.deepEqual(undocumented, [], 'commands with no `tabularius <command>` in the README, ADMIN, SECURITY, QUICKSTART or docs/');
 });
 
-test('help <command> prints the usage of every command in the usage text', async () => {
+test('help <command> prints the usage of every command in the usage text', async (t) => {
+  const env = testCommandPath(t);
   const bad: string[] = [];
   for (let i = 0; i < usageCommands.length; i += 8) {
     const batch = usageCommands.slice(i, i + 8);
-    const results = await Promise.all(batch.map((c) => runCli(main, ['help', c], { env: { ...process.env, PORT: '1' } })));
+    const results = await Promise.all(batch.map((c) => runCli(main, ['help', c], { env: { ...env, PORT: '1' } })));
     results.forEach((r, j) => {
       if (r.status !== 0 || !r.stdout.startsWith('Usage:\n') || !new RegExp(`^  tabularius ${batch[j]}\\b`, 'm').test(r.stdout)) bad.push(batch[j]);
     });

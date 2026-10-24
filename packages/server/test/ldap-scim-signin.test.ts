@@ -59,8 +59,10 @@ test('confirmed directory users survive made-up names filling anonymous capacity
   const hashes = t.mock.method(crypto, 'scrypt', ((_password: unknown, _salt: unknown, length: number, callback: (error: Error | null, key: Buffer) => void) => {
     queueMicrotask(() => callback(null, Buffer.alloc(length)));
   }) as typeof crypto.scrypt);
+  // A recovery-code check costs a full set of scrypts, so the invented names below get the same shortcut.
+  const syncHashes = t.mock.method(crypto, 'scryptSync', ((_password: unknown, _salt: unknown, length: number) => Buffer.alloc(length)) as typeof crypto.scryptSync);
   syncBuiltinESMExports();
-  t.after(() => { hashes.mock.restore(); syncBuiltinESMExports(); });
+  t.after(() => { hashes.mock.restore(); syncHashes.mock.restore(); syncBuiltinESMExports(); });
   // First send the 128 names that used to exhaust the directory reserve, through HTTP.
   for (let i = 0; i < 128; i++) assert.equal((await signIn(`made-up${i}`, 'wrong')).status, 401);
   assert.equal(failures.size, 128);

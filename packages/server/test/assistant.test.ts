@@ -7,6 +7,7 @@ import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { serve } from '../src/index.ts';
+import { DEFAULT_RUN_TOKENS, estimateInputTokens, IMAGE_RESERVE_TOKENS, MAX_RUN_TOKENS, parseRunTokens, runBudgetOf, TOOL_SEARCH_MARGIN } from '../src/assistant.ts';
 import type { PrivilegeDefinition, Store } from '../../store/src/index.ts';
 
 const fixture = join(import.meta.dirname, '..', '..', '..', 'fixtures', 'fmp12', 'Charts.fmp12');
@@ -752,6 +753,100 @@ test('assistant: a daily token limit stops it until tomorrow', { skip }, async (
     assert.equal(x.status, 429);
   } finally {
     again.server.close();
+    rmSync(limited, { recursive: true });
+  }
+});
+
+test('assistant: a picture is counted as a reserved number of tokens, not by its base64 length', () => {
+  const data = 'A'.repeat(900_000);
+  const plain = estimateInputTokens('system', [], [{ role: 'user', content: 'hi' }]);
+  const withImage = estimateInputTokens('system', [], [{ role: 'user', content: [{ type: 'image', source: { type: 'base64', media_type: 'image/png', data } }, { type: 'text', text: 'hi' }] }]);
+  assert.equal(IMAGE_RESERVE_TOKENS, 5000);
+  assert.ok(withImage - plain >= IMAGE_RESERVE_TOKENS && withImage - plain < IMAGE_RESERVE_TOKENS + 100, `${plain} then ${withImage}`);
+  assert.ok(DEFAULT_RUN_TOKENS > 0);
+});
+
+test('assistant: the input estimate is cautious for non-English text and counts the tool search margin', () => {
+  const ask = (content: string) => estimateInputTokens('', [], [{ role: 'user', content }]);
+  // Latin text is about 4 characters a token; Chinese, Japanese and emoji can be a token or more for every UTF-16 unit.
+  assert.ok(ask('a'.repeat(300)) < 150);
+  assert.ok(ask('日本語'.repeat(100)) >= 300, String(ask('日本語'.repeat(100))));
+  assert.ok(ask('😀'.repeat(100)) >= 200, String(ask('😀'.repeat(100))));
+  const tool = { name: 't', description: 'd', input_schema: { type: 'object' } };
+  const plain = estimateInputTokens('', [tool], []);
+  const deferred = estimateInputTokens('', [{ ...tool, defer_loading: true }], []);
+  assert.ok(deferred - plain >= TOOL_SEARCH_MARGIN, `${plain} then ${deferred}`);
+});
+
+test('assistant: the run budget is a positive whole number of tokens with a ceiling, and cannot be switched off', () => {
+  for (const ok of ['1', '300000', '10000000']) assert.equal(parseRunTokens(ok), Number(ok));
+  for (const bad of ['', '0', '-5', '0.5', '1e308', '1e3', '0x10', '1_000', ' 5', '5 ', 'Infinity', 'NaN', String(MAX_RUN_TOKENS + 1), '99999999999999999999']) {
+    assert.equal(parseRunTokens(bad), undefined, `"${bad}" should be refused`);
+  }
+  // Whatever reaches the code by another way is kept inside the same bounds.
+  assert.equal(runBudgetOf(undefined), DEFAULT_RUN_TOKENS);
+  assert.equal(runBudgetOf(0), DEFAULT_RUN_TOKENS);
+  assert.equal(runBudgetOf(0.5), DEFAULT_RUN_TOKENS);
+  assert.equal(runBudgetOf(NaN), DEFAULT_RUN_TOKENS);
+  assert.equal(runBudgetOf(Infinity), MAX_RUN_TOKENS);
+  assert.equal(runBudgetOf(1e308), MAX_RUN_TOKENS);
+  assert.equal(runBudgetOf(250_000), 250_000);
+});
+
+test('assistant: a run stops before a model call that could take it past its token budget', { skip }, async () => {
+  const limited = mkdtempSync(join(tmpdir(), 'tabularius-assistant-run-'));
+  copyFileSync(fixture, join(limited, 'Charts.fmp12'));
+  const addr = model.address() as { port: number };
+  const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+  const start = (runTokens: number) => serve({ dir: limited, port: 0, log: () => {}, ai: { apiKey: 'test-key', baseUrl: `http://127.0.0.1:${addr.port}`, runTokens } });
+  const ask = async (s: Awaited<ReturnType<typeof serve>>, token: string, image?: unknown) => {
+    const x = await fetch(`${s.url}/tabularius/assistant/v1/databases/Charts`, {
+      method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+      body: JSON.stringify({ messages: [{ role: 'user', content: 'hi' }], context: { mode: 'design' }, ...(image ? { image } : {}) }),
+    });
+    return { status: x.status, body: await x.json() };
+  };
+  const signIn = async (s: Awaited<ReturnType<typeof serve>>) => {
+    s.host.get('Charts')!.setPassword('Admin', 'pw');
+    const r = await fetch(`${s.url}/fmi/data/vLatest/databases/Charts/sessions`, {
+      method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Basic ' + btoa('Admin:pw') }, body: '{}',
+    });
+    return (await r.json()).response.token as string;
+  };
+  // What a plain question needs reserved: learn it from the first request this stand-in model sees.
+  let needed = 0;
+  const probe = await start(DEFAULT_RUN_TOKENS);
+  try {
+    requests.length = 0;
+    script = [() => text('probe')];
+    assert.equal((await ask(probe, await signIn(probe))).body.reply, 'probe');
+    const sent = requests.at(-1)!.raw as { system: { text: string }[]; tools: unknown[]; messages: { role: string; content: string | { type: string }[] }[] };
+    needed = estimateInputTokens(sent.system.map((b) => b.text).join('\n'), sent.tools, sent.messages) + 4096;
+  } finally {
+    probe.server.close();
+  }
+  // Room for the plain question, and the first step of a longer one, but not for a picture's reservation.
+  const s = await start(needed + 1000);
+  try {
+    const token = await signIn(s);
+    script = [() => text('plain')];
+    assert.equal((await ask(s, token)).body.reply, 'plain');
+    script = [() => text('never asked')];
+    const before = requests.length;
+    const withImage = await ask(s, token, { mediaType: 'image/png', data: png });
+    assert.match(withImage.body.reply, /^I stopped there: this question reached its budget of [\d,]+ tokens for one run \(--ai-run-tokens\)/);
+    assert.equal(requests.length, before, 'no model call was made');
+    // A step that has used most of the budget stops the next one, and says what was done.
+    script = [
+      () => ({ ...use('describe_layout', { layout: 'Congress' }), usage: { input_tokens: 600, output_tokens: 50 } }),
+      () => text('never asked either'),
+    ];
+    const long = await ask(s, token);
+    assert.match(long.body.reply, /^I stopped there: this question reached its budget/);
+    assert.deepEqual(long.body.tools, ['describe_layout']);
+    assert.equal(script.length, 1, 'the second model call was not made');
+  } finally {
+    s.server.close();
     rmSync(limited, { recursive: true });
   }
 });

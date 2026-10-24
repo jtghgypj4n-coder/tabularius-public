@@ -307,7 +307,7 @@ test('TABULARIUS_DRAIN_SECONDS must be a number of seconds', { timeout: 60_000 }
     child.stdout.on('data', (c) => { output += c; });
     const code = await new Promise((resolve) => child.once('exit', resolve));
     assert.equal(code, 1);
-    assert.match(output, /TABULARIUS_DRAIN_SECONDS is a number of seconds \(1 to 86400\)/);
+    assert.match(output, /TABULARIUS_DRAIN_SECONDS is set to "soon": give a whole number of 1 to 86400/);
   } finally {
     rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }

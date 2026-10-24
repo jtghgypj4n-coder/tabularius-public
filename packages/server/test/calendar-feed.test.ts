@@ -113,7 +113,7 @@ test('text from a record cannot add properties or events to the feed', async (t)
   assert.equal(events.length, 1);
   assert.ok(!unfold(out.text).some((l) => /^(BEGIN:VALARM|ACTION:)/.test(l)), 'the text did not become properties');
   assert.equal(events[0].filter((p) => p.name === 'UID').length, 1);
-  assert.equal(prop(events[0], 'LOCATION')!.value, 'xyz');
+  assert.equal(prop(events[0], 'LOCATION')!.value, 'x\\\\u0007y\\\\u2028z', 'control characters show as \\uXXXX, not dropped');
 });
 
 test('long and non-ASCII text folds at 75 octets and reads back whole', async (t) => {
@@ -327,6 +327,22 @@ test('importing a repeating event makes one record per occurrence, up to a cap, 
   assert.equal(r.json.imported, 4 + 366 + 1);
   assert.ok(r.json.notes.some((n: string) => /cut at 366/.test(n)));
   assert.ok(r.json.notes.some((n: string) => /first occurrence was imported/.test(n)));
+});
+
+test('a calendar of more than 5,000 events is refused whole with its count, and nothing is imported', async (t) => {
+  const s = await start(t);
+  const before = s.store.find('Events', {}).foundCount;
+  const many = (n: number) => ics(...Array.from({ length: n }, (_, i) => `UID:e${i}@x\nDTSTART:20261005T090000\nSUMMARY:E${i}`));
+  const refused = await s.post(importer('Events', '?start=Starts&title=Title'), many(5001));
+  assert.equal(refused.status, 400, refused.text);
+  assert.match(refused.json.messages[0].message, /The calendar has 5001 events; at most 5000 can be imported at once\. Nothing was imported/);
+  assert.equal(refused.json.messages[0].code, '960');
+  assert.equal(s.store.find('Events', {}).foundCount, before, 'not even the first 5,000 were made');
+  const cut = ics('UID:a@x\nDTSTART:20261005T090000\nSUMMARY:A').replace('END:VCALENDAR', '') + 'BEGIN:VEVENT\r\nUID:b@x\r\nDTSTART:20261006T090000\r\n';
+  const torn = await s.post(importer('Events', '?start=Starts&title=Title'), cut);
+  assert.equal(torn.status, 400, torn.text);
+  assert.match(torn.json.messages[0].message, /ends inside an event/);
+  assert.equal(s.store.find('Events', {}).foundCount, before);
 });
 
 test('import is all or nothing, and follows the account\'s create and field privileges', async (t) => {

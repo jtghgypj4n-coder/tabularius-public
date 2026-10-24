@@ -8,6 +8,6 @@ Maximum rows a SQL query may return.
 | Accepted values | Nonnegative whole number of rows; 0 removes the cap |
 | Restart needed | Yes; restart the server after changing its environment. |
 | Explained in | [README.md](../../../../README.md) |
-| Code | [packages/server/src/pgwire.ts:49](../../../../packages/server/src/pgwire.ts#L49) |
+| Code | [packages/server/src/pgwire.ts:51](../../../../packages/server/src/pgwire.ts#L51) |
 
 [All environment variables](../../../environment-variables.md)

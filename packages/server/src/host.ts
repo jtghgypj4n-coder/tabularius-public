@@ -4,6 +4,7 @@
 // converted store is the live database from then on; the .fmp12 is never
 // written to, and is not re-imported over a store that may have edits.
 
+import { uploadConversionLimits } from './conversion-limits.ts';
 import { cancellationScope } from '../../scripts/src/cancellation.ts';
 import { setTimeout as cancellationDelay } from 'node:timers/promises';
 import { workerResult } from './worker-result.ts';
@@ -35,22 +36,9 @@ import { ServerConfig } from './server-config.ts';
 import { Notifier } from './notifications.ts';
 import { compactInWorker, compactionDue, fileBytes, type CompactionReport } from './compaction.ts';
 import { BoundedMap } from './bounded-map.ts';
+import { serverLanguage } from './get-language.ts';
 
 export const STORE_EXT = '.openhbam.sqlite';
-
-/**
- * Guards for converting an untrusted upload (not a file the operator dropped
- * into the folder): the worker's heap is capped so a file that expands to huge
- * memory out-of-memories the worker rather than the server, and the conversion
- * is stopped after a time budget so a file that makes the reader loop can't
- * block the single conversion slot for good. Generous defaults; raise them with
- * TABULARIUS_CONVERT_MEMORY (MB) and TABULARIUS_CONVERT_TIMEOUT (seconds, 0 = none)
- * for an environment that hosts genuinely large uploads.
- */
-const UPLOAD_CONVERT_LIMITS = {
-  memoryMb: Math.max(0, Math.trunc(Number(process.env.TABULARIUS_CONVERT_MEMORY ?? 2048)) || 0),
-  timeoutMs: Math.max(0, Math.trunc(Number(process.env.TABULARIUS_CONVERT_TIMEOUT ?? 900)) || 0) * 1000,
-};
 
 /** The account row a container link is tied to. */
 export interface LinkAccount { name: string; identity: string }
@@ -300,6 +288,9 @@ export class Host {
     return { hosts, ignored };
   }
 
+  /** Local session count for a hosted file, supplied by the server's session registry. */
+  userCountForFile?: (name: string) => number;
+
   /** Every web host any hosted file lets its web viewers load, for the web app's frame policy (each file's own list still decides what its viewers load). `extra` are names to leave out besides the server's own, such as the one the page was asked for by. */
   webViewerHostsAll(extra: readonly string[] = []): string[] {
     // Bounded by count and by size, so the policy header stays well under what proxies accept; a host past the bound is simply not framed.
@@ -336,8 +327,11 @@ export class Host {
    * Run options every script gets: network access (for `solution`'s scripts, when the run is in one), the Documents folder
    * Import Records reads from, the profiler, and AI. Without a solution only the server-wide flag can allow the network.
    */
-  scriptOptions(solution?: string): { network: boolean; networkAllow?: readonly string[]; networkFiles: (file: string) => boolean; networkOff: (file: string) => string; outbound?: OutboundTest; connections?: ScriptConnections; mail?: (m: OutgoingMail) => Promise<void | string>; installPlugin?: (bytes: Uint8Array) => { id: string; version: string; signer: string }; documents: string; profile?: ScriptProfile; serverQueue: ScriptQueue; ai?: ScriptAi } {
+  scriptOptions(solution?: string): { network: boolean; networkAllow?: readonly string[]; networkFiles: (file: string) => boolean; networkOff: (file: string) => string; outbound?: OutboundTest; connections?: ScriptConnections; mail?: (m: OutgoingMail) => Promise<void | string>; installPlugin?: (bytes: Uint8Array) => { id: string; version: string; signer: string }; documents: string; profile?: ScriptProfile; serverQueue: ScriptQueue; ai?: ScriptAi; userCount?: () => number; language: string } {
+    const count = this.userCountForFile;
     return {
+      ...(solution && count ? { userCount: () => count(solution) } : {}),
+      language: serverLanguage(),
       ...(this.config.scriptPluginInstall() ? { installPlugin: (bytes: Uint8Array) => this.installScriptPlugin(bytes) } : {}),
       network: solution !== undefined ? this.scriptNetworkOn(solution) : this.scriptNetwork,
       networkFiles: (file) => this.scriptNetworkOn(file), networkOff: (file) => this.networkOffNotice(file),
@@ -719,7 +713,7 @@ export class Host {
       try {
         log(`converting ${file} with the passphrase entered`);
         // An uploaded file is converted within the limits any upload is (it may have been made to be hostile).
-        const r = await this.convert(join(this.dir, file), temp, (p) => this.converted.set(name, p), info.uploaded ? UPLOAD_CONVERT_LIMITS : undefined, passphrase);
+        const r = await this.convert(join(this.dir, file), temp, (p) => this.converted.set(name, p), info.uploaded ? uploadConversionLimits() : undefined, passphrase);
         this.assertOpen();
         crashPoint('host-conversion:after-convert');
         if (!publishConversion(temp, store)) throw new Error(`A file named ${name} is already hosted`);
@@ -781,7 +775,7 @@ export class Host {
       const temp = conversionTemp(store, src);
       this.converting = true;
       try {
-        const r = await this.convert(src, temp, onProgress, UPLOAD_CONVERT_LIMITS, undefined, signal);
+        const r = await this.convert(src, temp, onProgress, uploadConversionLimits(), undefined, signal);
         signal?.throwIfAborted();
         this.assertOpen();
         crashPoint('host-upload:after-convert');

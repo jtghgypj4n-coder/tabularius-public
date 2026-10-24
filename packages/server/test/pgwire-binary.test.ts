@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import { createStore, Store, type PrivilegeDefinition } from '../../store/src/index.ts';
 import { Host } from '../src/host.ts';
 import { PgServer } from '../src/pgwire.ts';
-import { BINARY_OID as OID, binaryValue, decodeNumeric, encodeArray, encodeNumeric } from '../src/pgbinary.ts';
+import { BINARY_OID as OID, binaryParam, binaryValue, decodeNumeric, encodeArray, encodeNumeric } from '../src/pgbinary.ts';
 import { bindBody, PgClient, type PgResult } from './pg-client.ts';
 
 const be = (bytes: number, write: (b: Buffer) => void) => { const b = Buffer.alloc(bytes); write(b); return b; };
@@ -71,6 +71,9 @@ function textOf(oid: number, b: Buffer | null): string | null {
     case OID.uuid: { assert.equal(b.length, 16); const h = b.toString('hex'); return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`; }
     case OID.jsonb: assert.equal(b[0], 1); return b.subarray(1).toString('utf8');
     case OID.bytea: return '\\x' + b.toString('hex');
+    case OID.date: case OID.time: return binaryParam(b, oid) as string;
+    // The text format keeps the T the file stores between the date and the time.
+    case OID.timestamp: return (binaryParam(b, oid) as string).replace(' ', 'T');
     default: return b.toString('utf8');
   }
 }
@@ -87,9 +90,9 @@ test('every field kind comes back in binary as the text format reads it, NULLs a
   const text = ok(await c.formats(ALL));
   const binary = ok(await c.formats(ALL, { resultFormats: [1] }));
   assert.deepEqual(binary.oids, text.oids);
-  // Dates, times and timestamps are text, as the file keeps them; a container is its reference number, as in the text format.
+  // Dates, times and timestamps come back as date, time and timestamp (1082, 1083, 1114); a container is its reference number, as in the text format.
   // A decimal in a query of several columns is described as text today (as it is for the text format), so it is left out here.
-  assert.deepEqual(binary.oids.filter((_, i) => i !== 8), [OID.text, OID.numeric, OID.text, OID.text, OID.text, OID.numeric, OID.bool, OID.int8, OID.jsonb, OID.uuid]);
+  assert.deepEqual(binary.oids.filter((_, i) => i !== 8), [OID.text, OID.numeric, OID.date, OID.time, OID.timestamp, OID.numeric, OID.bool, OID.int8, OID.jsonb, OID.uuid]);
   assert.deepEqual(binary.formats, binary.oids.map(() => 1), 'one result format code applies to every column');
   assert.equal(binary.values.length, 3);
   binary.values.forEach((row, r) => row.forEach((v, i) => {

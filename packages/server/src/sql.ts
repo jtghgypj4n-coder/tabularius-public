@@ -23,6 +23,7 @@ import { refreshAuthCache } from './auth-cache.ts';
 import { createHash } from 'node:crypto';
 import { StoreError, occurrence, type Privileges, type Store } from '../../store/src/index.ts';
 import type { SqlValue } from '../../store/src/find.ts';
+import { secondFileSqlRefusal } from './sql-second-file.ts';
 import { ApiError, lockedOutError, readJson, sessionPrivileges, type DataApi } from './dataapi.ts';
 import type { Host } from './host.ts';
 import { refuseUnknownFile } from './file-list.ts';
@@ -98,8 +99,11 @@ export class SqlEndpoint {
       if (!Number.isInteger(max) || max < 1 || max > MAX_LIMIT) throw new ApiError(960, `limit must be 1 to ${MAX_LIMIT}`, 400);
       if (format !== 'json' && format !== 'csv') throw new ApiError(960, 'format must be json or csv', 400);
 
-      const { sql: text, target } = store.calc.translateSQL(sql);
+      // A table of another file the account may not read answers as one that isn't there, so the answer does not name the file.
+      const { sql: text, target } = store.calc.translateSQL(sql, undefined, undefined, (file) => p.in(file).readsEverything);
       this.checkReadsEverything(p.in(target), target);
+      const refused = secondFileSqlRefusal(p, target, store);
+      if (refused) throw new ApiError(9, refused, 403);
       if (format === 'csv' && (!p.canExport || !p.in(target).canExport)) {
         throw new ApiError(9, 'Insufficient privileges: this account may not export records', 403);
       }
@@ -155,7 +159,7 @@ export class SqlEndpoint {
     const out: { name: string; baseTable: string; file: string; columns: { name: string; type: string }[] }[] = [];
     for (const to of store.schema.tableOccurrences) {
       const occ = occurrence(store, to.id);
-      if (!occ || !p.in(occ.store).readsEverything) continue;
+      if (!occ || !p.in(occ.store).readsEverything || secondFileSqlRefusal(p, occ.store, store)) continue;
       const stored = new Set((occ.store.sql.prepare(`PRAGMA table_info(${JSON.stringify(occ.table.name)})`).all() as { name: string }[]).map((c) => c.name));
       out.push({
         name: to.name, baseTable: occ.table.name, file: occ.store.name,

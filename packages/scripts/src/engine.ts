@@ -19,7 +19,7 @@ import { TEST_ONLY_CUSTOM_FETCH } from './test-only.ts';
 import { sqlMayReadSecret } from './credentials.ts';
 import { DELIMITED_SEPARATORS, parseDelimitedRows, sniffSeparator } from '../../store/src/delimited.ts';
 import { decodeText } from '../../store/src/text-decode.ts';
-import { formulaGuard, stripFormulaGuard } from '../../store/src/csv-export.ts';
+import { formulaGuard, stripFormulaGuard, visibleControls } from '../../store/src/csv-export.ts';
 import { fmpXmlReader } from './fmp-xml-dates.ts';
 import { serialOf, xlsx, type XlsxOutCell } from './xlsx.ts';
 import { executeDataApi } from './data-api-step.ts';
@@ -55,6 +55,7 @@ import { valueListOrder } from '../../store/src/value-list-sort.ts';
 import { recordSortKey, recordSortLanguage } from '../../calc/src/collation.ts';
 import { safeExistingPath } from '../../store/src/safe-path.ts';
 import { closeMbsJavaScriptSession } from '../../calc/src/mbs-js.ts';
+import { APPLICATION_VERSION } from '../../calc/src/get.ts';
 
 export { parseDelimited } from '../../store/src/delimited.ts';
 
@@ -330,6 +331,10 @@ export interface ClientCheckpoint {
 export interface RunOptions {
   /** Aggregate work completed by a long record operation; contains no record values. */
   onProgress?: (event: { operation: string; completed: number; total: number }) => void;
+  /** Open sessions for the script's hosted file; defaults to 1 without a session registry. */
+  userCount?: () => number;
+  /** Server language name for Get ( SystemLanguage ) and Get ( ApplicationLanguage ). */
+  language?: string;
   /** @internal Explicit test-only permission to inject a custom fetch transport. */
   [TEST_ONLY_CUSTOM_FETCH]?: true;
   /** Apply ordered screen actions at their script point, then acknowledge automatically. No commit or focus change. */
@@ -338,6 +343,8 @@ export interface RunOptions {
   activeObjectId?: number;
   /** Return Export Field Contents as an action even when this run has a server Documents folder. */
   clientFieldExports?: boolean;
+  /** Whether no person is present; defaults from downloads, and is true for Perform Script on Server. */
+  headless?: boolean;
   /** Checks each resolved file before reading its scripts, schema or records, including dynamic cross-file calls. */
   beforeFile?: (store: Store) => void;
   /** Non-throwing observation of explicitly tagged refused checks, independent of LastError. */
@@ -477,6 +484,8 @@ export interface RunOptions {
    * through one, which adds its credentials. Only where Insert from URL may use the network at all.
    */
   connections?: ScriptConnections;
+  /** A scratch copy for debugging or script tests: server resources such as connections are not available. */
+  scratch?: boolean;
   /**
    * Send Mail via SMTP really sends, through the server operator's account, when they switched it on.
    * Absent, the step is error 3. Outbound test mode takes its place when set, and mail from a capture-only
@@ -1313,6 +1322,10 @@ export class ScriptEngine {
   private readonly actions: ClientAction[] = [];
   private syncVersion = 0;
   private readonly warnings: string[] = [];
+  /** Each AI configuration warning once per script in this run, even across repeated subscript calls. */
+  private readonly aiWarnings = new WeakMap<Store, Map<number, Set<number>>>();
+  /** Save a Copy as is warned once for each script, even when it writes several files. */
+  private readonly warnedSaveCopies = new Set<Script>();
   private readonly trace?: TraceLine[];
   private executionStore?: Store;
   private identityStore?: Store;
@@ -3887,6 +3900,16 @@ export class ScriptEngine {
     throw new Error(`Step ${s.stepId} is not one of the quick steps`);
   }
 
+  private warnAiStep(f: Frame, stepId: number, warning: string): void {
+    let scripts = this.aiWarnings.get(f.store);
+    if (!scripts) this.aiWarnings.set(f.store, scripts = new Map());
+    let steps = scripts.get(f.script.id);
+    if (!steps) scripts.set(f.script.id, steps = new Set());
+    if (steps.has(stepId)) return;
+    steps.add(stepId);
+    this.warnings.push(warning);
+  }
+
   /** Runs one step; returns the next step index for a jump, or 'exit'. */
   private async step(f: Frame, s: ScriptStep, pc: number, b: Blocks): Promise<number | 'exit' | undefined> {
     if (scriptStepName(s.stepId).startsWith('Unknown step ')) {
@@ -4676,12 +4699,16 @@ export class ScriptEngine {
       case 218: // Perform Semantic Find
         await this.semanticFind(f, p);
         return undefined;
-      case 212: { // Configure AI Account: names an account for the AI steps. Its API key and endpoint are never read: Tabularius's own AI answers.
+      case 212: { // Configure AI Account: names an account for the AI steps. Its API key, endpoint and model formulas are never evaluated: Tabularius's own AI answers.
+        if (p.ai?.endpoint !== undefined || p.ai?.apiKey !== undefined || p.ai?.model !== undefined) {
+          this.warnAiStep(f, s.stepId, "Configure AI Account: the endpoint, key and model in this step are not used; this server's own model answers.");
+        }
         const name = asText(this.eval(f, p.ai?.accountName ?? '""'));
         if (name) this.session.ai.accounts.add(name.toLowerCase());
         return undefined;
       }
       case 217: // Set AI Call Logging: no operation is performed
+        this.warnAiStep(f, s.stepId, 'Set AI Call Logging does nothing here');
         return undefined;
       case 226: { // Configure Prompt Template: kept for Perform Find by Natural Language in this session
         const name = asText(this.eval(f, p.ai?.templateName ?? '""'));
@@ -5037,7 +5064,7 @@ export class ScriptEngine {
       // window, found set, record, globals or variables, and records the caller
       // has open are locked to it. Nothing it does reaches the caller's screen.
       const sub = new ScriptEngine({
-        ...this.opts, executionAccount, session: undefined, layout: undefined, foundSet: undefined, recordId: undefined, mode: undefined, preview: undefined,
+        ...this.opts, headless: true, executionAccount, session: undefined, layout: undefined, foundSet: undefined, recordId: undefined, mode: undefined, preview: undefined,
         trigger: undefined, parameter: asText(parameter).slice(0, SERVER_TEXT_LIMIT), debug: undefined, insertFile: undefined, pause: undefined, dialog: undefined,
         // The person's browser windows and where they stand in them belong to the caller's run, not the server's.
         startWindow: undefined, openWindows: undefined, variables: undefined, startedBy: undefined, activeObjectId: undefined,
@@ -5213,6 +5240,7 @@ export class ScriptEngine {
 
   private newCalcContext(f: Frame, win: Window, info: LayoutInfo | undefined): CalcContext {
     return {
+      headless: this.opts.headless ?? !this.opts.downloads,
       notice: (message) => { if (!this.warnings.includes(message)) this.warnings.push(message); },
       names: this.names(win.store, info),
       occurrence: info?.occurrence,
@@ -5410,7 +5438,9 @@ export class ScriptEngine {
         return name === undefined ? undefined : text(name);
       }
       case 'sortstate': return num(fs?.sort ? (fs.semi ? 2 : 1) : 0);
-      case 'applicationversion': return text('tabularius Server 0.1');
+      case 'applicationversion': return text(APPLICATION_VERSION);
+      case 'usercount': return this.opts.userCount ? num(this.opts.userCount()) : undefined;
+      case 'systemlanguage': case 'applicationlanguage': return this.opts.language ? text(this.opts.language) : undefined;
       case 'windowheight': case 'windowwidth': case 'windowtop': case 'windowleft': {
         // A card's size and place, when New Window or Move/Resize Window gave them; else the person's browser window.
         const k = name.toLowerCase().slice(6) as 'height' | 'width' | 'top' | 'left';
@@ -7321,7 +7351,8 @@ export class ScriptEngine {
     const fallback = ({ XLXE: 'Untitled.xlsx', TABS: 'Untitled.tab', MRGE: 'Untitled.mer', XML: 'Untitled.xml' } as Record<string, string>)[p.exportFormat ?? ''] ?? 'Untitled.csv';
     const target = this.outputPath(f, p, p.exportFormat === 'XLXE' ? 'Save Records as Excel' : 'Export Records', fallback);
     const path = `${target}.${randomUUID()}.partial`;
-    let cleanup = () => {};
+    let cleanup: ReturnType<typeof cleanupPath> = () => {};
+    let failed = false;
     let checkStaging = () => {};
     const complete = (step: string) => {
       this.canceled(f.script.name);
@@ -7473,12 +7504,17 @@ export class ScriptEngine {
         complete('Export Records');
         return;
       }
-      const cell = (v: string, type?: string) => {
-        const one = formulaGuard(v.replace(/\r\n|[\r\n]/g, '\v'), type); // returns in a field export as vertical tabs, as in FileMaker
+      // One field. A control character goes out as visible \uXXXX text (as the web client's export does), a return as a vertical tab
+      // (as in FileMaker), and a value a spreadsheet would take for a formula gets an apostrophe; the group separator between a
+      // repeating field's values is the one control character written as it is.
+      const cell = (parts: string[], type?: string) => {
+        const raw = parts.join(GROUP_SEPARATOR);
+        const guarded = formulaGuard(raw, type).length > raw.length ? "'" : '';
+        const one = guarded + parts.map((v) => visibleControls(v).replace(/\r\n|[\r\n]/g, '\v')).join(GROUP_SEPARATOR);
         const quoted = `"${one.replace(/"/g, '""')}"`;
         // Tab-separated text is written bare; only a value that starts with a quote is quoted, so reading it back
         // does not take that quote for the start of a quoted value.
-        return format === 'TABS' ? (one.startsWith('"') ? quoted : one.replace(/\t/g, ' ')) : quoted;
+        return format === 'TABS' && !one.startsWith('"') ? one : quoted;
       };
       const sep = format === 'TABS' ? '\t' : ',';
       const encoding = p.encoding === 'utf-16' ? 'utf-16' : 'utf-8';
@@ -7489,17 +7525,20 @@ export class ScriptEngine {
         // UTF-16 text starts with a byte order mark, so a program that opens the file (this one's Import Records too) knows its byte order.
         if (encoding === 'utf-16') writeSync(fd, new Uint8Array([0xff, 0xfe]));
         const line = (l: string) => writeSync(fd, encodeText(l + '\r\n', encoding));
-        if (format === 'MRGE') line(refs.map((r) => cell(heading(r), 'text')).join(sep));
+        if (format === 'MRGE') line(refs.map((r) => cell([heading(r)], 'text')).join(sep));
         // Claris: "Values in repeating fields are separated by the group separator character."
         for (const record of records) {
           await this.checkpoint(f);
-          line(record.map((values) => cell(values.map((v) => asText(v, win.store.dateOrder)).join(GROUP_SEPARATOR), values[0]?.type)).join(sep));
+          line(record.map((values) => cell(values.map((v) => asText(v, win.store.dateOrder)), values[0]?.type)).join(sep));
         }
       } finally {
         closeSync(fd);
       }
       complete('Export Records');
-    } finally { cleanup(); }
+    } catch (error) {
+      failed = true;
+      throw error;
+    } finally { cleanup({ throwOnError: !failed }); }
   }
 
   /**
@@ -7952,6 +7991,10 @@ export class ScriptEngine {
       this.resumeAfter(left);
     }
     if (p.copyKind === 'clone') clearRecords(path, f.store.schema);
+    if (!this.warnedSaveCopies.has(f.script)) {
+      this.warnedSaveCopies.add(f.script);
+      this.warnings.push(`Save a Copy as wrote ${basename(path)}, a Tabularius store, not a .fmp12; FileMaker cannot open it.`);
+    }
   }
 
   /**
@@ -8964,7 +9007,9 @@ export class ScriptEngine {
     const connections = this.opts.connections;
     const address = parseConnectionUrl(url);
     if (!address) throw new ScriptError(ERROR.urlFormat, 'A connection address looks like connection://name/folder/file (the name is the connection\'s, from the admin console)');
-    if (!connections) throw new ScriptError(ERROR.unavailable, `Insert from URL can't use the connection ${address.name}: this server has no connections`);
+    if (!connections) throw new ScriptError(ERROR.unavailable, this.opts.scratch
+      ? `Insert from URL can't use the connection ${address.name}: connections are not available in scratch runs`
+      : `Insert from URL can't use the connection ${address.name}: this server has no connections`);
     const curl = p.slots?.[129] !== undefined ? parseCurl(asText(this.eval(f, p.slots[129])), (v) => this.getVariable(f, v, 1)) : undefined;
     if (curl?.awsSigv4) throw new ScriptError(ERROR.unavailable, 'A connection adds its own credentials, so --aws-sigv4 is not used with one');
     const request = curlRequest(url, curl);

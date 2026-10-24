@@ -39,6 +39,56 @@ function denied(r: { status: number; body: unknown }): void {
   assert.deepEqual(r.body, { response: {}, messages: [{ code: '9', text: 'Access denied' }] });
 }
 
+test('header logout ends only its own Admin API session', async (t) => {
+  const api = await setup(t);
+  const first = await api.login();
+  const second = await api.login();
+  const r = await fetch(`${api.base}/user/auth`, {
+    method: 'DELETE', headers: { authorization: `Bearer ${first}` },
+  });
+  assert.equal(r.status, 200);
+  assert.deepEqual(await r.json(), { response: {}, messages: [{ code: '0', text: 'OK' }] });
+  denied(await api.use(first));
+  assert.equal((await api.use(second)).status, 200);
+});
+
+test('header logout requires a live Bearer token', async (t) => {
+  const api = await setup(t);
+  const token = await api.login();
+  for (const authorization of [undefined, `Bearer ${token}wrong`, 'Basic ' + btoa('admin:secret')]) {
+    const r = await fetch(`${api.base}/user/auth`, {
+      method: 'DELETE', headers: authorization ? { authorization } : {},
+    });
+    denied({ status: r.status, body: await r.json() });
+  }
+  assert.equal((await api.use(token)).status, 200);
+});
+
+test('a token named in the URL is no longer a route: it answers 404 and ends nothing', async (t) => {
+  const api = await setup(t);
+  const caller = await api.login();
+  const target = await api.login();
+  const r = await fetch(`${api.base}/user/auth/${target}`, {
+    method: 'DELETE', headers: { authorization: `Bearer ${caller}` },
+  });
+  assert.equal(r.status, 404);
+  assert.equal((await r.json()).messages[0].code, '3');
+  assert.equal((await api.use(target)).status, 200);
+  assert.equal((await api.use(caller)).status, 200);
+});
+
+test('GET on the sign-in path reveals methods only to a signed-in caller', async (t) => {
+  const api = await setup(t);
+  const token = await api.login();
+  const signed = await fetch(`${api.base}/user/auth`, { headers: { authorization: `Bearer ${token}` } });
+  assert.equal(signed.status, 405);
+  assert.equal(signed.headers.get('allow'), 'POST, DELETE');
+  assert.equal((await signed.json()).messages[0].code, '3');
+  const unsigned = await fetch(`${api.base}/user/auth`);
+  denied({ status: unsigned.status, body: await unsigned.json() });
+  assert.equal(unsigned.headers.get('allow'), null);
+});
+
 test('Admin API tokens stop working immediately after the admin password changes', async (t) => {
   const api = await setup(t);
   const token = await api.login();

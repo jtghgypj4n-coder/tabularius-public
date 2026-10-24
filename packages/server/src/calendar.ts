@@ -18,7 +18,7 @@ import { clientAddress } from './client-address.ts';
 import { createHash } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { endTransaction, StoreError, writer, type FieldData, type FindRequest, type LayoutInfo, type Store, type Transaction } from '../../store/src/index.ts';
-import { addDays, buildCalendar, parseDate, parseStamp, readCalendar, READ_LIMITS, utcToZoned, zonedToUtc, zoneName, type FeedEvent, type ReadTime, type When } from '../../store/src/calendar.ts';
+import { addDays, buildCalendar, CalendarReadError, parseDate, parseStamp, readCalendar, READ_LIMITS, utcToZoned, zonedToUtc, zoneName, type FeedEvent, type ReadTime, type When } from '../../store/src/calendar.ts';
 import { ApiError, badPathError, maxLimit, readBody, sessionPrivileges, type DataApi } from './dataapi.ts';
 import type { Host } from './host.ts';
 import { MAX_JSON_QUERY_BYTES, parseRequestJson } from './request-json.ts';
@@ -182,9 +182,9 @@ export function createFeed(store: Store, account: string, privileges: ReturnType
     if (!Number.isInteger(req.limit) || req.limit < 1 || req.limit > most) throw new ApiError(960, `Parameter is invalid: limit (1 to ${most})`, 400);
     q.set('limit', String(req.limit));
   }
-  // Left out, the address lives DEFAULT_FEED_DAYS; 0 is "never", asked for on purpose.
-  if (req.expiresDays !== undefined && req.expiresDays !== null && (typeof req.expiresDays !== 'number' || !(req.expiresDays >= 0) || req.expiresDays > MAX_TOKEN_DAYS)) {
-    throw new ApiError(960, 'Parameter is invalid: expiresDays (above 0 and up to 3650, or 0 for never)', 400);
+  // Left out, the address lives DEFAULT_FEED_DAYS; every address expires.
+  if (req.expiresDays !== undefined && req.expiresDays !== null && (typeof req.expiresDays !== 'number' || !(req.expiresDays > 0) || req.expiresDays > MAX_TOKEN_DAYS)) {
+    throw new ApiError(960, 'Parameter is invalid: expiresDays (above 0 and up to 3650)', 400);
   }
   const expires = tokenExpiry(req.expiresDays, DEFAULT_FEED_DAYS);
   const label = typeof req.label === 'string' && req.label.trim() ? req.label.trim().slice(0, 60) : '';
@@ -434,7 +434,14 @@ export class CalendarFeeds {
 /** The events of an .ics file added to a layout as records, all or none. */
 export function importCalendar(store: Store, info: LayoutInfo, layout: string, map: Mapping, zone: string | undefined, text: string, privileges: ReturnType<typeof sessionPrivileges>, account: string): { imported: number; skipped: number; notes: string[] } {
   if (!/BEGIN:VCALENDAR/i.test(text)) throw new ApiError(960, 'The body is not an iCalendar (.ics) file', 400);
-  const { events, notes } = readCalendar(text);
+  let read: ReturnType<typeof readCalendar>;
+  try {
+    read = readCalendar(text);
+  } catch (e) {
+    if (e instanceof CalendarReadError) throw new ApiError(960, e.message, 400);
+    throw e;
+  }
+  const { events, notes } = read;
   const type = (name: string) => info.fields.find((f) => f.name === name)!.type;
   const startType = type(map.start);
   const sawUtc = { v: false };

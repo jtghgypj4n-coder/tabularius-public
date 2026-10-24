@@ -5,6 +5,7 @@ import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { resolveAiKey } from '../src/ai-key.ts';
+import { runCli } from './cli-run.ts';
 
 const posix = process.platform === 'win32' ? { skip: 'file modes' } : {};
 
@@ -49,4 +50,22 @@ test('says what is wrong for a missing or empty file', posix, () => {
 
 test('a workspace id must look like wrkspc_…', () => {
   assert.throws(() => resolveAiKey({ ANTHROPIC_API_KEY: 'sk-x' }, undefined, 'my-workspace'), /wrkspc_/);
+});
+
+test('serve refuses an --ai-run-tokens that would switch the budget off or is not a whole number', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'aikey-serve-'));
+  try {
+    const env = { ...process.env, ANTHROPIC_API_KEY: ['sk', 'ant', 'test'].join('-') };
+    const entry = join(import.meta.dirname, '..', 'src', 'launch.cjs');
+    const results = await Promise.all(['1e308', '0.5', '0x10', '0', '10000001'].map(async (v) => ({ v, r: await runCli(entry, ['serve', dir, '--ai', '--ai-run-tokens', v], { env, timeout: 60_000 }) })));
+    for (const { v, r } of results) {
+      assert.notEqual(r.status, 0, `${v} should be refused`);
+      assert.match(r.stderr, /--ai-run-tokens needs a whole number of tokens from 1 to 10,000,000/, `${v}: ${r.stderr}`);
+    }
+    // The same through the environment.
+    const viaEnv = await runCli(entry, ['serve', dir, '--ai'], { env: { ...env, TABULARIUS_AI_RUN_TOKENS: '1e308' }, timeout: 60_000 });
+    assert.match(viaEnv.stderr, /--ai-run-tokens needs a whole number/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

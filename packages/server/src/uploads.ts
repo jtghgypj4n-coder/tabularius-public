@@ -14,6 +14,7 @@
 // then the .fmp12 sits next to its store, as if it had been dropped into
 // the folder.
 
+import { positiveWholeNumber } from './setting-values.ts';
 import { eachChunk } from './dataapi.ts';
 import type { IncomingMessage } from 'node:http';
 import { randomBytes } from 'node:crypto';
@@ -41,11 +42,9 @@ const UPLOAD_DIR = '.openhbam-uploads';
  */
 export const MAX_UPLOAD = Math.max(0, Math.trunc(Number(process.env.TABULARIUS_MAX_UPLOAD ?? 10 * 1024 * 1024 * 1024)) || 0);
 
-/** Source bytes allowed across uploading, queued and converting files. Always finite; 0/invalid uses 20 GiB. */
-export const MAX_UPLOAD_IN_PROGRESS = positiveBytes(process.env.TABULARIUS_MAX_UPLOAD_IN_PROGRESS, 20 * 1024 * 1024 * 1024);
-function positiveBytes(value: string | undefined, fallback: number): number {
-  const n = Number(value);
-  return Number.isSafeInteger(n) && n > 0 ? n : fallback;
+/** Source bytes allowed across uploading, queued and converting files. Always finite: unset is 20 GiB; 0 or anything but digits is refused. */
+export function maxUploadInProgress(): number {
+  return positiveWholeNumber('TABULARIUS_MAX_UPLOAD_IN_PROGRESS', process.env.TABULARIUS_MAX_UPLOAD_IN_PROGRESS, 20 * 1024 * 1024 * 1024);
 }
 
 export class UploadError extends Error {
@@ -123,7 +122,7 @@ export function explainHostingFailure(name: string, raw: string): string {
   return `${file} couldn't be converted: ${raw}. If it opens in FileMaker Pro, please report this with the version that made the file; if it doesn't, the file itself may be damaged.`;
 }
 
-const quota = () => `Too much is being uploaded at once (the aggregate quota for uploads in progress is ${readableBytes(MAX_UPLOAD_IN_PROGRESS)}). Wait for the others to finish, then try again.`;
+const quota = () => `Too much is being uploaded at once (the aggregate quota for uploads in progress is ${readableBytes(maxUploadInProgress())}). Wait for the others to finish, then try again.`;
 
 export class Uploads {
   private readonly host: Host;
@@ -137,7 +136,7 @@ export class Uploads {
   /** When each upload last started or received a piece (monotonic milliseconds). */
   private readonly active = new Map<string, number>();
   private readonly writing = new Set<string>();
-  private readonly cleanups = new Map<string, () => void>();
+  private readonly cleanups = new Map<string, ReturnType<typeof cleanupPath>>();
   private readonly conversions = new Map<string, { stop: AbortController; done: Promise<void> }>();
 
   constructor(host: Host, log: (msg: string) => void = () => {}, opts: { now?: () => number; idleMs?: number } = {}) {
@@ -177,10 +176,10 @@ export class Uploads {
     return join(this.dir, `${id}.part`);
   }
 
-  private cleanPart(id: string): void {
+  private cleanPart(id: string, throwOnError = true): void {
     const cleanup = this.cleanups.get(id);
     this.cleanups.delete(id);
-    cleanup?.();
+    cleanup?.({ throwOnError });
   }
 
   private taken(name: string): boolean {
@@ -212,7 +211,7 @@ export class Uploads {
     this.prune();
     if (this.uploads.size >= 128) throw new UploadError(429, 'Too many uploads are in progress; finish or remove one first');
     if (this.taken(name)) throw new UploadError(409, `A file named ${name} is already hosted or being uploaded. Remove it from Hosted files first to host this copy instead, or rename this file.`);
-    if (size > MAX_UPLOAD_IN_PROGRESS) throw new UploadError(413, quota());
+    if (size > maxUploadInProgress()) throw new UploadError(413, quota());
     mkdirSync(this.dir, { recursive: true, mode: 0o700 });
     const id = `${this.owner}-${randomBytes(9).toString('base64url')}`;
     closeSync(openSync(this.part(id), 'wx', 0o600));
@@ -244,7 +243,7 @@ export class Uploads {
         if (at + chunk.length > u.size) throw new UploadError(413, 'More bytes than the file\'s size');
         const existing = statSync(this.part(id)).size;
         const extension = Math.max(0, at + chunk.length - existing);
-        if (extension > MAX_UPLOAD_IN_PROGRESS - this.bytesInProgress()) throw new UploadError(413, quota());
+        if (extension > maxUploadInProgress() - this.bytesInProgress()) throw new UploadError(413, quota());
         let done = 0;
         while (done < chunk.length) done += writeSync(fd, chunk, done, chunk.length - done, at + done);
         at += chunk.length;
@@ -316,7 +315,7 @@ export class Uploads {
         }
       }
     } catch (e) {
-      this.cleanPart(u.id);
+      this.cleanPart(u.id, false);
       if (stop.signal.aborted) this.log(`cancelled upload of ${u.name}.fmp12`);
       else {
         u.phase = 'failed';
@@ -325,7 +324,7 @@ export class Uploads {
       }
     } finally {
       if (stop.signal.aborted) {
-        this.cleanPart(u.id);
+        this.cleanPart(u.id, false);
         this.uploads.delete(u.id);
         this.active.delete(u.id);
       }

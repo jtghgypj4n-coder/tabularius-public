@@ -1176,6 +1176,22 @@
   "why": "Unique/existing-value validation over all records; returns only pass/fail to the writer (documented FileMaker-compatible oracle)."
  },
  {
+  "file": "packages/store/src/exit-bundle.ts",
+  "within": "writeContainers",
+  "api": "Store.containerInfo",
+  "count": 1,
+  "gate": "full-access",
+  "why": "Only reached through exitBundle, which authorize() first limits to an active Full Access account that signs in with its password (isFullAccessAccount, verifyAsync, sign-in location, no second factor in use, password change not pending) and which audits the copy; the bundle exports every table and container in full for that account by design, and an account without Full Access is refused before any read."
+ },
+ {
+  "file": "packages/store/src/exit-bundle.ts",
+  "within": "writeContainers",
+  "api": "Store.containerRange",
+  "count": 1,
+  "gate": "full-access",
+  "why": "Only reached through exitBundle, which authorize() first limits to an active Full Access account that signs in with its password (isFullAccessAccount, verifyAsync, sign-in location, no second factor in use, password change not pending) and which audits the copy; the bundle exports every table and container in full for that account by design, and an account without Full Access is refused before any read."
+ },
+ {
   "file": "packages/store/src/explain-related.ts",
   "within": "explainCandidate",
   "api": "sql.prepare",
@@ -1857,6 +1873,14 @@
  },
  {
   "file": "packages/store/src/store.ts",
+  "within": "Store.failureAuditRoom",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "no-record-data",
+  "why": "Counts the security rows of the audit table (total and sign-in failures) to decide whether one more failed sign-in row may be written; it reads no record data and returns only two numbers, and no caller supplies a table or a filter."
+ },
+ {
+  "file": "packages/store/src/store.ts",
   "within": "Store.fieldIndexCurrent",
   "api": "sql.prepare",
   "count": 2,
@@ -1926,6 +1950,14 @@
   "count": 1,
   "gate": "store-internal",
   "why": "Base row for addRelated in foundSetRows (checkLayout done); rows shown are filtered by visible() and shown() with opts.privileges."
+ },
+ {
+  "file": "packages/store/src/store.ts",
+  "within": "Store.gateAgentWrite",
+  "api": "sql.prepare",
+  "count": 1,
+  "gate": "no-record-data",
+  "why": "SELECT COUNT(*) of the agent's waiting rows in _fm_pending, to refuse a 501st proposal. It reads no column (no proposed values, no record data); only the number is used, and only to throw a refusal that names the limit."
  },
  {
   "file": "packages/store/src/store.ts",
@@ -2203,9 +2235,9 @@
   "file": "packages/store/src/store.ts",
   "within": "Store.restoreDeletedRowLocked",
   "api": "sql.prepare",
-  "count": 1,
+  "count": 2,
   "gate": "store-internal",
-  "why": "Id-collision check before reinserting (create privilege checked); error 504 reveals only that the id is in use."
+  "why": "Id and _fm_uuid collision checks before reinserting (create privilege checked); error 504 reveals only that the id or the internal uuid of the row being put back is in use."
  },
  {
   "file": "packages/store/src/store.ts",

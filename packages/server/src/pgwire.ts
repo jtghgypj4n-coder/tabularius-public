@@ -18,6 +18,7 @@
 // prepared statements, row limits), with parameters and results in the text or
 // the binary format, per value, as Bind asks (pgbinary.ts).
 
+import { positiveWholeNumber } from './setting-values.ts';
 import { isUtf8 } from 'node:buffer';
 import { cleanSql, maskSql, sqlTokens } from '../../store/src/sql-tokens.ts';
 import { noteSurfaceSignIn } from './surface-access.ts';
@@ -27,6 +28,7 @@ import { createSecureContext, TLSSocket } from 'node:tls';
 import { randomBytes } from 'node:crypto';
 import { addressBucket, endTransaction, PrivilegeError, spendPasswordCheck, StoreError, writer, type Privileges, type Store, type Transaction } from '../../store/src/index.ts';
 import { monotonicClock } from '../../store/src/monotonic.ts';
+import { secondFileSqlRefusal } from './sql-second-file.ts';
 import { executeWrite, parseWrite, returningColumns, WriteRefusal, type WritePlan, type WriteResult } from './pgwrite.ts';
 import { SignInFailures } from '../../store/src/sign-in-failures.ts';
 import type { SqlValue } from '../../store/src/find.ts';
@@ -68,7 +70,20 @@ const GSS_REQUEST = 80877104;
 const CANCEL_REQUEST = 80877102;
 const PROTOCOL_3 = 196608;
 
-const OID = { bool: 16, bytea: 17, int8: 20, text: 25, float8: 701, numeric: 1700, jsonb: 3802, uuid: 2950 } as const;
+const OID = { bool: 16, bytea: 17, int8: 20, text: 25, float8: 701, date: 1082, time: 1083, timestamp: 1114, numeric: 1700, jsonb: 3802, uuid: 2950 } as const;
+
+/** PostgreSQL Appendix A: https://www.postgresql.org/docs/current/errcodes-appendix.html */
+export const SQLSTATE_BY_STORE_CODE: Readonly<Partial<Record<number, string>>> = Object.freeze({
+  102: '42703', // undefined_column: store.ts field lookups (including fields hidden by privileges).
+  106: '42P01', // undefined_table: store.ts table lookups, e.g. addFieldIndex and restoreDeletedRow.
+  200: '42501', // insufficient_privilege: store.ts checkRecordRule and privilege checks deny access.
+  212: '28000', // invalid_authorization_specification: store.ts account/password/passkey checks.
+  301: '55P03', // lock_not_available: store.ts record/transaction conflicts; activity.ts expired record leases.
+  812: '53000', // insufficient_resources: activity.ts lock cap AND errors.ts CPU/memory caps; not just connections.
+  8310: '42000', // syntax_error_or_access_rule_violation: readOnlyChecked/selectCurrent mix statement, access and parameter checks.
+});
+// 201 also covers calculated/container fields and unsupported field operations, not just privilege denial.
+// Other codes keep 42000 rather than claiming a more specific PostgreSQL condition without evidence.
 
 class PgError extends Error {
   readonly code: string;
@@ -154,15 +169,18 @@ function dataRow(row: SqlValue[], cols: Column[], formats?: number[]): Buffer {
   }));
 }
 
-/** Column types: from the column's declared type, else what its values are. */
-function columnsOf(names: string[], types: (string | null)[], rows: SqlValue[][]): Column[] {
+/** Column types: direct temporal fields, then declared SQL types, else what the values are. */
+function columnsOf(names: string[], types: (string | null)[], rows: SqlValue[][], fieldTypes: (string | null)[] = []): Column[] {
   return names.map((name, i) => {
+    const fieldType = fieldTypes[i];
+    if (fieldType === 'date' || fieldType === 'time' || fieldType === 'timestamp') return { name, oid: OID[fieldType] };
     const t = (types[i] ?? '').toUpperCase();
     if (t === 'BOOLEAN') return { name, oid: OID.bool };
     if (t === 'BIGINT') return { name, oid: OID.int8 };
     if (t === 'DECIMAL_TEXT') return { name, oid: OID.numeric };
     if (t === 'JSON_TEXT') return { name, oid: OID.jsonb };
     if (t === 'UUID_TEXT') return { name, oid: OID.uuid };
+    // Container pointers stay numeric; compatibility of a different SQL container representation is unverified.
     if (t === 'REAL' || t === 'INTEGER') return { name, oid: OID.numeric };
     if (t) return { name, oid: OID.text };
     const v = rows.find((r) => r[i] !== null && r[i] !== undefined)?.[i] as unknown;
@@ -612,10 +630,15 @@ class Connection {
   private sendError(e: unknown): void {
     if (this.transaction === 'T') this.transaction = 'E';
     const writes = this.server.writes;
+    // SQLite resolves unknown SQL names before the store can raise its own field/table errors.
+    const sqlite = e instanceof Error && (e as Error & { code?: string }).code === 'ERR_SQLITE_ERROR';
+    const sqlstate = sqlite && e.message.startsWith('no such table: ') ? SQLSTATE_BY_STORE_CODE[106]
+      : sqlite && e.message.startsWith('no such column: ') ? SQLSTATE_BY_STORE_CODE[102] : undefined;
     const err = e instanceof PgError ? e
       : e instanceof BinaryFormatError ? new PgError(e.code, e.message)
       : e instanceof WriteRefusal ? new PgError('0A000', e.message)
-      : (e instanceof StoreError || (writes && e instanceof PrivilegeError)) ? new PgError(writes ? writeState(e.code) : e.code === 212 ? '28000' : '42000', writes && e.code !== 212 && writeState(e.code) !== '42000' ? `FileMaker ${e.code}: ${e.message}` : e.message)
+      : (e instanceof StoreError || (writes && e instanceof PrivilegeError)) ? new PgError(writes ? writeState(e.code) : SQLSTATE_BY_STORE_CODE[e.code] ?? '42000', writes && e.code !== 212 && writeState(e.code) !== '42000' ? `FileMaker ${e.code}: ${e.message}` : e.message)
+      : sqlstate ? new PgError(sqlstate, (e as Error).message)
       : isFault(e, { sql: true }) ? (logFault(e), new PgError('XX000', FAULT_MESSAGE)) : new PgError('42000', (e as Error).message);
     this.send(errorMsg(err.code, err.message));
   }
@@ -787,12 +810,15 @@ class Connection {
         if (code.slice(offset, offset + text.length) !== text) return text;
         return call ? values[call.toLowerCase()] : `'${this.user.replace(/'/g, "''")}'`;
       });
-    const translated = this.store!.calc.translateSQL(pgFunctions);
+    // A table of another file that the account may not read answers as a table that isn't there.
+    const translated = this.store!.calc.translateSQL(pgFunctions, undefined, undefined, (file) => this.privileges!.in(file).readsEverything);
     let { sql: text } = translated;
     const { target } = translated;
     if (!this.privileges!.in(target).readsEverything) {
-      throw new PgError('42501', `SQL reads every record, and this account can't view every record and field in ${target.name}`);
+      throw new PgError('42501', `SQL reads every record, and this account can't view every record and field${target === this.store ? ` in ${target.name}` : ''}`);
     }
+    const refused = secondFileSqlRefusal(this.privileges!, target, this.store!);
+    if (refused) throw new PgError('42501', refused);
     // Only a query of the catalog's own tables is left out of the read log; a function of the catalog's name beside a table of the file is still a read of it.
     const catalog = namesCatalogRelation(text);
     let read: CatalogData | undefined;
@@ -819,10 +845,11 @@ class Connection {
       user: this.user,
       tables: store.schema.tableOccurrences.flatMap((to, i) => {
         const t = store.calc.occurrenceTable(to.id);
-        if (!t) return [];
+        // A table of another file is listed only when the account reads everything in that file, as a query of it is.
+        if (!t || !this.privileges!.in(t.store).readsEverything) return [];
         // The columns a query of it returns, typed as results are.
-        const { names, types } = t.store.describe(`SELECT * FROM "${t.table.name.replace(/"/g, '""')}"`);
-        const columns = columnsOf(names, types, []).filter((c) => !c.name.startsWith('_fm_'));
+        const { names, types, fieldTypes } = t.store.describeTyped(`SELECT * FROM "${t.table.name.replace(/"/g, '""')}"`);
+        const columns = columnsOf(names, types, [], fieldTypes).filter((c) => !c.name.startsWith('_fm_'));
         return [{ oid: FIRST_TABLE_OID + i, name: to.name, columns }];
       }),
     };
@@ -836,7 +863,8 @@ class Connection {
     if (cap > 0 && r.rows.length > cap) throw new PgError('54000', `SQL results are limited to ${cap} rows; use LIMIT and page through the result with a stable ORDER BY`);
     // Clients read the catalog on connect and for every autocomplete; only queries of the file's own tables are reads of its data.
     if (!catalog) writer.run({ account: this.user, surface: 'sql' }, () => target.logQuery(text, r.rows.length, { privileges: this.privileges }));
-    return { cols: booleans(withCastColumns(columnsOf(r.names, r.types, r.rows), casts, catalog ? undefined : this.bareNames(sql, casts, target)), catalog), rows: r.rows };
+    const { fieldTypes } = target.describeTyped(text);
+    return { cols: booleans(withCastColumns(columnsOf(r.names, r.types, r.rows, fieldTypes), casts, catalog ? undefined : this.bareNames(sql, casts, target)), catalog), rows: r.rows };
   }
 
   /**
@@ -1177,8 +1205,7 @@ class Connection {
     // TABULARIUS_PGWIRE_MAX_BUFFERED_ROWS (default 100,000) caps what this connection's portals hold together, but at
     // least one full result always fits: a larger TABULARIUS_PGWIRE_MAX_ROWS raises it, and 0 (no row cap) lifts it.
     const perQuery = maxRows();
-    const given = Number(process.env.TABULARIUS_PGWIRE_MAX_BUFFERED_ROWS);
-    const total = Number.isInteger(given) && given > 0 ? given : MAX_BUFFERED_ROWS_PER_CONNECTION;
+    const total = this.server.maxBufferedRows;
     const cap = perQuery === 0 ? Infinity : Math.max(perQuery, total);
     if (alreadyBuffered + result.rows.length > cap) {
       throw new PgError('54000', `buffered SQL results on this connection are limited to ${cap} rows; close portals to free their rows`);
@@ -1193,8 +1220,8 @@ class Connection {
     if (own?.write) return this.returningOf(own.write);
     if (own) return own.cols;
     const { text, target, catalog, casts } = this.translate(sql);
-    const cols = target.describe(text);
-    return booleans(withCastColumns(columnsOf(cols.names, cols.types, []), casts, catalog ? undefined : this.bareNames(sql, casts, target)), catalog);
+    const cols = target.describeTyped(text);
+    return booleans(withCastColumns(columnsOf(cols.names, cols.types, [], cols.fieldTypes), casts, catalog ? undefined : this.bareNames(sql, casts, target)), catalog);
   }
 }
 
@@ -1209,6 +1236,9 @@ export interface PgServerOptions {
 }
 
 export class PgServer {
+  get maxBufferedRows(): number {
+    return positiveWholeNumber('TABULARIUS_PGWIRE_MAX_BUFFERED_ROWS', process.env.TABULARIUS_PGWIRE_MAX_BUFFERED_ROWS, MAX_BUFFERED_ROWS_PER_CONNECTION);
+  }
   readonly host: Host;
   readonly log: (m: string) => void;
   private readonly opts: PgServerOptions;
@@ -1267,6 +1297,8 @@ export class PgServer {
   }
 
   constructor(host: Host, opts: PgServerOptions) {
+    // Validate at startup as well as on each query, where this limit has always been read.
+    void this.maxBufferedRows;
     this.host = host;
     this.opts = opts;
     this.log = opts.log ?? (() => {});

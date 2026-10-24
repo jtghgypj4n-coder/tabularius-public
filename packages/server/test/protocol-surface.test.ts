@@ -71,15 +71,14 @@ test('a malformed % escape in a path is a 400 on every route that decodes it, no
   assert.deepEqual(errors.mock.calls.map((c) => String(c.arguments[0])), [], 'a caller\'s bad path is not logged as a server fault');
 });
 
-test('the Admin API answers a malformed % escape with 400 code 960', async (t) => {
+test('the Admin API has no route that takes a token in the path, so a malformed % escape there is just not found', async (t) => {
   const { url, dir } = await setup(t);
   setAdminPassword(dir, 'admin-secret');
   const login = await fetch(`${url}/fmi/admin/api/v2/user/auth`, { method: 'POST', headers: basic('admin', 'admin-secret') });
   assert.equal(login.status, 200);
   const token = (await login.json()).response.token as string;
   const response = await fetch(`${url}/fmi/admin/api/v2/user/auth/%zz`, { method: 'DELETE', headers: { authorization: `Bearer ${token}` } });
-  assert.equal(response.status, 400);
-  assert.equal((await response.json()).messages[0].code, '960');
+  assert.equal(response.status, 404);
 });
 
 test('OData Set(id) honours $select and refuses options a single record cannot take', async (t) => {

@@ -101,21 +101,25 @@ function prepareOpen(path: fs.PathLike, flags: string | number, mode: fs.Mode | 
           (!opened.isFile() && !(opened.isDirectory() && !writing)) || (writing && opened.nlink !== 1)) refused();
       if (writing) fs.fchmodSync(fd, typeof mode === 'string' ? parseInt(mode, 8) : mode ?? 0o600);
       if (bits & c.O_TRUNC) fs.ftruncateSync(fd, 0);
+      return opened;
     },
   };
 }
 
-export const openSync: typeof fs.openSync = (path, flags, mode = 0o600) => {
+/** onOpened receives the verified descriptor identity before control returns to the caller. */
+export function openSync(path: fs.PathLike, flags: fs.OpenMode, mode: fs.Mode | null = 0o600,
+  onOpened?: (opened: fs.Stats) => void,
+): number {
   const pending = prepareOpen(path, flags, mode);
   const fd = fs.openSync(pending.path, pending.flags, pending.mode);
-  try { pending.validate(fd); return fd; }
+  try { const opened = pending.validate(fd); onOpened?.(opened); return fd; }
   catch (e) { fs.closeSync(fd); throw e; }
-};
+}
 
-export async function open(path: string, flags: string, mode = 0o600): Promise<FileHandle> {
+export async function open(path: string, flags: string, mode = 0o600, onOpened?: (opened: fs.Stats) => void): Promise<FileHandle> {
   const pending = prepareOpen(path, flags, mode);
   const handle = await nativeOpen(pending.path, pending.flags, pending.mode);
-  try { pending.validate(handle.fd); return handle; }
+  try { const opened = pending.validate(handle.fd); onOpened?.(opened); return handle; }
   catch (e) { await handle.close(); throw e; }
 }
 
@@ -187,13 +191,27 @@ export async function appendFile(path: string, data: string): Promise<void> {
   } finally { fs.closeSync(fd); }
 }
 
+export interface CleanupOptions extends fs.RmOptions {
+  /** Receives unexpected removal failures. A reporter must not interrupt unwinding. */
+  onError?: (error: unknown) => void;
+}
+export type PathCleanup = (options?: { throwOnError?: boolean }) => void;
+
+function warnCleanup(error: unknown): void {
+  const code = (error as NodeJS.ErrnoException | null)?.code;
+  // Native error messages include full paths. Report only a bounded errno name.
+  console.warn(`File cleanup failed${typeof code === 'string' && /^E[A-Z0-9]{1,30}$/.test(code) ? ` (${code})` : ''}`);
+}
+
 /** Capture cleanup authority before an operation can rename its parents. A
  * changed path is left alone, even when that means retaining a private orphan.
+ * Capture may throw; the returned function reports removal failures without
+ * throwing. Pass { throwOnError: true } when removal itself is the operation.
  */
-export function cleanupPath(path: string, options: fs.RmOptions = { force: true }): () => void {
+export function cleanupPath(path: string, { onError = warnCleanup, ...options }: CleanupOptions = { force: true }): PathCleanup {
   const p = name(path), checkParents = parents(p), before = leaf(p);
   if (!before) return () => {}; // absence is not ownership of a future entry
-  return () => {
+  return ({ throwOnError = false } = {}) => {
     try {
       checkParents();
       const current = leaf(p);
@@ -204,7 +222,9 @@ export function cleanupPath(path: string, options: fs.RmOptions = { force: true 
       if (!next || next.dev !== current.dev || next.ino !== current.ino) return;
       fs.rmSync(p, options);
     } catch (error) {
-      if (!['ENOENT', 'ESTALE', 'ENOTDIR'].includes((error as NodeJS.ErrnoException).code ?? '')) throw error;
+      if (['ENOENT', 'ESTALE', 'ENOTDIR'].includes((error as NodeJS.ErrnoException | null)?.code ?? '')) return;
+      if (throwOnError) throw error;
+      try { onError(error); } catch { /* A secondary reporting failure cannot replace the work error. */ }
     }
   };
 }

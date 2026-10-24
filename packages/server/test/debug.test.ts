@@ -159,3 +159,44 @@ test('script debugger: runs on a scratch copy by default, on the hosted file onl
   assert.equal(r.body.scratch, false);
   assert.equal(store.recordCount(table), before + 1);
 });
+
+test('a session has at most 3 debugger runs at a time; a finished run makes room, and nothing is left behind', { skip }, async () => {
+  const admin = await login('Admin');
+  const scripts = (await call(admin, 'GET', 'scripts')).body.scripts as { name: string }[];
+  const next = scripts.find((s) => s.name === '[btn] Go to next layout')!;
+  const ids: string[] = [];
+  // Paused at the start, so all three are still running.
+  for (let i = 0; i < 3; i++) {
+    const r = await call(admin, 'POST', 'runs', { script: next.name, layout: 'Congress' });
+    assert.equal(r.status, 201);
+    ids.push(r.body.id);
+  }
+  const refused = await call(admin, 'POST', 'runs', { script: next.name, layout: 'Congress' });
+  assert.equal(refused.status, 503);
+  assert.equal(refused.body.error.code, 812);
+  assert.match(refused.body.error.message, /3 debugger runs/);
+  assert.match(refused.body.error.message, /Stop one/);
+  // A recording shares the allowance.
+  assert.equal((await call(admin, 'POST', 'recordings', { script: next.name, layout: 'Congress' })).status, 503);
+  // Another session has its own.
+  const other = await login('Admin');
+  const mine = await call(other, 'POST', 'runs', { script: next.name, layout: 'Congress' });
+  assert.equal(mine.status, 201);
+  await call(other, 'POST', `runs/${mine.body.id}/halt`);
+  // Stopping one makes room.
+  await call(admin, 'POST', `runs/${ids[0]}/halt`);
+  const again = await call(admin, 'POST', 'runs', { script: next.name, layout: 'Congress' });
+  assert.equal(again.status, 201);
+  for (const id of [...ids.slice(1), again.body.id]) await call(admin, 'POST', `runs/${id}/halt`);
+});
+
+test('simultaneous debugger starts cannot pass the limit of 3 (the place is taken before the copy)', { skip }, async () => {
+  const admin = await login('Admin');
+  const scripts = (await call(admin, 'GET', 'scripts')).body.scripts as { name: string }[];
+  const next = scripts.find((s) => s.name === '[btn] Go to next layout')!;
+  const results = await Promise.all(Array.from({ length: 8 }, () => call(admin, 'POST', 'runs', { script: next.name, layout: 'Congress' })));
+  const started = results.filter((r) => r.status === 201);
+  assert.equal(started.length, 3);
+  assert.equal(results.filter((r) => r.status === 503).length, 5);
+  for (const r of started) await call(admin, 'POST', `runs/${r.body.id}/halt`);
+});

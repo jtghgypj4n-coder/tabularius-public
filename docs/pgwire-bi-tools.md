@@ -34,13 +34,17 @@ Every query in the list answers, except the ones that ask for something this con
 | Cursors: `DECLARE`, `FETCH`, `MOVE`, `CLOSE` | `0A000`, with a message that says to run the `SELECT` itself or use a fetch size. A fetch size works: it is the protocol's Execute row limit, not a cursor. |
 | SQL `PREPARE` and `EXECUTE` | `0A000`, with a message that says to use Parse, Bind and Execute. Drivers do. |
 | `array_agg(DISTINCT x)` | `42000`, naming `array_agg`. |
-| `FROM table, unnest(table.column)` (a join against an array in another table's column) | `42000`. `unnest` in a subquery that reads the outer row, as Metabase writes it, works. |
+| `FROM table, unnest(table.column)` (a join against an array in another table's column) | `42703` (the outer column is unavailable here). `unnest` in a subquery that reads the outer row, as Metabase writes it, works. |
 | `SET` of a setting the server does not keep (`SET ROLE`, `SET SESSION TIMEZONE`, `search_path`, isolation level) | Accepted with a warning that `SET` had no effect. The connection stays the account that signed in. |
 
-Problems from the SQL engine itself (an unknown table or function) come back as `42000` with the engine's message, not as PostgreSQL's `42P01` or `42883`.
+Unknown tables and columns return `42P01` and `42703`. Other SQL-engine problems,
+including unknown functions, retain `42000` with the engine's message. See the
+[store error mappings](pgwire-session.md#store-errors) and
+[date/time result types](pgwire-results.md#date-and-time-result-types).
 
 ## Known differences
 
+- A query that names a table of a second hosted file (a user-interface file over a data file) runs against that file with the account's privileges there; it needs the account to read every record and field of it. It does **not** need the SQL extended privilege (`fmxdbc`) in the second file unless an administrator turned that on for the file: `tabularius sql-privilege <folder> <name> on`, the **SQL from other files** column of the console's hosted files, or `POST /tabularius/admin/v1/sql-privilege/{database}`. It is off by default for every file, so an existing install behaves as before. A connection made to a file itself always needs `fmxdbc` in it. With the switch on and the privilege missing, the HTTP endpoint answers error 9 (403) and leaves the file's tables out of its table list, and this port answers `42501`. This port's catalog still lists table names, as it already does for an account that cannot read every record. Not covered by it: `ExecuteSQL` in a calculation or script, which has never needed `fmxdbc`.
 - The catalog shows the one file you connected to, as one schema (`public`), with its tables and columns. No indexes, constraints, views, functions or comments, so the catalog tables for them are there, with their PostgreSQL columns, and empty.
 - Whole-number catalog columns (`oid`, `relnatts`, `attnum`) are reported as `numeric`, the type the server uses for numbers, and not as `oid`, `int2` or `int4`. A driver that reads them as integers converts them. Whether Npgsql accepts that when it loads types was not run (see below).
 - The privilege functions (`has_table_privilege`, `has_schema_privilege` and the rest) answer with `1` or `0` as numbers, not `t` or `f`. They answer for a connection that only reads: `select`, `references` and `usage` are held, `insert`, `update`, `delete`, `create` and the like are not. A tool that treats any number as true, including 0, would see every privilege as held; Metabase's privilege query is written in a language that does (Clojure), but how its JDBC layer hands these columns over was not run.

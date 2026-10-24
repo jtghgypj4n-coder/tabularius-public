@@ -232,13 +232,15 @@ test('calendar and API tokens enforce expiry, revoke, disable and account deleti
   assert.equal(store.apiToken(secret(disabled)), undefined);
 });
 
-test('SCIM service credentials rotate and revoke; account disable is not their scope', (t) => {
+test('SCIM service credentials rotate, expire and revoke; account disable is not their scope', (t) => {
   const { store, advance } = setup(t);
   const scim = new ScimDirectory(store);
   const first = scim.issueToken(); assert.ok(scim.tokenValid(first));
-  advance(365 * 86400_000);
+  advance(89 * 86400_000);
   store.setAccountActive('Alice', false);
-  assert.ok(scim.tokenValid(first), 'current policy: file service token has no account binding or expiry');
+  assert.ok(scim.tokenValid(first), 'current policy: the file service token has no account binding, but it expires');
+  advance(2 * 86400_000);
+  assert.equal(scim.tokenValid(first), false, 'after its 90 days');
   const second = scim.issueToken(); assert.equal(scim.tokenValid(first), false);
   assert.ok(scim.tokenValid(second)); scim.revokeToken(); assert.equal(scim.tokenValid(second), false);
 });

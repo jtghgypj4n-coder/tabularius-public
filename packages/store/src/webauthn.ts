@@ -12,6 +12,7 @@
 // (as the WebAuthn spec allows) attestation is treated as "none".
 
 import { createHash, createPublicKey, createVerify, verify as cryptoVerify, type KeyObject } from 'node:crypto';
+import { sameSecret } from './same-secret.ts';
 
 const b64url = (b: Uint8Array): string => Buffer.from(b).toString('base64url');
 const fromB64url = (s: string): Buffer => {
@@ -177,7 +178,7 @@ function checkClientData(clientDataJSON: Uint8Array, wantType: string, challenge
   if (!cd || typeof cd !== 'object' || Array.isArray(cd)) throw new Error('invalid clientDataJSON object');
   if (cd.crossOrigin !== undefined && cd.crossOrigin !== false) throw new Error('cross-origin passkeys are not supported');
   if (cd.type !== wantType) throw new Error(`unexpected clientData type "${cd.type}"`);
-  if (cd.challenge !== challenge) throw new Error('challenge does not match');
+  if (!sameSecret(cd.challenge, challenge)) throw new Error('challenge does not match');
   const origins = Array.isArray(origin) ? origin : [origin];
   if (!cd.origin || !origins.includes(cd.origin)) throw new Error(`unexpected origin "${cd.origin}"`);
 }

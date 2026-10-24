@@ -11,7 +11,7 @@ A FileMaker plug-in is native code. Tabularius never loads one. Instead it runs 
 | BaseElements (`GyBE`, Goya) | Built in, on for every file; an administrator can turn it off per file | 102 run, 3 in part, 18 only in test mode, 8 refused | 32 not built |
 | Troi Text | Built in, on for every file; an administrator can turn it off per file | 1 documented pure function | other documented functions give `?` |
 | Troi Dialog | Built in, on for every file; an administrator can turn it off per file | 1 documented pure function | other documented functions give `?` |
-| Monkeybread Software (MBS) | Built in; `MBS ( "Name" ; … )` | 435 | every other MBS name gives an MBS error text, and `MBS ( "IsError" )` then says 1 until the next MBS call, within the same script run |
+| Monkeybread Software (MBS) | Built in; `MBS ( "Name" ; … )` | 443 | every other MBS name gives an MBS error text, and `MBS ( "IsError" )` then says 1 until the next MBS call, within the same script run |
 | 360Works Email, DataGuard | Not run | 0 | 12 named functions |
 | Any other plug-in | Not run | 0 | every function (calls Tabularius cannot name show as `⟨OWNR:index⟩`) |
 | A plug-in written for Tabularius | Runs in a sandbox, switched on per file by an administrator (see [writing-a-plugin.md](writing-a-plugin.md)) | its own | none |
@@ -45,13 +45,13 @@ BE_BackgroundTaskAdd, BE_BackgroundTaskList, BE_ClipboardGetFile, BE_ClipboardSe
 
 ## Monkeybread Software (MBS)
 
-435 functions run, by family:
+443 functions run, by family:
 
 | Family | Functions |
 | --- | --- |
-| (version and other) | 3 |
+| (version and other) | 8 |
 | Container | 4 |
-| curl | 26 |
+| curl | 27 |
 | Dictionary | 30 |
 | files | 1 |
 | Folders | 1 |
@@ -60,8 +60,8 @@ BE_BackgroundTaskAdd, BE_BackgroundTaskList, BE_ClipboardGetFile, BE_ClipboardSe
 | JSON | 66 |
 | List | 50 |
 | Math | 36 |
-| path | 2 |
-| Progress dialog | 8 |
+| path | 3 |
+| Progress dialog | 9 |
 | QuickList | 64 |
 | RegEx | 24 |
 | Text | 53 |
@@ -69,7 +69,7 @@ BE_BackgroundTaskAdd, BE_BackgroundTaskList, BE_ClipboardGetFile, BE_ClipboardSe
 | Variable | 16 |
 | XML | 25 |
 
-MBS functions that read or write the server's files, open dialogs, or depend on Apple frameworks give an MBS error. `docs/moving-a-solution.md` explains each family's differences from the plug-in.
+Most MBS functions that read or write files, open dialogs, or depend on Apple frameworks give an MBS error. Supported progress dialog calls answer without opening a dialog. `docs/moving-a-solution.md` explains each family's differences from the plug-in.
 
 ## Other plug-ins Tabularius knows by name
 
