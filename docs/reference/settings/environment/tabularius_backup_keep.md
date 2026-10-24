@@ -8,6 +8,6 @@ How many backups to keep (7 by default).
 | Accepted values | Whole number of 1 or more; decimal digits only for numbers, within the safe integer range |
 | Restart needed | Yes for a running server. |
 | Explained in | [docs/environment-variables.md](../../../environment-variables.md) |
-| Code | [packages/cli/src/main.ts:1345](../../../../packages/cli/src/main.ts#L1345) |
+| Code | [packages/cli/src/main.ts:1354](../../../../packages/cli/src/main.ts#L1354) |
 
 [All environment variables](../../../environment-variables.md)

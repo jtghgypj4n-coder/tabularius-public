@@ -2,7 +2,7 @@
 
 Generated with `node scripts/audit-cross-origin.ts` from the six modules in `scripts/reference/rest/`. Check with `--check`.
 
-Route-table entries after splitting methods: **450** (263 non-GET/HEAD; 187 GET/HEAD). All reads are included so data-bearing and stateful GETs cannot disappear behind a method-only filter.
+Route-table entries after splitting methods: **452** (264 non-GET/HEAD; 188 GET/HEAD). All reads are included so data-bearing and stateful GETs cannot disappear behind a method-only filter.
 
 Categories and exemption reasons: [audit](r25-08-csrf-cors-matrix.md). A is an ambient-credential origin guard; B is a bearer/header-token exemption from CSRF checks, never from authorization; U is an explicit URL capability; M is MCP; O is OAuth/OIDC; P is public; H is a webhook secret.
 
@@ -616,6 +616,8 @@ Handler: `packages/server/src/admin.ts`.
 | --- | --- | --- |
 | GET | `/tabularius/admin/v1/ai-policy/{database}` | A: console origin + auth; mutation header |
 | POST | `/tabularius/admin/v1/ai-policy/{database}` | A: console origin + auth; mutation header |
+| GET | `/tabularius/admin/v1/sql-privilege/{database}` | A: console origin + auth; mutation header |
+| POST | `/tabularius/admin/v1/sql-privilege/{database}` | A: console origin + auth; mutation header |
 | GET | `/tabularius/admin/v1/ai-usage` | A: console origin + auth; mutation header |
 | GET | `/tabularius/admin/v1/ai-access/{database}` | A: console origin + auth; mutation header |
 | POST | `/tabularius/admin/v1/ai-access/{database}` | A: console origin + auth; mutation header |

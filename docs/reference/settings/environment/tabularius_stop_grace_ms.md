@@ -8,6 +8,6 @@ How long `tabularius service stop` waits for the server to finish before it ends
 | Accepted values | Positive safe whole milliseconds, decimal digits only |
 | Restart needed | Yes for a running server. |
 | Explained in | [docs/service-files.md](../../../service-files.md) |
-| Code | [packages/cli/src/service.ts:484](../../../../packages/cli/src/service.ts#L484) |
+| Code | [packages/cli/src/service.ts:488](../../../../packages/cli/src/service.ts#L488) |
 
 [All environment variables](../../../environment-variables.md)
