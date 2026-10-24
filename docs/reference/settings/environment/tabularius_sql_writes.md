@@ -8,6 +8,6 @@
 | Accepted values | 1, true, yes or on |
 | Restart needed | Yes for a running server. |
 | Explained in | [docs/pgwire-writes.md](../../../pgwire-writes.md) |
-| Code | [packages/cli/src/main.ts:1365](../../../../packages/cli/src/main.ts#L1365) |
+| Code | [packages/cli/src/main.ts:1374](../../../../packages/cli/src/main.ts#L1374) |
 
 [All environment variables](../../../environment-variables.md)

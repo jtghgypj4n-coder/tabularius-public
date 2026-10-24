@@ -8,6 +8,6 @@ A file holding the Anthropic key, read again when it changes.
 | Accepted values | File path |
 | Restart needed | Changing this path needs a restart; edits to the file at that path are reread. |
 | Explained in | [docs/environment-variables.md](../../../environment-variables.md) |
-| Code | [packages/cli/src/main.ts:1420](../../../../packages/cli/src/main.ts#L1420) |
+| Code | [packages/cli/src/main.ts:1429](../../../../packages/cli/src/main.ts#L1429) |
 
 [All environment variables](../../../environment-variables.md)

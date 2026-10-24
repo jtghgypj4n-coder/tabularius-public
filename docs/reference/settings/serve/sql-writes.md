@@ -9,6 +9,6 @@
 | Restart needed | Yes; serve flags are read when the server starts. |
 | Environment | No direct environment equivalent |
 | Explained in | [docs/pgwire-writes.md](../../../pgwire-writes.md) |
-| Code | [packages/cli/src/main.ts:1365](../../../../packages/cli/src/main.ts#L1365) |
+| Code | [packages/cli/src/main.ts:1374](../../../../packages/cli/src/main.ts#L1374) |
 
 [All serve flags](../serve-flags.md)

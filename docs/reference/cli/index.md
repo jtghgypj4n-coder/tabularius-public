@@ -51,6 +51,7 @@ Each command page includes the current help text, options, exit codes, and a tes
 | [`script-tests`](script-tests.md) | 2 |
 | [`serve`](serve.md) | 78 |
 | [`service`](service.md) | 3 |
+| [`sql-privilege`](sql-privilege.md) | 0 |
 | [`stale-calcs`](stale-calcs.md) | 3 |
 | [`standby`](standby.md) | 7 |
 | [`style-census`](style-census.md) | 1 |

@@ -9,6 +9,6 @@
 | Restart needed | Yes; serve flags are read when the server starts. |
 | Environment | [`TABULARIUS_PROGRESSIVE`](../environment/tabularius_progressive.md) |
 | Explained in | [README.md](../../../../README.md) |
-| Code | [packages/cli/src/main.ts:1359](../../../../packages/cli/src/main.ts#L1359) |
+| Code | [packages/cli/src/main.ts:1368](../../../../packages/cli/src/main.ts#L1368) |
 
 [All serve flags](../serve-flags.md)
