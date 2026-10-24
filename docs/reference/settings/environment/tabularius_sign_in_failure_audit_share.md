@@ -8,6 +8,6 @@ The most of a file's security audit that failed sign-in rows may fill, after the
 | Accepted values | Plain decimal number from 0 to 1 (1 for no limit); anything else, such as hex or an exponent, keeps 0.8 |
 | Restart needed | Yes for a running server. |
 | Explained in | [docs/environment-variables.md](../../../environment-variables.md) |
-| Code | [packages/store/src/sign-in-failures.ts:19](../../../../packages/store/src/sign-in-failures.ts#L19) |
+| Code | [packages/store/src/sign-in-failures.ts:20](../../../../packages/store/src/sign-in-failures.ts#L20) |
 
 [All environment variables](../../../environment-variables.md)
