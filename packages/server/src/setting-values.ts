@@ -1,3 +1,5 @@
+import { secret } from '../../store/src/settings.ts';
+
 /** Parse settings as decimal whole numbers; Number alone also accepts blanks, hex and exponents. */
 export function positiveWholeNumber(name: string, value: string | undefined, fallback: number,
   { min = 1, max = Number.MAX_SAFE_INTEGER }: { min?: number; max?: number } = {},
@@ -11,9 +13,7 @@ export function positiveWholeNumber(name: string, value: string | undefined, fal
   return n;
 }
 
-/** Unset means no encryption; a blank key must never silently disable it. Preserve passphrase bytes. */
+/** Unset means no encryption; a blank key must never silently disable it (the store's `secret` refuses it). Preserves passphrase bytes. */
 export function encryptionKeyFromEnv(env: NodeJS.ProcessEnv = process.env): string | undefined {
-  const key = env.TABULARIUS_ENCRYPTION_KEY;
-  if (key !== undefined && !key.trim()) throw new Error('TABULARIUS_ENCRYPTION_KEY is empty or blank; unset it or give a passphrase');
-  return key;
+  return secret('TABULARIUS_ENCRYPTION_KEY', env);
 }

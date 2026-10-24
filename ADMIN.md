@@ -119,8 +119,9 @@ it is not a total disk-usage limit.
 
 `TABULARIUS_MAX_UPLOAD` remains the per-file byte limit (default **10737418240**,
 10 GiB); **0 disables only that per-file limit**, not the aggregate quota.
-The aggregate setting must be a positive safe integer; zero, negative, fractional,
-non-finite and invalid values use the 20 GiB default. Set environment variables
+The aggregate setting must be a positive whole number written in digits; zero,
+negative, fractional, exponent-form and empty values are refused at start, naming
+the variable (unset uses the 20 GiB default). Set environment variables
 before starting the server. `TABULARIUS_UPLOAD_IDLE_HOURS` defaults to 24; 0 disables
 idle expiry but does not disable either byte limit.
 

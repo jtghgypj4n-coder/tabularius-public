@@ -24,19 +24,17 @@ for (const [name, create] of [
   });
 }
 
-test('upload aggregate quota rejects numeric shorthand and retains its safe default', async (t) => {
+test('upload aggregate quota refuses numeric shorthand and unset keeps its safe default', async (t) => {
   const name = 'TABULARIUS_MAX_UPLOAD_IN_PROGRESS';
   const saved = process.env[name];
   t.after(() => { if (saved === undefined) delete process.env[name]; else process.env[name] = saved; });
-  const warnings: string[] = [];
-  t.mock.method(console, 'warn', (message: string) => warnings.push(message));
-  let sequence = 0;
-  for (const value of ['1e3', '0x200', '-1', '1.5', 'abc', '', '0', '512']) {
+  const { maxUploadInProgress } = await import('../src/uploads.ts');
+  delete process.env[name];
+  assert.equal(maxUploadInProgress(), 20 * 1024 * 1024 * 1024);
+  for (const value of ['1e3', '0x200', '-1', '1.5', 'abc', '', '0']) {
     process.env[name] = value;
-    const before = warnings.length;
-    const module = await import(`../src/uploads.ts?settings-test=${sequence++}`);
-    assert.equal(module.MAX_UPLOAD_IN_PROGRESS, value === '512' ? 512 : 20 * 1024 * 1024 * 1024, value);
-    assert.equal(warnings.length - before, value === '512' ? 0 : 1);
-    if (value !== '512') assert.match(warnings.at(-1)!, /TABULARIUS_MAX_UPLOAD_IN_PROGRESS.*decimal digits/);
+    assert.throws(maxUploadInProgress, /TABULARIUS_MAX_UPLOAD_IN_PROGRESS.*whole number.*decimal digits/, value);
   }
+  process.env[name] = '512';
+  assert.equal(maxUploadInProgress(), 512);
 });
