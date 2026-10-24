@@ -159,6 +159,8 @@ const safeExamples: Record<string, [string, string]> = {
     'The current layout is `Examples`; the script result is `Examples`.'],
   'Refresh Portal': ['Refresh Portal [ Object Name: "Missing" ]\nExit Script [ Text Result: Get ( LastError ) ]',
     'On a layout with no object named `Missing`, the step returns error `116` and the records are unchanged; the script result is `116`.'],
+  'Open Help': ['Open Help\nExit Script [ Text Result: Get ( LastError ) ]',
+    'The script result is `0`; a web client opens the hosted guides at `/docs` after the script, and an offline run opens nothing.'],
   'Set Variable': ['Set Variable [ $count ; Value: 2 + 3 ]\nExit Script [ Text Result: $count ]', 'The script result is `5`; no record changes.'],
   'Exit Script': ['Exit Script [ Text Result: "done" ]', 'The script result is `done`; no record changes.'],
   'Set Error Capture': ['Set Error Capture [ On ]\nExit Script [ Text Result: "done" ]', 'The script result is `done`; no record changes.'],
