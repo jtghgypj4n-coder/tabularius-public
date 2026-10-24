@@ -271,9 +271,9 @@ export class DebugApi {
    * limit; the caller gives it back with the returned function. A run that has finished makes room by being let go.
    */
   private claim(token: string): () => void {
-    const held = () => (this.claimed.get(token) ?? 0) + [...this.runs.values()].filter((r) => r.token === token).length;
+    const held = () => (this.claimed.get(token) ?? 0) + [...this.runs.values()].filter((r) => sameSecret(r.token, token)).length;
     if (held() >= MAX_RUNS_PER_SESSION) {
-      for (const [id, r] of this.runs) if (r.token === token && !r.debugger.running) { this.runs.delete(id); void this.end(r); }
+      for (const [id, r] of this.runs) if (sameSecret(r.token, token) && !r.debugger.running) { this.runs.delete(id); void this.end(r); }
       if (held() >= MAX_RUNS_PER_SESSION) throw new ApiError(812, `This session already has ${MAX_RUNS_PER_SESSION} debugger runs going, the most it can have. Stop one (halt it) or wait for one to finish, then start again`, 503);
     }
     this.claimed.set(token, (this.claimed.get(token) ?? 0) + 1);
